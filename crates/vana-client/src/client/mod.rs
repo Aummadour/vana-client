@@ -12630,7 +12630,7 @@ impl App {
                             .into_iter()
                             .map(|x| {
                                 let f = ticks * x.speed * 0.5;
-                                (x, if once { f.min(x.frames.max(1) as f32 - 1.0) } else { crate::motion::loop_frame(f, x.frames) })
+                                (x, if once { f.min(x.frames as f32) } else { crate::motion::loop_frame(f, x.frames) })
                             })
                             .collect()
                     };
@@ -12653,7 +12653,7 @@ impl App {
                         let old = was.as_ref().filter(|w| !w.0.is_empty()).map_or(0, |w| mask(&frames_of(&w.0, 0.0, false)));
                         for r in 0..3u8 {
                             let cur = if old >> r & 1 != 0 { was.clone() } else { a.keep[r as usize].take() };
-                            let done = |(n, t, o): &(String, f32, bool)| *o && frames_of(n, *t, true).iter().any(|(x, f)| actmotion::region(x) == r && *f >= x.frames.max(1) as f32 - 1.0);
+                            let done = |(n, t, o): &(String, f32, bool)| *o && frames_of(n, *t, true).iter().any(|(x, f)| actmotion::region(x) == r && *f >= x.frames as f32);
                             a.keep[r as usize] = if new >> r & 1 != 0 || (new & 1 != 0 && cur.as_ref().is_some_and(done)) { None } else { cur };
                         }
                         if a.keep.iter().any(|k| k.is_some()) {
@@ -12729,7 +12729,7 @@ impl App {
                         let mut playing = false;
                         for x in mouth {
                             let f = mt * x.speed * 0.5;
-                            if f < x.frames.max(1) as f32 - 1.0 {
+                            if f < x.frames as f32 {
                                 anims.push((x, f));
                                 playing = true;
                             }
@@ -12752,7 +12752,7 @@ impl App {
                         let mut playing = false;
                         for x in eyes {
                             let f = *bt * x.speed * 0.5;
-                            if f < x.frames.max(1) as f32 - 1.0 {
+                            if f < x.frames as f32 {
                                 anims.push((x, f));
                                 playing = true;
                             }

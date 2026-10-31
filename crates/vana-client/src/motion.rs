@@ -10,11 +10,10 @@ pub fn frames_per_second(speed: f32, rate: f32) -> f32 {
     60.0 * speed * 0.5 * rate
 }
 
-/// Looping frame position: the client wraps at `frames`, and keys are sampled clamped to the last one
-/// (the last key repeats the first in the data).
+/// Looping frame position: the client wraps at `frames` (the keys less one), so the last interval runs into the
+/// closing key, which repeats the first.
 pub fn loop_frame(elapsed_frames: f32, frames: u16) -> f32 {
-    let n = frames.max(1) as f32;
-    elapsed_frames.rem_euclid(n).min(n - 1.0)
+    if frames == 0 { 0.0 } else { elapsed_frames.rem_euclid(frames as f32) }
 }
 
 /// Movement ratio of a remote actor from how far it moved this frame (FUN_100c68f0). `speed` and
@@ -138,6 +137,33 @@ mod keep_tests {
         }
         for n in ["wlk", "run", "2un", "chi", "6hi", "fh1", "si1", "ci1"] {
             assert!(!super::keeps_status_motion(n), "{n}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod loop_tests {
+    /// The run cycle loops without a held frame: every 60 Hz step moves the pose, and the pose just before the wrap
+    /// is the one at frame 0 (the closing key repeats the first; the frame count is the keys less one).
+    #[test]
+    fn run_cycle_has_no_hitch() {
+        let Ok(index) = crate::dat::DatIndex::open(&crate::config::Config::load().ffxi_dir()) else { return };
+        let Ok(d) = index.read(16600) else { return };
+        let f = crate::dat::character::load_file(&d).unwrap();
+        let skel = f.skeleton.as_ref().unwrap();
+        let run = f.animations.iter().find(|a| a.name == "run0").unwrap();
+        let pose = |frame: f32| crate::dat::character::pose(skel, &[(run, frame)]);
+        let diff = |a: &[(glam::Quat, glam::Vec3)], b: &[(glam::Quat, glam::Vec3)]| a.iter().zip(b).map(|(x, y)| x.0.angle_between(y.0)).fold(0f32, f32::max);
+        assert!(diff(&pose(super::loop_frame(run.frames as f32 - 1e-4, run.frames)), &pose(0.0)) < 1e-2);
+        // One tick at rate 1: frames += speed * 0.5.
+        let step = run.speed * 0.5;
+        let (mut t, mut prev) = (0.0f32, pose(0.0));
+        while t < run.frames as f32 * 2.0 {
+            t += step;
+            let now = pose(super::loop_frame(t, run.frames));
+            // A step moves some bone 0.12 rad or more; a held pose reads about 0.0015 (acos noise).
+            assert!(diff(&now, &prev) > 1e-2, "held pose at frame {}", super::loop_frame(t, run.frames));
+            prev = now;
         }
     }
 }

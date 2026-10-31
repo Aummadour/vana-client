@@ -317,6 +317,7 @@ pub struct Track {
 #[derive(Clone, Debug)]
 pub struct Animation {
     pub name: String,
+    /// The frame count as the game plays it: the keys less one (FUN_10018900), the last key closing the cycle.
     pub frames: u16,
     pub speed: f32,
     pub tracks: Vec<Track>,
@@ -335,17 +336,19 @@ impl Track {
     }
 }
 
-/// 10-byte header (u8 ver, u8 ?, u16 tracks, u16 frames, f32 speed), 84-byte tracks:
+/// 10-byte header (u8 ver, u8 converted, u16 tracks, u16 keys, f32 speed), 84-byte tracks:
 /// i32 bone, then rot xyzw, trans xyz, scale xyz as (i32 index, f32 value) blocks. A nonzero
-/// index points at `frames` floats at 10 + 4 * index; rot index with bit 31 set = no track.
+/// index points at `keys` floats at 10 + 4 * index; rot index with bit 31 set = no track.
+/// FUN_10018900 turns the key count into the frame count (one less) while the converted byte is 0 (every file).
 pub fn parse_animation(name: String, d: &[u8]) -> Result<Animation> {
     if d.len() < 10 {
         bail!("animation {name}: too short");
     }
-    let (count, frames, speed) = (u16_at(d, 2) as usize, u16_at(d, 4), f32_at(d, 6));
-    if 10 + count * 84 > d.len() || frames == 0 {
-        bail!("animation {name}: {count} tracks / {frames} frames do not fit");
+    let (count, keys, speed) = (u16_at(d, 2) as usize, u16_at(d, 4), f32_at(d, 6));
+    if 10 + count * 84 > d.len() || keys == 0 {
+        bail!("animation {name}: {count} tracks / {keys} keys do not fit");
     }
+    let frames = if d[1] == 0 { keys - 1 } else { keys };
     let mut tracks = Vec::with_capacity(count);
     for t in 0..count {
         let o = 10 + t * 84;
@@ -357,10 +360,10 @@ pub fn parse_animation(name: String, d: &[u8]) -> Result<Animation> {
                         return Ok(Channel::Const(f32_at(d, val_at + i * 4)));
                     }
                     let at = 10 + idx as usize * 4;
-                    if at + frames as usize * 4 > d.len() {
+                    if at + keys as usize * 4 > d.len() {
                         bail!("animation {name}: keys out of range");
                     }
-                    Ok(Channel::Keys((0..frames as usize).map(|k| f32_at(d, at + k * 4)).collect()))
+                    Ok(Channel::Keys((0..keys as usize).map(|k| f32_at(d, at + k * 4)).collect()))
                 })
                 .collect()
         };

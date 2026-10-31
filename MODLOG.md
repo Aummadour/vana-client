@@ -159,7 +159,8 @@ xiloader (`~/ffxi/lab/xiloader`, ceb79a0), Ghidra on the installer. Decompiled o
   0xFF = 1.0); info bytes copied from 0x45 chunks only where unset (first file wins). Hume/Elvaan
   95/100/105, Taru 82/87/92, Mithra 89/93/97, Galka 92/96/100; monsters 85/100/115/140.
 - Client tick 1/60 s (FUN_10014000). Motion player (update 0x10019ab0): frame += ticks * speed * 0.5 *
-  rate, wraps at frames; sampling clamps to the last key (it repeats the first).
+  rate, wraps at frames, where frames is the header's key count less one (FUN_10018900; correction 2026-10-31,
+  "Motion loops: the frame count is the keys less one").
 - Rotation keys (FUN_10019d30 -> FUN_10018c20 -> FUN_10018d00 -> FUN_10032400): key floor(f) and the next one; if
   their dot is < 0 the next is negated, then (1 - t) a + t b. Keys flip sign freely: pugil (model 348) bone 17 does
   on nearly every frame of idl0, so a plain component lerp passed near zero there and the fins spun (fixed in
@@ -12644,3 +12645,23 @@ DISPLAY13 at 100%; RX 6800 XT eGPU), MinGW cross builds, release and debug.
   event host now uses ground::snap (the bounded FUN_1017a400 search) for every event snap (0x36 / 0x37 / 0xba and
   the walks). Seen live after the fix: the five figures and the player in the sky, then the fade back to Wetata.
 - Not done: the +0x128 bit 14 and +0x120 bit 0x100000 skips (only 0x200000, op 0x33, is ours).
+
+## Motion loops: the frame count is the keys less one (2026-10-31)
+
+- User report: running motions jerk very slightly at the point where they loop, "almost like it's missing a single
+  frame" (the right elbow from behind, the feet looking down).
+- The motion chunk (0x2B) header is u8 version, u8 converted, u16 tracks, u16 keys, f32 speed; each keyed channel
+  holds `keys` floats (the blocks sit exactly `keys` apart). In the run and walk cycles the last key repeats the
+  first (Hume, Mithra and Tarutaru race files: |last - first| = 0).
+- FUN_10018900, the motion resource's loader ("Mo2 Version Error"), decrements the count at +0x34 by one while the
+  converted byte (+0x31) is 0, then sets that byte: every motion chunk checked (3,776) has it 0. The player
+  (FUN_10019ab0) wraps the frame at that count (or a positive override at +0x38; the start paths seen pass 0), and
+  the key fetch (FUN_10018d00) reads keys floor(f) and floor(f) + 1 with no clamp. So a cycle of n keys loops over
+  n - 1 intervals, its last one running into the closing key.
+- Ours kept the key count as the frame count and wrapped at it, clamping to the last key: the closing key (equal to
+  key 0) held for one whole interval at every loop, 4 ticks (67 ms) of a still pose per run cycle at rate 1.
+- Now dat::character::parse_animation stores the frame count as the game does (keys - 1 while the converted byte is
+  0) and still reads `keys` floats per channel; motion::loop_frame wraps at it without a clamp; one-shots end and
+  hold at frame `frames` (the last key); motion lengths (frames / (speed x 0.5)) are one frame shorter, as retail's.
+  Test motion::loop_tests::run_cycle_has_no_hitch (Mithra run0: every 60 Hz step moves the pose; it fails on the
+  old wrap with "held pose at frame 12").

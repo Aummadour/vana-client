@@ -666,14 +666,15 @@ impl Overlay {
         let speed = speed * self.rate.max(1e-3);
         let f = self.ticks * speed * 0.5;
         let full = per * self.cycles as f32;
-        let frame = if f < full { f % per } else { per - 1.0 };
+        // `frames` is the keys less one: the end holds the last key.
+        let frame = if f < full { f % per } else { per };
         let env = if f < full {
             (self.ticks / self.blend_in.max(1.0)).min(1.0)
         } else {
             let over = self.ticks - full / (speed * 0.5).max(1e-3);
             1.0 - over / self.fade.max(1.0)
         };
-        (env > 0.0).then_some((frame.min(per - 1.0), self.weight * env))
+        (env > 0.0).then_some((frame.min(per), self.weight * env))
     }
 }
 
@@ -726,7 +727,8 @@ impl Fade {
 mod tests {
     use super::*;
 
-    /// A 2-frame hit pose at speed 1: in over a tick, full for 2 cycles (8 ticks), out over 24, then gone.
+    /// A hit pose of 2 frames (3 keys) at speed 1: in over a tick, full for 2 cycles (8 ticks), out over 24 on its
+    /// last key, then gone.
     #[test]
     fn reaction_overlay_envelope() {
         let mut o = Overlay { name: "dfi".into(), ticks: 0.5, weight: 0.5, cycles: 2, fade: 24.0, rate: 1.0, blend_in: 1.0 };
@@ -735,7 +737,7 @@ mod tests {
         assert_eq!(o.sample(2, 1.0).map(|s| s.1), Some(0.5));
         o.ticks = 20.0;
         let (frame, w) = o.sample(2, 1.0).unwrap();
-        assert_eq!(frame, 1.0);
+        assert_eq!(frame, 2.0);
         assert!((w - 0.5 * (1.0 - 12.0 / 24.0)).abs() < 1e-5);
         o.ticks = 33.0;
         assert_eq!(o.sample(2, 1.0), None);
