@@ -12627,3 +12627,20 @@ DISPLAY13 at 100%; RX 6800 XT eGPU), MinGW cross builds, release and debug.
   Mods entry per part; their files don't overlap). `vana-client mod-install --archive FILE --root DIR` runs the Mods
   page's install (modpack::pack_of + install) into another folder, to check a part before publishing it.
 - Published as its own GitHub release, created with `--latest=false`: the in-app Update reads /releases/latest.
+
+## Event positions: the ground snap is bounded (the Ark Angel ciphers' illusion) (2026-10-31)
+
+- User report: the cutscenes for trading the Ark Angel ciphers to Wetata (Windurst Woods, event 0x386, LSB
+  xi.trust.onTradeCipher with the cipher id in param 3) "seem off". Replayed (Lnxcsfix, Cipher: Ark HM): after the
+  white-out the camera showed only sky, clouds and a lens-flared sun for about 15 s, nobody in it.
+- The script's subroutine (0x0f07) puts the player and the five figures (npc1c3..c7, named Iroha, Lion, Selh'teus,
+  Zeid and others by op 0xb4) at height -210, 200 above Windurst Woods, where its cameras (s009 / s133, s134, s002)
+  and npc1c2's 'main' / 'str0' schedulers (the sky) are. Ours dropped them to the ground 198 below.
+- Retail's 0x36 (FUN_100b3fb0) / 0x37 (FUN_100b4130), and 0xba through 0x37: no snap while the actor's
+  +0x128 bit 14, +0x120 bit 0x100000 or bit 0x200000 is set; else the player FUN_1017a390(x, y, z, 50.0), others
+  FUN_1017a400: a segment from just above y down 50, else from just below y up 15 (0xc1700000 = -15.0); with no hit
+  y stays as given.
+- Ours called ground::settle, whose floor ray runs down without limit and then falls back to any face at (x, z). The
+  event host now uses ground::snap (the bounded FUN_1017a400 search) for every event snap (0x36 / 0x37 / 0xba and
+  the walks). Seen live after the fix: the five figures and the player in the sky, then the fade back to Wetata.
+- Not done: the +0x128 bit 14 and +0x120 bit 0x100000 skips (only 0x200000, op 0x33, is ours).

@@ -1496,8 +1496,10 @@ impl Host for LiveHost<'_> {
         weather_day(self.w.index.as_ref()?, zone, day)
     }
 
+    /// Bounded as retail's (50 down, else 15 up): a place far off any floor keeps its height (the Ark Angels'
+    /// illusion stands 200 above Windurst Woods).
     fn ground(&self, _actor: u32, p: [f32; 3]) -> Option<f32> {
-        self.w.ground.as_ref().and_then(|g| g.settle(p[0], p[2], p[1]))
+        self.w.ground.as_ref().and_then(|g| g.snap(p[0], p[2], p[1]))
     }
 
     fn rand(&mut self) -> u32 {
