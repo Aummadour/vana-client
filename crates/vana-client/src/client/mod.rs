@@ -1731,9 +1731,17 @@ fn name_plates(gu: &mut GameUi, world: &World, sw: f32, sh: f32, view_proj: glam
         && let Some((x, y, scale, z)) = plate_point(world, world.my_id).and_then(project)
     {
         gu.depth(Some(z));
-        // FUN_1008db40 on our own actor: the GM colours from 0x037's GM level.
-        let gm = world.my_plate.marks.gm as usize;
-        let tint = faded(gu.ncol(if gm >= 3 { 0x0c + gm - 3 } else { 0 }));
+        // FUN_1008db40 on our own actor, from 0x037: the GM colours, then seeking party / auto-party / LFG master
+        // (entry 2), anonymous (entry 3, +0x124 bit 23).
+        let mk = &world.my_plate.marks;
+        let gm = mk.gm as usize;
+        let ncol = match () {
+            _ if gm >= 3 => 0x0c + gm - 3,
+            _ if mk.lfg_master || mk.auto || mk.lfg => 2,
+            _ if mk.anon => 3,
+            _ => 0,
+        };
+        let tint = faded(gu.ncol(ncol));
         let p = self_plate(world);
         let (prefix, icon) = plate::prefix(&p);
         if world.modern {
