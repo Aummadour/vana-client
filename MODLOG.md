@@ -12994,3 +12994,23 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   (the chunk's name too), and zone-shot FFXI_FX_ONLY / FFXI_FX_HIDE (generators by name) and FFXI_FX_AUDIT (the task
   VM's default-arm ops). Area 542's sea is DAT 51252's `bahm` generators; its `max1..max5` wall (flag 0x200, Rx Ry Rz)
   stands upright with a mirrored copy below the surface (max2's negative z scale), as the data has it.
+
+## Cutscene fades, names and weather against the original (2026-11-01)
+
+- Fades (scheduler op 0x0f, FUN_10057000 case 0xf, all.c 65189): one task, which kills the running one and starts from
+  +0x320, the colour drawn last frame (all.c 12601: +0x320 = +0x338 each frame), over ftol(dur x speed) - 1 ticks. Ours
+  ran an event's own scheduler twice, in client/event.rs's runner and as an fx task, each starting from the last
+  target: the second began at the first's end, so every scripted fade (file 30904's fdo / fdi, thousands of starts)
+  was a cut. Now the event's own scheduler's 0x0f is the runner's only (Task::event_root), and every 0x0f starts from
+  Screen::multiply(). Test fade_from_drawn.
+- Correction to "Op 0x92 ... is NOT 'hide in the event'": FUN_100b7d10 sets actor@2 +0x12c bit 16 = u8@1, and
+  FUN_10096000 (all.c 114896, the name for the plate: FUN_10096050 -> FUN_10081830 vtable +0xcc -> FUN_100ce4d0)
+  returns no name for an actor bound to a running event (+0x120 bit 7, DAT_1046ddf9) with that bit or +0x120 bit 17
+  set; unbinding (FUN_100bb750) clears it. Scripts set it on the cast (Ceizak event 3: the player and nine NPCs), so
+  in retail their plates go during cutscenes. Ours: State::no_name, event::nameless in name_plates.
+- Op 0x77 (FUN_100b6880, all.c 135830): an hour other than 0xff freezes the clock (FUN_101854d0) at that hour, minute
+  0; a weather other than 0xff calls FUN_10092900 -> FUN_10184af0 -> FUN_101804d0, the 0x057 switch with no blend, so
+  the weather's effects change too. Op 0x78 (FUN_100b6920) restarts the clock and switches back to the server's
+  weather (FUN_10092940). Ours lit by them only; now the effects switch on 0x77 / 0x78 (and on a swapped area,
+  event::weather), the effects' and the music's hour follow 0x77's (event::hour), and an event ending with 0x77 still
+  in force goes back as its lighting does *(ours: retail keeps it until a 0x78)*.

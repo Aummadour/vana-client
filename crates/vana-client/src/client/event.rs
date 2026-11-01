@@ -177,7 +177,8 @@ impl Screen {
         let f = |v: u8| v as f32 / 255.0;
         let now = self.tick;
         match code {
-            0x0f => self.fade = (self.fade.1, [c[0], c[1], c[2]].map(|v| v as f32 * 2.0 / 255.0), now, (ticks - 1.0).max(0.0)),
+            // Case 0xf: from the colour drawn now (+0x320), an interrupted fade too.
+            0x0f => self.fade = (self.multiply(), [c[0], c[1], c[2]].map(|v| v as f32 * 2.0 / 255.0), now, (ticks - 1.0).max(0.0)),
             0x72 => self.flash = (self.flash.1, c.map(f), now, (ticks - 1.0).max(0.0)),
             0x0e => {
                 self.blur = (self.blur.1, [f(c[0]), f(c[1]), f(c[2]), f(c[3]), zoom], now, ticks.max(0.0));
@@ -267,7 +268,7 @@ impl Screen {
             self.shot = Some(Shot { file: f, tag, path, start: now, ticks, from: current.map(key_of), follow, who, frame: None });
         }
         if let Some((to, at, ticks)) = fade {
-            self.fade = (self.fade.1, to, at, ticks);
+            self.fade = (self.multiply(), to, at, ticks);
         }
         if cross.is_some() {
             self.cross = cross;
@@ -386,6 +387,9 @@ pub struct State {
     pub idle: HashMap<u32, String>,
     /// World ids of the bound actors (+0x120 bit 7) and how each is drawn.
     pub bound: HashSet<u32>,
+    /// Op 0x92 (+0x12c bit 16): a bound actor's name is not drawn while the event runs (FUN_10096000); unbinding
+    /// clears it.
+    pub no_name: HashSet<u32>,
     pub poses: HashMap<u32, Pose>,
     /// Event status (+0x174) by actor, set by op 0xac sub 1: the status a bound actor poses with (+0x170).
     pub event_status: HashMap<u32, u8>,
@@ -454,6 +458,7 @@ impl State {
             faded: HashSet::new(),
             idle: HashMap::new(),
             bound: HashSet::new(),
+            no_name: HashSet::new(),
             poses: HashMap::new(),
             event_status: HashMap::new(),
             event_rides: HashMap::new(),
@@ -826,6 +831,17 @@ impl Host for LiveHost<'_> {
                     self.hide(id, &args, 0);
                 }
             }
+            // FUN_100b7d10: actor@2's +0x12c bit 16 = u8@1; a bound actor shows no name while it is set.
+            Effect::Op { op: 0x92, args, .. } => {
+                if let (Some(on), Some(Arg::Actor(a))) = (Self::arg_int(&args, 0), args.get(1)) {
+                    let id = self.wid(*a);
+                    if on & 1 != 0 {
+                        self.st.no_name.insert(id);
+                    } else {
+                        self.st.no_name.remove(&id);
+                    }
+                }
+            }
             // FUN_100b6a60 0..3: the actor's turn (+0xdc) / look (+0xe0) percent, read while an event runs.
             Effect::Op { op: 0x59, sub: Some(s @ 0..=3), actor, args } => {
                 let id = self.wid(actor);
@@ -1065,9 +1081,20 @@ impl Host for LiveHost<'_> {
             Effect::Op { op: 0x77, args, .. } => {
                 if let (Some(h), Some(wt)) = (Self::arg_int(&args, 0), Self::arg_int(&args, 1)) {
                     self.st.time = Some(((h != 0xff).then_some(h as u32), (wt != 0xff).then_some(wt as u16)));
+                    // FUN_10092900: the weather's effects switch at once too.
+                    if wt != 0xff {
+                        self.w.effects.set_weather(crate::dat::weather::weather_tag(wt as u16), 0.0);
+                    }
                 }
             }
-            Effect::Op { op: 0x78, .. } => self.st.time = None,
+            // FUN_10092940: back to the server's weather, effects too.
+            Effect::Op { op: 0x78, .. } => {
+                if self.st.time.is_some_and(|t| t.1.is_some()) {
+                    let wt = self.w.weather;
+                    self.w.effects.set_weather(crate::dat::weather::weather_tag(wt), 0.0);
+                }
+                self.st.time = None;
+            }
             // FUN_100b6950 / 6a00 / 69b0 / 6980 / 6a30: the event's door state (+0x174) for the bound actor.
             Effect::Op { op: op @ (0x4c | 0x4d | 0x4f | 0x8e | 0x8f), actor, args, .. } => {
                 let v = match op {
@@ -1906,6 +1933,11 @@ fn keep_pose(w: &mut World, p: Pose) {
 /// FUN_100ac9c0 / FUN_100bb750 / FUN_1008d710: the bound actors go back to their own transforms and status
 /// bits, event motions and looks end, deferred despawns happen.
 fn finish(w: &mut World, live: Box<Live>) {
+    // Op 0x77's weather without its 0x78: the lighting goes back with the event, so the effects do too.
+    if live.st.time.is_some_and(|t| t.1.is_some()) {
+        let wt = w.weather;
+        w.effects.set_weather(crate::dat::weather::weather_tag(wt), 0.0);
+    }
     // We stay where the event left us (FUN_10089a60 once unbound), unless & 1 puts us back at the bind place (+0x24).
     if live.st.bound.contains(&w.my_id)
         && live.st.flags() & 1 == 0
@@ -2062,6 +2094,21 @@ pub fn holds(w: &mut World, id: u32) -> bool {
         return true;
     }
     false
+}
+
+/// Op 0x77's hour while the event holds one (the clock stands at its minute 0).
+pub fn hour(w: &World) -> Option<u32> {
+    w.event.as_ref().and_then(|l| l.st.time).and_then(|t| t.0)
+}
+
+/// The weather in force: op 0x77's while the event holds one, else the server's.
+pub fn weather(w: &World) -> u16 {
+    w.event.as_ref().and_then(|l| l.st.time).and_then(|t| t.1).unwrap_or(w.weather)
+}
+
+/// Bound actors whose name op 0x92 turned off while the event runs (FUN_10096000).
+pub fn nameless(w: &World) -> HashSet<u32> {
+    w.event.as_ref().map_or_else(HashSet::new, |l| l.st.no_name.intersection(&l.st.bound).copied().collect())
 }
 
 /// The running event binds this actor (+0x120 bit 7).
@@ -2938,6 +2985,22 @@ mod tests {
         assert!((b.zoom - 0.99).abs() < 1e-6 && (b.a - 60.0 / 255.0).abs() < 1e-3, "{b:?}");
         sc.fx_op(0x0e, [0x80, 0x80, 0x80, 0], 1.0, 0.0);
         assert!(sc.blur().is_none());
+    }
+
+    /// Case 0xf starts from the colour drawn now (+0x320): a fade begun mid-fade goes on from there, and the same op
+    /// arriving again does not cut to its end.
+    #[test]
+    fn fade_from_drawn() {
+        let mut sc = Screen::default();
+        // To black over 21 ticks (dur 21: 20 ticks).
+        sc.fx_op(0x0f, [0, 0, 0, 0x80], 0.0, 21.0);
+        sc.tick = 10.0;
+        assert!((sc.multiply()[0] - 0.5).abs() < 1e-3, "{:?}", sc.multiply());
+        // Back to normal from half way.
+        sc.fx_op(0x0f, [0x80, 0x80, 0x80, 0x80], 0.0, 21.0);
+        assert!((sc.multiply()[0] - 0.5).abs() < 1e-3, "{:?}", sc.multiply());
+        sc.tick = 20.0;
+        assert!((sc.multiply()[0] - (0.5 + 0.5 * 0.5)).abs() < 1e-2, "{:?}", sc.multiply());
     }
 
     #[test]

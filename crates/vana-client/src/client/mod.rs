@@ -1683,7 +1683,8 @@ fn name_plates(gu: &mut GameUi, world: &World, sw: f32, sh: f32, view_proj: glam
         let (x, y) = ((ndc.x + 1.0) / 2.0 * sw - 0.5, (1.0 - ndc.y) / 2.0 * sh - 0.5);
         (x.abs() <= sw + 100.0 && y.abs() <= sh + 100.0).then_some((x, y, [sw * 0.00234375 * s, sh * 0.00234375 * s], ndc.z))
     };
-    let hidden = event::hidden(world);
+    let mut hidden = event::hidden(world);
+    hidden.extend(event::nameless(world));
     // Retail draws plates into the scene target before the op 0x0f multiply (FUN_10010d20, MODLOG "Name plates under
     // the screen fade"); ours scale their colour by it, which is the same for an alpha-blended plate.
     let m = world.screen.multiply().map(|c| c * (1.0 - world.fade));
@@ -7105,6 +7106,8 @@ impl App {
                 a.play_ui_se(id);
             }
             let hour = w.clock.map(|(t, at)| crate::dat::weather::vana_minute(t, at.elapsed().as_secs_f32()) as u32 / 60).unwrap_or(12);
+            // Op 0x77's hour is the clock's while it holds (FUN_100b6880).
+            let hour = event::hour(w).unwrap_or(hour);
             let party = w.party.party().count().max(1) as u32;
             let cx = crate::audio::MusicContext { status: w.my_motion.status, hour, party, party_battle: party_battle(w), myroom: w.myroom.is_some_and(|r| r.map != 0x2d4), basket: w.actors.get(&w.my_id).is_some_and(|a| matches!(&a.source, Some(Source::Pc(l)) if l.range == 0xc)) };
             if let Some(c) = w.music.select(cx) {
@@ -8043,7 +8046,7 @@ impl App {
                         world.lamps = Default::default();
                         if let Some(l) = fx {
                             world.effects.load_zone(l);
-                            world.effects.set_weather(crate::dat::weather::weather_tag(world.weather), 0.0);
+                            world.effects.set_weather(crate::dat::weather::weather_tag(event::weather(world)), 0.0);
                         }
                         if let Some(gfx) = &self.gfx {
                             world.effects.reg.light_keys = geometry.light_keys.clone();
@@ -8278,7 +8281,7 @@ impl App {
             w.area_ease.clear();
             if let Some(l) = fx {
                 w.effects.switch_zone(l);
-                w.effects.set_weather(crate::dat::weather::weather_tag(w.weather), 0.0);
+                w.effects.set_weather(crate::dat::weather::weather_tag(event::weather(w)), 0.0);
             }
             if let Some(r) = &w.renderer {
                 w.effects.reg.light_keys = r.light_keys.clone();
@@ -12786,6 +12789,7 @@ impl App {
                 r.show_link999(&gfx.gpu, ceiling);
             }
             let new_lamps = if w.renderer.as_ref().is_some_and(|r| r.ready(&gfx.gpu)) { w.lamps.update(&mut w.effects, w.ground.as_ref(), self.cfg.lamp_lights) } else { None };
+            let ev_hour = event::hour(w);
             if let Some(r) = &mut w.renderer {
                 if let Some(l) = &new_lamps {
                     r.set_lamps(&gfx.gpu, &l.iter().map(|l| (l.pos, l.slot)).collect::<Vec<_>>());
@@ -13414,6 +13418,8 @@ impl App {
                     let mut view_rot = view;
                     view_rot.w_axis = glam::Vec4::W;
                     let minute = w.clock.map(|(t, at)| crate::dat::weather::vana_minute(t, at.elapsed().as_secs_f32())).unwrap_or(720.0);
+                    // Op 0x77's hour holds the clock at its minute 0 (FUN_100b6880).
+                    let minute = ev_hour.map_or(minute, |h| h as f32 * 60.0);
                     let f = crate::fx::Frame {
                         dt: (dt * 60.0).max(1e-3),
                         seconds: dt,
