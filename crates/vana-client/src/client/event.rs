@@ -2070,7 +2070,10 @@ fn finish(w: &mut World, live: Box<Live>) {
     }
     w.event_end_at = Some(Instant::now());
     w.screen.shot = None;
-    w.map_open = None;
+    // FUN_100ac9c0: an event map still open closes (FUN_101f14c0(1)), as when an abort skips the script's 0x8a.
+    if w.map_open.take().is_some() {
+        w.map_cmds.push(super::map::Cmd::CloseEvent);
+    }
     super::maze::event_end(w);
     // The player's post-event request (+0x1f8 = 300, +0x1fa = 1).
     if live.st.bound.contains(&w.my_id) {
