@@ -6088,6 +6088,8 @@ struct World {
     maze: maze::Maze,
     /// Not retail: every bid category's items for the modern auction search.
     ah_index: auction::AhIndex,
+    /// Signed in through PlayOnline: our additions that send what the original client never would stay off.
+    playonline: bool,
     /// FUN_100fc3c0's last c2s 0x102 (one a second, shared by BLU and PUP).
     ext_job_sent: Option<Instant>,
     /// Monstrosity Customization (client/moncustom.rs).
@@ -7834,6 +7836,7 @@ impl App {
                             pupset: None,
                             maze: Default::default(),
                             ah_index: Default::default(),
+                            playonline: is_playonline(&self.cfg.server),
                             ext_job_sent: None,
                             moncustom: None,
                             treasure: Default::default(),

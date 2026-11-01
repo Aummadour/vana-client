@@ -489,7 +489,7 @@ fn cache_save(path: &std::path::Path, items: &[(u16, u8)], complete: bool) {
 
 /// A category list seen while browsing goes into the index (and its file) when the index is not yet complete.
 fn index_seen(w: &mut World, cat: u8, items: &[u16]) {
-    if w.ah_index.complete {
+    if w.playonline || w.ah_index.complete {
         return;
     }
     let mut v: Vec<(u16, u8)> = w.ah_index.items.as_deref().cloned().unwrap_or_default();
@@ -510,7 +510,7 @@ fn index_drop(w: &mut World) {
 }
 
 pub(super) fn index_build(w: &mut World) {
-    if w.ah_index.complete || w.ah_index.rx.is_some() {
+    if w.playonline || w.ah_index.complete || w.ah_index.rx.is_some() {
         return;
     }
     // The file first: a complete one answers at once, a partial one while the server is asked.
@@ -565,7 +565,11 @@ pub(super) fn index(w: &World) -> Option<Arc<Vec<(u16, u8)>>> {
 
 /// The bid pages have the keys (a category menu or a bid list on top, nothing asked; not auc1, Sell or Sales
 /// Status): the modern search can run.
+/// Not on PlayOnline: the index is a burst of category queries the original client never sends.
 pub(super) fn searchable(w: &World) -> bool {
+    if w.playonline {
+        return false;
+    }
     let Some(a) = w.auction.as_ref() else { return false };
     let bid = match a.top() {
         Some(Layer::Menu(name, _)) => !menu_rows(name).is_empty(),
@@ -823,7 +827,7 @@ pub fn index_tick(w: &mut World) {
     if let Some((items, complete)) = w.ah_index.rx.as_ref().and_then(|rx| rx.try_recv().ok()) {
         (w.ah_index.items, w.ah_index.complete, w.ah_index.rx) = (Some(Arc::new(items)), complete, None);
     }
-    if w.ah_index.complete || w.ah_index.tried || !w.in_scene() || w.zone.is_none() {
+    if w.playonline || w.ah_index.complete || w.ah_index.tried || !w.in_scene() || w.zone.is_none() {
         w.ah_index.since = None;
         return;
     }
@@ -1071,7 +1075,7 @@ fn set_top(a: &mut Auction, l: Layer) {
 fn menu_key(w: &mut World, a: &mut Auction, name: &'static str, sel: u16, key: egui::Key) {
     use egui::Key as K;
     // Not retail: in the modern layer Up off a bid menu's top row goes into the search field.
-    if w.modern && key == K::ArrowUp && !menu_rows(name).is_empty() && sel == first_row(name) && w.confirm.is_none() {
+    if w.modern && !w.playonline && key == K::ArrowUp && !menu_rows(name).is_empty() && sel == first_row(name) && w.confirm.is_none() {
         w.list_search = Some(Default::default());
         w.sounds.push(Ui::Cursor as u32);
         return;
@@ -1232,7 +1236,7 @@ fn scroll_keys(scroll: &mut usize, cursor: &mut usize, n: usize, key: egui::Key)
 fn list_key(w: &mut World, a: &mut Auction, key: egui::Key) {
     use egui::Key as K;
     // Not retail: in the modern layer Up off a bid list's first row goes into the search field.
-    if w.modern && key == K::ArrowUp && w.confirm.is_none() && a.list.as_ref().is_some_and(|l| !l.sales && l.scroll + l.cursor == 0) {
+    if w.modern && !w.playonline && key == K::ArrowUp && w.confirm.is_none() && a.list.as_ref().is_some_and(|l| !l.sales && l.scroll + l.cursor == 0) {
         w.list_search = Some(Default::default());
         w.sounds.push(Ui::Cursor as u32);
         return;
