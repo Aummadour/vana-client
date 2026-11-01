@@ -870,6 +870,15 @@ impl Host for LiveHost<'_> {
                     self.hide(id, &args, 0);
                 }
             }
+            // FUN_100b7e20: actor@2's +0x12c bit 17 = u8@1: no occlusion test for its model (FUN_100c9da0).
+            Effect::Op { op: 0x94, args, .. } => {
+                if let (Some(on), Some(Arg::Actor(a))) = (Self::arg_int(&args, 0), args.get(1)) {
+                    let id = self.wid(*a);
+                    if let Some(e) = self.w.entities.get_mut(&id) {
+                        e.no_occlusion = on & 1 != 0;
+                    }
+                }
+            }
             // FUN_100b7d10: actor@2's +0x12c bit 16 = u8@1; a bound actor shows no name while it is set.
             Effect::Op { op: 0x92, args, .. } => {
                 if let (Some(on), Some(Arg::Actor(a))) = (Self::arg_int(&args, 0), args.get(1)) {

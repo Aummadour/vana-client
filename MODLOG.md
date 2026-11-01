@@ -13070,3 +13070,11 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   The sub-area is built for a ship at yaw 0; ours ends the arrival `seq0` at yaw about -0.062 (pat1's face step,
   fx/drive.rs), 0.37 units off at the near doors. Retail's drive reads the same *(inf)*: to compare with the retail
   client before changing it.
+
+## Event op 0x94: no occlusion test for the actor (2026-11-01)
+
+- FUN_100b7e20 (all.c 136915) sets actor@2 +0x12c bit 17 = u8@1; the model update FUN_100c9da0 (all.c 149246 /
+  149559) runs its every-4th-frame occlusion test only with that bit and +0x130 bit 0 clear. Nothing clears it at the
+  event's end. Scripts set it on the cast (3,504 sites in 30 story zones; every participant of the Seekers scenes).
+  Ours dropped the op, so cutscene actors went through our occlusion queries and could vanish for a frame or two
+  after a cut. Now Entity::no_occlusion skips the query and its stale result.

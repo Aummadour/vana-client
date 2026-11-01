@@ -452,6 +452,8 @@ struct Entity {
     reset_bases: bool,
     /// +0x138 bit 31 (event op 0xac sub 2 / 3): while its model is hidden its schedulers' sounds stay off.
     ev_reserved: bool,
+    /// +0x12c bit 17 (event op 0x94, FUN_100b7e20): no occlusion test (FUN_100c9da0); never cleared.
+    no_occlusion: bool,
     /// A door's id (0x00E SubKind 2, u32 @0x34); 0 for anything else.
     door: u32,
     /// A lift's (shaft id, move start, move end) (0x00E SubKind 3, client/lifts.rs).
@@ -1549,6 +1551,7 @@ fn self_entity(w: &World) -> Entity {
         motion_bases: Vec::new(),
         reset_bases: false,
         ev_reserved: false,
+        no_occlusion: false,
         door: 0,
         lift: None,
         ship: None,
@@ -4297,6 +4300,7 @@ fn place_mogdoor(w: &mut World) {
             motion_bases: Vec::new(),
             reset_bases: false,
             ev_reserved: false,
+            no_occlusion: false,
             door: 0,
             lift: None,
             ship: None,
@@ -8651,6 +8655,7 @@ impl App {
                         motion_bases: Vec::new(),
                         reset_bases: false,
                         ev_reserved: false,
+                        no_occlusion: false,
                         door: 0,
                         lift: None,
                         ship: None,
@@ -13280,7 +13285,9 @@ impl App {
                         && let Some((rect, z)) = box_on_screen(cview, cproj, model, &box_corners(b))
                     {
                         visible.insert(*id);
-                        if *id != w.my_id {
+                        if w.entities.get(id).is_some_and(|e| e.no_occlusion) {
+                            r.occl.results.remove(id);
+                        } else if *id != w.my_id {
                             r.occl.query(*id, rect, z);
                         }
                     }
