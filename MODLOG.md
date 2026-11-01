@@ -13068,6 +13068,12 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   The sub-area is built for a ship at yaw 0; ours ends the arrival `seq0` at yaw about -0.062 (pat1's face step,
   fx/drive.rs), 0.37 units off at the near doors. Retail's drive reads the same *(inf)*: to compare with the retail
   client before changing it.
+  - 2026-11-01 (user: "never worked"): a vertex fit (fune vs sub-area 493, positions and normals) puts the hull exactly
+    on the cabin at our final position (-0.516, 0.026, -8.410) with yaw 0 (5 exact matches, 1 at our -0.0624), and
+    LSB's dock pose is the same with rotation 0. So only the heading is off. `pat1` (flags 3: abs, face; backward;
+    curve 4; yaw0 0.0698) ends on the course 0.149 of its last chord (points 1 -> 0), so yaw0 - course is -0.079
+    there and our freeze (h < 0.1 a frame) leaves -0.0624; `pat2` (flags 9: abs, fwd, no face) slides it in +z without
+    turning. Nothing traced turns it to 0; whether retail shows the same gap is still to be seen on the retail client.
 
 ## Event op 0x94: no occlusion test for the actor (2026-11-01)
 
