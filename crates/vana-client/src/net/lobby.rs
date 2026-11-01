@@ -532,9 +532,12 @@ fn rename_body(content_id: u32, world_id: u32, name: &str) -> Vec<u8> {
 
 fn parse_char(b: &[u8]) -> Character {
     let info = &b[44..];
+    // Model ids 1..7 may carry their slot in the top nibble (0x1000 head .. 0x7000 sub), as the zone's GrapIDTbl
+    // does (look_from); LSB's lobby sends them bare.
     let mut looks = [0u16; 8];
     for (i, l) in looks.iter_mut().enumerate() {
-        *l = rd_u16(info, 12 + i * 2);
+        let id = rd_u16(info, 12 + i * 2);
+        *l = if i == 0 { id } else { id & 0x0FFF };
     }
     Character {
         content_id: rd_u32(b, 0),
@@ -659,6 +662,23 @@ mod create_tests {
         // The 0x07 hashed c; 0x0B makes it c + 2 and world entry c + 4 (spec 5).
         let c = server.join().unwrap();
         assert_eq!((m.char_id, m.map.1, m.key[..16].to_vec(), u32::from_le_bytes(m.key[16..].try_into().unwrap())), (2 << 16 | 0x1234, 54230, k16.to_vec(), c + 4));
+    }
+
+    /// A lobby record whose model ids carry their slot nibble parses to bare ids every part file resolves from.
+    #[test]
+    fn looks_lose_their_slot_nibble() {
+        let mut rec = [0u8; CHAR_INFO_LEN];
+        rec[12..16].copy_from_slice(b"Nine");
+        let info = 44;
+        rec[info..info + 2].copy_from_slice(&3u16.to_le_bytes());
+        for (i, id) in [0u16, 0x1130, 0x2130, 0x3130, 0x4130, 0x5130, 0x6010, 0x7000].iter().enumerate() {
+            rec[info + 12 + i * 2..info + 14 + i * 2].copy_from_slice(&id.to_le_bytes());
+        }
+        let c = parse_char(&rec);
+        assert_eq!(c.looks, [0, 0x130, 0x130, 0x130, 0x130, 0x130, 0x010, 0]);
+        let l = &c.looks;
+        let look = crate::dat::character::Look { race: c.race as u8, face: c.face, head: l[1], body: l[2], hands: l[3], legs: l[4], feet: l[5], main: l[6], sub: l[7], range: 0 };
+        assert!(crate::dat::character::file_ids(&look).is_ok());
     }
 
     #[test]
