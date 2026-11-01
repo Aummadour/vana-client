@@ -55,6 +55,8 @@ pub struct Sound {
     pub grace: f32,
     /// The SeSep resource (library, node) that FUN_10036460's start list counts.
     pub res: (usize, usize),
+    /// Scheduler op 0x8a: the slot (0..7, DAT_10469394) whose handle it holds, for op 0x8b's stop.
+    pub slot: Option<u8>,
 }
 
 /// FUN_10038330: se ids of which one voice plays at a time (a shared flag, DAT_104638f4).
@@ -62,7 +64,7 @@ pub const ONE_AT_A_TIME: [u32; 2] = [2239, 2063];
 
 impl Sound {
     pub fn new(se: u32, loops: bool) -> Self {
-        Self { se, loops, elem: None, gen_persistent: false, pos: Vec3::ZERO, near: 0.0, far: 0.0, keep: false, ymode: 0, vol: 127, pan_in: 64.0, vol_key: None, sph: None, fade: 0.0, stream: false, handle: 0, last_vol: 0, last_pan: 64, grace: 0.0, res: (usize::MAX, se as usize) }
+        Self { se, loops, elem: None, gen_persistent: false, pos: Vec3::ZERO, near: 0.0, far: 0.0, keep: false, ymode: 0, vol: 127, pan_in: 64.0, vol_key: None, sph: None, fade: 0.0, stream: false, handle: 0, last_vol: 0, last_pan: 64, grace: 0.0, res: (usize::MAX, se as usize), slot: None }
     }
 
     /// vt+0x40 = FUN_10035950.

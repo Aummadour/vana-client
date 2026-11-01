@@ -1185,6 +1185,38 @@ impl Effects {
                 }
                 Flow::Next
             }
+            // Cases 0x8a / 0x8b (all.c 67399 / 67423): 0x8a plays the SeSep as 0x60 does and keeps its handle in slot
+            // u32 @0x20 (0..7, DAT_10469394); 0x8b stops that slot's sound (FUN_10035d70).
+            0x8a => {
+                let n = op.u32_at(0x20);
+                if n < 8
+                    && let Some(r) = scope(self, 0x3d)
+                    && let Some((se, loops)) = super::sound::sesep(self.reg.libs[r.0].data(r.1))
+                {
+                    for s in self.sounds.iter_mut().filter(|s| s.slot == Some(n as u8)) {
+                        s.slot = None;
+                    }
+                    let mut s = super::sound::Sound::new(se, loops);
+                    s.res = r;
+                    s.stream = true;
+                    s.slot = Some(n as u8);
+                    self.sounds.push(s);
+                }
+                Flow::Next
+            }
+            0x8b => {
+                let n = op.u32_at(0x20);
+                if n < 8
+                    && let Some(k) = self.sounds.iter().position(|s| s.slot == Some(n as u8))
+                {
+                    let s = self.sounds.swap_remove(k);
+                    if s.handle != 0 {
+                        self.sound_cmds.push(super::sound::SoundCmd::Stop { handle: s.handle, ticks: 0 });
+                        self.voice_ended(s.handle);
+                    }
+                }
+                Flow::Next
+            }
             0x19 => {
                 self.pending.push(Pending { file: Some(0xaf0 + op.u32_at(8)), actor: None, name: MAIN, a1: t.a1, a2: t.a2, action: None, speed: t.speed, end_cast: None, age: 0.0, skill: None, skill_caster: None, wait_motion: None, num: None, quiet: false, own: false, seq: None, event: false });
                 Flow::Next
@@ -4156,5 +4188,32 @@ mod event_camera_tests {
         // cut2 and Bahamut's waves start 18.8 s in (the user's run: 19:55:21.146 against main at 19:55:02.310).
         assert!((1110..1150).contains(&shots[1].0), "{shots:?}");
         assert_eq!((shots[0].2, shots[1].2), (300.0, 420.0));
+    }
+}
+
+#[cfg(test)]
+mod slot_sound_tests {
+    use super::*;
+    use crate::dat::generator::fourcc;
+
+    /// File 30734 `6040`: op 0x8a plays its SeSep with slot 0's handle (case 0x8a). (Its 0x8b 90 ticks on is not seen
+    /// here: with no audio device the manager drops a sound that never starts.)
+    #[test]
+    fn slotted_sound() {
+        let Ok(index) = crate::dat::DatIndex::open(&crate::config::Config::load().ffxi_dir()) else { return };
+        let index = std::sync::Arc::new(index);
+        let (Ok(f0), Ok(_)) = (index.read(0), index.read(30734)) else { return };
+        let mut fx = Effects::new();
+        fx.set_global(Library::load(0, f0).unwrap());
+        fx.set_index(index);
+        let start = std::time::Instant::now();
+        while !fx.libs_ready(&[30734]) && start.elapsed().as_secs() < 30 {
+            fx.poll_loads();
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        fx.on_event_scheduler(30734, u32::from_le_bytes(fourcc("6040")), Who::None, Who::None);
+        let f = Frame { dt: 1.0, seconds: 1.0 / 60.0, dayfrac: 0.5, view: Mat4::IDENTITY, view_rot: Mat4::IDENTITY, eye: Vec3::ZERO, draw_distance: 2000.0, area_light: Vec3::ONE, focal: 350.0, moon_phase: 0, weekday: 0 };
+        fx.tick(&f, &crate::fx::NoActors);
+        assert!(fx.sounds.iter().any(|s| s.slot == Some(0) && s.stream));
     }
 }

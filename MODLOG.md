@@ -13101,3 +13101,11 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   default arm, so nothing faded. Now Screen::level (from what is shown, as 0x0f), in Screen::multiply (scene and
   plates) and Screen::ui_level (the 2D layer's level, the mean of its RGB *(inf: as the lobby's modulate)*); an event's
   own scheduler's 0x51 is the runner's, as 0x0f. Test level_over_everything.
+
+## Scheduler ops 0x8a / 0x8b: slotted sounds (2026-11-01)
+
+- Case 0x8a (all.c 67399) plays the SeSep @8 as op 0x60 does (FUN_100360e0) and keeps its handle in slot u32 @0x20
+  (0..7, DAT_10469394); case 0x8b (all.c 67423) stops that slot's sound (FUN_10035d70). 51 / 46 uses, mostly in event
+  roots (30734 '6040', stopped 90 ticks in; 30980 'tvon'). Ours sent both to the default arm: those sounds never
+  played. Now Sound::slot (a new 0x8a takes the slot from the old sound, as the handle is overwritten). Test
+  slotted_sound (the stop is not seen offline: without an audio device a sound that never starts is dropped).
