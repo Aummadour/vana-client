@@ -55,6 +55,23 @@ fn config_path() -> PathBuf {
     std::env::var_os("FFXI_CONFIG").map(PathBuf::from).unwrap_or_else(|| app_dir(dirs::config_dir()).join("config.json"))
 }
 
+/// A login that worked: the server, the account (the Square Enix ID for PlayOnline), PlayOnline's member ID, and its
+/// own Remember password with the password(s) sealed for that server and account (secret.rs).
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SavedLogin {
+    pub server: String,
+    pub username: String,
+    pub pol_id: String,
+    pub remember_password: bool,
+    pub saved_password: String,
+}
+
+/// Server names compare without case or outer spaces ("PlayOnline", "playonline").
+fn same_server(a: &str, b: &str) -> bool {
+    a.trim().eq_ignore_ascii_case(b.trim())
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -67,6 +84,8 @@ pub struct Config {
     pub username: String,
     /// PlayOnline's member ID (8 characters), for the PlayOnline server.
     pub pol_id: String,
+    /// Logins that worked, most recent first: the login screen's Server and Account lists (not retail).
+    pub logins: Vec<SavedLogin>,
     /// The login screen's Remember password (not retail), and the password sealed for this server and account
     /// (secret.rs; hex, empty when none).
     pub remember_password: bool,
@@ -278,6 +297,7 @@ impl Default for Config {
             server: "127.0.0.1".into(),
             username: String::new(),
             pol_id: String::new(),
+            logins: Vec::new(),
             remember_password: false,
             saved_password: String::new(),
             auth_port: 54231,
@@ -350,7 +370,60 @@ impl Config {
     }
 
     pub fn load() -> Self {
-        std::fs::read(config_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+        let mut c: Self = std::fs::read(config_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        // A config from before the lists: its one login starts them.
+        if c.logins.is_empty() && !c.server.trim().is_empty() && !c.username.trim().is_empty() {
+            c.remember_login();
+        }
+        c
+    }
+
+    /// The servers logged in to, most recent first.
+    pub fn servers(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for l in &self.logins {
+            if !out.iter().any(|s| same_server(s, &l.server)) {
+                out.push(l.server.clone());
+            }
+        }
+        out
+    }
+
+    /// The accounts logged in with on a server, most recent first.
+    pub fn accounts(&self, server: &str) -> Vec<String> {
+        self.logins.iter().filter(|l| same_server(&l.server, server)).map(|l| l.username.clone()).collect()
+    }
+
+    /// The saved login for a server and account; with no account, the server's most recent.
+    pub fn saved_login(&self, server: &str, username: Option<&str>) -> Option<&SavedLogin> {
+        self.logins.iter().find(|l| same_server(&l.server, server) && username.is_none_or(|u| l.username == u))
+    }
+
+    /// Makes a saved login the form's: its server, account, PlayOnline ID, Remember password and sealed passwords.
+    pub fn use_login(&mut self, l: &SavedLogin) {
+        self.server = l.server.clone();
+        self.username = l.username.clone();
+        self.pol_id = l.pol_id.clone();
+        self.remember_password = l.remember_password;
+        self.saved_password = l.saved_password.clone();
+    }
+
+    /// The form's login, first in the lists (after a login that worked, or a change to its Remember password).
+    pub fn remember_login(&mut self) {
+        let l = SavedLogin {
+            server: self.server.trim().to_string(),
+            username: self.username.trim().to_string(),
+            pol_id: self.pol_id.clone(),
+            remember_password: self.remember_password,
+            saved_password: self.saved_password.clone(),
+        };
+        self.logins.retain(|o| !(same_server(&o.server, &l.server) && o.username == l.username));
+        self.logins.insert(0, l);
+    }
+
+    /// Drops a saved login (with its password); with no account, every login of the server.
+    pub fn forget_login(&mut self, server: &str, username: Option<&str>) {
+        self.logins.retain(|l| !(same_server(&l.server, server) && username.is_none_or(|u| l.username == u)));
     }
 
     pub fn save(&self) -> Result<()> {

@@ -115,6 +115,25 @@ impl Modern {
         if let Some((r, label, enabled)) = &v.twofa {
             self.lobby_button(&p, pt(*r).expand2(vec2(4.0, 3.0)), label, v.focus == n + 4 && !v.busy, *enabled && !v.busy, hover, size);
         }
+        // Combo fields: the arrow at the right end; an open list over the form in the window frame, its cursor's row lit.
+        for a in &v.arrows {
+            p.text(pt(*a).center(), Align2::CENTER_CENTER, "\u{25bc}", FontId::proportional(size * 0.7), self.theme.color("muted"));
+        }
+        if let Some((_, rows, cursor)) = &v.list
+            && let (Some(first), Some(last)) = (rows.first(), rows.last())
+        {
+            let lp = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("modern login list")));
+            let all = pt(first.0).union(pt(last.0));
+            lp.add(super::borders::window(self, "window_normal", all.expand(3.0)));
+            for (k, (r, text)) in rows.iter().enumerate() {
+                let r = pt(*r);
+                if k == *cursor {
+                    lp.rect_filled(r, 2.0, self.theme.color("focus").gamma_multiply(0.45));
+                }
+                let c = if k == *cursor { self.theme.color("gold") } else { self.theme.color("text") };
+                lp.with_clip_rect(r).text(pos2(r.min.x + 6.0, r.center().y), Align2::LEFT_CENTER, text, font.clone(), c);
+            }
+        }
     }
 
     /// A lobby button on `r`: the pack's face for its state, the caption in the strong face.
