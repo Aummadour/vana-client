@@ -2174,8 +2174,9 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
                 egui::Key::Enter if world.menu.is_some() => pick = world.menu,
                 // The raise prompt (resynus, FUN_102110c0): Up to Accept, Down to Decline (no wrap), Enter answers.
                 _ if dead && world.ko_offer == 2 && world.confirm.is_none() => match key {
-                    egui::Key::ArrowUp | egui::Key::ArrowDown => {
-                        let yes = *key == egui::Key::ArrowUp;
+                    // The modern prompt's buttons sit side by side: Left / Right too.
+                    egui::Key::ArrowUp | egui::Key::ArrowDown | egui::Key::ArrowLeft | egui::Key::ArrowRight if world.modern || matches!(key, egui::Key::ArrowUp | egui::Key::ArrowDown) => {
+                        let yes = matches!(key, egui::Key::ArrowUp | egui::Key::ArrowLeft);
                         if yes != world.raise_yes {
                             world.raise_yes = yes;
                             world.sounds.push(crate::audio::Ui::Cursor as u32);
@@ -2191,6 +2192,11 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
                 // mp_dead in Monstrosity: Up / Down between Retry and Cancel (SE 0001); Enter picks (SE 0002), no prompt:
                 // child 1 sends StatusId 2 (Retry), child 2 1 (Cancel) (FUN_10096c90 case 2).
                 egui::Key::ArrowUp | egui::Key::ArrowDown if dead && world.ko_open && monstrosity::active(world) && world.confirm.is_none() => {
+                    world.mon_dead_sel = 3 - world.mon_dead_sel;
+                    world.sounds.push(crate::audio::Ui::Cursor as u32);
+                }
+                // The modern Retry / Cancel sit side by side: Left / Right pick them.
+                egui::Key::ArrowLeft | egui::Key::ArrowRight if world.modern && dead && world.ko_open && monstrosity::active(world) && world.confirm.is_none() => {
                     world.mon_dead_sel = 3 - world.mon_dead_sel;
                     world.sounds.push(crate::audio::Ui::Cursor as u32);
                 }
@@ -3505,7 +3511,9 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
     // mp_dead (FUN_10141920): Retry / Cancel, the same "%d:%02d" at (+0x4b, +6).
     // Ours (the user's call, as the raise prompt): the frame 8 / 4 px larger so the text does not touch its edges.
     const KO_PAD: [f32; 4] = [8.0, 4.0, 8.0, 4.0];
-    if world.ko_open
+    // The modern layer draws both as its panels (modern::ko).
+    if world.modern {
+    } else if world.ko_open
         && monstrosity::active(world)
         && let Some(win) = gu.lobby_window_padded("menu    mp_dead", sw, sh, Some(world.mon_dead_sel), world.confirm.is_none(), KO_PAD)
     {
@@ -3544,7 +3552,7 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
     // The raise prompt "menu    resynus" (FUN_10210da0, registry flag 0x1000: stacked on the log like comyn).
     // Stacked by lobby_window_off itself. The hover runs every frame (FUN_10125360: the cursor moves when the child
     // under the pointer changes, SE 0001); the release confirms the cursor child (FUN_1015de50, SE 0002).
-    if dead && world.ko_offer == 2 && world.confirm.is_none() {
+    if dead && world.ko_offer == 2 && world.confirm.is_none() && !world.modern {
         // Ours (the user's call): the frame a little larger so the baked text does not touch its edges.
         if let Some(win) = gu.lobby_window_padded("menu    resynus", sw, sh, Some(if world.raise_yes { 1 } else { 2 }), true, [8.0, 4.0, 8.0, 4.0]) {
             let hovered = input.pointer.and_then(|p| win.children.iter().find(|(id, r)| matches!(id, 1 | 2) && inside(r, p)).map(|(id, _)| *id));

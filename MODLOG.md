@@ -12686,3 +12686,16 @@ DISPLAY13 at 100%; RX 6800 XT eGPU), MinGW cross builds, release and debug.
   Cures interrupted, new 6 of 6 cast; Potions 4 of 4 "fails to activate" against 4 of 4 used; casting while still
   running interrupted 2 of 2. Ranged attacks not tried live (same path). Test client::net::tests::position_before_
   interruptible_actions.
+
+## Modern UI: the K.O. window and the raise prompt (2026-10-31)
+
+- User report: the buttons on the raise and Home Point popups were old style in the modern UI. The K.O. window
+  ("menu    dead", mp_dead in Monstrosity) and the raise prompt ("menu    resynus") were drawn from the classic sprites
+  in both UIs; the "Return to Home Point?" question (comyn) already used the modern confirm.
+- Now modern::ko draws both in the kit's buttons with retail's captions (child captions; the title from focus_text:
+  "K.O.", "Revival"): the K.O. window above the screen's middle with "Time left m:ss" and Back to Home Point (or
+  Retry / Cancel), lit while it has the focus; the raise prompt on the log as comyn, Yes / No side by side. Clicks
+  do what the classic ones do (Confirm::HomePoint, answer_raise, mon_dead_pick); the keys stay the client's, with
+  Left / Right added for the side-by-side buttons in the modern UI only (retail's Up / Down kept). The help bar keeps
+  retail's texts. Seen live (Lnxcsfix made mortal with !immortal, K.O. by `!exec player:takeDamage(9999)`, then
+  !raise 3).

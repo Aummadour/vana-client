@@ -280,6 +280,7 @@ impl Modern {
                 self.chat_edge.set(Some((Rect::from_min_max(pos2(r.min.x, t), r.max), false)));
             }
         }
+        ko(&mut p, w);
         confirm(&mut p, w);
         choice(&mut p, w);
         gm_prompt(&mut p, w);
@@ -409,6 +410,8 @@ fn focus_panel(w: &World) -> Option<&'static str> {
         _ if w.confirm.is_some() => "confirm",
         _ if w.typing => "chat",
         _ if w.palette.0 != 0 => "macro palette",
+        _ if w.ko_offer == 2 && w.dead() => "raise",
+        _ if w.ko_open && w.ko_offer != 2 => "ko",
         _ if w.concierge_ui.is_some() => "window",
         _ if w.maze.screen.is_some() => "window",
         _ if event::choice(w).is_some() => "choice",
@@ -507,6 +510,77 @@ fn default_place(id: &str) -> Place {
         // The comment editor sits on the log as retail's (flag 0x1000).
         "comment" => on("combat"),
         _ => at(0.3, 0.3),
+    }
+}
+
+/// The K.O. window (retail's "menu    dead", mp_dead in Monstrosity) and the raise prompt (resynus) in the kit's
+/// buttons, with retail's captions; their keys stay the client's (client/mod.rs). The K.O. window sits above the
+/// screen's middle, the raise prompt on the log as comyn.
+fn ko(p: &mut Panels, w: &mut World) {
+    use super::{Confirm, answer_raise, mon_dead_pick, monstrosity, vana_now};
+    if !w.ko_open && w.ko_offer != 2 {
+        return;
+    }
+    let (m, Some(gu)) = (p.m, p.gu) else { return };
+    let screen = p.ctx.content_rect();
+    let caption = |menu: &str, k: u16, d: &str| gu.child_caption(menu, k).unwrap_or_else(|| d.to_string());
+    let size = m.theme.ui;
+    let font = FontId::proportional(size);
+    let width = (size * 7.5).max(120.0);
+    if w.ko_open {
+        const W: f32 = 340.0;
+        let mon = monstrosity::active(w);
+        let menu = if mon { "menu    mp_dead" } else { "menu    dead" };
+        let title = gu.focus_text("menu    dead", 1)[1].clone().unwrap_or_else(|| "K.O.".into());
+        let focused = w.confirm.is_none() && w.ko_offer != 2;
+        let s = w.ko_deadline.saturating_sub(vana_now(w));
+        let left = format!("Time left  {}:{:02}", s / 60, s % 60);
+        let rows: Vec<(u16, String)> = if mon { vec![(1, caption(menu, 1, "Retry")), (2, caption(menu, 2, "Cancel"))] } else { vec![(1, caption(menu, 1, "Back to Home Point"))] };
+        let mut pick = None;
+        let at = pos2(screen.center().x - W / 2.0, screen.min.y + screen.height() * 0.3);
+        p.panel_at("ko", Some(Title { icon: Some("icons/warning"), text: &title, note: None }), W, at, |ui| {
+            ui.label(egui::RichText::new(&left).size(size).color(m.theme.color("text")));
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                for (k, label) in &rows {
+                    let on = focused && (!mon || *k == w.mon_dead_sel);
+                    let wide = if mon { width } else { W - 44.0 };
+                    let (r, resp) = ui.allocate_exact_size(vec2(wide, size + 16.0), Sense::click());
+                    let s = kit::Btn { lit: on, cursor: on, off: !focused };
+                    kit::paint_button(ui.painter(), m, r, label, &font, s, resp.hovered() && focused);
+                    if kit::clicked(&resp, s) {
+                        pick = Some(*k);
+                    }
+                }
+            });
+        });
+        match pick {
+            Some(k) if mon => {
+                w.mon_dead_sel = k;
+                mon_dead_pick(w);
+            }
+            Some(_) => {
+                w.confirm = Some((Confirm::HomePoint, false));
+                w.sounds.push(crate::audio::Ui::Select as u32);
+            }
+            None => {}
+        }
+    }
+    if w.ko_offer == 2 && w.confirm.is_none() && w.dead() {
+        const W: f32 = 380.0;
+        let edge = m.chat_edge.get().filter(|c| !c.1).map_or(screen.max.y, |(r, _)| r.min.y).min(screen.max.y);
+        let h = m.rects.borrow().get("raise").map_or(110.0, |r| r.height());
+        let at = pos2(screen.width() * 0.0121, edge - h - 6.0);
+        let title = gu.focus_text("menu    resynus", 1)[1].clone().unwrap_or_else(|| "Revival".into());
+        let (yes, no) = (caption("menu    resynus", 1, "Accept"), caption("menu    resynus", 2, "Decline"));
+        let mut click = None;
+        p.panel_at("raise", Some(Title { icon: Some("icons/raise"), text: &title, note: None }), W, at, |ui| click = kit::yes_no(ui, m, "", [&yes, &no], w.raise_yes, size));
+        if let Some(v) = click {
+            w.raise_yes = v;
+            answer_raise(w, v);
+            w.sounds.push(crate::audio::Ui::Select as u32);
+        }
     }
 }
 
