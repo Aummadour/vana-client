@@ -12937,3 +12937,21 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
 - Live (Lnxcsfix, Southern San d'Oria Mog House 1F, chars.moghouse = its own id): Change Jobs, the moogle nods,
   rises and spins; then the job pick's dance (5038 'main') hides it in its sparkles at about 4 s and it fades back at
   about 5.5 s, still spinning.
+
+## The search server pages: "more" requests (2026-11-01)
+
+- Captured (the original client on the PlayOnline search server, 124.150.154.76:54002; decoded with the keys of
+  "Search server" 1.3): an auction list (type 0x15, extra 1) is answered one page per request. After each page not
+  flagged last (+0x0a bit 7) the client sends the "more" packet (type 0x10, dlen 0x10, no payload) and the server sends
+  the next: a 95-item category came as 5 pages (4 of 0x10c, the last 0xcc) after the request and 4 "more" packets. A
+  price history (type 5) is one packet. LSB sends every page at once, so ours read on until the last flag; the
+  PlayOnline server waited for "more" and every list timed out after 30 s.
+- One session word for every request of the session (FUN_100e1790 at map login: 0x920ccdfb throughout), and the
+  "more" packet is built once with its own salt (0x932e6a33 in every one); each request has a new salt. One TCP
+  connection per query, the client closing it after the last page. The padding between the payload and the session
+  word is stale buffer memory, not zero (i16 pairs), so the MD5 differs from a zero-padded build.
+- Ours (net/search.rs): begin_session at map login (the word and the "more" packet), "more" after each page that is
+  not the last (query, ah_query; not ah_query_many, whose connection goes on to the next category: LSB's answers to
+  "more" come after its last page), at most one search connection at a time. Padding stays zero. Test
+  paged_requests_as_captured (the captured request and "more" packet, fields but the padding). LSB: auction_live and
+  ah_many_live pass.

@@ -955,6 +955,7 @@ impl EntityUpdate {
 }
 
 pub fn spawn(login: MapLogin, account: String, codec: Codec) -> NetHandle {
+    crate::net::search::begin_session();
     let (events_tx, events) = channel();
     let (commands, commands_rx) = channel();
     let me = Arc::new(Mutex::new(SelfState::default()));

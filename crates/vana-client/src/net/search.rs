@@ -1,7 +1,8 @@
 //! The search server client (LSB xi_search; FFXiMain FUN_100e0d50, FUN_100d8c60, FUN_100e2060): one TCP connection
 //! per query, an "IXFF" request Blowfish-keyed by MD5(fixed key, salt), replies keyed by MD5(fixed key, salt, session
-//! word), each player a bit-packed entry. LSB sends every page at once, so a query reads until the last-packet flag
-//! and closes (retail's "more" requests get only empty auction packets from LSB).
+//! word), each player a bit-packed entry. A page that is not the last is followed by the session's "more" request
+//! (type 0x10); the PlayOnline server sends the next page only then, LSB sends every page at once (its answers to
+//! "more" come after the last page, unread).
 
 use super::map::blowfish::Blowfish;
 use anyhow::{Result, anyhow, bail};
@@ -15,6 +16,39 @@ use std::time::Duration;
 const FIXED: &[u8; 16] = b"0s=m<1IZ2zBCc8{~";
 /// A slot older than 30 s fails (FUN_100e0d50).
 const TIMEOUT: Duration = Duration::from_secs(30);
+
+/// FUN_100e1790 at map login: the session word every request carries and the "more" packet built once (its own salt).
+struct Session {
+    word: u32,
+    more: Vec<u8>,
+}
+
+static SESSION: std::sync::Mutex<Option<Session>> = std::sync::Mutex::new(None);
+
+/// A new session word and "more" packet (each map login).
+pub fn begin_session() {
+    let word = random();
+    *SESSION.lock().unwrap_or_else(|e| e.into_inner()) = Some(Session { word, more: request(0x10, &[], word, random()) });
+}
+
+fn session() -> (u32, Vec<u8>) {
+    let mut s = SESSION.lock().unwrap_or_else(|e| e.into_inner());
+    if s.is_none() {
+        let word = random();
+        *s = Some(Session { word, more: request(0x10, &[], word, random()) });
+    }
+    let s = s.as_ref().unwrap();
+    (s.word, s.more.clone())
+}
+
+/// A salt or session word (retail: a dword of MD5 over its rolling state).
+fn random() -> u32 {
+    static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let h: [u8; 16] = Md5::digest([t.to_le_bytes().as_slice(), &n.to_le_bytes()].concat()).into();
+    u32::from_le_bytes(h[..4].try_into().unwrap())
+}
 
 /// Condition flags (+0x00): bit `1 << search type` for the typed fields.
 pub const NAME: u32 = 1;
@@ -431,10 +465,8 @@ pub fn decode(entry: &[u8]) -> Record {
 }
 
 /// One query, blocking: connect, send, read packets until the last-packet flag (reply +0x0a bit 7), close.
-/// Not retail: at most this many search-server connections of ours at once. LSB's server closes a sixth from one
-/// address (SearchHandler: "More than 5 simultaneous connections"), and a second client on the same machine shares
-/// the count.
-const MAX_OPEN: usize = 2;
+/// One search connection at a time, as FUN_100e0d50 runs its slots on its one connection.
+const MAX_OPEN: usize = 1;
 static OPEN: (std::sync::Mutex<usize>, std::sync::Condvar) = (std::sync::Mutex::new(0), std::sync::Condvar::new());
 
 /// A connection slot, held until dropped.
@@ -462,8 +494,7 @@ impl Drop for Slot {
 
 pub fn query(addr: (Ipv4Addr, u16), cond: &Cond) -> Result<Reply> {
     let _slot = Slot::take();
-    let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let (session, salt) = (seed as u32 | 1, (seed >> 32) as u32 ^ 0x5a5a_5a5a);
+    let ((session, more), salt) = (session(), random());
     let (wire, payload) = condition(cond);
     let mut s = TcpStream::connect_timeout(&SocketAddr::from(addr), Duration::from_secs(10))?;
     s.set_read_timeout(Some(TIMEOUT))?;
@@ -493,6 +524,7 @@ pub fn query(addr: (Ipv4Addr, u16), cond: &Cond) -> Result<Reply> {
         if flags & 0x80 != 0 {
             return Ok(reply);
         }
+        s.write_all(&more)?;
     }
 }
 
@@ -573,7 +605,7 @@ pub fn ah_query(addr: (Ipv4Addr, u16), wire: u8, payload: &[u8], extra: u16) -> 
     let _slot = Slot::take();
     let mut s = TcpStream::connect_timeout(&SocketAddr::from(addr), Duration::from_secs(10))?;
     s.set_read_timeout(Some(TIMEOUT))?;
-    ah_exchange(&mut s, wire, payload, extra)
+    ah_exchange(&mut s, wire, payload, extra, true)
 }
 
 /// Not retail: several queries over one connection, one after another (LSB's handler reads request after request;
@@ -586,7 +618,7 @@ pub fn ah_query_many(addr: (Ipv4Addr, u16), wire: u8, payloads: &[Vec<u8>], extr
         Err(e) => return vec![Err(e.into())],
     };
     for p in payloads {
-        let r = ah_exchange(&mut s, wire, p, extra);
+        let r = ah_exchange(&mut s, wire, p, extra, false);
         let failed = r.is_err();
         out.push(r);
         if failed {
@@ -596,10 +628,10 @@ pub fn ah_query_many(addr: (Ipv4Addr, u16), wire: u8, payloads: &[Vec<u8>], extr
     out
 }
 
-/// A request on an open connection and its reply, packet by packet to the one flagged last.
-fn ah_exchange(s: &mut TcpStream, wire: u8, payload: &[u8], extra: u16) -> Result<AhReply> {
-    let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let (session, salt) = (seed as u32 | 1, (seed >> 32) as u32 ^ 0x5a5a_5a5a);
+/// A request on an open connection and its reply, packet by packet to the one flagged last; `more` asks for each next
+/// page (not on a connection that goes on to other requests: LSB's answers to it would be read as theirs).
+fn ah_exchange(s: &mut TcpStream, wire: u8, payload: &[u8], extra: u16, more: bool) -> Result<AhReply> {
+    let ((session, more_packet), salt) = (session(), random());
     s.write_all(&request_x(wire, payload, session, salt, extra))?;
     let mut out = AhReply::default();
     loop {
@@ -616,6 +648,9 @@ fn ah_exchange(s: &mut TcpStream, wire: u8, payload: &[u8], extra: u16) -> Resul
         ah_decode(&r, d, kind, total, &mut out);
         if flags & 0x80 != 0 {
             return Ok(out);
+        }
+        if more {
+            s.write_all(&more_packet)?;
         }
     }
 }
@@ -713,6 +748,31 @@ mod tests {
 
     fn hex(s: &str) -> Vec<u8> {
         (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
+    }
+
+    /// A request decrypted with its own salt: (length, header and payload up to dlen, session word, salt). The original
+    /// client leaves stale memory in the padding before the session word (so its MD5 differs from ours).
+    fn request_fields(b: &[u8]) -> (usize, Vec<u8>, u32, u32) {
+        let mut b = b.to_vec();
+        let l = b.len();
+        let salt = u32::from_le_bytes(b[l - 4..].try_into().unwrap());
+        let mut key = FIXED.to_vec();
+        key.extend(salt.to_le_bytes());
+        let key: [u8; 16] = Md5::digest(&key).into();
+        Blowfish::new(&key).decrypt(&mut b[8..l - 4]);
+        let (dlen, p) = (u16::from_le_bytes([b[8], b[9]]) as usize, l - 0xc);
+        (l, b[..dlen].to_vec(), u32::from_le_bytes(b[p - 0xc..p - 8].try_into().unwrap()), salt)
+    }
+
+    /// The original client's first category list request (0x20, market 4) and its session's "more" packet, as captured
+    /// going to the PlayOnline search server (session word 0x920ccdfb): ours match but for the padding.
+    #[test]
+    fn paged_requests_as_captured() {
+        let list = hex("0c010000495846469bedbd9da385dd3f9dcdeef71adb4aa2f04535db04eedf4af04535db04eedf4af04535db04eedf4af04535db04eedf4af04535db04eedf4af04535db04eedf4af04535db04eedf4af04535db04eedf4af04535db04eedf4af04535db04eedf4af04535db04eedf4af04535db04eedf4af04535db04eedf4af04535db04eedf4af04535db04eedf4af04535db04eedf4af04535db04eedf4af04535db04eedf4af04535db04eedf4af04535db04eedf4ad1be80521d56a4c7fddc179606fa5271ee0aac4e0082c1f0626290da3323d9540a1573ce191dd4eb073c551e9e8d89253b0db2b0ee2fc47240eb054425c640e4572cf4c92f044af39f32c093644586b1bcd3a773");
+        assert_eq!(request_fields(&request_x(0x15, &ah_list_payload(0x20, 4, &[]), 0x920c_cdfb, 0x73a7_d3bc, 1)), request_fields(&list));
+        let more = hex("4c00000049584646d369775daf3218a626592475ed952be32c24d2047e631d0817a290c2dd011eee36ad4bf0fe8ea2da37851610a963a13cf0c2071d9422ba608535b610626635c1336a2e93");
+        assert_eq!(request_fields(&request(0x10, &[], 0x920c_cdfb, 0x932e_6a33)), request_fields(&more));
+        assert_eq!(request_fields(&more).1[8..12], [0x10, 0, 0x80, 0x10]);
     }
 
     #[test]
