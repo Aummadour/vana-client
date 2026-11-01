@@ -903,9 +903,11 @@ impl Effects {
                 Flow::Next
             }
             // 0x73 (FUN_10055cc0 with 1): the child loops (+0x141) until killed.
+            // The child runs on the actors a doll stands for (FUN_100617c0 / FUN_10061820).
             0x03 | 0x73 => {
                 if let Some(r) = scope(self, kind::SCHEDULER) {
-                    let i = self.spawn_task(r, t.a1, t.a2, t.action.clone(), t.speed, None);
+                    let (a1, a2) = (self.doll_of(t.a1), self.doll_of(t.a2));
+                    let i = self.spawn_task(r, a1, a2, t.action.clone(), t.speed, None);
                     if let Some(c) = self.tasks[i].as_mut() {
                         c.looping = op.code == 0x73;
                     }
@@ -1246,8 +1248,9 @@ impl Effects {
             }
             // Motions on actor1: name with the region '?' dropped, speed f32 @0x10, length u16 @6, count byte @0x1e,
             // blend u16 @0x18 (as dat::sched::plan reads them).
+            // On the actor a doll stands for (case 5, all.c 64927).
             0x05 if t.motions => {
-                if let Some(id) = t.a1.id() {
+                if let Some(id) = self.doll_of(t.a1).id() {
                     // A motion in the scheduler's own file plays from there: that file goes on the actor first.
                     let (lib, raw) = (t.res.0, op.name().to_le_bytes());
                     let has = |n: u32| self.reg.libs[lib].find(t.res.1, kind::MOTION, n).is_some();
@@ -1290,7 +1293,7 @@ impl Effects {
                 Flow::Next
             }
             0x28 if t.motions => {
-                if let Some(id) = t.a1.id() {
+                if let Some(id) = self.doll_of(t.a1).id() {
                     self.motions.push((id, None));
                 }
                 Flow::Next

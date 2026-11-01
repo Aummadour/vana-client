@@ -13109,3 +13109,11 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   roots (30734 '6040', stopped 90 ticks in; 30980 'tvon'). Ours sent both to the default arm: those sounds never
   played. Now Sound::slot (a new 0x8a takes the slot from the old sound, as the handle is overwritten). Test
   slotted_sound (the stop is not seen offline: without an audio device a sound that never starts is dropped).
+
+## Scheduler children and motions on the actor a doll stands for (2026-11-01)
+
+- Cases 3 / 0x73 (all.c 64862..64891) start the child on FUN_100617c0 / FUN_10061820 (all.c 72892): actor1 / actor2
+  walked through CXiDollActor to the actor it stands for. Cases 5 and 0x28 act on FUN_100617c0's actor too. Ours
+  passed the doll on, and 0x05 / 0x28 took `t.a1.id()`, None for a doll, so no motion played. Event files: 37 calls
+  (31 with actor1 a doll); battle effect files 1,140 calls in 954 files, 68 0x05 and 53 0x28 with actor1 a doll. Now
+  Effects::doll_of on those.
