@@ -868,9 +868,11 @@ fn entity(p: &SubPacket, kind: EntityKind) -> EntityUpdate {
         despawn: flags & 0x20 != 0,
         look: (kind == EntityKind::Player && flags & 0x10 != 0 && p.data.len() >= 0x48 + 18).then(|| look_at(p, 0x48)),
         motion: motion_state(p),
-        // LSB writes the look on every update but sets bit 0x10 only for equipped looks (spawn mask
-        // 0x57); monsters spawn with 0x0F.
-        npc: (kind == EntityKind::Npc && flags & 0x20 == 0 && p.data.len() >= 0x30 + 20).then(|| crate::dat::npc::parse_look(&p.data[0x30..0x44]).ok()).flatten(),
+        // FUN_1009b550's look switch: a model id (kind 0) and doors / lifts / ships on every update, the slot looks
+        // (kinds 1 / 7) only with 0x10.
+        npc: (kind == EntityKind::Npc && flags & 0x20 == 0 && p.data.len() >= 0x30 + 20 && (!matches!(p.u8(0x30) & 7, 1 | 7) || flags & 0x10 != 0))
+            .then(|| crate::dat::npc::parse_look(&p.data[0x30..0x44]).ok())
+            .flatten(),
         claim: (kind == EntityKind::Npc && flags & 0x02 != 0).then(|| p.u32(0x2C)),
         mob: (kind == EntityKind::Npc && flags & 7 != 0).then(|| p.u8(0x20) & 1 != 0),
         male: (kind == EntityKind::Player && flags & 0x04 != 0).then(|| p.u32(0x20) >> 15 & 1 != 0),
@@ -929,7 +931,8 @@ fn entity(p: &SubPacket, kind: EntityKind) -> EntityUpdate {
         face: (flags & 1 != 0).then(|| ((p.u32(0x18) >> 17) & 0x7fff) as u16),
         spawn_fx: (flags & 0x04 != 0 && p.data.len() > 0x28).then(|| p.u8(0x28) & 0x04 != 0),
         shadowless: (flags & 0x04 != 0 && p.data.len() > 0x27).then(|| p.u8(0x27) & 0x02 != 0),
-        king: kind == EntityKind::Npc && p.u32(0x18) >> 16 & 1 != 0,
+        // Counted only with 0x04 (0x1009c739).
+        king: kind == EntityKind::Npc && flags & 0x04 != 0 && p.u32(0x18) >> 16 & 1 != 0,
         indi: (kind == EntityKind::Player && flags & 0x04 != 0 && p.data.len() > 0x42).then(|| p.u8(0x42)),
         gate: (flags & 0x04 != 0).then(|| if kind == EntityKind::Player { (p.data.len() > 0x44).then(|| p.u8(0x44) & 0xf) } else { (p.data.len() > 0x26).then(|| p.u8(0x26) >> 4) }).flatten(),
         hitbox: (flags & 0x04 != 0).then(|| if kind == EntityKind::Player { (p.data.len() > 0x43).then(|| p.u8(0x43)) } else { (p.data.len() > 0x25).then(|| p.u8(0x25)) }).flatten().map(|h| h as f32 * 0.1),
@@ -1200,6 +1203,8 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
                     0x03A => tx.send(NetEvent::MagicScheduler { ids: (p.u32(4), p.u32(8)), indices: (p.u16(0xc), p.u16(0xe)), file: p.u16(0x10), kind: p.u8(0x12) })?,
                     0x039 => tx.send(NetEvent::MapScheduler { ids: (p.u32(4), p.u32(8)), indices: (p.u16(0x10), p.u16(0x12)), name: p.u32(12).to_le_bytes() })?,
                     0x051 => tx.send(NetEvent::SelfLook(look_at(&p, 4)))?,
+                    // FUN_1009b550 ignores an 0x00E whose mask is 0 (0x1009b55b): its zeroed look would read as model 0.
+                    0x00E if p.u8(10) == 0 => {}
                     0x00E => {
                         // The first NPC updates of a session, for comparing servers: index, id, mask, the look @0x30.
                         if npc_logged < 200 && p.data.len() >= 0x44 {

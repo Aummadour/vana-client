@@ -12800,3 +12800,26 @@ The client can sign a PlayOnline member in itself (no Viewer, no Wine) and speak
   authCode; ours are zero) and the handshake 0x0c..0x17; characters not yet linked to a handle (FFXiMain attaches them
   and stores 1/10; we stop with a message rather than write the list); the Friend List / POL messages through net/pol
   (ours speak LSB's xi_profile only).
+
+## Map session details LSB does not check: header words, 0x00B states, 0x00E gates (2026-11-01)
+
+Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (addresses for every point).
+
+- Datagram header (FUN_100fa9f0, FUN_100fdbf0): after the zone-in every client datagram carries @0x0C = 1 and the two
+  words s2c 0x00A sends @0x94 / @0x98 (session +0x4164 / +0x4168, set only by the 0x00A handler) @0x10 / @0x14; login
+  datagrams have 0 there. @4 / @8 are the clock's ms and seconds (DAT_10492e10), set by the zone-in (@0x38 seconds,
+  @0x34 ms) and re-synced from the server header on its datagrams with seq % 30 == 0 (FUN_100fbd10). The plain login
+  repeats every 400 ms until the zone-in is handled, @6 = 0 first, then 2 (3 once any datagram was read); a second
+  zone-in in the session is ignored (error 0x10). LSB reads none of these; ours sent zeros and local time.
+- s2c 0x00B (FUN_100fb730): state 1 logout, 4 cancels a logout (nothing sent), 8 time-out (message 0xfa2 / 0xfa6);
+  every other state queues 0x00D and reconnects, to @8 / @0xC when non-zero (else the same server). State 3 (MYROOM)
+  comes with leaving or entering the Mog House; LSB sends 2 for every zone change. Ours: 2 and 3 reconnect.
+- s2c 0x00E (FUN_1009b550; FUN_100fbc30 is only the partial-entity wrapper): mask 0 is ignored (0x1009b55b); index
+  < 0x400 or 0x700..0x8ff; a first update needs mask & 7 (& 0x17 for SubKinds 1 / 7). The look switch (table
+  0x1009ce88) applies a kind-0 model id @0x32 and kinds 2..6 on every accepted update, kinds 1 / 7 only with 0x10
+  (0x1009c976 / 0x1009ce64). KingFlag is counted only with 0x04 (0x1009c739). There is no default NPC model from any
+  DAT: the zone NPC list holds names only. Correction to "### 0x00E update mask": its last sentence (the model from any
+  non-despawn update) holds for kind 0 only. Ours now drops mask-0 updates, gates kinds 1 / 7 and KingFlag; the name
+  rules, reserved-actor skips and index ranges of the spec are not done yet.
+- Lobby character records (0x20): model ids 1..7 may carry their slot in the top nibble, as the zone's GrapIDTbl does;
+  net::lobby::parse_char masks it (LSB sends bare ids).
