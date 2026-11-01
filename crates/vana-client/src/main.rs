@@ -285,6 +285,9 @@ enum Cmd {
         upscaled: PathBuf,
         #[arg(long)]
         out: PathBuf,
+        /// Image keys (one per line, first column) whose files are rebuilt even when already built.
+        #[arg(long)]
+        redo: Option<PathBuf>,
     },
     /// Install a pack archive into `root` as Settings > Mods does, to check a pack before publishing it.
     ModInstall {
@@ -1622,7 +1625,7 @@ fn main() -> Result<()> {
         Cmd::MovieShot { frames, out, size } => movie_shot(&frames, &out, size.as_deref()),
         Cmd::TexExport { out } => texpack::export(&out),
         Cmd::StatusDump { out } => texpack::status_dump(&out),
-        Cmd::TexPack { manifest, upscaled, out } => texpack::pack(&manifest, &upscaled, &out),
+        Cmd::TexPack { manifest, upscaled, out, redo } => texpack::pack(&manifest, &upscaled, &out, redo.as_deref()),
         Cmd::TexSlim { pack, out } => texpack::slim(&pack, &out),
         Cmd::ModInstall { archive, root } => {
             let pack = modpack::pack_of(&archive)?;

@@ -150,15 +150,17 @@ pub fn export(out: &Path) -> Result<()> {
 /// An IMG chunk's payload at the upscaled size: the stock header (name, flags) with the new width and height, DXT1
 /// for a DXT1 original (its 1-bit alpha), else DXT3 with the PS2-style alpha (0x80 opaque) the client doubles.
 fn image_chunk(stock: &[u8], w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
-    image_chunk_from(stock, w, h, &encode(is_dxt1(stock), w, h, rgba))
+    image_chunk_from(stock, w, h, &encode(is_dxt1(stock), w, h, rgba, None))
 }
 
 fn is_dxt1(stock: &[u8]) -> bool {
     stock[0] == 0xA1 && &stock[57..61] == b"1TXD"
 }
 
-/// The pixels as DXT1, or DXT3 with the alpha halved.
-fn encode(dxt1: bool, w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
+/// The pixels as DXT1, or DXT3 with the alpha halved. A translucent image is dithered onto DXT3's levels, or with
+/// `levels` (the stock image's few, halved, with their shares) quantized to them in the same shares: the faintest
+/// pixels take the lowest level, so specks the upscaler filled in stay clear.
+fn encode(dxt1: bool, w: u32, h: u32, rgba: &[u8], levels: Option<&[(u8, f32)]>) -> Vec<u8> {
     let format = if dxt1 { texpresso::Format::Bc1 } else { texpresso::Format::Bc2 };
     let mut px = rgba.to_vec();
     if !dxt1 {
@@ -166,13 +168,41 @@ fn encode(dxt1: bool, w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
             p[3] = (p[3] as u16).div_ceil(2) as u8;
         }
         if translucent(&px) {
-            dither_alpha(&mut px, w as usize);
+            match levels {
+                Some(l) if !l.is_empty() => {
+                    let mut sorted: Vec<u8> = px.chunks_exact(4).map(|p| p[3]).collect();
+                    sorted.sort_unstable();
+                    let n = sorted.len();
+                    let mut acc = 0.0;
+                    let cuts: Vec<u8> = l[..l.len() - 1].iter().map(|&(_, share)| {
+                        acc += share;
+                        sorted[((acc * n as f32) as usize).min(n - 1)]
+                    }).collect();
+                    for p in px.chunks_exact_mut(4) {
+                        p[3] = l[cuts.iter().position(|&c| p[3] < c).unwrap_or(l.len() - 1)].0;
+                    }
+                }
+                _ => dither_alpha(&mut px, w as usize),
+            }
         }
     }
     let mut data = vec![0u8; format.compressed_size(w as usize, h as usize)];
     let params = texpresso::Params { algorithm: texpresso::Algorithm::ClusterFit, weigh_colour_by_alpha: !dxt1, ..Default::default() };
     format.compress(&px, w as usize, h as usize, params, &mut data);
     data
+}
+
+/// The stock image's alpha levels (halved as encode halves) and each one's share of the pixels, when it has at most
+/// three: art drawn in a few flat levels (a river's wash with clear specks) that dither would turn to noise once
+/// upscaled.
+fn stock_levels(stock: &[u8]) -> Option<Vec<(u8, f32)>> {
+    let t = dat::zone::parse_img(stock).ok()?;
+    let mut count = std::collections::BTreeMap::new();
+    for p in t.rgba.chunks_exact(4) {
+        *count.entry((p[3] as u16).div_ceil(2) as u8).or_insert(0usize) += 1;
+    }
+    let n = (t.rgba.len() / 4).max(1) as f32;
+    (count.len() <= 3).then(|| count.into_iter().map(|(v, c)| (v, c as f32 / n)).collect())
 }
 
 /// Half or more of the visible pixels have partial alpha (glows, smoke), not a cutout's 0 / full.
@@ -230,9 +260,10 @@ fn image_chunk_from(stock: &[u8], w: u32, h: u32, data: &[u8]) -> Vec<u8> {
     out
 }
 
-/// An image's encoding, made once per key and format (files share images): `cache/<key>.bc1|bc2` holds w, h, data.
-fn encoded(cache: &Path, key: &str, png: &Path, dxt1: bool) -> Result<(u32, u32, Vec<u8>)> {
-    let path = cache.join(format!("{key}.{}", if dxt1 { "bc1" } else { "bc2" }));
+/// An image's encoding, made once per key and format (files share images): `cache/<key>.bc1|bc2|bc2q` (bc2q: alpha
+/// quantized to the stock levels) holds w, h, data.
+fn encoded(cache: &Path, key: &str, png: &Path, dxt1: bool, levels: Option<&[(u8, f32)]>) -> Result<(u32, u32, Vec<u8>)> {
+    let path = cache.join(format!("{key}.{}", if dxt1 { "bc1" } else if levels.is_some() { "bc2q" } else { "bc2" }));
     if let Ok(b) = std::fs::read(&path)
         && b.len() > 8
     {
@@ -245,7 +276,7 @@ fn encoded(cache: &Path, key: &str, png: &Path, dxt1: bool) -> Result<(u32, u32,
     while 16 + 69 + format.compressed_size(w as usize, h as usize) > MAX_CHUNK && w > 4 && h > 4 {
         (w, h, rgba) = half(w, h, &rgba);
     }
-    let data = encode(dxt1, w, h, &rgba);
+    let data = encode(dxt1, w, h, &rgba, levels);
     let mut b = Vec::with_capacity(8 + data.len());
     b.extend_from_slice(&w.to_le_bytes());
     b.extend_from_slice(&h.to_le_bytes());
@@ -286,9 +317,9 @@ fn chunk_bytes(stock_header: &[u8], payload: &[u8]) -> Vec<u8> {
 }
 
 /// `tex-pack`: each manifest file rebuilt from the stock one with its upscaled images (`up`: `<key>.png`, any upscaler's
-/// name suffix allowed) into `out/ROM*/dir/file.DAT`. Files already built are kept and every encoding is cached in
-/// `<manifest>/encoded`, so it can resume.
-pub fn pack(manifest_dir: &Path, up: &Path, out: &Path) -> Result<()> {
+/// name suffix allowed) into `out/ROM*/dir/file.DAT`. Files already built are kept, but those holding a key listed in
+/// `redo` (one per line, first column), and every encoding is cached in `<manifest>/encoded`, so it can resume.
+pub fn pack(manifest_dir: &Path, up: &Path, out: &Path, redo: Option<&Path>) -> Result<()> {
     let cfg = crate::config::Config::load();
     let index = dat::DatIndex::open_stock(&cfg.ffxi_dir())?;
     let stock_root = cfg.ffxi_dir();
@@ -312,6 +343,10 @@ pub fn pack(manifest_dir: &Path, up: &Path, out: &Path) -> Result<()> {
     // Ids sharing a file: built once.
     let mut paths = std::collections::HashSet::new();
     files.retain(|(id, _)| index.path(*id).is_some_and(|p| paths.insert(p)));
+    let redo: std::collections::HashSet<String> = match redo {
+        Some(p) => std::fs::read_to_string(p)?.lines().filter_map(|l| l.split('\t').next()).map(str::to_string).collect(),
+        None => Default::default(),
+    };
     let cache = manifest_dir.join("encoded");
     std::fs::create_dir_all(&cache)?;
     let next = std::sync::atomic::AtomicUsize::new(0);
@@ -325,7 +360,7 @@ pub fn pack(manifest_dir: &Path, up: &Path, out: &Path) -> Result<()> {
                     let Some(stock) = index.path(*id) else { continue };
                     let Ok(rel) = stock.strip_prefix(&stock_root) else { continue };
                     let dest = out.join(rel);
-                    if dest.exists() {
+                    if dest.exists() && !wanted.iter().any(|(_, key)| redo.contains(key)) {
                         continue;
                     }
                     let Ok(bytes) = std::fs::read(&stock) else { continue };
@@ -338,7 +373,7 @@ pub fn pack(manifest_dir: &Path, up: &Path, out: &Path) -> Result<()> {
                         let header = &bytes[c.offset..c.offset + 16];
                         let end = c.offset + 16 + c.data.len();
                         let up = keys.get(&k).and_then(|key| by_key.get(*key).map(|p| (key, p)));
-                        match up.map(|(key, p)| encoded(&cache, key, p, is_dxt1(c.data))) {
+                        match up.map(|(key, p)| encoded(&cache, key, p, is_dxt1(c.data), stock_levels(c.data).as_deref())) {
                             Some(Ok((w, h, data))) => {
                                 outb.extend(chunk_bytes(header, &image_chunk_from(c.data, w, h, &data)));
                                 changed = true;
