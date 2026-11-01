@@ -24,10 +24,15 @@ pub struct CameraPath {
     /// Payload u32 @0x10: low byte key count; byte 1 / 255 how far the frame moves toward the actors each frame
     /// (FUN_1003d220); bit 19 puts the current camera first, bit 20 the player's follow camera last (FUN_1003be40).
     pub flags: u32,
-    /// Payload u32 @0x14: 0 linear, 1 sin ease-out, 2 1-cos ease-in, 3 split sine, 4 ease in-out (FUN_1003c270).
+    /// Payload u32 @0x14: 0 linear, 1 sin ease-out, 2 1-cos ease-in, 3 split sine, 4 ease in-out (FUN_1003c270);
+    /// above 4 the 4cc of a KeyFrame in the file (FUN_1003c320), resolved into `ease_key`.
     pub ease: u32,
+    pub ease_key: Option<super::generator::KeyFrame>,
     pub keys: Vec<Key>,
 }
+
+/// Path flag bit 21: an ease KeyFrame is sampled eased (FUN_100537f0), else linearly (FUN_10053550).
+pub const EASE_KEY_EASED: u32 = 1 << 21;
 
 #[derive(Clone, Debug)]
 pub enum Op {
@@ -120,10 +125,15 @@ impl Title {
                             Key { eye: v(o), focal: f32_at(c.data, o + 12), target: v(o + 16), roll: f32_at(c.data, o + 28) }
                         })
                         .collect();
-                    paths.push(CameraPath { name: c.name(), attach, flags, ease, keys });
+                    paths.push(CameraPath { name: c.name(), attach, flags, ease, ease_key: None, keys });
                 }
                 _ => {}
             }
+        }
+        // FUN_1003c320: an ease beyond 4 names a KeyFrame (kind 0x19) of the file; none found, linear.
+        let keyframes: Vec<(u32, super::generator::KeyFrame)> = super::chunks(file)?.into_iter().filter(|c| c.kind == 0x19).map(|c| (u32::from_le_bytes(c.name), super::generator::KeyFrame::parse(c.data))).collect();
+        for p in paths.iter_mut().filter(|p| p.ease > 4) {
+            p.ease_key = keyframes.iter().find(|k| k.0 == p.ease).map(|k| k.1.clone());
         }
         Ok(Self { schedulers, paths })
     }
@@ -223,7 +233,16 @@ pub const TO_FOLLOW: u32 = 1 << 20;
 
 /// Camera state on a path at normalized time t (0..1 of the op's duration), FUN_1003c3e0.
 pub fn sample(path: &CameraPath, t: f32) -> Key {
-    sample_keys(&path.keys, path.ease, t)
+    sample_keys(&path.keys, path_u(path, t))
+}
+
+/// The path parameter at time t (FUN_1003c270 / FUN_1003c320).
+fn path_u(path: &CameraPath, t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    match &path.ease_key {
+        Some(k) => k.sample(t, path.flags & EASE_KEY_EASED != 0),
+        None => ease(path.ease, t),
+    }
 }
 
 /// FUN_1003be40: with flag bit 19 the camera at the start is point 0 and with bit 20 the player's follow
@@ -235,11 +254,10 @@ pub fn sample_from(path: &CameraPath, t: f32, current: Option<Key>, follow: Opti
         return sample(path, t);
     }
     let keys: Vec<Key> = first.into_iter().chain(path.keys.iter().copied()).chain(last).collect();
-    sample_keys(&keys, path.ease, t)
+    sample_keys(&keys, path_u(path, t))
 }
 
-fn sample_keys(k: &[Key], ease_kind: u32, t: f32) -> Key {
-    let u = ease(ease_kind, t.clamp(0.0, 1.0));
+fn sample_keys(k: &[Key], u: f32) -> Key {
     if k.len() == 2 {
         let lerp = |a: f32, b: f32| a + (b - a) * u;
         return Key { eye: k[0].eye.lerp(k[1].eye, u), focal: lerp(k[0].focal, k[1].focal), target: k[0].target.lerp(k[1].target, u), roll: lerp(k[0].roll, k[1].roll) };
@@ -278,17 +296,32 @@ mod tests {
         Key { eye: Vec3::new(x, 0.0, 0.0), focal: 350.0, target: Vec3::new(x, 1.0, 0.0), roll: 0.0 }
     }
 
+    /// File 57174's paths ease by KeyFrames of the file (FUN_1003c320): each resolves, and one of 'y110' shape
+    /// ((0, 0) (0.3, 0.04) (1, 1)) starts slowly.
+    #[test]
+    fn keyframe_eases() {
+        let Ok(index) = crate::dat::DatIndex::open(&crate::config::Config::load().ffxi_dir()) else { return };
+        let Ok(file) = index.read(57174) else { return };
+        let t = Title::parse(&file).unwrap();
+        let keyed: Vec<&CameraPath> = t.paths.iter().filter(|p| p.ease > 4).collect();
+        assert!(!keyed.is_empty());
+        assert!(keyed.iter().all(|p| p.ease_key.is_some()), "{:?}", keyed.iter().map(|p| &p.name).collect::<Vec<_>>());
+        let slow = keyed.iter().find(|p| p.ease == u32::from_le_bytes(*b"y110")).expect("a y110 path");
+        let u = path_u(slow, 0.3);
+        assert!(u < 0.1, "u {u}");
+    }
+
     /// A one-key bit-19 path lerps from the current camera; without the bit it holds its key.
     #[test]
     fn starts_from_current() {
-        let p = CameraPath { name: "t".into(), attach: 0, flags: FROM_CURRENT | 1, ease: 0, keys: vec![key(10.0)] };
+        let p = CameraPath { name: "t".into(), attach: 0, flags: FROM_CURRENT | 1, ease: 0, ease_key: None, keys: vec![key(10.0)] };
         assert_eq!(sample_from(&p, 0.0, Some(key(0.0)), None).eye.x, 0.0);
         assert_eq!(sample_from(&p, 0.5, Some(key(0.0)), None).eye.x, 5.0);
         assert_eq!(sample_from(&p, 1.0, Some(key(0.0)), None).eye.x, 10.0);
         let q = CameraPath { flags: 1, ..p.clone() };
         assert_eq!(sample_from(&q, 0.0, Some(key(0.0)), None).eye.x, 10.0);
         // Three points: the spline passes through the current camera first.
-        let r = CameraPath { name: "t".into(), attach: 0, flags: FROM_CURRENT | 2, ease: 0, keys: vec![key(10.0), key(20.0)] };
+        let r = CameraPath { name: "t".into(), attach: 0, flags: FROM_CURRENT | 2, ease: 0, ease_key: None, keys: vec![key(10.0), key(20.0)] };
         assert!((sample_from(&r, 0.0, Some(key(0.0)), None).eye.x).abs() < 1e-4);
         assert!((sample_from(&r, 1.0, Some(key(0.0)), None).eye.x - 20.0).abs() < 1e-3);
         assert!((focal_of(fov_y(350.0)) - 350.0).abs() < 1e-2);

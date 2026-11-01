@@ -13085,3 +13085,10 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   Op 0x46 sub 1 (FUN_100b47a0) calls FUN_100acf70(0) -> FUN_100a7350: first person off, our model shown; sub 0 calls
   it with the saved flag, as does the event's end (FUN_100acf20). Ours kept first person through cutscenes, our own
   model faded out in every one started from it. Now State::first_saved, applied on 0x46 and in finish.
+
+## Camera paths eased by a KeyFrame (2026-11-01)
+
+- FUN_1003c320 (all.c 44049): a path ease value outside 0..4 is a 4cc naming a KeyFrame (kind 0x19) in the path's
+  file, sampled linearly (FUN_10053550) or eased with path flag bit 21 (FUN_100537f0); not found, linear. Ours took
+  every such path as linear (9 paths: file 57174's y070 / y100 / y110 / y123 / y140 / x800, 70757 c001; 30788 c021 and
+  56949 z001 name a missing 'k000'). Now Title::parse resolves CameraPath::ease_key. Test keyframe_eases.
