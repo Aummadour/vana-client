@@ -12823,3 +12823,37 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   rules, reserved-actor skips and index ranges of the spec are not done yet.
 - Lobby character records (0x20): model ids 1..7 may carry their slot in the top nibble, as the zone's GrapIDTbl does;
   net::lobby::parse_char masks it (LSB sends bare ids).
+
+## Mask-0 0x00E names an NPC to ask for; s2c 0x017 Attr bit 3, coded lines (2026-11-01)
+
+- Correction to "Map session details LSB does not check": FUN_1009b550 ignores a mask-0 0x00E (0x1009b55b), but the
+  wrapper FUN_100fbc30 (registered by thunk_FUN_100fc370(0xe)) runs on it first: an index whose accumulated mask lacks
+  7 (0x17 for SubKinds 1 / 7) gets c2s 0x017 (FUN_100fc830: ActIndex @4, new id @8, old id @0xc, mask so far @0x10,
+  this mask @0x12; 0x14 bytes) unless the mask is 0x20. A server that sends static NPCs only as mask-0 0x00E (seen:
+  every one but a handful of named NPCs in Ru'Lude Gardens and its Mog House, the moogle and the lifts among them, one
+  per datagram until asked) relies on that ask for the full update. Ours dropped mask 0 before the wrapper, so it
+  never asked: the moogle and the lifts were missing. Now charreq (client/mod.rs, rule in `reasks`) sees every 0x00E
+  and only the entity handler skips mask 0. Test mask0_npc_asks.
+- The named NPC updates of that server carry SubKind 0, the model @0x32 and the name from @0x34 (mask 0x0f, then 0x08
+  repeated): Monberaux 0x326, ElevatorButton 0x32, ArtisanMoogle 0x52, HomePoint#2 0x33, SymphonicCurat(or) 0x737,
+  HuntRegistry 0x928, SurvivalGuide 0x981, TrailMarkings 0x34.
+- Model 0x737 (file 52142, the Mog House item-gated NPC) is a stand-in: skeleton `toum` with 2 bones, a 3 mm mesh
+  `hf_t`, texture "tim     black", scheduler `shwh`. FUN_101d4c80 (rows at 0x10338458, 0x84 bytes, up to 0x103384dc)
+  shows or hides zone NPCs (+0x78 0x01xxxxxx, +0x120 bit 9, +0xfc the row's model) by myroom +0x44 + 4k unless
+  FUN_101d5fe0, and sets their +0xa0 object's +0xc0 to 1 / 2 by the layout view.
+- s2c 0x017 (LAB_100e37a0): with Attr bit 3, Mes at @0x17 opens with "%x,%x,%x,%x,%x,%x,%x," (FUN_100fd910,
+  0x1036249c): message source u16, number u16, then five u32; the line's text starts past the prefix as
+  "%02hx,%04hx,%08lx,%08lx,%08lx,%08lx,%08lx," would print it (53 bytes). The kind's branch passes source / number /
+  values to FUN_100d9b20: with a source, FUN_100964a0(source, number) (table 0x1032d600, sources below 0xb) gives the
+  text, none drops the line; the five values go to both DAT_10487020 (work[0..4], msg +0xc50) and DAT_10488800
+  (num[0..4], msg +0xc64; FUN_100c2e20 copies them) and FUN_100ad660 prints it
+  as event text in the kind's mode, the formatted chat line ("{%s%s} %s\n" for kind 0x21) as the message's name
+  string (msg +0xc10, 7f 93).
+- FUN_100964a0's sources: 1 DAT_10489908 (the event's zone dialogue; the current zone's when the same), 2..6 language
+  slots 0x63, 0x64, 0x65, 0x66, 0x68, 7 slot 0x69 (ids above 0x10ff read 0), 8 DAT_10487e84 (the zone's dialogue,
+  FUN_1008a7d0), 9 FUN_100bd760 / FUN_101c8450 (not done), 10 slot 0x6a (file 7039, 551 entries: Unity leader lines);
+  FUN_10095430 loads them. All are event-text files (dat::dialog).
+- Seen: kind 0x21, no name, "0a,01bd,00000009,0000002d,00000123,00000002,00000002," = source 10 0x1bd: "{Flaviria}
+  Alright then, it seems a group of Quetzalcoatl's minions is looking to set the stage at ?-? in Reisenjima. Go
+  introduce yourself!" Ours printed the prefix as text. Now event::coded_chat / source_line; tests coded_unity_line,
+  coded_unity_text. `dmsg-dump SLOT` prints event-text slot files too.

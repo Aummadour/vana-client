@@ -1667,7 +1667,16 @@ fn main() -> Result<()> {
             let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?;
             // A value past the slot range is a file id (0x86 grammar blocks read file 0xd8b2 directly).
             let file = if slot >= 0x1000 { slot as u32 } else { dat::msg::current_slot_file(&dll, 1, slot as usize).ok_or_else(|| anyhow::anyhow!("no file for slot {slot:#x}"))? };
-            let m = dat::names::DMsg::load(&index, file)?;
+            // Message tables in the event text format (FUN_10095430's slots) print their readable text.
+            let Ok(m) = dat::names::DMsg::load(&index, file) else {
+                let d = dat::dialog::Dialog::parse(&index.read(file)?)?;
+                println!("slot {slot:#x}: file {file}, {} event-text entries", d.len());
+                let ids = if ids.is_empty() { (0..d.len() as u32).collect() } else { ids };
+                for i in ids {
+                    println!("{i:#x}: {:?}", d.get(i).unwrap_or_default());
+                }
+                return Ok(());
+            };
             println!("slot {slot:#x}: file {file}, {} entries", m.len());
             let ids = if ids.is_empty() { (0..m.len() as u32).collect() } else { ids };
             for i in ids {

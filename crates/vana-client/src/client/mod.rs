@@ -1029,28 +1029,8 @@ fn charreq(w: &mut World, e: &net::EntityUpdate) {
         return;
     }
     let (old, seen) = w.index_masks.get(&e.index).copied().unwrap_or((0, 0));
-    let free = old == 0 || old == u32::MAX;
     let m = e.mask as u16;
-    let mut asks = Vec::new();
-    if e.kind == EntityKind::Player {
-        let ask = if old == e.id {
-            seen & 0x1f != 0x1f && m & 0x1f != 0x1f && m != 0x20
-        } else {
-            !free && m != 0x1f
-        };
-        if ask {
-            asks.push(());
-        }
-    } else {
-        let full = if matches!(e.look_kind, 1 | 7) { 0x17 } else { 7 };
-        if old != e.id && !free && m != full {
-            asks.push(());
-        }
-        if seen & full != full && m & full != full && m != 0x20 {
-            asks.push(());
-        }
-    }
-    for () in asks {
+    for _ in 0..reasks(e.kind, e.look_kind, e.id, old, seen, m) {
         log::info!("c2s 0x017: index {:#x} id {:#x} (was {old:#x}), masks {seen:#x} / {m:#x}", e.index, e.id);
         let mut b = e.index.to_le_bytes().to_vec();
         b.extend([0, 0]);
@@ -1062,6 +1042,18 @@ fn charreq(w: &mut World, e: &net::EntityUpdate) {
     }
     let slot = if m & 0x20 != 0 { (u32::MAX, 0) } else { (e.id, seen | m) };
     w.index_masks.insert(e.index, slot);
+}
+
+/// How many c2s 0x017 an update asks: the slot's id `old` and masks `seen` so far, this update's id and mask `m`.
+/// A mask-0 0x00E for an index not yet fully known asks too (the server's way of naming an NPC to ask for).
+fn reasks(kind: EntityKind, look_kind: u8, id: u32, old: u32, seen: u16, m: u16) -> usize {
+    let free = old == 0 || old == u32::MAX;
+    if kind == EntityKind::Player {
+        let ask = if old == id { seen & 0x1f != 0x1f && m & 0x1f != 0x1f && m != 0x20 } else { !free && m != 0x1f };
+        return ask as usize;
+    }
+    let full = if matches!(look_kind, 1 | 7) { 0x17 } else { 7 };
+    (old != id && !free && m != full) as usize + (seen & full != full && m & full != full && m != 0x20) as usize
 }
 
 /// The game clock in Earth seconds since the Vana'diel epoch (FUN_101039e0: 0x00A GameTime plus the time since).
@@ -5769,6 +5761,11 @@ struct World {
     /// The d_msg files of language slots 0x1d..0x21 (merit, job point, gift, alter ego point and Monstrosity names) and
     /// 0x26 (the maze rune texts).
     point_files: [Option<u32>; 6],
+    /// FUN_100964a0's message sources by number: the files of language slots 0x63..0x66, 0x68, 0x69 and 0x6a
+    /// (sources 2..7 and 10, FUN_10095430); 1 and 8 are the zone's dialogue.
+    msg_files: [Option<u32>; 11],
+    /// Their texts, loaded when first used.
+    msg_texts: HashMap<u16, Option<Arc<crate::dat::dialog::Dialog>>>,
     ae_data: Option<aepoints::AeData>,
     jp_list: HashMap<u16, (u8, u16)>,
     jp_seen: bool,
@@ -6474,6 +6471,7 @@ pub struct App {
     blu_data: Option<Arc<crate::dat::blumagic::BluData>>,
     cnq_tables: Option<Arc<crate::dat::tables::CnqTables>>,
     point_files: [Option<u32>; 6],
+    msg_files: [Option<u32>; 11],
     /// Title art, buttons and font from the game's lobby DATs; egui stand-ins until loaded.
     game_ui: Option<GameUi>,
     game_ui_state: LoadState,
@@ -6711,6 +6709,7 @@ impl App {
             blu_data: None,
             cnq_tables: None,
             point_files: [None; 6],
+            msg_files: [None; 11],
             game_ui: None,
             modern: None,
             game_ui_state: LoadState::Idle,
@@ -7133,6 +7132,7 @@ impl App {
             self.blu_data = Some(Arc::new(crate::dat::blumagic::BluData::load(self.index.as_ref().unwrap(), blu_desc)));
             self.cnq_tables = crate::dat::tables::conquest(&dll).map_err(|e| log::warn!("{e:#}")).ok().map(Arc::new);
             self.point_files = [0x1d, 0x1e, 0x1f, 0x20, 0x21, maze::TEXT_SLOT].map(|slot| crate::dat::msg::current_slot_file(&dll, 1, slot));
+            self.msg_files = [0, 0, 0x63, 0x64, 0x65, 0x66, 0x68, 0x69, 0, 0, 0x6a].map(|slot| (slot != 0).then(|| crate::dat::msg::current_slot_file(&dll, 1, slot)).flatten());
             self.input.load(&dll);
         }
         Ok((self.index.clone().unwrap(), self.keys_table.clone().unwrap()))
@@ -7627,6 +7627,8 @@ impl App {
                             ae_ui: None,
                             ae_tables: None,
                             point_files: self.point_files,
+                            msg_files: self.msg_files,
+                            msg_texts: HashMap::new(),
                             ae_data: None,
                             jp_list: HashMap::new(),
                             jp_seen: false,
@@ -8532,6 +8534,11 @@ impl App {
                 }
                 NetEvent::Entity(e) => {
                     charreq(world, &e);
+                    // FUN_1009b550 ignores an 0x00E whose mask is 0 (0x1009b55b); the wrapper above still asks for the
+                    // entity it names, which is how a server announces one (the Mog House moogle).
+                    if e.mask == 0 && e.kind == EntityKind::Npc {
+                        continue;
+                    }
                     if e.king {
                         world.res_rdy.kings.insert(e.id);
                     }
@@ -8854,8 +8861,14 @@ impl App {
                         gmtell::receive(world, &from, &text);
                         continue;
                     }
-                    if let Some((line, mode)) = chat_line(kind, attr, data, &from, &text, &zone) {
-                        push_chat_line(world, line, mode, kind, attr & 1 != 0, chat_record(kind, attr, data, &from));
+                    // Attr bit 3: Mes opens with a message source, its number and five num[] (FUN_100fd910).
+                    let coded = if attr & 8 != 0 { event::coded_chat(&text) } else { None };
+                    let text = coded.as_ref().map_or(text.as_str(), |c| c.rest);
+                    if let Some((line, mode)) = chat_line(kind, attr, data, &from, text, &zone) {
+                        match coded {
+                            Some(c) if c.source != 0 => event::source_line(world, c.source, c.id, c.num, mode, &line),
+                            _ => push_chat_line(world, line, mode, kind, attr & 1 != 0, chat_record(kind, attr, data, &from)),
+                        }
                     }
                 }
                 NetEvent::Logout { state } => {
@@ -14104,6 +14117,17 @@ pub fn run(cfg: Config, drive: Drive) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A mask-0 0x00E names an NPC: one ask until a full update; a full first update asks nothing.
+    #[test]
+    fn mask0_npc_asks() {
+        let npc = |old, seen, m| reasks(EntityKind::Npc, 0, 0x10f3080, old, seen, m);
+        assert_eq!(npc(0, 0, 0), 1);
+        assert_eq!(npc(0x10f3080, 0, 0), 1);
+        assert_eq!(npc(0, 0, 0x0f), 0);
+        assert_eq!(npc(0x10f3080, 0x0f, 0), 0);
+        assert_eq!(npc(0x10f3080, 0x0f, 0x08), 0);
+    }
 
     /// Hume M point 0x15 (bone 0, (0, -1.24, -0.04)) on a raptor at size 1: model y -1.24 -> -2.54; under a tilt
     /// the drop stays world y.

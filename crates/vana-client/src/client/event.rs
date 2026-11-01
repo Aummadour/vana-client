@@ -2657,9 +2657,112 @@ pub fn zone_text(w: &mut World, t: &ZoneText) {
     }
 }
 
+/// An s2c 0x017 Mes with Attr bit 3: "%x,%x,%x,%x,%x,%x,%x," read as source, number and num[0..5]; the line's
+/// own text starts past that prefix as "%02hx,%04hx,%08lx x5," would print it (FUN_100fd910).
+pub struct CodedChat<'a> {
+    pub source: u16,
+    pub id: u16,
+    pub num: [u32; 5],
+    pub rest: &'a str,
+}
+
+pub fn coded_chat(text: &str) -> Option<CodedChat<'_>> {
+    let mut v = [0u32; 7];
+    let mut s = text;
+    for x in &mut v {
+        let n = s.find(|c: char| !c.is_ascii_hexdigit()).unwrap_or(s.len());
+        *x = u32::from_str_radix(&s[..n], 16).ok()?;
+        s = s[n..].strip_prefix(',')?;
+    }
+    let (source, id) = (v[0] as u16, v[1] as u16);
+    let num = [v[2], v[3], v[4], v[5], v[6]];
+    let printed = format!("{source:02x},{id:04x},{:08x},{:08x},{:08x},{:08x},{:08x},", num[0], num[1], num[2], num[3], num[4]).len();
+    Some(CodedChat { source, id, num, rest: text.get(printed..).unwrap_or_default() })
+}
+
+/// FUN_100964a0(source, id): sources 2..7 and 10 are language slot files, 1 and 8 the zone's dialogue (the event's,
+/// when one is loaded from elsewhere: not done); 7 takes ids up to 0x10ff. Source 9 (FUN_100bd760) is not done.
+fn source_text(w: &mut World, source: u16, id: u16) -> Option<Vec<u8>> {
+    let id = if source == 7 && id as i16 > 0x10ff { 0 } else { id };
+    if (id as i16) < 0 {
+        return None;
+    }
+    if matches!(source, 1 | 8) {
+        let zone = w.zone?;
+        if w.zone_text.as_ref().is_none_or(|(z, _)| *z != zone) {
+            w.zone_text = Dialog::load(w.index.as_deref()?, zone).ok().map(|d| (zone, Arc::new(d)));
+        }
+        return w.zone_text.as_ref()?.1.raw(id as u32);
+    }
+    let file = *w.msg_files.get(source as usize)?;
+    let index = w.index.clone()?;
+    let d = w.msg_texts.entry(source).or_insert_with(|| {
+        let d = file.and_then(|f| index.read(f).ok()).and_then(|b| Dialog::parse(&b).map_err(|e| log::warn!("message source {source}: {e:#}")).ok());
+        d.map(Arc::new)
+    });
+    d.as_ref()?.raw(id as u32)
+}
+
+/// FUN_100d9b20 with a message source: its text, work[0..5] and num[0..5] both from the line, printed as event text
+/// (FUN_100ad660) in the chat kind's mode; `line` (the formatted chat line) is the message's name string (7f 93). No text, no line.
+pub fn source_line(w: &mut World, source: u16, id: u16, num: [u32; 5], mode: u8, line: &str) {
+    let Some(raw) = source_text(w, source, id) else {
+        log::info!("0x017: message source {source} has no text {id:#x}");
+        return;
+    };
+    let mut n = [0i32; 8];
+    n[..5].copy_from_slice(&num.map(|v| v as i32));
+    let ctx = dialog::Ctx {
+        player: super::monstrosity::my_name(w).to_string(),
+        num: n,
+        work: num.map(|v| v as i32),
+        female: matches!(w.my_race, 2 | 4 | 6 | 7),
+        names: w.names.clone().map(|n| n as Arc<dyn crate::dat::names::NameSource>),
+        msg_name: line.chars().take(0x3f).collect(),
+        ..text_ctx(w)
+    };
+    let e = dialog::expand(&raw, &ctx);
+    w.sounds.extend(&e.sounds);
+    let mode = e.mode.unwrap_or(mode);
+    let colour = w.battle.as_ref().map_or(super::WHITE, |bt| bt.colour_in(mode, &w.game));
+    let indent = w.battle.as_ref().is_some_and(|bt| bt.indents(mode));
+    for (k, l) in e.lines.iter().enumerate() {
+        let text = decode_sjis(l);
+        let text = if k > 0 && indent { format!("\u{3000}{text}") } else { text };
+        w.chat.push_event(text, colour, indent, mode);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A Unity leader's line as s2c 0x017 kind 0x21 carried it (Attr 8, no name).
+    #[test]
+    fn coded_unity_line() {
+        let c = coded_chat("0a,01bd,00000009,0000002d,00000123,00000002,00000002,").unwrap();
+        assert_eq!((c.source, c.id, c.num, c.rest), (10, 0x1bd, [9, 0x2d, 0x123, 2, 2], ""));
+        assert_eq!(coded_chat("a,1bd,9,2d,123,2,2,xyz").unwrap().rest, "");
+        assert!(coded_chat("hello").is_none());
+    }
+
+    /// Source 10's 0x1bd with that line's num[] reads as retail printed it.
+    #[test]
+    fn coded_unity_text() {
+        let cfg = crate::config::Config::load();
+        let Ok(index) = crate::dat::DatIndex::open(&cfg.ffxi_dir()) else { return };
+        let Ok(dll) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")) else { return };
+        let index = Arc::new(index);
+        let bt = Arc::new(crate::dat::battle::BattleText::load(&index, &dll).unwrap());
+        let names = Arc::new(crate::dat::names::Names::load(&index, crate::dat::items::Lang::En).unwrap());
+        let file = crate::dat::msg::current_slot_file(&dll, 1, 0x6a).unwrap();
+        let d = Dialog::parse(&index.read(file).unwrap()).unwrap();
+        let texts = EventTexts { bt: Some(bt), index: Some(index), files: [None; 6], merits: Default::default(), jp: Default::default(), ae: Default::default(), mon: Default::default(), words: Default::default() };
+        let ctx = dialog::Ctx { num: [9, 0x2d, 0x123, 2, 2, 0, 0, 0], names: Some(names), texts: Some(Arc::new(texts)), ..Default::default() };
+        let e = dialog::expand(&d.raw(0x1bd).unwrap(), &ctx);
+        let text: Vec<String> = e.lines.iter().map(|l| decode_sjis(l)).collect();
+        assert_eq!(text, ["{Flaviria} Alright then, it seems a group of Quetzalcoatl's minions is looking to set the stage at ?-? in Reisenjima. Go introduce yourself!"]);
+    }
 
     /// Op 0x82's regions are RID records by 4cc: Lower Jeuno's e6t0 / e6t1 hold their own centres.
     #[test]

@@ -1203,11 +1203,9 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
                     0x03A => tx.send(NetEvent::MagicScheduler { ids: (p.u32(4), p.u32(8)), indices: (p.u16(0xc), p.u16(0xe)), file: p.u16(0x10), kind: p.u8(0x12) })?,
                     0x039 => tx.send(NetEvent::MapScheduler { ids: (p.u32(4), p.u32(8)), indices: (p.u16(0x10), p.u16(0x12)), name: p.u32(12).to_le_bytes() })?,
                     0x051 => tx.send(NetEvent::SelfLook(look_at(&p, 4)))?,
-                    // FUN_1009b550 ignores an 0x00E whose mask is 0 (0x1009b55b): its zeroed look would read as model 0.
-                    0x00E if p.u8(10) == 0 => {}
                     0x00E => {
                         // The first NPC updates of a session, for comparing servers: index, id, mask, the look @0x30.
-                        if npc_logged < 200 && p.data.len() >= 0x44 {
+                        if npc_logged < 400 && p.data.len() >= 0x44 {
                             npc_logged += 1;
                             log::info!("0x00E index {:#05x} id {:08x} mask {:02x}: look {}", p.u16(8), p.u32(4), p.u8(10), hex::encode(&p.data[0x30..0x44]));
                         }
