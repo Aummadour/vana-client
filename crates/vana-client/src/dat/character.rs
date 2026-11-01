@@ -408,6 +408,13 @@ impl BoneXf {
 /// Model-space bone transforms for a pose (FUN_10033800, FUN_100339b0): a child's translation is scaled by its
 /// parent's accumulated scale, in the parent's frame.
 pub fn pose(skel: &Skeleton, anims: &[(&Animation, f32)]) -> Vec<BoneXf> {
+    pose_held(skel, anims, &[])
+}
+
+/// `pose` with drawn weapons held (FUN_10029320 / FUN_100339b0 pass 1): each (carry, grip) pair's carry bone takes
+/// the grip bone's rotation and translation, and the carry bone's descendants chain from it.
+pub fn pose_held(skel: &Skeleton, anims: &[(&Animation, f32)], grips: &[(u16, u16)]) -> Vec<BoneXf> {
+    let n = skel.bones.len();
     let mut local: Vec<(Quat, Vec3, Vec3)> = skel.bones.iter().map(|b| (b.rot, b.pos, Vec3::ONE)).collect();
     for (anim, frame) in anims {
         for t in &anim.tracks {
@@ -418,14 +425,36 @@ pub fn pose(skel: &Skeleton, anims: &[(&Animation, f32)]) -> Vec<BoneXf> {
             local[t.bone] = (r * b.rot, b.pos + tr, s);
         }
     }
-    let mut world: Vec<BoneXf> = Vec::with_capacity(local.len());
-    for (i, b) in skel.bones.iter().enumerate() {
+    let grips: Vec<(usize, usize)> = grips.iter().map(|&(c, g)| (c as usize, g as usize)).filter(|&(c, g)| c > 0 && c < n && g < n).collect();
+    // Pass 0's set-up: the grip's local scale takes the carry's; the carry's subtree waits for pass 1.
+    let mut held = vec![false; n];
+    for &(c, g) in &grips {
+        let s = local[c].2;
+        local[g].2 *= s;
+    }
+    let chain = |world: &[BoneXf], i: usize| -> BoneXf {
         let (r, t, s) = local[i];
+        let p = world[skel.bones[i].parent];
+        BoneXf { q: p.q * r, t: p.t + p.q * (p.s * t), s: p.s * s }
+    };
+    let mut world: Vec<BoneXf> = Vec::with_capacity(n);
+    for i in 0..n {
         if i == 0 {
+            let (r, t, s) = local[0];
             world.push(BoneXf { q: r, t: root_turn(t), s });
-        } else {
-            let p = world[b.parent];
-            world.push(BoneXf { q: p.q * r, t: p.t + p.q * (p.s * t), s: p.s * s });
+            continue;
+        }
+        let parent = skel.bones[i].parent;
+        held[i] = held[parent] || grips.iter().any(|&(c, _)| c == parent);
+        world.push(if held[i] { BoneXf::IDENTITY } else { chain(&world, i) });
+    }
+    // Pass 1: the carry bone on the grip (its own scale kept), then its subtree in order.
+    for &(c, g) in &grips {
+        world[c] = BoneXf { q: world[g].q, t: world[g].t, s: world[c].s };
+    }
+    for i in 1..n {
+        if held[i] {
+            world[i] = chain(&world, i);
         }
     }
     world
@@ -747,6 +776,9 @@ pub struct Character {
     /// The `wepN` hide bytes 0 / 1 the model's `init` leaves set (ops 0x75 / 0xa3): seeded on the actor so the first
     /// frames before `init` runs do not show them.
     pub init_hidden: [[bool; 2]; 10],
+    /// Drawn weapons' (carry, grip) bones, main then sub (FUN_10029320): bone(point main info[6]) on bone(point 127),
+    /// bone(point sub info[6]) on bone(point 126).
+    pub grips: [Option<(u16, u16)>; 2],
     pub log: Vec<String>,
     /// The animations as GPU words (`prepare`), else packed when first posed.
     pub packed: Option<std::sync::Arc<super::animpack::Packed>>,
@@ -877,7 +909,7 @@ pub fn load_character(index: &DatIndex, look: &Look) -> Result<Character> {
     let Some(skeleton) = base.skeleton else { bail!("file {skel_id} has no skeleton") };
     let mut log = vec![format!("skeleton {skel_id}: {} bones, {} animations", skeleton.bones.len(), base.animations.len())];
     log.extend(base.warnings);
-    let mut ch = Character { skeleton, parts: base.parts, textures: base.textures, animations: base.animations, size_info: [0xFF; 4], motions: Default::default(), schedulers: base.schedulers, pc: None, mount: None, log, packed: None, skin: None, files: vec![skel_id], part_files: Vec::new(), cib: [-1; 3], ranged: -1, init_hidden: Default::default() };
+    let mut ch = Character { skeleton, parts: base.parts, textures: base.textures, animations: base.animations, size_info: [0xFF; 4], motions: Default::default(), schedulers: base.schedulers, pc: None, mount: None, log, packed: None, skin: None, files: vec![skel_id], part_files: Vec::new(), cib: [-1; 3], ranged: -1, init_hidden: Default::default(), grips: [None; 2] };
     ch.merge_size_info(base.info);
     let (mut body_info, mut sub_info, mut main_info) = (None, None, None);
     for (slot, model, id) in part_ids {
@@ -927,6 +959,16 @@ pub fn load_character(index: &DatIndex, look: &Look) -> Result<Character> {
     // FUN_100cea10 case 7: a weapon in the sub slot gives its info[3] (+0x88a) and zeroes the upper-body pick (+0x87d).
     let dual = super::motionfile::dual_wield(look.sub);
     ch.pc = Some(super::motionfile::PcMotion { race: look.race, weapon: byte(main_info, 3), draw: byte(main_info, 4), skirt: byte(body_info, 9), dual: dual.then(|| byte(sub_info, 3)), sub_draw: byte(sub_info, 4) });
+    // FUN_10029b90: a point's bone, 0 past 0x7f or without the point. A grip bone 0 means no remap; so does a carry
+    // bone 0 *(ours: retail would remap the root)*.
+    let point_bone = |p: i8| if p < 0 { 0 } else { ch.skeleton.points.get(p as usize).map_or(0, |x| x.0) };
+    for (k, (info, grip_point)) in [(main_info, 127i8), (sub_info, 126)].into_iter().enumerate() {
+        let carry = byte(info, 6);
+        let (c, g) = (point_bone(carry), point_bone(grip_point));
+        if carry != -1 && c != 0 && g != 0 {
+            ch.grips[k] = Some((c, g));
+        }
+    }
     let upper = skel_id + 1 + if dual { 0 } else { selector(sub_info, 5).min(1) };
     let skirt = skel_id + 3 + selector(body_info, 9).saturating_sub(1).min(1);
     for (what, id) in [("upper-body motions", upper), ("skirt motions", skirt)] {

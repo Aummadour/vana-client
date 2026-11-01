@@ -485,6 +485,9 @@ enum Cmd {
         /// Extra motion files (event banks, battle files) searched before the model's, last first.
         #[arg(long, num_args = 1..)]
         motions: Vec<u32>,
+        /// Weapons drawn: their carry bones on the grips (FUN_10029320).
+        #[arg(long)]
+        held: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -1147,7 +1150,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         Cmd::DumpMsi { msi, out } => dump_msi(&msi, &out),
-        Cmd::CharShot { race, face, head, body, hands, legs, feet, main, sub, range, anim, frame, yaw, motions, out } => {
+        Cmd::CharShot { race, face, head, body, hands, legs, feet, main, sub, range, anim, frame, yaw, motions, held, out } => {
             use dat::character::{Look, load_character};
             let index = dat::DatIndex::open(&config::Config::load().ffxi_dir())?;
             let mut ch = load_character(&index, &Look { race, face, head, body, hands, legs, feet, main, sub, range })?;
@@ -1177,7 +1180,8 @@ fn main() -> Result<()> {
             for (a, f) in &anims {
                 println!("animation {} frame {f} of {} ({} tracks, speed {})", a.name, a.frames, a.tracks.len(), a.speed);
             }
-            let mesh = render::character::pose_character(&ch, &anims);
+            let grips: Vec<(u16, u16)> = if held { ch.grips.iter().flatten().copied().collect() } else { Vec::new() };
+            let mesh = render::character::pose_character_held(&ch, &anims, &grips);
             let centre = (mesh.min + mesh.max) / 2.0;
             let size = (mesh.max - mesh.min).max_element();
             let (s, c) = yaw.to_radians().sin_cos();

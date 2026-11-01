@@ -1761,13 +1761,13 @@ with ~/ffxi/lab/combat/q.sh. Inferred items are marked *(inf)*.
 - Draw / sheathe: vtable +0x31c = FUN_100a30c0(bool, slot) sets model +0x83c + slot (+0x320 reads both; override
   pair +0x83e via +0x324 / +0x328, scheduler ops 0xa7 / 0xa8, timed FUN_10060e50). FUN_10029320 (pose setup) remaps
   when drawn: bone(point 127) -> bone(main info[6], +0x87e), bone(point 126) -> bone(sub info[6], +0x888);
-  FUN_100339b0 pass 0 skips the carry subtree, pass 1 sets world[carry] = world[grip] *(inf: the copy)* and re-chains
+  FUN_100339b0 pass 0 skips the carry subtree, pass 1 sets world[carry] = world[grip] and re-chains
   its children. Default sheathed (model reset all.c 145748 clears +0x31c / +0x324; init all.c 146831 sets +0x31c(1, 0)
-  only for engaged or flagged actors). Not done in ours.
+  only for engaged or flagged actors). Done 2026-11-01 ("Drawn weapons ride the grips").
 - Track scale channels are posed since 2026-11-01 (see "Motion scale and the root turn").
 
 ### Open
-- Weapon attach on draw / sheathe (vtable +0x31c; see "Weapons and motion lookup"), the bntg / klbt / hwat / res0 schedulers, dual-wield files,
+- the bntg / klbt / hwat / res0 schedulers, dual-wield files,
   multi-hit swing letters, the move direction for atr / atb / atl (moving always picks f).
 - Scheduler ops other than 0x05 in motion schedulers (sounds 0x57 / 0x0a, 0x20 / 0x2f / 0x59).
 - The actor pass's real blend states for faded actors.
@@ -13145,3 +13145,27 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   function lighting may see a scaled normal)*.
 - Op 0x5b with name bytes 00 fe fe fe (npc137's first thread in 184): retail passes any name but 0 / 'xxxx' to
   SetAction; no motion of that name exists in DAT 499, so nothing plays in either client.
+
+## Drawn weapons ride the grips (FUN_100339b0 pass 1), and event maps close at the event's end (2026-11-01)
+
+- User report: Nine (Mithra THF/NIN, daggers main 430 / sub 379) dropped her weapons running while engaged. Her
+  daggers are skinned to bones 97 / 99, children of the carry bones 96 / 98 (rest on the ground: (0, 0.993, 0.061)
+  under bone 2). The engaged `btl1` keys 96 / 98 into the hands, but `run1` of her battle file 47223 keys them at
+  identity, so they fell to the ground. Not new: the build before the scale change renders the same.
+- FUN_10029320 (asm 10029320..1002943f): drawn = vtable +0x320 != 0 (or the +0x328 overrides, not in ours). The
+  +0x878 block (vtable +0x3d8): byte 6 = +0x87e main info[6], byte 0x10 = +0x888 sub info[6] (FUN_100ceae0 cases 6 / 7
+  copy 0x45 chunk byte 6 of each weapon's part file). Pairs (FUN_10029b90: a point's bone, 0 past 0x7f):
+  carry bone(point main info[6]) <- grip bone(point 127); carry bone(point sub info[6]) <- grip bone(point 126);
+  a grip bone 0 means no pair.
+- FUN_100339b0 pass 0 with the pairs: the grip's local scale x= the carry's local scale; the carry's flag (DAT_1044c310)
+  cleared, so its descendants are skipped (the carry itself is computed). Pass 1 (asm 10033ab3..10033b9b): matrix
+  [carry] = matrix[grip] (FUN_10026bc0), then every bone still flagged 0 is chained from its parent in order. Pass 2
+  scales all as before (the carry keeps its own accumulated scale).
+- Ours: Character::grips (dat/character.rs load_character), pose_held (CPU), job words 29 / 30 (carry | grip << 16)
+  and the compute pass's pass 1 (render/anim.rs chain / emit), used while Actor::drawn (state 2 after "in N" until
+  the sheathe). Nine: carry 96 on grip 78, 98 on grip 63; run1 frame 4 the carries at 1.01 / 0.92 high instead of
+  -0.05 (test drawn_weapons_ride_the_grips, CPU and GPU). char-shot --held renders it.
+- Event maps: the ship's route map (zone 220 event 0x400: 0x89, a message, 0x8a, end) was left up after an Escape
+  aborted the event before its message opened, and a mode-1 map ignores Escape, so nothing could close it. FUN_100ac9c0
+  (the event's end) closes an open event map (DAT_10476cde != 0: FUN_101f14c0(1)); ours only forgot map_open. Now
+  the end pushes Cmd::CloseEvent.

@@ -13181,7 +13181,9 @@ impl App {
                     }
                     // CPU bones only where they are read: the locked camera (player bone 13, target bone 5), first
                     // person, and the attach points of actors with live effects.
-                    let pose_now = || if from.is_empty() { crate::dat::character::pose(&ch.skeleton, &anims) } else { crate::render::character::pose_blend(&ch, &from, &anims, t) };
+                    // FUN_10029320: a drawn weapon's carry bone rides its grip.
+                    let held: Vec<(u16, u16)> = if a.drawn { ch.grips.iter().flatten().copied().collect() } else { Vec::new() };
+                    let pose_now = || if from.is_empty() { crate::dat::character::pose_held(&ch.skeleton, &anims, &held) } else { crate::render::character::pose_blend(&ch, &from, &anims, t, &held) };
                     if (w.locked && (*id == w.my_id || w.target == Some(*id))) || (w.camst.first && *id == w.my_id) || fx_posed.contains(id) {
                         a.bones = pose_now();
                     } else {
@@ -13314,7 +13316,7 @@ impl App {
                     g.area = actor_area(w.entities.get(id), w.ground.as_ref().and_then(|gr| gr.area(pos))).unwrap_or(0);
                     if drawn {
                         let files: Vec<_> = extra.iter().map(|(_, f)| f.clone()).collect();
-                        r.pose_actor_gpu(g, &ch, &files, &anims, if a.prev.is_some() { &from } else { &[] }, t, model, look, overlay);
+                        r.pose_actor_gpu(g, &ch, &files, &anims, if a.prev.is_some() { &from } else { &[] }, t, model, look, overlay, &held);
                         counts.posed += 1;
                         // FUN_100c9330: a mounted rider's point 0x6b and the mount's saddle point, for the offset.
                         if let Some((key, k)) = ride::query(&w.rides, *id)

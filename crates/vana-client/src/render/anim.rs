@@ -14,7 +14,8 @@ const TABLE: usize = crate::dat::animpack::TABLE;
 /// (animation, frame) pairs per pose; regions are filled by later files first, so a few suffice.
 pub const MAX_SET: usize = 8;
 /// Job header: skeleton, output, counts, blend, then the head look (weight, two bones, model-space point, bones
-/// used, point 4, limits, point 4 drop, point 3 offset), then the overlay (animation, frame, weight).
+/// used, point 4, limits, point 4 drop, point 3 offset), then the overlay (animation, frame, weight), then the drawn
+/// weapons' grip pairs (words 29 / 30).
 const HEAD: usize = 32;
 const JOB_WORDS: usize = HEAD + 4 * MAX_SET;
 const NO_BONE: u32 = u32::MAX;
@@ -170,6 +171,38 @@ fn local_tf(skel: u32, b: u32, job: u32, first: u32, count: u32, q: ptr<function
     }
 }
 
+// FUN_100339b0: bone b from its parent p, both poses; the child's translation scaled by the parent's accumulated
+// scale, in the parent's frame.
+fn chain(sc: u32, b: u32, p: u32, n_from: u32) {
+    for (var k = 0u; k < 6u; k = k + 3u) {
+        if (k == 3u && n_from == 0u) { break; }
+        let pq = scratch[sc + 6u * p + k];
+        let pt = scratch[sc + 6u * p + k + 1u].xyz;
+        let ps = scratch[sc + 6u * p + k + 2u].xyz;
+        let lq = scratch[sc + 6u * b + k];
+        let lt = scratch[sc + 6u * b + k + 1u].xyz;
+        let ls = scratch[sc + 6u * b + k + 2u].xyz;
+        scratch[sc + 6u * b + k] = qmul(pq, lq);
+        scratch[sc + 6u * b + k + 1u] = vec4<f32>(pt + qrot(pq, ps * lt), 0.0);
+        scratch[sc + 6u * b + k + 2u] = vec4<f32>(ps * ls, 0.0);
+    }
+}
+
+// Bone b's output: the target pose, or the cross-fade from the other.
+fn emit(sc: u32, b: u32, out: u32, n_from: u32, blend: f32) {
+    var q = scratch[sc + 6u * b];
+    var t = scratch[sc + 6u * b + 1u].xyz;
+    var s = scratch[sc + 6u * b + 2u].xyz;
+    if (n_from > 0u) {
+        q = slerp(scratch[sc + 6u * b + 3u], q, blend);
+        t = mix(scratch[sc + 6u * b + 4u].xyz, t, blend);
+        s = mix(scratch[sc + 6u * b + 5u].xyz, s, blend);
+    }
+    pose[out + 3u * b] = q;
+    pose[out + 3u * b + 1u] = vec4<f32>(t, 0.0);
+    pose[out + 3u * b + 2u] = vec4<f32>(s, 0.0);
+}
+
 @compute @workgroup_size(64)
 fn pose_actors(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_index) lid: u32) {
     let job = wg.x * JOB_WORDSu;
@@ -220,7 +253,17 @@ fn pose_actors(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_i
     storageBarrier();
     workgroupBarrier();
     if (lid != 0u) { return; }
-    // Parents precede children: chain in place, both poses.
+    // Drawn weapons (FUN_10029320): (carry | grip << 16) pairs; the grip's local scale takes the carry's.
+    var grips = array<u32, 2>(jobs[job + 29u], jobs[job + 30u]);
+    for (var i = 0u; i < 2u; i = i + 1u) {
+        if (grips[i] == NO_BONEu) { continue; }
+        let c = grips[i] & 0xffffu;
+        let g = grips[i] >> 16u;
+        for (var k = 0u; k < 6u; k = k + 3u) {
+            scratch[sc + 6u * g + k + 2u] = vec4<f32>(scratch[sc + 6u * g + k + 2u].xyz * scratch[sc + 6u * c + k + 2u].xyz, 0.0);
+        }
+    }
+    // Parents precede children: chain in place, both poses. A carry bone's subtree waits for pass 1 (flag in .w).
     for (var b = 0u; b < n; b = b + 1u) {
         if (b == 0u) {
             // Bone 0's translation through RotY(3 pi / 2) (FUN_10033800).
@@ -229,20 +272,13 @@ fn pose_actors(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_i
                 scratch[sc + k + 1u] = vec4<f32>(-lt.z, lt.y, lt.x, 0.0);
             }
         } else {
-            // FUN_100339b0: the child's translation scaled by the parent's accumulated scale, in the parent's frame.
             let p = data[skel + 1u + b * 8u];
-            for (var k = 0u; k < 6u; k = k + 3u) {
-                if (k == 3u && n_from == 0u) { break; }
-                let pq = scratch[sc + 6u * p + k];
-                let pt = scratch[sc + 6u * p + k + 1u].xyz;
-                let ps = scratch[sc + 6u * p + k + 2u].xyz;
-                let lq = scratch[sc + 6u * b + k];
-                let lt = scratch[sc + 6u * b + k + 1u].xyz;
-                let ls = scratch[sc + 6u * b + k + 2u].xyz;
-                scratch[sc + 6u * b + k] = qmul(pq, lq);
-                scratch[sc + 6u * b + k + 1u] = vec4<f32>(pt + qrot(pq, ps * lt), 0.0);
-                scratch[sc + 6u * b + k + 2u] = vec4<f32>(ps * ls, 0.0);
+            let held = scratch[sc + 6u * p + 1u].w == 1.0 || (grips[0] != NO_BONEu && p == (grips[0] & 0xffffu)) || (grips[1] != NO_BONEu && p == (grips[1] & 0xffffu));
+            if (held) {
+                scratch[sc + 6u * b + 1u].w = 1.0;
+                continue;
             }
+            chain(sc, b, p, n_from);
         }
         // Head look (FUN_1002ac60), worked out at the lower of the two bones from the target pose: the head's
         // world place from the neck (its parent) and its local, point 4 for the body's reference direction.
@@ -282,17 +318,24 @@ fn pose_actors(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_i
                 scratch[sc + 6u * b + k] = normalize(qmul(r, scratch[sc + 6u * b + k]));
             }
         }
-        var q = scratch[sc + 6u * b];
-        var t = scratch[sc + 6u * b + 1u].xyz;
-        var s = scratch[sc + 6u * b + 2u].xyz;
-        if (n_from > 0u) {
-            q = slerp(scratch[sc + 6u * b + 3u], q, blend);
-            t = mix(scratch[sc + 6u * b + 4u].xyz, t, blend);
-            s = mix(scratch[sc + 6u * b + 5u].xyz, s, blend);
+        emit(sc, b, out, n_from, blend);
+    }
+    // Pass 1: each carry bone on its grip (its own scale kept), then the held subtrees in order.
+    for (var i = 0u; i < 2u; i = i + 1u) {
+        if (grips[i] == NO_BONEu) { continue; }
+        let c = grips[i] & 0xffffu;
+        let g = grips[i] >> 16u;
+        for (var k = 0u; k < 6u; k = k + 3u) {
+            scratch[sc + 6u * c + k] = scratch[sc + 6u * g + k];
+            scratch[sc + 6u * c + k + 1u] = vec4<f32>(scratch[sc + 6u * g + k + 1u].xyz, 0.0);
         }
-        pose[out + 3u * b] = q;
-        pose[out + 3u * b + 1u] = vec4<f32>(t, 0.0);
-        pose[out + 3u * b + 2u] = vec4<f32>(s, 0.0);
+        emit(sc, c, out, n_from, blend);
+    }
+    for (var b = 1u; b < n; b = b + 1u) {
+        if (scratch[sc + 6u * b + 1u].w == 1.0) {
+            chain(sc, b, data[skel + 1u + b * 8u], n_from);
+            emit(sc, b, out, n_from, blend);
+        }
     }
 }
 "#;
@@ -313,20 +356,47 @@ mod tests {
         let to: Vec<(&Animation, f32)> = ch.find_animations("run").into_iter().map(|a| (a, 3.37)).collect();
         let from: Vec<(&Animation, f32)> = ch.find_animations("idl").into_iter().map(|a| (a, 7.5)).collect();
         assert!(!to.is_empty() && !from.is_empty());
-        check(&gpu, &ch, &to, &from);
+        check(&gpu, &ch, &to, &from, &[]);
         // Pugil idle: its keys flip sign between frames (the short-way lerp).
         let Ok(pugil) = crate::dat::npc::load_model(&index, 0x15c) else { return };
         let pugil = Arc::new(pugil);
         let idle: Vec<(&Animation, f32)> = pugil.find_animations("idl").into_iter().map(|a| (a, 4.5)).collect();
         assert!(!idle.is_empty());
-        check(&gpu, &pugil, &idle, &[]);
+        check(&gpu, &pugil, &idle, &[], &[]);
+    }
+
+    /// Nine's look (Mithra, two daggers on carry bones 96 / 98): the engaged run (file 47223's run1) keys the carry
+    /// bones at rest, on the ground; drawn, each rides its grip (FUN_10029320), on the GPU too.
+    #[test]
+    fn drawn_weapons_ride_the_grips() {
+        let Ok(index) = crate::dat::DatIndex::open(&crate::config::Config::load().ffxi_dir()) else { return };
+        let look = Look { race: 7, face: 10, head: 0, body: 110, hands: 110, legs: 110, feet: 11, main: 430, sub: 379, range: 62 };
+        let Ok(mut ch) = load_character(&index, &look) else { return };
+        let Ok(d) = index.read(47223) else { return };
+        let f = crate::dat::character::load_file(&d).unwrap();
+        ch.animations.push(f.animations.iter().find(|a| a.name == "run1").expect("run1").clone());
+        let ch = Arc::new(ch);
+        let grips: Vec<(u16, u16)> = ch.grips.iter().flatten().copied().collect();
+        assert_eq!(grips.len(), 2, "{:?}", ch.grips);
+        let mut to: Vec<(&Animation, f32)> = ch.find_animations("run").into_iter().filter(|a| a.name != "run1").map(|a| (a, 4.0)).collect();
+        to.push((ch.animations.last().unwrap(), 4.0));
+        let loose = pose(&ch.skeleton, &to);
+        let held = crate::dat::character::pose_held(&ch.skeleton, &to, &grips);
+        for &(c, g) in &grips {
+            let (c, g) = (c as usize, g as usize);
+            println!("carry {c} on grip {g}: loose height {:.2}, held {:.2}", -loose[c].t.y, -held[c].t.y);
+            assert!((held[c].t - held[g].t).length() < 1e-4 && held[c].q.dot(held[g].q).abs() > 0.9999);
+            assert!(-loose[c].t.y < 0.2 && -held[c].t.y > 0.5);
+        }
+        let Ok(gpu) = Gpu::headless() else { return };
+        check(&gpu, &ch, &to, &[], &grips);
     }
 
     fn posed(gpu: &Gpu, ch: &Arc<Character>, to: &[(&Animation, f32)], look: Option<HeadLook>) -> Vec<glam::Quat> {
         let n = ch.skeleton.bones.len().min(TABLE - 1);
         let mut ga = GpuAnim::new(gpu);
         ga.begin();
-        ga.job(ch, &[], to, &[], 0.0, 0, look, None);
+        ga.job(ch, &[], to, &[], 0.0, 0, look, None, &[]);
         let size = (n * 48) as u64;
         let out = gpu.device.create_buffer(&wgpu::BufferDescriptor { label: None, size, usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC, mapped_at_creation: false });
         let rb = gpu.device.create_buffer(&wgpu::BufferDescriptor { label: None, size, usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
@@ -366,15 +436,15 @@ mod tests {
         }
     }
 
-    fn check(gpu: &Gpu, ch: &Arc<Character>, to: &[(&Animation, f32)], from: &[(&Animation, f32)]) {
+    fn check(gpu: &Gpu, ch: &Arc<Character>, to: &[(&Animation, f32)], from: &[(&Animation, f32)], grips: &[(u16, u16)]) {
         for (f, t) in [(from, 0.3f32), (&[][..], 0.0)] {
             if f.is_empty() && t != 0.0 {
                 continue;
             }
-            let cpu = if f.is_empty() { pose(&ch.skeleton, &to) } else { crate::render::character::pose_blend(&ch, f, &to, t) };
+            let cpu = if f.is_empty() { crate::dat::character::pose_held(&ch.skeleton, &to, grips) } else { crate::render::character::pose_blend(&ch, f, &to, t, grips) };
             let mut ga = GpuAnim::new(&gpu);
             ga.begin();
-            ga.job(&ch, &[], &to, f, t, 0, None, None);
+            ga.job(&ch, &[], &to, f, t, 0, None, None, grips);
             let n = cpu.len().min(TABLE - 1);
             let size = (n * 48) as u64;
             let out = gpu.device.create_buffer(&wgpu::BufferDescriptor { label: None, size, usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC, mapped_at_creation: false });
@@ -423,7 +493,7 @@ pub struct GpuAnim {
 /// The posing pipeline and its layout (made once per device, render::PipeCache).
 pub fn pipeline(device: &wgpu::Device) -> (wgpu::ComputePipeline, wgpu::BindGroupLayout) {
     {
-        let src = WGSL.replace("JOB_WORDSu", &format!("{JOB_WORDS}u")).replace("SCRATCHu", &format!("{SCRATCH}u")).replace("MAX_SETu", &format!("{MAX_SET}u")).replace("HEADu", &format!("{HEAD}u"));
+        let src = WGSL.replace("JOB_WORDSu", &format!("{JOB_WORDS}u")).replace("SCRATCHu", &format!("{SCRATCH}u")).replace("MAX_SETu", &format!("{MAX_SET}u")).replace("HEADu", &format!("{HEAD}u")).replace("NO_BONEu", &format!("{NO_BONE}u"));
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("pose actors"), source: wgpu::ShaderSource::Wgsl(src.into()) });
         let entry = |binding, read_only| wgpu::BindGroupLayoutEntry {
             binding,
@@ -504,7 +574,7 @@ impl GpuAnim {
     /// Queues one actor: its model, the motion files on it, the pose (and the one it blends from at `t`),
     /// written to pose vec4 index `out`. Animations are found in the model or its files by address.
     #[allow(clippy::too_many_arguments)]
-    pub fn job(&mut self, ch: &Arc<Character>, extra: &[Arc<crate::dat::motionfile::MotionFile>], to: &[(&Animation, f32)], from: &[(&Animation, f32)], t: f32, out: u32, look: Option<HeadLook>, overlay: Option<(&Animation, f32, f32)>) {
+    pub fn job(&mut self, ch: &Arc<Character>, extra: &[Arc<crate::dat::motionfile::MotionFile>], to: &[(&Animation, f32)], from: &[(&Animation, f32)], t: f32, out: u32, look: Option<HeadLook>, overlay: Option<(&Animation, f32, f32)>, grips: &[(u16, u16)]) {
         let (Some(skel), _) = self.source(Arc::as_ptr(ch) as usize, ch.clone(), Some(&ch.skeleton), &ch.animations, ch.packed.as_deref()) else { return };
         let mut lookup = |a: &Animation| -> Option<u32> {
             let find = |list: &[Animation]| list.iter().position(|x| std::ptr::eq(x, a));
@@ -528,6 +598,10 @@ impl GpuAnim {
         words[4] = t.to_bits();
         words[6] = NO_BONE;
         words[7] = NO_BONE;
+        // Drawn weapons' (carry, grip) pairs (FUN_10029320), carry | grip << 16.
+        for k in 0..2 {
+            words[29 + k] = grips.get(k).map_or(NO_BONE, |&(c, g)| c as u32 | (g as u32) << 16);
+        }
         if let Some(l) = look.filter(|l| l.weight > 0.0 && l.bones.iter().all(|b| b.is_some_and(|b| b != 0))) {
             words[5] = l.weight.to_bits();
             for (i, b) in l.bones.iter().enumerate() {

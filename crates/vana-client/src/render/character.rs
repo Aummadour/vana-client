@@ -1,7 +1,7 @@
 //! Offscreen renderer for one posed character (CPU skinning).
 
 use super::{Camera, Gpu, depth_view};
-use crate::dat::character::{BoneXf, Character, pose, skin};
+use crate::dat::character::{BoneXf, Character, pose, pose_held, skin};
 use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
@@ -37,6 +37,11 @@ pub fn pose_character(ch: &Character, anims: &[(&crate::dat::character::Animatio
     skin_character(ch, &pose(&ch.skeleton, anims))
 }
 
+/// `pose_character` with drawn weapons on their grips.
+pub fn pose_character_held(ch: &Character, anims: &[(&crate::dat::character::Animation, f32)], grips: &[(u16, u16)]) -> PosedMesh {
+    skin_character(ch, &pose_held(&ch.skeleton, anims, grips))
+}
+
 /// Cross-fades from one motion's pose to another's: t = 0 is all `from`, 1 all `to` (FUN_100c6380 blend).
 pub fn pose_character_blend(
     ch: &Character,
@@ -50,8 +55,8 @@ pub fn pose_character_blend(
 }
 
 /// The bone transforms of a cross-fade from one motion to another (t = 0 all `from`).
-pub fn pose_blend(ch: &Character, from: &[(&crate::dat::character::Animation, f32)], to: &[(&crate::dat::character::Animation, f32)], t: f32) -> Vec<BoneXf> {
-    let (a, b) = (pose(&ch.skeleton, from), pose(&ch.skeleton, to));
+pub fn pose_blend(ch: &Character, from: &[(&crate::dat::character::Animation, f32)], to: &[(&crate::dat::character::Animation, f32)], t: f32, grips: &[(u16, u16)]) -> Vec<BoneXf> {
+    let (a, b) = (pose_held(&ch.skeleton, from, grips), pose_held(&ch.skeleton, to, grips));
     a.iter().zip(&b).map(|(x, y)| x.lerp(y, t)).collect()
 }
 
