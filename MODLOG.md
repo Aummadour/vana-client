@@ -12955,3 +12955,10 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   "more" come after its last page), at most one search connection at a time. Padding stays zero. Test
   paged_requests_as_captured (the captured request and "more" packet, fields but the padding). LSB: auction_live and
   ah_many_live pass.
+
+## Mog House: the Symphonic Curator's place (2026-11-01)
+
+- The item-gated NPC (model 0x737, the 3 mm black stand-in) stands where the server puts it: in a Windurst nation house
+  at (2.0, -7.5) by the door, while the Orchestrion that unlocks it is ordinary furniture wherever it was placed. Only
+  FUN_101d4c20 / FUN_101d4c80 read the gated table; nothing moves the NPC onto the furniture. The original client does
+  the same (user, 2026-11-01): an invisible target by the door. Not a bug.
