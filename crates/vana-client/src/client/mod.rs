@@ -9662,6 +9662,11 @@ impl App {
         for (code, c, zoom, ticks) in std::mem::take(&mut world.effects.screen_ops) {
             world.screen.fx_op(code, c, zoom, ticks);
         }
+        for c in std::mem::take(&mut world.effects.event_cameras) {
+            if let Some(index) = world.index.clone() {
+                world.screen.fx_camera(&index, c);
+            }
+        }
         for (id, _, ticks) in std::mem::take(&mut world.effects.locks) {
             let until = Instant::now() + std::time::Duration::from_secs_f32(ticks.max(0.0) / 60.0);
             let e = world.face_locks.entry(id).or_insert(until);

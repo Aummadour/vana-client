@@ -141,12 +141,14 @@ pub struct Screen {
     /// the capture, DAT_1045692c = 0).
     blur: ([f32; 5], [f32; 5], f32, f32),
     blur_starts: u32,
+    /// Camera paths an event's effect tasks asked for (fx_camera), started at the next advance.
+    fx_shots: Vec<(Arc<SchedFile>, String, String, f32, [crate::fx::sched::Who; 2])>,
 }
 
 
 impl Default for Screen {
     fn default() -> Self {
-        Screen { scheds: Vec::new(), files: HashMap::new(), shot: None, tick: 0.0, fade: ([1.0; 3], [1.0; 3], 0.0, 0.0), cross: None, flash: ([0.0; 4], [0.0; 4], 0.0, 0.0), blur: ([0.5, 0.5, 0.5, 0.0, 1.0], [0.5, 0.5, 0.5, 0.0, 1.0], 0.0, 0.0), blur_starts: 0 }
+        Screen { scheds: Vec::new(), files: HashMap::new(), shot: None, tick: 0.0, fade: ([1.0; 3], [1.0; 3], 0.0, 0.0), cross: None, flash: ([0.0; 4], [0.0; 4], 0.0, 0.0), blur: ([0.5, 0.5, 0.5, 0.0, 1.0], [0.5, 0.5, 0.5, 0.0, 1.0], 0.0, 0.0), blur_starts: 0, fx_shots: Vec::new() }
     }
 }
 
@@ -182,6 +184,15 @@ impl Screen {
                 self.blur_starts += 1;
             }
             _ => {}
+        }
+    }
+
+    /// Scheduler op 0x04 / 0x81 in a task an event's scheduler started (main's `cut1`..: fx/tasks.rs): the path
+    /// plays from now as this runner's own 0x04 does.
+    pub fn fx_camera(&mut self, index: &DatIndex, c: crate::fx::EventCamera) {
+        let four = |v: [u8; 4]| String::from_utf8_lossy(&v).trim_end_matches('\0').to_string();
+        if let Some(f) = self.file(index, c.file) {
+            self.fx_shots.push((f, four(c.tag), four(c.path.to_le_bytes()), c.ticks.max(1.0), c.who));
         }
     }
 
@@ -246,6 +257,14 @@ impl Screen {
                 log::info!("event camera {tag}: path {} flags {:#x}, {} keys, {ticks} ticks{}", p.name, p.flags, p.keys.len(), if p.flags & crate::dat::title::FROM_CURRENT != 0 { ", from the current camera" } else { "" });
             }
             self.shot = Some(Shot { file: f, tag, path, start: at, ticks, from: current.map(key_of), follow, who, frame: None });
+        }
+        // The effect tasks' paths after the runner's (they ran this frame).
+        for (f, tag, name, ticks, who) in std::mem::take(&mut self.fx_shots) {
+            let Some(path) = f.title.as_ref().and_then(|t| t.paths.iter().position(|p| p.name == name)) else { continue };
+            if let Some(p) = f.title.as_ref().and_then(|t| t.paths.get(path)) {
+                log::info!("event camera {tag} (effect task): path {} flags {:#x}, {} keys, {ticks} ticks", p.name, p.flags, p.keys.len());
+            }
+            self.shot = Some(Shot { file: f, tag, path, start: now, ticks, from: current.map(key_of), follow, who, frame: None });
         }
         if let Some((to, at, ticks)) = fade {
             self.fade = (self.fade.1, to, at, ticks);

@@ -12977,3 +12977,20 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
 - Correction to "D3b morph elements": ops 0x1e..0x22 (case 0x1004bf13) sample at the day fraction (DAT_106175bc,
   Vana'diel seconds of the day / 86400) when the parameter has bit 4, with no repeat; only life t is repeated
   (param >> 5) & 0x1ff times (fmod 1). Ours repeated the day fraction too (gyl's weights take 0x51).
+
+## Cutscene cameras from an event scheduler's sub-schedulers (2026-11-01)
+
+- FUN_10057000 (the scheduler op switch; table 0x1005cc6c indexed by op - 2) case 4 / 0x81 (0x1005908c): the camera
+  path 4cc @8 (resource kind 6, FUN_100712e0) is created through FUN_1003ba60 for dur x speed on actor1 / actor2
+  (FUN_10056c30 / c40) and linked to the task (FUN_10073820); the task goes on (return 0, as case 2 does).
+- Ours played op 0x04 only in client/event.rs's runner, which walks the event op's own scheduler. Tasks that
+  scheduler starts (op 0x03 and family) run in fx/tasks.rs, which had no case 4: their shots never played. CoP's
+  Bahamut scene (Lower Delkfutt's Tower event 0x25, op 0x9f #69 = DAT 51252 `main`): main sets c000 and starts
+  cut1..cut4 (c001 0 s, c002 18.8 s, c003, c004); ours held c000, a fixed shot of open sea at (306, -12, -244), for
+  the 57 s. Now a task started by an event op, or by one of its tasks (Task::event, inherited through run_op), hands
+  its op 0x04 / 0x81 to the runner (Effects::event_cameras -> Screen::fx_camera), which starts the shot as its own
+  0x04 does; the event's own scheduler (event_root) stays the runner's. Test sub_scheduler_cameras.
+- Checked offscreen: `cs-shot` takes a file id from 0x77f0 (op 0x9f's 0xc7ef files), `mmb-dump` a file id from 1000
+  (the chunk's name too), and zone-shot FFXI_FX_ONLY / FFXI_FX_HIDE (generators by name) and FFXI_FX_AUDIT (the task
+  VM's default-arm ops). Area 542's sea is DAT 51252's `bahm` generators; its `max1..max5` wall (flag 0x200, Rx Ry Rz)
+  stands upright with a mirrored copy below the surface (max2's negative z scale), as the data has it.

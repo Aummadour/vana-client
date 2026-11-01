@@ -50,7 +50,8 @@ pub fn camera_file(n: u32) -> u32 {
 pub fn cs_shot(zone: u32, n: u32, sched: &str, steps: u32, out_dir: &std::path::Path, width: u32, height: u32) -> Result<()> {
     use crate::dat::title::{Op, Title, fov_y, sample};
     let index = DatIndex::open(&crate::config::Config::load().ffxi_dir())?;
-    let file = camera_file(n);
+    // A file id itself from 0x77f0 (op 0x9f's 0xc7ef files).
+    let file = if n >= 0x77f0 { n } else { camera_file(n) };
     let evte = Title::parse(&index.read(file)?)?;
     let ops = evte.scheduler(sched)?;
     std::fs::create_dir_all(out_dir)?;
