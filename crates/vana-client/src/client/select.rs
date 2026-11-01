@@ -1118,7 +1118,8 @@ pub fn screen_shot(shot: &ScreenShot, out: &std::path::Path) -> Result<()> {
     chars.extend((0..3).map(|_| Character { content_id: 0, name: " ".into(), world: String::new(), status: 1, rename_required: false, race: 0, main_job: 0, main_level: 0, sub_job: 0, face: 0, nation: 0, size: 0, zone: 0, looks: [0; 8] }));
     let list = List::new(&chars);
     let looks: Vec<Option<(Look, u8)>> = (0..SLOTS)
-        .map(|i| list.get(&chars, i).map(|c| (Look { race: c.race as u8, face: c.face, head: c.looks[1], body: c.looks[2], hands: c.looks[3], legs: c.looks[4], feet: c.looks[5], main: c.looks[6], sub: c.looks[7], range: 0 }, c.size)))
+        // Lobby ids may carry the slot in the top nibble (0x1000 head .. 0x7000 sub), as the zone's do; LSB's carry none.
+        .map(|i| list.get(&chars, i).map(|c| (Look { race: c.race as u8, face: c.face, head: c.looks[1] & 0x0FFF, body: c.looks[2] & 0x0FFF, hands: c.looks[3] & 0x0FFF, legs: c.looks[4] & 0x0FFF, feet: c.looks[5] & 0x0FFF, main: c.looks[6] & 0x0FFF, sub: c.looks[7] & 0x0FFF, range: 0 }, c.size)))
         .collect();
     let mut data = SelectData::load(&index, &keys, &looks)?;
     data.lighting = ZoneWeather::parse(&index.read(zone::file_id(ZONE))?).ok().and_then(|w| w.at("suny", shot.hour * 60.0)).map(|e| Lighting::from_env(&e, shot.hour * 60.0));
