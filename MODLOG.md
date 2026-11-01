@@ -13014,3 +13014,14 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   weather (FUN_10092940). Ours lit by them only; now the effects switch on 0x77 / 0x78 (and on a swapped area,
   event::weather), the effects' and the music's hour follow 0x77's (event::hour), and an event ending with 0x77 still
   in force goes back as its lighting does *(ours: retail keeps it until a 0x78)*.
+
+## Event op 0x5f subs 5 / 6 / 7: named actor timers, not a speed (2026-11-01)
+
+- FUN_100b5490 subs 5 / 6 call FUN_100b3570(.., 1): after playing the motion as subs 3 / 4 do, vtable +0x2a8 =
+  FUN_10083780(val@0x10 ticks, the motion's 4cc, actor) makes an XiActorTimerTask (+0x74 ticks, +0x78 name) that
+  FUN_10083850 counts down by frame ticks and deletes below 0; the op is 2 bytes longer. Sub 7 (FUN_100b3170(0, 1))
+  waits while actor@2 has a timer named u32@10 (vtable +0x2ac = FUN_100838c0); it never looks at the motion.
+- Ours read val@0x10 as a speed and dropped it, and made sub 7 wait for the motion's own length ('tlk0' #80: 80
+  ticks in retail, ~306 in ours; with no timer retail does not wait at all). Now Runtime::timers by (actor, 4cc),
+  counted down each tick, set when sub 5 / 6 issue a motion on a ready actor. Common in talk scenes (Ceizak event 3:
+  85 pairs; 669 sub-7 sites in 30 story zones).
