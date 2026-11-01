@@ -13571,7 +13571,7 @@ impl App {
             // While the indicator is up it alone is drawn, at full level. Out of the lobby the empty screen is
             // black, not the lobby's 0x808080 (scene level 0 clears to black).
             Phase::World(w) if w.downloading.is_some() => (1.0, 0.0),
-            Phase::World(w) => (1.0 - w.fade, 0.0),
+            Phase::World(w) => ((1.0 - w.fade) * w.screen.ui_level(), 0.0),
             _ => (self.lobby_fade.ui, self.lobby_fade.scene),
         };
         if !matches!(self.phase, Phase::World(_)) && drew_world && scene_level < 0.995 {

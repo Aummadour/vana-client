@@ -136,6 +136,9 @@ pub struct Screen {
     /// Op 0x0f: the scene colour multiply per channel, 2 * RGB / 255 (MODULATE2X, 0x80 = 1.0; A unused):
     /// from, to, start tick, length.
     fade: ([f32; 3], [f32; 3], f32, f32),
+    /// Op 0x51 (renderer +0x334, from +0x31c): the level over everything, scene and 2D windows (FUN_1000a820), as the
+    /// fade: from, to, start, length.
+    level: ([f32; 3], [f32; 3], f32, f32),
     pub cross: Option<Cross>,
     /// Op 0x72: the additive flash, RGBA / 255: from, to, start tick, length.
     flash: ([f32; 4], [f32; 4], f32, f32),
@@ -152,7 +155,7 @@ pub struct Screen {
 
 impl Default for Screen {
     fn default() -> Self {
-        Screen { scheds: Vec::new(), files: HashMap::new(), shot: None, tick: 0.0, fade: ([1.0; 3], [1.0; 3], 0.0, 0.0), cross: None, flash: ([0.0; 4], [0.0; 4], 0.0, 0.0), blur: ([0.5, 0.5, 0.5, 0.0, 1.0], [0.5, 0.5, 0.5, 0.0, 1.0], 0.0, 0.0), blur_starts: 0, fx_shots: Vec::new(), fx_crosses: Vec::new() }
+        Screen { scheds: Vec::new(), files: HashMap::new(), shot: None, tick: 0.0, fade: ([1.0; 3], [1.0; 3], 0.0, 0.0), level: ([1.0; 3], [1.0; 3], 0.0, 0.0), cross: None, flash: ([0.0; 4], [0.0; 4], 0.0, 0.0), blur: ([0.5, 0.5, 0.5, 0.0, 1.0], [0.5, 0.5, 0.5, 0.0, 1.0], 0.0, 0.0), blur_starts: 0, fx_shots: Vec::new(), fx_crosses: Vec::new() }
     }
 }
 
@@ -168,11 +171,16 @@ impl Screen {
             .clone()
     }
 
-    /// The scene multiply now (1.0 = unchanged).
+    /// The scene multiply now (1.0 = unchanged): op 0x0f's colour times op 0x51's level.
     pub fn multiply(&self) -> [f32; 3] {
-        let (from, to, start, len) = self.fade;
-        let t = if len <= 0.0 { 1.0 } else { ((self.tick - start) / len).clamp(0.0, 1.0) };
-        std::array::from_fn(|i| from[i] + (to[i] - from[i]) * t)
+        let (f, l) = (self.lerp(self.fade), self.lerp(self.level));
+        std::array::from_fn(|i| f[i] * l[i])
+    }
+
+    /// Op 0x51's level for the 2D windows (their colour and alpha; the mean of its RGB).
+    pub fn ui_level(&self) -> f32 {
+        let l = self.lerp(self.level);
+        ((l[0] + l[1] + l[2]) / 3.0).clamp(0.0, 1.0)
     }
 
     /// An effect scheduler's screen op (fx/tasks.rs): 0x0f the multiply, 0x72 the flash over dur x speed - 1 ticks,
@@ -182,7 +190,9 @@ impl Screen {
         let now = self.tick;
         match code {
             // Case 0xf: from the colour drawn now (+0x320), an interrupted fade too.
-            0x0f => self.fade = (self.multiply(), [c[0], c[1], c[2]].map(|v| v as f32 * 2.0 / 255.0), now, (ticks - 1.0).max(0.0)),
+            0x0f => self.fade = (self.lerp(self.fade), [c[0], c[1], c[2]].map(|v| v as f32 * 2.0 / 255.0), now, (ticks - 1.0).max(0.0)),
+            // Case 0x51 (all.c 66225): the 0x0f task on the level.
+            0x51 => self.level = (self.lerp(self.level), [c[0], c[1], c[2]].map(|v| v as f32 * 2.0 / 255.0), now, (ticks - 1.0).max(0.0)),
             0x72 => self.flash = (self.flash.1, c.map(f), now, (ticks - 1.0).max(0.0)),
             0x0e => {
                 self.blur = (self.blur.1, [f(c[0]), f(c[1]), f(c[2]), f(c[3]), zoom], now, ticks.max(0.0));
@@ -257,6 +267,7 @@ impl Screen {
         let mut fade = None;
         let mut cross = None;
         let mut stops: Vec<String> = Vec::new();
+        let mut level = None;
         for s in &mut self.scheds {
             while s.cursor < s.ops.len() && now >= s.next_at {
                 let op = &s.ops[s.cursor];
@@ -272,6 +283,11 @@ impl Screen {
                         let c = &op.data[8..12];
                         let m = [c[0], c[1], c[2]].map(|v| v as f32 * 2.0 / 255.0);
                         fade = Some((m, at, (op.ticks as f32 * s.speed - 1.0).max(0.0)));
+                    }
+                    0x51 if op.data.len() >= 12 => {
+                        let c = &op.data[8..12];
+                        let m = [c[0], c[1], c[2]].map(|v| v as f32 * 2.0 / 255.0);
+                        level = Some((m, at, (op.ticks as f32 * s.speed - 1.0).max(0.0)));
                     }
                     0x10 => cross = Some(Cross { start: at, len: (op.ticks as f32 * s.speed).max(1.0), camera: current, captured: false }),
                     // Case 0xb0 (FUN_1003bd70): the camera task playing path u32 @8 ends.
@@ -305,7 +321,10 @@ impl Screen {
             self.shot = Some(Shot { file: f, file_id, tag, path, start: now, ticks, from: current.map(key_of), follow, who, frame: None });
         }
         if let Some((to, at, ticks)) = fade {
-            self.fade = (self.multiply(), to, at, ticks);
+            self.fade = (self.lerp(self.fade), to, at, ticks);
+        }
+        if let Some((to, at, ticks)) = level {
+            self.level = (self.lerp(self.level), to, at, ticks);
         }
         if cross.is_some() {
             self.cross = cross;
@@ -3059,6 +3078,21 @@ mod tests {
         assert!((b.zoom - 0.99).abs() < 1e-6 && (b.a - 60.0 / 255.0).abs() < 1e-3, "{b:?}");
         sc.fx_op(0x0e, [0x80, 0x80, 0x80, 0], 1.0, 0.0);
         assert!(sc.blur().is_none());
+    }
+
+    /// Op 0x51 takes the scene and the 2D windows down together, apart from 0x0f's colour.
+    #[test]
+    fn level_over_everything() {
+        let mut sc = Screen::default();
+        sc.fx_op(0x51, [0, 0, 0, 0], 0.0, 11.0);
+        sc.tick = 5.0;
+        assert!((sc.ui_level() - 0.5).abs() < 1e-3 && (sc.multiply()[0] - 0.5).abs() < 1e-3);
+        sc.fx_op(0x0f, [0x40, 0x40, 0x40, 0x80], 0.0, 1.0);
+        sc.tick = 20.0;
+        assert!(sc.ui_level() < 1e-3 && sc.multiply()[0] < 1e-3);
+        sc.fx_op(0x51, [0x80, 0x80, 0x80, 0x80], 0.0, 1.0);
+        sc.tick = 30.0;
+        assert!((sc.ui_level() - 1.0).abs() < 1e-2 && (sc.multiply()[0] - 0.502).abs() < 1e-2, "{:?}", sc.multiply());
     }
 
     /// A camera task lives for its ticks; op 0xb0 naming its path, or a stop of its scheduler, ends it there.

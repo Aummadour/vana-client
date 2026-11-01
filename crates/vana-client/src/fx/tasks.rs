@@ -1470,8 +1470,8 @@ impl Effects {
             }
             // An event's own scheduler's fade is client/event.rs's runner's (played twice, the second started at the
             // first's target: a cut).
-            0x0f if t.event_root => Flow::Next,
-            0x0f | 0x72 | 0x0e => {
+            0x0f | 0x51 if t.event_root => Flow::Next,
+            0x0f | 0x51 | 0x72 | 0x0e => {
                 let c = op.u32_at(8).to_le_bytes();
                 let zoom = if op.code == 0x0e { f32::from_bits(op.u32_at(0xc)) } else { 0.0 };
                 self.screen_ops.push((op.code, c, zoom, op.dur.max(0) as f32 * t.speed));

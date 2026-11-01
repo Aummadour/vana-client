@@ -13092,3 +13092,12 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   file, sampled linearly (FUN_10053550) or eased with path flag bit 21 (FUN_100537f0); not found, linear. Ours took
   every such path as linear (9 paths: file 57174's y070 / y100 / y110 / y123 / y140 / x800, 70757 c001; 30788 c021 and
   56949 z001 name a missing 'k000'). Now Title::parse resolves CameraPath::ease_key. Test keyframe_eases.
+
+## Op 0x51: the level over the scene and the windows (2026-11-01)
+
+- Scheduler case 0x51 (all.c 66225) is the 0x0f task on another channel: it writes renderer +0x334 from +0x31c, the
+  level FUN_1000a820 draws over everything after the 2D windows (MODLOG "Name plates under the screen fade"). File
+  30904's fdis / fdos, fai1 / fao1, fai2 / fao2, fdil / fdol use it (about 100 event starts). Ours sent it to the
+  default arm, so nothing faded. Now Screen::level (from what is shown, as 0x0f), in Screen::multiply (scene and
+  plates) and Screen::ui_level (the 2D layer's level, the mean of its RGB *(inf: as the lobby's modulate)*); an event's
+  own scheduler's 0x51 is the runner's, as 0x0f. Test level_over_everything.
