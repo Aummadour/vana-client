@@ -372,6 +372,10 @@ impl BattleText {
         Some(self.expand_raw(&raw, ctx))
     }
 
+    pub fn system_raw(&self, id: u16) -> Option<Vec<u8>> {
+        self.system.as_ref()?.raw(id as u32)
+    }
+
     pub fn system(&self, id: u16, ctx: &Ctx) -> Option<Line> {
         let raw = self.system.as_ref()?.raw(id as u32)?;
         Some(self.expand_raw(&raw, ctx))

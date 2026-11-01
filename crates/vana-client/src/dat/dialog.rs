@@ -441,7 +441,12 @@ pub struct Expanded {
     pub mode: Option<u8>,
     /// `0d n` / `0e n`: SeSep se ids of work[n] / num[n], played as the line is built (FUN_100382c0, pan 0x40, 0x7f).
     pub sounds: Vec<u32>,
+    /// `17 n`: motion n of 0x1035d518 that the moogle actor plays (FUN_100c1650 -> FUN_100a0080, vtable +0x298).
+    pub motions: Vec<&'static str>,
 }
+
+/// FUN_100c1650's `17 n` names (0x1035d518, 4 bytes each).
+const MOOGLE_MOTIONS: &str = "exp0exp1gak0gak1job0job1hap0hap1new0new1tlk0tlk1dan0dae0dan1dae1dan2dae2dan3dae3daz0";
 
 /// Expands the codes a plain NPC line uses; others are dropped. Not the full FUN_100bf790.
 pub fn expand(s: &[u8], ctx: &Ctx) -> Expanded {
@@ -449,6 +454,7 @@ pub fn expand(s: &[u8], ctx: &Ctx) -> Expanded {
     let mut lines = vec![Vec::new()];
     let (mut prompt, mut choice, mut wait) = (false, None, None);
     let mut sounds = Vec::new();
+    let mut motions = Vec::new();
     let work = |n: usize| ctx.work.get(n).copied().unwrap_or(0);
     let num = |n: usize| ctx.num_at(n).unwrap_or(0);
     let texts = ctx.texts.as_deref();
@@ -604,6 +610,10 @@ pub fn expand(s: &[u8], ctx: &Ctx) -> Expanded {
                 colour = a as u8;
                 2
             }
+            0x17 => {
+                motions.extend(MOOGLE_MOTIONS.get(a * 4..a * 4 + 4));
+                2
+            }
             0x10..=0x19 | 0x1b => 2,
             0x7f => match a as u8 {
                 0x31 => {
@@ -736,7 +746,7 @@ pub fn expand(s: &[u8], ctx: &Ctx) -> Expanded {
     while lines.len() > 1 && lines.last().is_some_and(|l| l.chunks(2).all(|c| c.len() == 2 && c[0] == 0x1e)) {
         lines.pop();
     }
-    Expanded { lines, prompt, choice, wait, place, mode, sounds }
+    Expanded { lines, prompt, choice, wait, place, mode, sounds, motions }
 }
 
 #[cfg(test)]
@@ -839,6 +849,15 @@ mod tests {
         assert_eq!(e.place, [Some(80), Some(340)]);
         assert_eq!(e.lines, vec![b"The fortress".to_vec()]);
         assert_eq!(e.wait, Some(540));
+    }
+
+    /// The moogle's Change Jobs line (file 7031 0x32): `17 04` is job0, played by the moogle, not printed.
+    #[test]
+    fn moogle_motion_code() {
+        let e = expand(b"\x1f\x8d\x17\x04Chaaange...job!", &Ctx::default());
+        assert_eq!(e.motions, ["job0"]);
+        assert_eq!(e.lines, vec![b"Chaaange...job!".to_vec()]);
+        assert!(expand(b"\x17\x30x", &Ctx::default()).motions.is_empty());
     }
 
     #[test]

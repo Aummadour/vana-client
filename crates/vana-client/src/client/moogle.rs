@@ -118,14 +118,29 @@ pub fn job_cooling(w: &World) -> bool {
     w.job_cooldown.is_some_and(|t| Instant::now() <= t)
 }
 
-/// The moogle actor (FUN_100a0080; retail by model 0x52 / 0x3d5 / 0x58a / 0x939, ours the nearest entity named
-/// Moogle, inferred stand-in).
+/// The moogle actor (FUN_100a0080 / FUN_100a0010): the zone NPC of the lowest index with model 0x52, 0x3d5, 0x58a or
+/// 0x939. Not done: the index S+0x40daa tried first, the actor kind test (+0xee 1 / 2 / 7).
 pub(super) fn moogle_actor(w: &World) -> Option<u32> {
     w.entities
         .iter()
-        .filter(|(_, e)| e.name.contains("Moogle"))
-        .min_by(|a, b| (a.1.pos - w.pos).length().total_cmp(&(b.1.pos - w.pos).length()))
+        .filter(|(id, e)| *id >> 24 == 1 && matches!(e.model, 0x52 | 0x3d5 | 0x58a | 0x939))
+        .min_by_key(|(_, e)| e.index)
         .map(|(&id, _)| id)
+}
+
+/// Event text's `17 n` codes: the moogle actor plays each motion (vtable +0x298), as the text is built.
+pub(super) fn emote(w: &mut World, motions: &[&str]) {
+    let Some(id) = moogle_actor(w) else { return };
+    for name in motions {
+        if let Some(a) = w.actors.get_mut(&id)
+            && let Some(ch) = a.character.clone()
+        {
+            let base = crate::motion::choose(&a.motion_names.unwrap_or(ch.motions), 0, 0.0).0.to_string();
+            if super::actmotion::start(a, &ch, name, &base) {
+                super::actmotion::fx_too(&mut w.effects, id, name);
+            }
+        }
+    }
 }
 
 /// jobcselu's disabled rows: the jobs whose 0x01B bit is clear.
@@ -654,5 +669,10 @@ pub fn line(w: &mut World, n: u16) {
         && let Some(text) = l.lines.into_iter().find(|l| !l.is_empty())
     {
         w.chat.push(format!("{name} : {text}"));
+    }
+    // FUN_100ad660 prints it as event text: its `17 n` (the Change Jobs line's job0) moves the moogle.
+    if let Some(raw) = bt.system_raw(n) {
+        let motions = crate::dat::dialog::expand(&raw, &Default::default()).motions;
+        emote(w, &motions);
     }
 }

@@ -12918,3 +12918,22 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
 - Seen on a server that sends it: the Symphonic Curator (model 0x737) in Ru'Lude Gardens' rent-a-room, which ours
   drew (a black 3 mm stand-in) and let be targeted. Ours: furniture::gated_hidden in event::hidden (drawing, plates,
   picking, Tab, the target drop). Not seen live in a furnished room with an Orchestrion.
+
+## Event text `17 n`: the moogle's motions (2026-11-01)
+
+- FUN_100c1650 (the event text formatter) case 0x17: `17 n` makes the moogle actor (FUN_100a0080, not the speaker)
+  play motion n by name through its model's vtable +0x298, from the table at 0x1035d518: exp0 exp1 gak0 gak1 job0
+  job1 hap0 hap1 new0 new1 tlk0 tlk1 dan0 dae0 dan1 dae1 dan2 dae2 dan3 dae3 daz0. No moogle actor: nothing. The
+  table in MODLOG's control-code list ("Player emote motion") was wrong about whose motion it is.
+- The moogle's lines (file 7031, language slot 0x68, FUN_100a1860) carry them: 0x32 "Chaaange...job! Kupopopooo!"
+  `{emote 4}` = job0 (the moogle nods, rises and spins, scheduler and motion `job0` in its model file 1382; the
+  spin keeps going until another motion or the zone change), 0x31 / 0x33 exp0, 0x2f new0, 0x30 exp1, 0x35 / 0x36
+  hap0, 0x37 / 0x38 tlk0, 0x39 dan2. Ours dropped the code: the moogle never moved at Change Jobs, on LSB too.
+- FUN_100a0080: the index at S+0x40daa if FUN_100a0010 takes it, else the lowest index 0..0x8ff it takes;
+  FUN_100a0010: an actor with its model (+0x120 bit 9), a zone NPC (+0x78 0x01xxxxxx), +0xee 1 / 2 / 7, model +0xfc
+  0x52, 0x3d5, 0x58a or 0x939. Ours (moogle::moogle_actor) now by model and lowest index; S+0x40daa and +0xee not done.
+- Ours: dialog::Expanded.motions; played by moogle::emote from zone text, coded chat lines, the event VM's
+  messages and the moogle's own lines (moogle::line). Test moogle_motion_code.
+- Live (Lnxcsfix, Southern San d'Oria Mog House 1F, chars.moghouse = its own id): Change Jobs, the moogle nods,
+  rises and spins; then the job pick's dance (5038 'main') hides it in its sparkles at about 4 s and it fades back at
+  about 5.5 s, still spinning.

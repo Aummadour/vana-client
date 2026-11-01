@@ -49,7 +49,8 @@ pub enum Effect {
     /// Dialogue line; the window stays open until [`Runtime::close_message`].
     /// `place`: the text's 02 / 03 window position codes.
     /// `mode`: a 1f code's (msg+4); `sounds`: the 0d / 0e SeSep ids played as the text was built.
-    Message { op: u8, speaker: Option<u32>, id: u32, text: String, prompt: bool, wait: Option<u32>, place: [Option<i16>; 2], mode: Option<u8>, sounds: Vec<u32> },
+    /// `motions`: the `17 n` names the moogle plays.
+    Message { op: u8, speaker: Option<u32>, id: u32, text: String, prompt: bool, wait: Option<u32>, place: [Option<i16>; 2], mode: Option<u8>, sounds: Vec<u32>, motions: Vec<&'static str> },
     /// Choice menu (op 0x24); answer with [`Runtime::choose`].
     Choice { id: u32, question: String, options: Vec<(u32, String)>, cursor: usize },
     /// Scheduler start (0x45 and family): file id (base + n), tag, actor, target, param.
@@ -980,7 +981,7 @@ impl Runtime {
             self.last_speaker = about;
         }
         let (text, prompt, e) = self.text(id, self.last_speaker, host);
-        let (wait, place, mode, sounds) = e.map_or((None, [None; 2], None, Vec::new()), |e| (e.wait, e.place, e.mode, e.sounds));
+        let (wait, place, mode, sounds, motions) = e.map_or((None, [None; 2], None, Vec::new(), Vec::new()), |e| (e.wait, e.place, e.mode, e.sounds, e.motions));
         let name = speaker.map(|s| host.name(s));
         let text = match name {
             Some(n) => format!("{n} : {text}"),
@@ -988,7 +989,7 @@ impl Runtime {
         };
         let body = self.vms[v].body;
         self.bodies[body].msg_actor = speaker;
-        host.effect(Effect::Message { op, speaker, id, text, prompt, wait, place, mode, sounds });
+        host.effect(Effect::Message { op, speaker, id, text, prompt, wait, place, mode, sounds, motions });
     }
 
     /// Operands of a generic op from the opcode table.

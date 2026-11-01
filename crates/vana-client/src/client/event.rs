@@ -646,8 +646,9 @@ impl Host for LiveHost<'_> {
         log::debug!("event: {}", crate::event_vm::describe(&e));
         let index = self.st.start.index;
         match e {
-            Effect::Message { id, text, prompt, wait, speaker, op, place, mode, sounds } => {
+            Effect::Message { id, text, prompt, wait, speaker, op, place, mode, sounds, motions } => {
                 self.w.sounds.extend(sounds);
+                super::moogle::emote(self.w, &motions);
                 // FUN_100bf790: 02 / 03 set DAT_10476f98 / 9a and place the window there (FUN_10132030(1, x, y)).
                 if place.iter().any(Option::is_some) {
                     self.st.code_xy = (place[0].unwrap_or(self.st.code_xy.0), place[1].unwrap_or(self.st.code_xy.1));
@@ -2640,6 +2641,7 @@ pub fn zone_text(w: &mut World, t: &ZoneText) {
     };
     let e = dialog::expand(&raw, &ctx);
     w.sounds.extend(&e.sounds);
+    super::moogle::emote(w, &e.motions);
     // The log mode: Type below 8 by table 0x1035b944, else 0; a 1f code in the text overrides it.
     const MODES: [u8; 8] = [0x8e, 0xa1, 0x90, 0x91, 0x92, 0xa1, 0x94, 0x95];
     let mode = e.mode.unwrap_or(MODES.get(t.kind as usize).copied().unwrap_or(0));
@@ -2724,6 +2726,7 @@ pub fn source_line(w: &mut World, source: u16, id: u16, num: [u32; 5], mode: u8,
     };
     let e = dialog::expand(&raw, &ctx);
     w.sounds.extend(&e.sounds);
+    super::moogle::emote(w, &e.motions);
     let mode = e.mode.unwrap_or(mode);
     let colour = w.battle.as_ref().map_or(super::WHITE, |bt| bt.colour_in(mode, &w.game));
     let indent = w.battle.as_ref().is_some_and(|bt| bt.indents(mode));
