@@ -12857,3 +12857,19 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   Alright then, it seems a group of Quetzalcoatl's minions is looking to set the stage at ?-? in Reisenjima. Go
   introduce yourself!" Ours printed the prefix as text. Now event::coded_chat / source_line; tests coded_unity_line,
   coded_unity_text. `dmsg-dump SLOT` prints event-text slot files too.
+
+## Lit MMB stand-ins: East Sarutabaruta's river (2026-11-01)
+
+- The river layers of zone 116 (f_sa/effe/kaw1/kc**, kct8, tkc8; blend 0x48, texture "effect  kaw1") draw MMB
+  stand-ins (`kw01` / `kw02` / `kw03` / `kw05` / `kwt1` / `kwt2`, chunk type 0x2e, vertex colour 0x80) with op-1 flag
+  16. FUN_10045950 turns LIGHTING on for flag 16 and the MMB draw FUN_1017c840 sets no render state of its own (only
+  texture stages, textures, the vertex shader, ZBIAS; FVF 0x152 with normals), so retail lights them like a D3m: at
+  night the moon and the ambient tint the added colour blue-violet. Ours lit only variants 0 / 1 (D3m): the river
+  added an unlit tan (0x948062). Now vs_mesh lights the MMB variants 2 / 3 too, and MMB stand-ins (+0x179) skip the
+  parent step of the light matrix (generator-bits bit 1, set at emission).
+- Offscreen, 21:00 from (-86.6, -7, 4.4) towards (-116, -2, 4.4), mods off, river pixels: before (65, 60, 62), now
+  (55, 48, 59); the user's retail screenshot (55, 51, 65). Open item 1 of fx_element_render_spec.md closed.
+- kaw1 itself (64 x 64, alpha levels 0 / 34 / 68, 763 clear specks) is not taken for dither by soften_alpha (test
+  speckled_wash_kept). With vana-upscale on, tex-pack's Floyd-Steinberg alpha dither turns the upscaled speck edges
+  into fine noise, so the specks wash out (brightest minus darkest: stock (27, 24, 30), pack (21, 19, 23), retail
+  (32, 32, 37)).

@@ -200,7 +200,9 @@ pub fn emit(reg: &mut Registry, inst: &mut Instance, parent: Option<&Parent>, f:
     e.0[w::STATE] = st::ALIVE | if inst.flags & 0x2000_0000 != 0 { st::BATCHED } else { 0 } | if matches!(draw, Draw::None) { 0 } else { st::HAS_RES };
     inst.emitted += 1;
     let batched = inst.flags & 0x2000_0000 != 0;
-    e.0[w::GEN_BITS] = (inst.de as u32) << 8 | lit_parent_off(reg.libs[lib].file_id, inst.name) as u32 * 2;
+    // Bit 1: no parent step in the light matrix; MMB stand-ins (elem +0x179) skip it too.
+    let mmb = matches!(draw, Draw::Mesh(id) if reg.meshes.get(id as usize).and_then(|r| reg.libs[r.0].meshes.get(&r.1)).is_some_and(|m| m.mmb));
+    e.0[w::GEN_BITS] = (inst.de as u32) << 8 | (lit_parent_off(reg.libs[lib].file_id, inst.name) || mmb) as u32 * 2;
     e.0[w::KIND] = match draw {
         // FUN_10055340: key = the generator's 4cc; FUN_10171720 finds its table entry (none: it does nothing).
         Draw::None if res_kind == 0x47 => {

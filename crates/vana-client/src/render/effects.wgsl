@@ -869,7 +869,7 @@ fn hidden() -> VOut {
     return out;
 }
 
-// D3D8 fixed function for a lit D3b / D3m (op-1 flag 16): COLORVERTEX with the diffuse and ambient material from
+// D3D8 fixed function for a lit D3b / D3m or MMB stand-in (op-1 flag 16; FUN_1017c840 leaves LIGHTING as set): COLORVERTEX with the diffuse and ambient material from
 // the vertex colour, NORMALIZENORMALS off, so the normal goes through +0xa0's inverse transpose unnormalised (VIEW is
 // the identity during effects); one directional light from the update pass, AMBIENT from the env.
 fn fx_lit(e: u32, mv: mat4x4<f32>, n: vec3<f32>, cv: vec4<f32>) -> vec4<f32> {
@@ -895,7 +895,7 @@ fn vs_mesh(v: VIn, @builtin(instance_index) inst: u32) -> VOut {
     let vp = (mv * vec4<f32>(v.pos, 1.0)).xyz;
     let variant = inst % PER_ELEM;
     var col = v.color;
-    if (variant <= 1u) { col = fx_lit(e, mv, v.normal, v.color); }
+    if (variant <= 3u) { col = fx_lit(e, mv, v.normal, v.color); }
     return vout(e, vp, col, v.uv, variant);
 }
 

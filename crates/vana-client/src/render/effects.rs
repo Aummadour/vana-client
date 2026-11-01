@@ -1582,4 +1582,18 @@ mod soften_tests {
         let smooth: Vec<u8> = (0..w * h).flat_map(|k| [9, 9, 9, (k % 200) as u8]).collect();
         assert!(soften_alpha(&Texture::new("s".into(), 0, w, h, smooth)).is_none());
     }
+
+    /// East Sarutabaruta's river wash keeps its clear specks; East Ronfaure's lamp glow still softens.
+    #[test]
+    fn speckled_wash_kept() {
+        let Ok(index) = crate::dat::DatIndex::open_stock(&crate::config::Config::load().ffxi_dir()) else { return };
+        let tex = |zone: u32, name: &str| {
+            let id = crate::dat::zone::file_id(zone);
+            let mut lib = crate::fx::lib::Library::load(id, index.read(id).unwrap()).unwrap();
+            let k = lib.img_named(name).and_then(|i| lib.texture_at(i)).unwrap_or_else(|| panic!("{name}"));
+            lib.textures.swap_remove(k)
+        };
+        assert!(soften_alpha(&tex(116, "effect  kaw1")).is_none());
+        assert!(soften_alpha(&tex(101, "light   light")).is_some());
+    }
 }
