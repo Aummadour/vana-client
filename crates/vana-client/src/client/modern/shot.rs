@@ -131,6 +131,67 @@ fn skillchain_sample(m: &Modern, ctx: &egui::Context) {
     let _ = shown;
 }
 
+/// The Timers at `x` (`width` wide, held by `side`): recasts, a full party's buffs and two monsters' debuffs, pack
+/// icons standing in for the status icons.
+fn timers_sample(m: &Modern, ctx: &egui::Context, x: f32, width: f32, side: super::extras::Side) {
+    use super::super::timers::{Group, Icon, Row};
+    let row = |name: &str, left: f32, total: f32, fills: bool| Row { icon: Icon::None, name: name.into(), left, total, fills };
+    let fx = |name: &str, left: f32, total: f32| row(name, left, total, false);
+    let party = |name: &str, rows: Vec<Row>| Group { name: Some(name.into()), rows };
+    let songs = |a: f32| vec![fx("Victory March", a, 180.0), fx("Valor Minuet IV", a + 2.0, 180.0), fx("Chaos Roll (4)", 252.0, 300.0), fx("Samurai Roll (9)", 270.0, 300.0)];
+    let with = |mut v: Vec<Row>, more: Vec<Row>| {
+        v.extend(more);
+        v
+    };
+    let secs: [Vec<Group>; 3] = [
+        vec![Group { name: None, rows: vec![row("Provoke", 12.0, 30.0, true), row("Cure IV", 4.0, 6.0, true), row("Phantom Roll (1)", 31.0, 60.0, true)] }],
+        vec![
+            party("Lenon", with(vec![fx("Protect V", 1452.0, 1800.0), fx("Shell V", 1452.0, 1800.0), fx("Haste", 171.0, 180.0), fx("Refresh", 108.0, 150.0)], songs(100.0))),
+            party("Nonopiko", with(vec![fx("Haste", 65.0, 180.0), fx("Refresh", 130.0, 150.0), fx("Protect V", 1500.0, 1800.0), fx("Shell V", 1500.0, 1800.0)], songs(100.0))),
+            party("Kazuto", with(vec![fx("Haste", 12.0, 180.0)], songs(98.0))),
+            party("Shantotto II", vec![fx("Mage's Ballad II", 122.0, 180.0), fx("Mage's Ballad", 124.0, 180.0), fx("Chaos Roll (4)", 252.0, 300.0), fx("Refresh", 0.0, 150.0)]),
+            party("Apururu (UC)", vec![fx("Mage's Ballad II", 122.0, 180.0), fx("Mage's Ballad", 124.0, 180.0)]),
+            party("Raven", with(vec![fx("Reraise", 3540.0, 3600.0)], songs(97.0))),
+        ],
+        vec![
+            party("Bloodthirsty Troll", vec![fx("Dia III", 105.0, 180.0), fx("Slow II", 160.0, 180.0), fx("Paralyze II", 125.0, 180.0), fx("Blind II", 140.0, 180.0), fx("Silence", 25.0, 120.0), fx("Addle", 98.0, 180.0), fx("Distract II", 150.0, 180.0), fx("Frazzle", 15.0, 180.0), fx("Carnage Elegy", 0.0, 0.0)]),
+            party("Forest Hare", vec![fx("Dia", 45.0, 60.0), fx("Poison", 8.0, 30.0)]),
+        ],
+    ];
+    let pack = |name: &str| match name.split_whitespace().next().unwrap_or("") {
+        "Protect" => "icons/protect",
+        "Shell" => "icons/shield",
+        "Haste" => "icons/haste",
+        "Refresh" => "icons/refresh",
+        "Victory" | "Valor" | "Mage's" | "Carnage" => "icons/songs",
+        "Chaos" | "Samurai" => "icons/skillchain",
+        "Reraise" => "icons/raise",
+        "Silence" => "icons/silence",
+        "Poison" => "icons/poison",
+        "Provoke" => "icons/enmity",
+        "Cure" => "icons/cure",
+        "Phantom" => "icons/recast",
+        _ => "icons/enfeebling",
+    };
+    let icon = |p: &egui::Painter, (k, gi, ri): (usize, usize, usize), r: Rect, tint: Color32| {
+        if let Some(s) = m.art.sprite(pack(&secs[k][gi].rows[ri].name)) {
+            p.add(paint::image(&s, r.min, r.width(), tint));
+        }
+    };
+    let margin = if side == super::extras::Side::Right { egui::Margin { left: 18, right: 12, top: 12, bottom: 14 } } else { egui::Margin { left: 16, right: 16, top: 12, bottom: 14 } };
+    egui::Area::new(Id::unique(("timers sample", x as i32))).order(Order::Middle).fixed_pos(pos2(x, 40.0)).constrain(false).show(ctx, |ui| {
+        let bg = ui.painter().add(egui::Shape::Noop);
+        let inner = egui::Frame::NONE.inner_margin(margin).show(ui, |ui| {
+            ui.set_width(width - margin.sum().x);
+            ui.visuals_mut().override_text_color = Some(m.theme.color("text"));
+            ui.label(egui::RichText::new("Timers").size(m.theme.small + 1.0).color(m.theme.color("gold")));
+            super::extras::timers_body(ui, m, &secs, 0, 0.5, &icon);
+        });
+        let attached = side == super::extras::Side::Right;
+        ui.painter().set(bg, super::extras::edge_frame_shape(inner.response.rect, side, attached, m, attached, 16));
+    });
+}
+
 fn sample(m: &Modern, ctx: &egui::Context, layout: &mut Layout, opts: &Opts) {
     let top = crate::client::hudtop::TopView {
         title: "Status".into(),
@@ -196,6 +257,9 @@ fn sample(m: &Modern, ctx: &egui::Context, layout: &mut Layout, opts: &Opts) {
     if opts.borders.is_some() {
         edge_sample(m, ctx);
         skillchain_sample(m, ctx);
+        let screen = ctx.content_rect();
+        timers_sample(m, ctx, screen.center().x - 190.0 - super::extras::WIDTH, super::extras::WIDTH, super::extras::Side::Left);
+        timers_sample(m, ctx, screen.center().x - 180.0, 360.0, super::extras::Side::Left);
     }
     if opts.list || opts.kit || opts.rows.is_some() || opts.borders.is_some() {
         return;

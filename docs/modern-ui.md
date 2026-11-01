@@ -283,7 +283,9 @@ Milestone 1:
   bronze line elsewhere; dragged they slide along the edge and change edge on the screen's other half; folded, a tab
   out of the edge with the name running up (left) or down (right) and a double chevron. Open, they keep clear of the
   command column and retail's windows at the edge; folded, those draw over the tab. T folds the Timers (Ctrl / Alt +
-  T is /tell). The minimap is square, north up, with the zone and grid; Wide Scan sits under it, folded by default,
+  T is /tell). The Timers' recasts are rows with bars; its buffs and debuffs a line per bearer (user, 2026-11-01: rows
+  ran too long in a full party): the name in a column, then each effect as its icon with the time under it (m:ss under
+  10 minutes, then retail's "24m" / "1h"), wrapping with the window's width; a cell's tooltip names it. The minimap is square, north up, with the zone and grid; Wide Scan sits under it, folded by default,
   named as retail's list, asking every 10 s while open and nothing is tracked, the last full list kept until the next
   is all in. Its filter (ours): Players / NPCs / Monsters toggles (config `modern_scan_kinds`) and a name field (a
   click takes the keys, every word must be in the name; Enter keeps it, Escape or the cross clears it). The map

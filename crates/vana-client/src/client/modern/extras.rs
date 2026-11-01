@@ -38,9 +38,11 @@ fn bar_colour(left: f32) -> Color32 {
     }
 }
 
-/// The Timers window on a screen edge (edge_window): a heading that folds it (retail's drawer) to a tab; per section
-/// a heading (a click folds it) and its rows: the icon, the name, the time and a bar filling toward a recast or
-/// draining with an effect; the last 15 s of an effect pulse as the status icons do.
+/// Paints a row's icon: (section, group, row), its rect, the tint.
+pub(super) type IconPainter<'a> = dyn Fn(&egui::Painter, (usize, usize, usize), Rect, Color32) + 'a;
+
+/// The Timers window on a screen edge (edge_window): a heading that folds it (retail's drawer) to a tab; its sections
+/// fold (timers_body).
 fn timers_panel(p: &mut Panels, w: &mut World) {
     let Some(gu) = p.gu else { return };
     if !w.extra_timers || hidden(w) {
@@ -61,29 +63,16 @@ fn timers_panel(p: &mut Panels, w: &mut World) {
         Icon::None => None,
     };
     let icons: Vec<Vec<Vec<Option<(egui::TextureId, Rect)>>>> = if out { secs.iter().map(|s| s.iter().map(|g| g.rows.iter().map(|r| icon(&r.icon)).collect()).collect()).collect() } else { Vec::new() };
+    let paint = |painter: &egui::Painter, (k, gi, ri): (usize, usize, usize), r: Rect, tint: Color32| {
+        if let Some(Some((t, uv))) = icons.get(k).and_then(|s| s.get(gi)).and_then(|g| g.get(ri)) {
+            painter.image(*t, r, *uv, tint);
+        }
+    };
     let mut fold: Option<usize> = None;
     // Clear of the menu's windows as the right edge's are (the item list grows over it on the left).
     let toggle = edge_window(p, "timers", WIDTH, true, !out, "Timers", |ui, side, fixed| {
         let toggle = flyout_header(ui, m, "Timers", side).clicked();
-        edge_body(ui, "timers", fixed, f32::INFINITY, |ui| {
-            for (k, groups) in secs.iter().enumerate() {
-                let n: usize = groups.iter().map(|g| g.rows.len()).sum();
-                if n == 0 {
-                    continue;
-                }
-                ui.add_space(4.0);
-                let shut = folded & (1 << k) != 0;
-                if header(ui, m, &format!("{} ({n})", SECTIONS[k]), !shut).clicked() {
-                    fold = Some(k);
-                }
-                if shut {
-                    continue;
-                }
-                for (gi, g) in groups.iter().enumerate().filter(|(_, g)| !g.rows.is_empty()) {
-                    group(ui, m, g, &icons[k][gi], pulse);
-                }
-            }
-        });
+        edge_body(ui, "timers", fixed, f32::INFINITY, |ui| fold = timers_body(ui, m, &secs, folded, pulse, &paint));
         toggle
     });
     if toggle {
@@ -671,7 +660,7 @@ pub(super) fn under_retail(m: &super::Modern, r: Rect) -> bool {
 }
 
 /// The window's width and its folded tab's size.
-const WIDTH: f32 = 250.0;
+pub(super) const WIDTH: f32 = 250.0;
 const TAB_W: f32 = 40.0;
 const TAB_H: f32 = 56.0;
 
@@ -762,18 +751,115 @@ fn header(ui: &mut Ui, m: &super::Modern, text: &str, open: bool) -> egui::Respo
     resp
 }
 
-fn group(ui: &mut Ui, m: &super::Modern, g: &Group, icons: &[Option<(egui::TextureId, Rect)>], pulse: f32) {
+/// The sections under their headings (a click folds one; returns which): recasts as rows, the buffs and debuffs a
+/// line per bearer (icon_group). Also offscreen in modern-shot.
+pub(super) fn timers_body(ui: &mut Ui, m: &super::Modern, secs: &[Vec<Group>; 3], folded: u8, pulse: f32, icon: &IconPainter) -> Option<usize> {
+    let mut fold = None;
+    // One name column for every bearer: the widest name, up to 38% of the window.
+    let font = FontId::proportional(m.theme.small);
+    let widest = secs[1..].iter().flatten().filter(|g| !g.rows.is_empty()).filter_map(|g| g.name.as_ref()).map(|n| ui.ctx().fonts_mut(|f| f.layout_no_wrap(n.clone(), font.clone(), Color32::WHITE).size().x)).fold(0.0, f32::max);
+    let name_w = (widest + 2.0).min(ui.available_width() * 0.38);
+    for (k, groups) in secs.iter().enumerate() {
+        let n: usize = groups.iter().map(|g| g.rows.len()).sum();
+        if n == 0 {
+            continue;
+        }
+        ui.add_space(4.0);
+        let shut = folded & (1 << k) != 0;
+        if header(ui, m, &format!("{} ({n})", SECTIONS[k]), !shut).clicked() {
+            fold = Some(k);
+        }
+        if shut {
+            continue;
+        }
+        for (gi, g) in groups.iter().enumerate().filter(|(_, g)| !g.rows.is_empty()) {
+            let at = |p: &egui::Painter, ri: usize, r: Rect, t: Color32| icon(p, (k, gi, ri), r, t);
+            if k == 0 {
+                group(ui, m, g, &at, pulse);
+            } else {
+                icon_group(ui, m, g, name_w, &at, pulse);
+            }
+        }
+    }
+    fold
+}
+
+/// An effect cell's icon size, the gap between cells, and the name column's gap.
+const CELL: f32 = 24.0;
+const CELL_GAP: f32 = 6.0;
+const NAME_GAP: f32 = 8.0;
+
+/// A cell's time: m:ss below 10 minutes, then retail's "24m" / "1h" (the status icons'); "--" when the length is not
+/// known.
+fn cell_time(left: f32, total: f32) -> String {
+    let s = left.max(0.0).ceil() as u32;
+    match s {
+        _ if total <= 0.0 => "--".into(),
+        s if s >= 3600 => format!("{}h", (s / 3600).min(99)),
+        s if s >= 600 => format!("{}m", s / 60),
+        s => format!("{}:{:02}", s / 60, s % 60),
+    }
+}
+
+/// A bearer's effects: the name in the column, then a cell per effect (its icon, the time under it) wrapping to more
+/// lines. The time turns yellow / orange / red under 30 / 20 / 10 s; the last 15 s pulse as the status icons do;
+/// past the predicted end the cell greys. A cell's tooltip names the effect.
+fn icon_group(ui: &mut Ui, m: &super::Modern, g: &Group, name_w: f32, icon: &dyn Fn(&egui::Painter, usize, Rect, Color32), pulse: f32) {
+    let font = FontId::proportional(m.theme.small - 1.0);
+    let step = ui.ctx().fonts_mut(|f| f.layout_no_wrap("9:59".into(), font.clone(), Color32::WHITE).size().x).max(CELL) + CELL_GAP;
+    let x0 = if g.name.is_some() { name_w + NAME_GAP } else { 0.0 };
+    let per = ((ui.available_width() - x0 + CELL_GAP) / step).floor().max(1.0) as usize;
+    let line_h = CELL + font.size + 5.0;
+    for (line, chunk) in g.rows.chunks(per).enumerate() {
+        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), line_h), Sense::hover());
+        if line == 0
+            && let Some(name) = &g.name
+        {
+            let gl = super::one_line(ui.painter(), name, FontId::proportional(m.theme.small), m.theme.color("muted"), name_w);
+            let full = gl.size().x;
+            ui.painter().galley(pos2(r.min.x, r.min.y + (CELL - gl.size().y) / 2.0), gl, m.theme.color("muted"));
+            if full >= name_w - 1.0 {
+                m.tip(ui, Rect::from_min_size(r.min, vec2(name_w, CELL)), name, "");
+            }
+        }
+        for (k, row) in chunk.iter().enumerate() {
+            let ri = line * per + k;
+            let cell = Rect::from_min_size(pos2(r.min.x + x0 + k as f32 * step, r.min.y), vec2(step - CELL_GAP, line_h));
+            let at = Rect::from_center_size(pos2(cell.center().x, r.min.y + CELL / 2.0), vec2(CELL, CELL));
+            let waiting = row.left <= 0.0;
+            let pulse_k = if row.left > 0.0 && row.left <= 15.0 { 0.5 + 0.5 * pulse } else { 1.0 };
+            let tint = if waiting { Color32::from_white_alpha(110) } else { Color32::from_white_alpha((255.0 * pulse_k) as u8) };
+            icon(ui.painter(), ri, at, tint);
+            let colour = match row.left {
+                _ if waiting || row.total <= 0.0 => m.theme.color("muted"),
+                l if l < 30.0 => bar_colour(l),
+                _ => m.theme.color("text"),
+            };
+            super::paint::outlined(ui.painter(), pos2(cell.center().x, at.max.y + 1.0), Align2::CENTER_TOP, &cell_time(row.left, row.total), font.clone(), colour);
+            m.tip_with(ui, cell, || {
+                let body = match () {
+                    _ if row.total <= 0.0 => "Its length is not known.".to_string(),
+                    _ if waiting => "Past its expected end.".to_string(),
+                    _ => format!("{} left of {}", clock(row.left), clock(row.total)),
+                };
+                (row.name.clone(), body)
+            });
+        }
+    }
+    ui.add_space(3.0);
+}
+
+/// Recast rows: the icon, the name, the time and a bar filling toward ready (or an effect's, draining).
+fn group(ui: &mut Ui, m: &super::Modern, g: &Group, icon: &dyn Fn(&egui::Painter, usize, Rect, Color32), pulse: f32) {
     if let Some(name) = &g.name {
         ui.label(egui::RichText::new(name).size(m.theme.small).color(m.theme.color("muted")));
     }
-    for (r, icon) in g.rows.iter().zip(icons) {
+    for (ri, r) in g.rows.iter().enumerate() {
         let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
         let waiting = r.left <= 0.0;
         let k = if !r.fills && r.left > 0.0 && r.left <= 15.0 { 0.5 + 0.5 * pulse } else { 1.0 };
         let tint = Color32::from_white_alpha((255.0 * k) as u8);
-        if let Some((t, uv)) = icon {
-            ui.painter().image(*t, Rect::from_min_size(pos2(rect.min.x, rect.min.y + 3.0), vec2(22.0, 22.0)), *uv, tint);
-        }
+        icon(ui.painter(), ri, Rect::from_min_size(pos2(rect.min.x, rect.min.y + 3.0), vec2(22.0, 22.0)), tint);
         let text = if waiting { m.theme.color("muted") } else { m.theme.color("text") };
         let x = rect.min.x + 30.0;
         ui.painter().text(pos2(x, rect.min.y + 2.0), Align2::LEFT_TOP, &r.name, FontId::proportional(m.theme.small), text);
