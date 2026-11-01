@@ -588,16 +588,20 @@ pub fn topbar_shot(out: &std::path::Path, fade: &str, menu: Option<u16>, menu_sw
         if pol {
             a = "PlayOnline".into();
         }
-        let f = |label, text, secret, hint| super::LoginField { label, text, secret, hint, help: "", options: Vec::new() };
+        let f = |label, text, secret, hint| super::LoginField { label, text, secret, hint, help: "", options: Vec::new(), read_only: false };
+        let mut kind = if pol { "PlayOnline" } else { "Private" }.to_string();
+        let kind_field = super::LoginField { options: vec!["PlayOnline".into(), "Private".into()], read_only: true, ..f("Server Type", &mut kind, false, "") };
         let mut fields = if pol {
-            vec![f("Server", &mut a, false, ""), f("PlayOnline ID", &mut e, false, ""), f("POL password", &mut g, true, ""), f("Square Enix ID", &mut b, false, ""), f("Password", &mut c, true, ""), f("One-time pass.", &mut d, false, "with a token only")]
+            vec![kind_field, f("PlayOnline ID", &mut e, false, ""), f("POL password", &mut g, true, ""), f("Square Enix ID", &mut b, false, ""), f("Password", &mut c, true, ""), f("One-time pass.", &mut d, false, "with a token only")]
         } else {
-            vec![f("Server", &mut a, false, ""), f("Account", &mut b, false, ""), f("Password", &mut c, true, ""), f("One-time code", &mut d, false, "only with 2FA")]
+            vec![kind_field, f("Server", &mut a, false, ""), f("Account", &mut b, false, ""), f("Password", &mut c, true, ""), f("One-time code", &mut d, false, "only with 2FA")]
         };
         // Sample saved logins; logincombo: the server list open on its second row.
-        fields[0].options = vec!["192.168.1.196".into(), "127.0.0.1".into(), "PlayOnline".into()];
-        fields[if pol { 3 } else { 1 }].options = vec!["tuxedo".into(), "lnxtest01".into()];
-        let mut combo = (config == Some("logincombo")).then_some((0, 1));
+        if !pol {
+            fields[1].options = vec!["192.168.1.196".into(), "127.0.0.1".into()];
+        }
+        fields[if pol { 3 } else { 2 }].options = vec!["tuxedo".into(), "lnxtest01".into()];
+        let mut combo = (config == Some("logincombo")).then_some((1, 1));
         super::login_window(&mut gu, &input, [width, height], &mut fields, pol, &mut combo, &mut remember, &mut 0, false, "", help, &cfg.client_version, &mut Vec::new(), None, 1.0);
         if let Some(t) = twofa.as_mut() {
             super::twofa::window(&mut gu, &input, [width, height], t, false, &mut Vec::new(), None);

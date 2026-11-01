@@ -606,17 +606,21 @@ pub(crate) struct LoginField<'a> {
     hint: &'static str,
     help: &'static str,
     options: Vec<String>,
+    /// Set only by its list (Server Type).
+    read_only: bool,
 }
 
 /// The most rows a combo field's list shows.
 const COMBO_ROWS: usize = 8;
 
-/// A server field naming this signs in through PlayOnline (net/pol).
+/// The server key of PlayOnline logins (Server Type PlayOnline): they sign in through net/pol.
 pub(crate) fn is_playonline(server: &str) -> bool {
-    server.trim().eq_ignore_ascii_case("playonline")
+    server.trim().eq_ignore_ascii_case(PLAYONLINE)
 }
 
-const SERVER_HELP: &str = "The server's address, or PlayOnline to sign in through PlayOnline.";
+const PLAYONLINE: &str = "PlayOnline";
+/// The Server Type list.
+const SERVER_TYPES: [&str; 2] = [PLAYONLINE, "Private"];
 
 /// The login form as drawn, for the modern layer (UI pixels): the frame, each field (rect, label, shown text, hint),
 /// the combo fields' arrows, an open list (its field, rows, cursor), the box (rect, caption, on), the buttons (rect,
@@ -626,6 +630,8 @@ pub struct LoginView {
     pub fields: Vec<([f32; 4], &'static str, String, &'static str)>,
     pub arrows: Vec<[f32; 4]>,
     pub list: Option<(usize, Vec<([f32; 4], String)>, usize)>,
+    /// Fields only their list sets (no caret).
+    pub fixed: Vec<usize>,
     pub check: ([f32; 4], &'static str, bool),
     pub buttons: Vec<([f32; 4], &'static str, bool)>,
     /// Two-factor (the focus after Exit), left of the box; none for PlayOnline.
@@ -770,7 +776,7 @@ fn login_window(lu: &mut GameUi, input: &UiInput, size: [u32; 2], fields: &mut [
     {
         if let Some(i) = (0..n).find(|&i| inside(&field_rect(i), p)) {
             *focus = i;
-            if !fields[i].options.is_empty() && inside(&arrow_rect(i), p) {
+            if !fields[i].options.is_empty() && (inside(&arrow_rect(i), p) || fields[i].read_only) {
                 let at = fields[i].options.iter().position(|o| o == &*fields[i].text).unwrap_or(0);
                 *combo = Some((i, at));
                 sounds.push(crate::audio::Ui::Cursor);
@@ -813,7 +819,7 @@ fn login_window(lu: &mut GameUi, input: &UiInput, size: [u32; 2], fields: &mut [
                     *combo = None;
                     continue;
                 }
-                egui::Event::Key { key: egui::Key::Delete, pressed: true, .. } => {
+                egui::Event::Key { key: egui::Key::Delete, pressed: true, .. } if !fields[*i].read_only => {
                     chosen = Some(LoginChoice::Forget(*i, *c));
                     sounds.push(crate::audio::Ui::Select);
                     *c = c.saturating_sub(1);
@@ -849,7 +855,7 @@ fn login_window(lu: &mut GameUi, input: &UiInput, size: [u32; 2], fields: &mut [
                 chosen = Some(LoginChoice::Picked(i));
                 sounds.push(crate::audio::Ui::Cursor);
             }
-            egui::Event::Text(t) | egui::Event::Paste(t) if *focus < n => {
+            egui::Event::Text(t) | egui::Event::Paste(t) if *focus < n && !fields[*focus].read_only => {
                 let f = &mut *fields[*focus].text;
                 f.extend(t.chars().filter(|c| !c.is_control()));
                 *f = f.chars().take(64).collect();
@@ -865,7 +871,7 @@ fn login_window(lu: &mut GameUi, input: &UiInput, size: [u32; 2], fields: &mut [
                 egui::Key::ArrowLeft if (first + 1..=first + 2).contains(&*focus) => *focus -= 1,
                 egui::Key::ArrowRight if (first..first + 2).contains(&*focus) => *focus += 1,
                 egui::Key::Enter | egui::Key::Space if *focus == check && !busy => toggled = true,
-                egui::Key::Backspace if *focus < n => {
+                egui::Key::Backspace if *focus < n && !fields[*focus].read_only => {
                     fields[*focus].text.pop();
                 }
                 // Escape goes to Exit, as a menu's cancel lands on its back item.
@@ -894,10 +900,6 @@ fn login_window(lu: &mut GameUi, input: &UiInput, size: [u32; 2], fields: &mut [
     } else if (*focus != was || escape) && chosen.is_none() {
         sounds.push(crate::audio::Ui::Cursor);
     }
-    let combo_help = (*focus < n && !fields[*focus].options.is_empty()).then(|| match *focus {
-        0 => "The server, or PlayOnline. Left / Right or Alt+Down: servers used before.",
-        _ => "Left / Right or Alt+Down: accounts used before on this server.",
-    });
     // While the netwait run is up the help line is empty (retail's op 0 shows none).
     let help = if let Some(h) = help_over {
         h
@@ -905,10 +907,8 @@ fn login_window(lu: &mut GameUi, input: &UiInput, size: [u32; 2], fields: &mut [
         ""
     } else if !status.is_empty() {
         status
-    } else if combo.is_some() {
-        "Enter: use it. Delete: forget it and its password. Escape: close."
-    } else if let Some(h) = combo_help {
-        h
+    } else if let Some((i, _)) = *combo {
+        if fields[i].read_only { "Enter: use it. Escape: close." } else { "Enter: use it. Delete: forget it and its password. Escape: close." }
     } else if playonline && *focus == first + 1 {
         "Square Enix accounts are made on Square Enix's website."
     } else if *focus >= first && !(if *focus == twofa { filled } else { enabled[*focus - first] }) {
@@ -935,6 +935,7 @@ fn login_window(lu: &mut GameUi, input: &UiInput, size: [u32; 2], fields: &mut [
             frame: [wx, wy, ww, wh],
             fields: fields.iter().enumerate().map(|(i, x)| (field_rect(i), x.label, shown(x), x.hint)).collect(),
             arrows: (0..n).filter(|&i| !fields[i].options.is_empty()).map(arrow_rect).collect(),
+            fixed: (0..n).filter(|&i| fields[i].read_only).collect(),
             list: combo.map(|(i, c)| (i, fields[i].options.iter().take(COMBO_ROWS).enumerate().map(|(k, o)| (list_row(i, k), o.clone())).collect(), c)),
             check: (check_rect, CAPTION, *remember),
             buttons: (0..3).map(|k| (arects[k], ACTIONS[k], enabled[k])).collect(),
@@ -960,7 +961,7 @@ fn login_window(lu: &mut GameUi, input: &UiInput, size: [u32; 2], fields: &mut [
             lu.text("\u{25bc}", a[0] + 3.0, a[1] + 1.0, 0, if combo.is_some_and(|c| c.0 == i) { WHITE } else { GREY });
         }
         lu.text(&shown, r[0] + 4.0, r[1] + 1.0, 0, WHITE);
-        if *focus == i && lu.blink() {
+        if *focus == i && lu.blink() && !x.read_only {
             lu.rect(r[0] + 4.0 + lu.text_width(&shown), r[1] + 2.0, 2.0, 14.0, [1.0, 1.0, 1.0, 0.9]);
         }
     }
@@ -6344,12 +6345,15 @@ impl Phase {
             let focus = filled.iter().position(|s| s.is_empty()).map_or(7, |i| i + 1);
             return Phase::Login { password, otp: String::new(), pol_password, focus, combo: None };
         }
-        let focus = if cfg.username.is_empty() {
+        // Server Type, Server, Account, Password, One-time code, the box, then Log in (6).
+        let focus = if cfg.server.is_empty() {
             1
-        } else if saved.is_empty() {
+        } else if cfg.username.is_empty() {
             2
+        } else if saved.is_empty() {
+            3
         } else {
-            5
+            6
         };
         Phase::Login { password: saved, otp: String::new(), pol_password: String::new(), focus, combo: None }
     }
@@ -10754,28 +10758,39 @@ impl App {
                 if let Some(lu) = self.game_ui.as_mut() {
                     self.ui_drawn = true;
                     let playonline = is_playonline(&self.cfg.server);
-                    // Server and Account are combo boxes over the logins that worked (config `logins`).
-                    let (servers, accounts) = (self.cfg.servers(), self.cfg.accounts(&self.cfg.server));
-                    let account_field = if playonline { 3 } else { 1 };
-                    let field = |label, text, secret, hint, help| LoginField { label, text, secret, hint, help, options: Vec::new() };
+                    // Server Type picks the form; Server and Account are combo boxes over the logins that worked
+                    // (config `logins`).
+                    let servers: Vec<String> = self.cfg.servers().into_iter().filter(|s| !is_playonline(s)).collect();
+                    let accounts = self.cfg.accounts(&self.cfg.server);
+                    let account_field = if playonline { 3 } else { 2 };
+                    let mut server_type = SERVER_TYPES[!playonline as usize].to_string();
+                    let used = |list: &[String], plain: &'static str, combo: &'static str| if list.is_empty() { plain } else { combo };
+                    let server_help = used(&servers, "The server's address.", "The server's address. Left / Right or Alt+Down: servers used before.");
+                    let account_help = used(&accounts, "", "Left / Right or Alt+Down: accounts used before on this server.");
+                    let se_help = used(&accounts, "The Square Enix ID the PlayOnline member is registered to.", "The Square Enix ID. Left / Right or Alt+Down: IDs used before.");
+                    let field = |label, text, secret, hint, help| LoginField { label, text, secret, hint, help, options: Vec::new(), read_only: false };
+                    let type_field = LoginField { options: SERVER_TYPES.map(String::from).to_vec(), read_only: true, ..field("Server Type", &mut server_type, false, "", "PlayOnline, or a private server. Left / Right or Alt+Down: change it.") };
                     let mut fields = if playonline {
                         vec![
-                            field("Server", &mut self.cfg.server, false, "", SERVER_HELP),
+                            type_field,
                             field("PlayOnline ID", &mut self.cfg.pol_id, false, "", "The member's PlayOnline ID: four letters and four digits."),
                             field("POL password", &mut *pol_password, true, "", "The member's PlayOnline password (15 characters at most)."),
-                            field("Square Enix ID", &mut self.cfg.username, false, "", "The Square Enix ID the PlayOnline member is registered to."),
+                            field("Square Enix ID", &mut self.cfg.username, false, "", se_help),
                             field("Password", &mut *password, true, "", "The Square Enix account's password."),
                             field("One-time pass.", &mut *otp, false, "with a token only", "The six digits of the security token or app, for an account that uses one."),
                         ]
                     } else {
                         vec![
-                            field("Server", &mut self.cfg.server, false, "", SERVER_HELP),
-                            field("Account", &mut self.cfg.username, false, "", ""),
+                            type_field,
+                            field("Server", &mut self.cfg.server, false, "", server_help),
+                            field("Account", &mut self.cfg.username, false, "", account_help),
                             field("Password", &mut *password, true, "", ""),
                             field("One-time code", &mut *otp, false, "only with 2FA", ""),
                         ]
                     };
-                    fields[0].options = servers.clone();
+                    if !playonline {
+                        fields[1].options = servers.clone();
+                    }
                     fields[account_field].options = accounts.clone();
                     let remembered = self.cfg.remember_password;
                     // While an error shows, the fields take no input (the OK window has it).
@@ -10837,9 +10852,15 @@ impl App {
                             None => {}
                         }
                     }
-                    // A saved login picked: its account, PlayOnline ID, Remember password and passwords fill the form.
+                    // A saved login picked: its account, PlayOnline ID, Remember password and passwords fill the form. A
+                    // Server Type takes that type's most recent login (an empty one when none).
                     let picked = match chosen {
-                        Some(LoginChoice::Picked(0)) => self.cfg.saved_login(&self.cfg.server, None).cloned(),
+                        Some(LoginChoice::Picked(0)) => {
+                            let to_pol = server_type == PLAYONLINE;
+                            let blank = crate::config::SavedLogin { server: if to_pol { PLAYONLINE.into() } else { String::new() }, ..Default::default() };
+                            Some(self.cfg.logins.iter().find(|l| is_playonline(&l.server) == to_pol).cloned().unwrap_or(blank))
+                        }
+                        Some(LoginChoice::Picked(1)) if !playonline => self.cfg.saved_login(&self.cfg.server, None).cloned(),
                         Some(LoginChoice::Picked(i)) if i == account_field => self.cfg.saved_login(&self.cfg.server, Some(&self.cfg.username)).cloned(),
                         _ => None,
                     };
@@ -10851,7 +10872,7 @@ impl App {
                     }
                     // Delete in a list forgets that server (all its logins) or account, with its passwords.
                     if let Some(LoginChoice::Forget(i, k)) = chosen {
-                        if i == 0 {
+                        if i == 1 && !playonline {
                             if let Some(s) = servers.get(k) {
                                 self.cfg.forget_login(s, None);
                             }

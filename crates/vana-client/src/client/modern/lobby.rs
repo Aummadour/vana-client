@@ -82,7 +82,7 @@ impl Modern {
             let x = if g.size().x > room { at.x - (g.size().x - room) } else { at.x };
             let end = x + g.size().x;
             p.with_clip_rect(r).galley(pos2(x, at.y - g.size().y / 2.0), g, self.theme.color("text"));
-            if on && blink {
+            if on && blink && !v.fixed.contains(&i) {
                 p.line_segment([pos2(end + 1.0, r.min.y + 3.0), pos2(end + 1.0, r.max.y - 3.0)], egui::Stroke::new(1.5, self.theme.color("text")));
             }
         }
