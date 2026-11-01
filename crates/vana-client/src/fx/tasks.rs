@@ -1867,6 +1867,11 @@ impl Effects {
         self.pending.push(Pending { file: Some(file), actor: None, name, a1: Who::Actor(actor), a2: Who::Actor(actor), action: None, speed: 1.0, end_cast: None, age: 0.0, skill: None, skill_caster: None, wait_motion: None, num: None, quiet: false, own: false, seq: Some(skip), event: false });
     }
 
+    /// A path drive (ops 0x26 / 0x27) holds the actor (its +0x88 bit 0, FUN_10081fb0 / FUN_10081fd0).
+    pub fn driving(&self, actor: u32) -> bool {
+        self.drives.iter().any(|d| d.actor == actor)
+    }
+
     /// The actor's sequence tasks (waiting or running) end; their drives go with them at the next step.
     pub fn kill_sequence(&mut self, actor: u32) {
         let who = Who::Actor(actor);

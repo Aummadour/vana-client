@@ -8877,6 +8877,9 @@ impl App {
                     if let Some((ship, start)) = e.ship {
                         entry.ship_rebuild |= entry.ship.is_some_and(|(old, _)| old != ship);
                         entry.ship = Some((ship, start));
+                        if e.pos.is_some() {
+                            world.ships.posed.push(e.id);
+                        }
                     }
                 }
                 NetEvent::Chat { kind, attr, data, from, text } => {

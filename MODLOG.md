@@ -13074,6 +13074,15 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
     curve 4; yaw0 0.0698) ends on the course 0.149 of its last chord (points 1 -> 0), so yaw0 - course is -0.079
     there and our freeze (h < 0.1 a frame) leaves -0.0624; `pat2` (flags 9: abs, fwd, no face) slides it in +z without
     turning. Nothing traced turns it to 0; whether retail shows the same gap is still to be seen on the retail client.
+  - Seen on the retail client by the user: the same until the last second of the arrival, then the heading snaps to 0
+    and the doors fit. LSB sends the ship's 0x00E at the arrival (state 0x12, staging), 20 s in (the dock position,
+    heading 0, mask 07) and again at 41 s (docked: byte for byte the 20 s one). Retail passes over the 20 s one (pat1
+    drives the ship then) and takes the 41 s one (seq0 ended at 40 s, no drive). Traced: a drive holds actor +0x88
+    bit 0 (ctor vt+0x178 = FUN_10081fb0, dtor FUN_1005f2c0 -> vt+0x17c = FUN_10081fd0), FUN_100a57f0 reads it, and the
+    pushes FUN_10092c20 / FUN_10092b20 are kind-gated (not 5); the call that puts the 0x00E pose on an undriven ship
+    is not found *(inf)*. Ours: client/ships.rs `posed` -> a ship position update moves the model (position, heading
+    target) unless Effects::driving. Live: the 41 s update turned the ferry from -0.063 to 0 at (-0.516, 0.026,
+    -8.409); the 20 s one was passed over. The Port Jeuno airship (drive 1.4945, dock 64 = 1.5708) gets the same.
 
 ## Event op 0x94: no occlusion test for the actor (2026-11-01)
 

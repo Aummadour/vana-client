@@ -38,6 +38,8 @@ pub struct Ships {
     pub ready: Vec<Loaded>,
     /// Entities whose model the renderer drops.
     pub removed: Vec<u32>,
+    /// Ship entities a position update came for this frame.
+    pub posed: Vec<u32>,
 }
 
 pub struct Loaded {
@@ -97,6 +99,21 @@ pub fn update(w: &mut World) -> Vec<Job> {
     }
     w.ships.loading.retain(|id, _| w.entities.get(id).is_some_and(|e| e.ship.is_some()));
     let mut jobs = Vec::new();
+    // *(inf: seen on the retail client, the call not traced)* A position update reaches a ship's model only while no
+    // path drive holds it: LSB's dock update at 20 s is passed over mid-`pat1`, the same one at 41 s turns Mhaura's
+    // ferry from the drive's -0.062 to the dock heading 0, where its cabin (sub-area 493) meets the hull.
+    for id in std::mem::take(&mut w.ships.posed) {
+        if w.effects.driving(id) {
+            continue;
+        }
+        let Some(e) = w.entities.get(&id) else { continue };
+        let (pos, yaw) = (e.pos, super::event::rad_of(e.dir));
+        if let Some(a) = w.ships.actors.get_mut(&id) {
+            log::debug!("ship {id:#x}: server pose {pos} yaw {yaw:.3} (was {} yaw {:.3})", a.pos, a.rot.y);
+            a.pos = pos;
+            a.target = Vec3::new(0.0, yaw, 0.0);
+        }
+    }
     let ships: Vec<(u32, u32, u32)> = w.entities.iter().filter_map(|(id, e)| e.ship.map(|(ship, start)| (*id, ship, start))).collect();
     for (id, ship, start) in ships {
         if let Some(e) = w.entities.get_mut(&id) {
