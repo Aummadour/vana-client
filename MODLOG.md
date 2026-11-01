@@ -12699,3 +12699,20 @@ DISPLAY13 at 100%; RX 6800 XT eGPU), MinGW cross builds, release and debug.
   Left / Right added for the side-by-side buttons in the modern UI only (retail's Up / Down kept). The help bar keeps
   retail's texts. Seen live (Lnxcsfix made mortal with !immortal, K.O. by `!exec player:takeDamage(9999)`, then
   !raise 3).
+
+## Draw Distance Unlimited: a placement's own distance still holds (Ru'Aun Gardens) (2026-10-31)
+
+- User report, Ru'Aun Gardens (zone 130): a flat lavender band on a floating island's top edge, and a nasty texture
+  flicker in the distance while moving.
+- MZB placement records with +0x46 bit 0 carry their own draw distance (+0x40, scaled by the Clipping factor K,
+  FUN_1017c9c0). Ru'Aun has 1,482 placements of own distance 1: the `id_*` meshes (id_ocen_wl_f_a ..., id_rid_fl_lt1
+  ...), drawn by retail only within about a unit, i.e. never. id_rid_fl_* have no texture (blank name: slot 0, white)
+  and vertex colour 0xff9090ff (RGB 144, 144, 255): the lavender slabs, 60..70 above the gardens by the islands.
+  The others sit on the real walls and floors and fight them for depth: the flicker.
+- Ours: Settings' Draw Distance at Unlimited set D = K = 0 (scale 0), and both the GPU cull (cs_cull_vis) and the CPU
+  pre-test skipped the whole distance test when D was 0, own distances included. Now D 0 lifts only the zone's
+  distance; a placement's own distance always holds, with K at Unlimited that of the largest finite step (3x: k x 9),
+  so own-distance scenery never shows less at Unlimited than at 3x. Seen in zone-shot with FFXI_NO_CLIP (D 0, as
+  Unlimited): the lavender slab over the island before, gone after.
+- The walkway's flat pale look is not this: it is the same in both and the stock texture is plain sand, smoothed
+  further by the installed upscale packs (mods off shows faint grain).

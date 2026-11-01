@@ -12509,7 +12509,9 @@ impl App {
                     // FUN_1018b8f0: 100 before the env is up. Settings' Draw Distance scales it, or lifts it (0).
                     let (d, k) = crate::dat::weather::clipping(r.lighting.map_or(100.0, |l| l.draw_dist), x, zone);
                     let scale = self.cfg.draw_distance as f32 / 100.0;
-                    r.clip = [d * scale, k * scale * scale];
+                    // Unlimited lifts the zone's distance only: a placement's own distance still holds (Ru'Aun's 1-unit
+                    // helper strips), as far as at the largest step (3x).
+                    r.clip = if scale > 0.0 { [d * scale, k * scale * scale] } else { [0.0, k * 9.0] };
                     if steps > 0 {
                         log::debug!(target: "light", "{minute:.3}: bg dir {:.3} colour {:.4}", w.light_ease.bg.dir, w.light_ease.bg.color);
                     }

@@ -671,12 +671,12 @@ fn cull_visible(i: u32) -> bool {
     let c = cull_bounds[2u * i];
     let h = cull_bounds[2u * i + 1u];
     let far = u.area_info.z;
-    if (far > 0.0) {
-        let own = u.area_info.w * c.w;
-        let limit = select(far * far, select(own, min(own, far * far), h.w > 1.5), h.w > 0.5);
-        if (d2 > limit) {
-            return false;
-        }
+    // Its own distance always holds; D 0 (Settings' Unlimited) lifts only the zone's.
+    let own = u.area_info.w * c.w;
+    let zone_d = select(3.4e38, far * far, far > 0.0);
+    let limit = select(zone_d, select(own, min(own, zone_d), h.w > 1.5), h.w > 0.5);
+    if (d2 > limit) {
+        return false;
     }
     if (band.y > 0.0 && !(d2 > band.x && d2 <= band.y)) {
         return false;

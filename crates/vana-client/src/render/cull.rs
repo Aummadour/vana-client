@@ -151,11 +151,11 @@ impl RunBox {
             return false;
         }
         let nearest = eye.clamp(self.org_lo, self.org_hi).distance_squared(eye);
-        if dk[0] > 0.0 {
-            let limit = (if self.plain { dk[0] * dk[0] } else { 0.0 }).max(dk[1] * self.own);
-            if nearest * 0.98 - 1.0 > limit {
-                return false;
-            }
+        // Own distances always hold; D 0 lifts only the zone's.
+        let zone = if dk[0] > 0.0 { dk[0] * dk[0] } else { f32::INFINITY };
+        let limit = (if self.plain { zone } else { 0.0 }).max(dk[1] * self.own);
+        if nearest * 0.98 - 1.0 > limit {
+            return false;
         }
         let Some((near, far)) = self.band else { return true };
         let farthest = (eye - self.org_lo).abs().max((eye - self.org_hi).abs()).length_squared();
