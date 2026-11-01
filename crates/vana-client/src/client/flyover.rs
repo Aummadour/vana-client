@@ -7,7 +7,6 @@ use crate::dat::{DatIndex, zone};
 use crate::render::ui::{UiBatch, UiRenderer};
 use crate::render::{Camera, Gpu, ZoneRenderer};
 use anyhow::{Context, Result};
-use glam::Vec3;
 
 /// The field movies "loop" picks from at random (op 0x3d).
 const MOVIES: [&str; 8] = ["mov1", "mov2", "mov3", "mov4", "mov5", "mov6", "mov7", "mov8"];
@@ -149,7 +148,7 @@ impl Flyover {
         let s = self.shot?;
         let path = &self.data.title.paths[s.path];
         let k = sample(path, (self.tick - s.start) / s.ticks);
-        Some(Camera { eye: k.eye, target: k.target, up: Vec3::NEG_Y, fov_y: fov_y(k.focal) })
+        Some(Camera { eye: k.eye, target: k.target, up: crate::dat::title::up_of(k.eye, k.target, k.roll), fov_y: fov_y(k.focal) })
     }
 
     /// Draws the zone through the movie camera into `view`, with any crossfade and fade.

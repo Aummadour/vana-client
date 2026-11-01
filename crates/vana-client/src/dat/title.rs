@@ -254,6 +254,14 @@ fn sample_keys(k: &[Key], ease_kind: u32, t: f32) -> Key {
     Key { eye, focal: f.x, target, roll: f.y }
 }
 
+/// FUN_10020de0: the view's up, (0, -1, 0) turned by Rz(roll) then Ry(yaw) (row vectors), yaw = atan2(-d.x, -d.z) of
+/// d = target - eye.
+pub fn up_of(eye: Vec3, target: Vec3, roll: f32) -> Vec3 {
+    let d = target - eye;
+    let yaw = (-d.x).atan2(-d.z);
+    Vec3::new(roll.sin() * yaw.cos(), -roll.cos(), -roll.sin() * yaw.sin())
+}
+
 pub fn fov_y(focal: f32) -> f32 {
     2.0 * (192.0 / focal).atan()
 }

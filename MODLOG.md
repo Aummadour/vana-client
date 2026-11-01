@@ -13025,3 +13025,12 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   ticks in retail, ~306 in ours; with no timer retail does not wait at all). Now Runtime::timers by (actor, 4cc),
   counted down each tick, set when sub 5 / 6 issue a motion on a ready actor. Common in talk scenes (Ceizak event 3:
   85 pairs; 669 sub-7 sites in 30 story zones).
+
+## Cutscene camera roll (2026-11-01)
+
+- Every camera task writes its key's roll to camera +0xa4 (FUN_1003c3e0, FUN_1003bb30), FUN_10020ad0 copies it to
+  +0x5c, and the view builder FUN_10020de0 (asm 0x10020e1d..0x10020e78) turns the base up (0, -1, 0) (+0xa8,
+  FUN_1001d6c0) by Rz(roll) then Ry(yaw), yaw = atan2(-d.x, -d.z) of d = target - eye, row vectors: up = (sin r cos y,
+  -cos r, -sin r sin y). Op 0x46 sub 0 (FUN_10082b20) resets the roll. Ours always used (0, -1, 0): 10,354 of the
+  80,194 event camera paths carry a roll (about 4,600 of 1 degree or more, some to 180; CoP's Bahamut c004 -5.5 ->
+  -17.6 degrees; 17 title flyover paths). Now title::up_of in the cutscene camera and the flyover.
