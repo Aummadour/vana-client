@@ -88,7 +88,8 @@ impl Modern {
         }
         let (cr, caption, onv) = &v.check;
         let cr = pt(*cr);
-        let lit = v.focus == 4 && !v.busy;
+        let n = v.fields.len();
+        let lit = v.focus == n && !v.busy;
         let side = size * 1.1;
         let bx = egui::Rect::from_min_size(pos2(cr.min.x, cr.center().y - side / 2.0), vec2(side, side));
         if let Some(s) = self.art.sprite(if *onv { "controls/checkbox_on" } else { "controls/checkbox_off" }) {
@@ -98,7 +99,7 @@ impl Modern {
         let hover = ctx.input(|i| i.pointer.hover_pos());
         for (k, (r, label, enabled)) in v.buttons.iter().enumerate() {
             let r = pt(*r).expand2(vec2(4.0, 3.0));
-            let on = v.focus == 5 + k && !v.busy;
+            let on = v.focus == n + 1 + k && !v.busy;
             let face = match () {
                 _ if v.busy || !enabled => "controls/button_disabled",
                 _ if on => "controls/button_selected",
@@ -111,8 +112,9 @@ impl Modern {
             let c = if v.busy || !enabled { self.theme.color("muted") } else if on { self.theme.color("gold") } else { self.theme.color("text") };
             p.text(r.center(), Align2::CENTER_CENTER, *label, FontId::new(size, FontFamily::Name(super::STRONG.into())), c);
         }
-        let (r, label, enabled) = &v.twofa;
-        self.lobby_button(&p, pt(*r).expand2(vec2(4.0, 3.0)), label, v.focus == 8 && !v.busy, *enabled && !v.busy, hover, size);
+        if let Some((r, label, enabled)) = &v.twofa {
+            self.lobby_button(&p, pt(*r).expand2(vec2(4.0, 3.0)), label, v.focus == n + 4 && !v.busy, *enabled && !v.busy, hover, size);
+        }
     }
 
     /// A lobby button on `r`: the pack's face for its state, the caption in the strong face.

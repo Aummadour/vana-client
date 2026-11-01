@@ -597,7 +597,22 @@ fn lobby_text(lu: &mut GameUi, slots: &[crate::render::screens::TextSlot], help:
     }
 }
 
-const LOGIN_LABELS: [&str; 4] = ["Server", "Account", "Password", "One-time code"];
+/// A field of the credentials window: its label, text, whether it shows as stars, the grey hint while empty and
+/// empty unfocused, its help line (empty: the general one).
+pub(crate) struct LoginField<'a> {
+    label: &'static str,
+    text: &'a mut String,
+    secret: bool,
+    hint: &'static str,
+    help: &'static str,
+}
+
+/// A server field naming this signs in through PlayOnline (net/pol).
+pub(crate) fn is_playonline(server: &str) -> bool {
+    server.trim().eq_ignore_ascii_case("playonline")
+}
+
+const SERVER_HELP: &str = "The server's address, or PlayOnline to sign in through PlayOnline.";
 
 /// The login form as drawn, for the modern layer (UI pixels): the frame, each field (rect, label, shown text, hint),
 /// the box (rect, caption, on), the buttons (rect, caption, enabled), the focus, busy.
@@ -606,8 +621,8 @@ pub struct LoginView {
     pub fields: Vec<([f32; 4], &'static str, String, &'static str)>,
     pub check: ([f32; 4], &'static str, bool),
     pub buttons: Vec<([f32; 4], &'static str, bool)>,
-    /// Two-factor (focus 8), left of the box.
-    pub twofa: ([f32; 4], &'static str, bool),
+    /// Two-factor (the focus after Exit), left of the box; none for PlayOnline.
+    pub twofa: Option<([f32; 4], &'static str, bool)>,
     pub focus: usize,
     pub busy: bool,
 }
@@ -632,33 +647,37 @@ enum LoginChoice {
     TwoFa,
 }
 
-/// The credentials window over the title art (ours: retail logged in through PlayOnline). Focus 0..3 are the
-/// fields, 4 Remember password, 5..7 Log in / Create account / Exit, 8 Two-factor (client/twofa.rs). `help_over`
-/// replaces the help line (the two-factor window's).
+/// The credentials window over the title art (ours: retail logged in through PlayOnline). Focus 0..n-1 are the
+/// fields, n Remember password, n+1..n+3 Log in / Create account / Exit, n+4 Two-factor (client/twofa.rs; not for
+/// PlayOnline, where Create account is off too). `help_over` replaces the help line (the two-factor window's).
 /// Not retail (PlayOnline logged in): the generic window sounds (FUN_10118260) go to `sounds`: 0001 when the focus
 /// moves (and on Escape, which lands on Exit), 0002 on an enabled action, 0004 on a disabled one.
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
-fn login_window(lu: &mut GameUi, input: &UiInput, size: [u32; 2], fields: [&mut String; 4], remember: &mut bool, focus: &mut usize, busy: bool, status: &str, help_over: Option<&str>, version: &str, sounds: &mut Vec<crate::audio::Ui>, modern: Option<&mut Option<LoginView>>, monitor_scale: f32) -> Option<LoginChoice> {
+fn login_window(lu: &mut GameUi, input: &UiInput, size: [u32; 2], fields: &mut [LoginField], playonline: bool, remember: &mut bool, focus: &mut usize, busy: bool, status: &str, help_over: Option<&str>, version: &str, sounds: &mut Vec<crate::audio::Ui>, modern: Option<&mut Option<LoginView>>, monitor_scale: f32) -> Option<LoginChoice> {
     let was = *focus;
     const CHOICES: [LoginChoice; 3] = [LoginChoice::LogIn, LoginChoice::Create, LoginChoice::Exit];
-    const ITEMS: usize = 9;
-    const CHECK: usize = 4;
-    const TWOFA: usize = 8;
+    let n = fields.len();
+    let check = n;
+    let first = n + 1;
+    let twofa = n + 4;
+    let items = if playonline { n + 4 } else { n + 5 };
     let (sw, sh) = (size[0] as f32, size[1] as f32);
+    // Rows 22 px apart, 20 with more than four fields so the form stays between the logo and the copyright line.
+    let pitch = if n > 4 { 20.0 } else { 22.0 };
+    let base_h = 52.0 + (n + 1) as f32 * pitch;
     // The modern layer's form is half again as large (its text sized to the fields), times the monitor's scale, up to
     // what fits.
-    let f = if modern.is_some() { (1.5 * monitor_scale).min(0.4 * sh / 162.0).max(1.5) } else { 1.0 };
-    let (ww, wh) = (380.0 * f, 162.0 * f);
+    let f = if modern.is_some() { (1.5 * monitor_scale).min(0.4 * sh / base_h).max(1.5) } else { 1.0 };
+    let (ww, wh) = (380.0 * f, base_h * f);
     // Centred between the title logo's foot (about half the height) and the copyright line (about 0.8); a larger
     // form stays below the logo's "ONLINE" line.
     let (wx, wy) = (((sw - ww) / 2.0).round(), (sh * 0.65 - wh / 2.0).max(sh * 0.52).round());
-    let row = |i: usize| wy + 14.0 * f + i as f32 * 22.0 * f;
+    let row = |i: usize| wy + 14.0 * f + i as f32 * pitch * f;
     let field_rect = |i: usize| [wx + 148.0 * f, row(i), ww - 164.0 * f, 18.0 * f];
     // Remember password: the game font's box (filled when on) and its caption under the fields.
     const CAPTION: &str = "Remember password";
-    let check_rect = [wx + 148.0 * f, row(CHECK), (lu.text_width(&format!("\u{25a1} {CAPTION}")) + 4.0) * f, 18.0 * f];
-    let ay = row(5) + 6.0 * f;
+    let check_rect = [wx + 148.0 * f, row(check), (lu.text_width(&format!("\u{25a1} {CAPTION}")) + 4.0) * f, 18.0 * f];
+    let ay = row(n + 1) + 6.0 * f;
     // Config-page buttons (88 px, wider for a longer caption), centred 24 px apart.
     const ACTIONS: [&str; 3] = ["Log in", "Create account", "Exit"];
     let widths = ACTIONS.map(|a| ((lu.label_width(a) + 14.0).max(88.0) * f).round());
@@ -668,51 +687,54 @@ fn login_window(lu: &mut GameUi, input: &UiInput, size: [u32; 2], fields: [&mut 
         bx += widths[k] + 24.0 * f;
         r
     });
-    // Log in and Create account need the server, account and password.
-    let filled = !fields[0].trim().is_empty() && !fields[1].trim().is_empty() && !fields[2].is_empty();
-    let enabled = [filled, filled, true];
+    // Log in and Create account need every field but the one-time code; PlayOnline accounts are made on Square Enix's
+    // site.
+    let filled = fields[..n - 1].iter().all(|x| !x.text.trim().is_empty());
+    let enabled = [filled, filled && !playonline, true];
     // Two-factor (also needing them) under the labels, on the box's row.
     const TF: &str = "Two-factor";
-    let tf_rect = [wx + 16.0 * f, row(CHECK) + 1.0 * f, ((lu.label_width(TF) + 14.0).max(88.0) * f).round(), 16.0 * f];
+    let tf_rect = (!playonline).then(|| [wx + 16.0 * f, row(check) + 1.0 * f, ((lu.label_width(TF) + 14.0).max(88.0) * f).round(), 16.0 * f]);
 
     let mut chosen = None;
     // Hovering an action (or the box) moves the selection there, as in the game's menus.
     if let Some(k) = input.pointer.and_then(|p| (0..3).find(|&k| inside(&arects[k], p))) {
         lu.hover.set(true);
         if input.moved {
-            *focus = 5 + k;
+            *focus = first + k;
         }
     }
     if input.pointer.is_some_and(|p| inside(&check_rect, p)) {
         lu.hover.set(true);
         if input.moved {
-            *focus = CHECK;
+            *focus = check;
         }
     }
-    if input.pointer.is_some_and(|p| inside(&tf_rect, p)) {
+    if let Some(r) = tf_rect
+        && input.pointer.is_some_and(|p| inside(&r, p))
+    {
         lu.hover.set(true);
         if input.moved {
-            *focus = TWOFA;
+            *focus = twofa;
         }
     }
     let mut toggled = false;
     if input.clicked
         && let Some(p) = input.pointer
     {
-        if let Some(i) = (0..4).find(|&i| inside(&field_rect(i), p)) {
+        if let Some(i) = (0..n).find(|&i| inside(&field_rect(i), p)) {
             *focus = i;
         }
         if inside(&check_rect, p) && !busy {
-            *focus = CHECK;
+            *focus = check;
             toggled = true;
         }
         if let Some(k) = (0..3).find(|&k| inside(&arects[k], p)) {
-            *focus = 5 + k;
+            *focus = first + k;
             chosen = enabled[k].then_some(CHOICES[k]);
             sounds.push(if enabled[k] { crate::audio::Ui::Select } else { crate::audio::Ui::Error });
         }
-        if inside(&tf_rect, p) {
-            *focus = TWOFA;
+        if tf_rect.is_some_and(|r| inside(&r, p)) {
+            *focus = twofa;
             chosen = filled.then_some(LoginChoice::TwoFa);
             sounds.push(if filled { crate::audio::Ui::Select } else { crate::audio::Ui::Error });
         }
@@ -720,36 +742,36 @@ fn login_window(lu: &mut GameUi, input: &UiInput, size: [u32; 2], fields: [&mut 
     let mut escape = false;
     for ev in &input.events {
         match ev {
-            egui::Event::Text(t) | egui::Event::Paste(t) if *focus < 4 => {
-                let f = &mut *fields[*focus];
+            egui::Event::Text(t) | egui::Event::Paste(t) if *focus < n => {
+                let f = &mut *fields[*focus].text;
                 f.extend(t.chars().filter(|c| !c.is_control()));
                 *f = f.chars().take(64).collect();
             }
             egui::Event::Key { key, pressed: true, modifiers, .. } => match key {
-                egui::Key::Tab => *focus = if modifiers.shift { (*focus + ITEMS - 1) % ITEMS } else { (*focus + 1) % ITEMS },
-                egui::Key::ArrowDown if *focus == TWOFA => *focus = 5,
-                egui::Key::ArrowUp if *focus == TWOFA => *focus = 3,
-                egui::Key::ArrowDown => *focus = (*focus + 1).min(5.max(*focus)),
-                egui::Key::ArrowUp => *focus = if *focus > CHECK { CHECK } else { focus.saturating_sub(1) },
-                egui::Key::ArrowLeft if *focus == CHECK => *focus = TWOFA,
-                egui::Key::ArrowRight if *focus == TWOFA => *focus = CHECK,
-                egui::Key::ArrowLeft if (6..=7).contains(&*focus) => *focus -= 1,
-                egui::Key::ArrowRight if (5..7).contains(&*focus) => *focus += 1,
-                egui::Key::Enter | egui::Key::Space if *focus == CHECK && !busy => toggled = true,
-                egui::Key::Backspace if *focus < 4 => {
-                    fields[*focus].pop();
+                egui::Key::Tab => *focus = if modifiers.shift { (*focus + items - 1) % items } else { (*focus + 1) % items },
+                egui::Key::ArrowDown if *focus == twofa => *focus = first,
+                egui::Key::ArrowUp if *focus == twofa => *focus = n - 1,
+                egui::Key::ArrowDown => *focus = (*focus + 1).min(first.max(*focus)),
+                egui::Key::ArrowUp => *focus = if *focus > check { check } else { focus.saturating_sub(1) },
+                egui::Key::ArrowLeft if *focus == check && !playonline => *focus = twofa,
+                egui::Key::ArrowRight if *focus == twofa => *focus = check,
+                egui::Key::ArrowLeft if (first + 1..=first + 2).contains(&*focus) => *focus -= 1,
+                egui::Key::ArrowRight if (first..first + 2).contains(&*focus) => *focus += 1,
+                egui::Key::Enter | egui::Key::Space if *focus == check && !busy => toggled = true,
+                egui::Key::Backspace if *focus < n => {
+                    fields[*focus].text.pop();
                 }
                 // Escape goes to Exit, as a menu's cancel lands on its back item.
                 egui::Key::Escape => {
-                    *focus = 7;
+                    *focus = first + 2;
                     escape = true;
                 }
-                egui::Key::Enter if *focus == TWOFA => {
+                egui::Key::Enter if *focus == twofa => {
                     chosen = filled.then_some(LoginChoice::TwoFa);
                     sounds.push(if filled { crate::audio::Ui::Select } else { crate::audio::Ui::Error });
                 }
                 egui::Key::Enter => {
-                    let k = focus.saturating_sub(5);
+                    let k = focus.saturating_sub(first);
                     chosen = enabled[k].then_some(CHOICES[k]);
                     sounds.push(if enabled[k] { crate::audio::Ui::Select } else { crate::audio::Ui::Error });
                 }
@@ -772,30 +794,34 @@ fn login_window(lu: &mut GameUi, input: &UiInput, size: [u32; 2], fields: [&mut 
         ""
     } else if !status.is_empty() {
         status
-    } else if *focus >= 5 && !(if *focus == TWOFA { filled } else { enabled[*focus - 5] }) {
-        "Enter the server, account name and password first."
+    } else if playonline && *focus == first + 1 {
+        "Square Enix accounts are made on Square Enix's website."
+    } else if *focus >= first && !(if *focus == twofa { filled } else { enabled[*focus - first] }) {
+        if playonline { "Enter the PlayOnline ID and password and the Square Enix ID and password first." } else { "Enter the server, account name and password first." }
+    } else if *focus < n && !fields[*focus].help.is_empty() {
+        fields[*focus].help
     } else {
         match *focus {
-            CHECK => "Keep the password on this computer, encrypted, and fill it in next time.",
-            TWOFA => "Turn two-factor sign-in (a code from an authenticator app) on or off for this account.",
-            5 => "Log in with this account.",
-            6 => "Create a new account on this server with the account name and password above.",
-            7 => "Exit the game.",
+            f if f == check => "Keep the passwords on this computer, encrypted, and fill them in next time.",
+            f if f == twofa => "Turn two-factor sign-in (a code from an authenticator app) on or off for this account.",
+            f if f == first => "Log in with this account.",
+            f if f == first + 1 => "Create a new account on this server with the account name and password above.",
+            f if f == first + 2 => "Exit the game.",
             _ => "Enter your account information to log in.",
         }
     };
     let slots = lu.title_update(sw, sh, None, 0, [true; 5], None, 0, None, true, modern.is_some());
     let help_colour = if help_over.is_some() || busy || status.is_empty() { WHITE } else { YELLOW };
+    let shown = |x: &LoginField| if x.secret { "*".repeat(x.text.chars().count()) } else { x.text.clone() };
     // Modern: the layer draws the form on these rects (its mouse stays this one's) and the help bar.
     if let Some(out) = modern {
         lu.modern_help = Some((help.to_string(), help_colour));
-        let shown = |i: usize| if i == 2 { "*".repeat(fields[i].chars().count()) } else { fields[i].clone() };
         *out = Some(LoginView {
             frame: [wx, wy, ww, wh],
-            fields: (0..4).map(|i| (field_rect(i), LOGIN_LABELS[i], shown(i), if i == 3 { "only with 2FA" } else { "" })).collect(),
+            fields: fields.iter().enumerate().map(|(i, x)| (field_rect(i), x.label, shown(x), x.hint)).collect(),
             check: (check_rect, CAPTION, *remember),
             buttons: (0..3).map(|k| (arects[k], ACTIONS[k], enabled[k])).collect(),
-            twofa: (tf_rect, TF, filled),
+            twofa: tf_rect.map(|r| (r, TF, filled)),
             focus: *focus,
             busy,
         });
@@ -803,26 +829,25 @@ fn login_window(lu: &mut GameUi, input: &UiInput, size: [u32; 2], fields: [&mut 
     }
     lobby_text(lu, &slots, help, help_colour, version);
     lu.frame(wx, wy, ww, wh);
-    for (i, label) in LOGIN_LABELS.iter().enumerate() {
+    for (i, x) in fields.iter().enumerate() {
         let r = field_rect(i);
-        lu.text(label, wx + 16.0, row(i) + 1.0, 0, WHITE);
+        lu.text(x.label, wx + 16.0, row(i) + 1.0, 0, WHITE);
         lu.rect(r[0], r[1], r[2], r[3], if *focus == i { [0.16, 0.2, 0.45, 0.6] } else { [0.0, 0.0, 0.0, 0.35] });
-        let raw = if i == 2 { "*".repeat(fields[i].chars().count()) } else { fields[i].clone() };
-        let shown = fit_tail(lu, &raw, r[2] - 10.0);
-        if shown.is_empty() && i == 3 && *focus != 3 {
-            lu.text("only with 2FA", r[0] + 4.0, r[1] + 1.0, 0, GREY);
+        let shown = fit_tail(lu, &shown(x), r[2] - 10.0);
+        if shown.is_empty() && !x.hint.is_empty() && *focus != i {
+            lu.text(x.hint, r[0] + 4.0, r[1] + 1.0, 0, GREY);
         }
         lu.text(&shown, r[0] + 4.0, r[1] + 1.0, 0, WHITE);
         if *focus == i && lu.blink() {
             lu.rect(r[0] + 4.0 + lu.text_width(&shown), r[1] + 2.0, 2.0, 14.0, [1.0, 1.0, 1.0, 0.9]);
         }
     }
-    let check = format!("{} {CAPTION}", if *remember { '\u{25a0}' } else { '\u{25a1}' });
-    lu.text(&check, check_rect[0], check_rect[1] + 1.0, 0, if busy { GREY } else { WHITE });
+    let check_text = format!("{} {CAPTION}", if *remember { '\u{25a0}' } else { '\u{25a1}' });
+    lu.text(&check_text, check_rect[0], check_rect[1] + 1.0, 0, if busy { GREY } else { WHITE });
     // As the Config pages' buttons: the selected one gold (0x80805020) one pixel up-left, the hand over it last;
     // disabled grey.
-    let mut hand = (*focus == CHECK && !busy).then_some((check_rect[0], check_rect[1]));
-    let all = arects.iter().zip(ACTIONS).zip(enabled).enumerate().map(|(k, ((r, a), e))| (5 + k, *r, a, e)).chain([(TWOFA, tf_rect, TF, filled)]);
+    let mut hand = (*focus == check && !busy).then_some((check_rect[0], check_rect[1]));
+    let all = arects.iter().zip(ACTIONS).zip(enabled).enumerate().map(|(k, ((r, a), e))| (first + k, *r, a, e)).chain(tf_rect.map(|r| (twofa, r, TF, filled)));
     for (i, r, name, on_ok) in all {
         let on = *focus == i && !busy;
         let d = if on { -1.0 } else { 0.0 };
@@ -6151,8 +6176,9 @@ impl World {
 }
 
 enum Phase {
-    /// `focus`: 0 server, 1 account, 2 password, 3 one-time code, 4 log in, 5 create account.
-    Login { password: String, otp: String, focus: usize },
+    /// `focus`: login_window's (the fields, then Remember password and the buttons). `pol_password`: PlayOnline's
+    /// own password beside the Square Enix one, for the PlayOnline server.
+    Login { password: String, otp: String, pol_password: String, focus: usize },
     Characters {
         lobby: Option<Lobby>,
         chars: Vec<Character>,
@@ -6178,15 +6204,22 @@ impl Phase {
     /// The credentials screen, with the cursor on the first field still to fill in.
     fn login(cfg: &Config) -> Self {
         // A remembered password fills in, the cursor then on Log in.
-        let password = if cfg.remember_password { crate::secret::open(&cfg.server, &cfg.username, &cfg.saved_password).unwrap_or_default() } else { String::new() };
+        let saved = if cfg.remember_password { crate::secret::open(&cfg.server, &cfg.username, &cfg.saved_password).unwrap_or_default() } else { String::new() };
+        if is_playonline(&cfg.server) {
+            // Both passwords are sealed together, PlayOnline's first.
+            let (pol_password, password) = saved.split_once('\n').map(|(a, b)| (a.to_string(), b.to_string())).unwrap_or_default();
+            let filled = [&cfg.pol_id, &pol_password, &cfg.username, &password];
+            let focus = filled.iter().position(|s| s.is_empty()).map_or(7, |i| i + 1);
+            return Phase::Login { password, otp: String::new(), pol_password, focus };
+        }
         let focus = if cfg.username.is_empty() {
             1
-        } else if password.is_empty() {
+        } else if saved.is_empty() {
             2
         } else {
             5
         };
-        Phase::Login { password, otp: String::new(), focus }
+        Phase::Login { password: saved, otp: String::new(), pol_password: String::new(), focus }
     }
 }
 
@@ -6969,6 +7002,52 @@ impl App {
         Ok((self.index.clone().unwrap(), self.keys_table.clone().unwrap()))
     }
 
+    /// Signing in through PlayOnline (net/pol), then FFXiMain's -net 3 lobby path.
+    fn login_playonline(&mut self, pol_password: String, password: String, otp: String) {
+        self.cfg.pol_id = self.cfg.pol_id.trim().to_ascii_uppercase();
+        self.cfg.username = self.cfg.username.trim().to_string();
+        let otp = otp.trim().to_string();
+        let problem = if self.cfg.pol_id.len() != 8 || !self.cfg.pol_id.bytes().all(|b| b.is_ascii_alphanumeric()) {
+            Some("A PlayOnline ID is eight letters and digits.")
+        } else if pol_password.len() > 15 {
+            Some("A PlayOnline password is 15 characters at most.")
+        } else if self.cfg.username.is_empty() || self.cfg.username.len() > 16 {
+            Some("A Square Enix ID is 16 characters at most.")
+        } else if !otp.is_empty() && (otp.len() != 6 || !otp.bytes().all(|b| b.is_ascii_digit())) {
+            Some("A one-time password is six digits.")
+        } else {
+            None
+        };
+        if let Some(p) = problem {
+            self.status = p.into();
+            return;
+        }
+        let cfg = self.cfg.clone();
+        if self.drive.login.is_none() {
+            let _ = self.cfg.save();
+        }
+        let replies: Arc<std::sync::atomic::AtomicU32> = Default::default();
+        self.netwait = Some(netwait::NetWait::new(netwait::Op::Connect, replies.clone()));
+        self.spawn(move || {
+            Task::LoggedIn((|| {
+                let creds = crate::net::pol::Credentials {
+                    pol_id: cfg.pol_id.clone(),
+                    pol_password,
+                    se_id: cfg.username.clone(),
+                    se_password: password,
+                    otp: (!otp.is_empty()).then_some(otp),
+                };
+                let (session, pol) = crate::net::pol::sign_in(&creds)?;
+                let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).unwrap_or_default();
+                let mut lobby = Lobby::connect(crate::net::pol::LOBBY_HOST, crate::net::pol::LOBBY_PORT, 0, session, &dll, &cfg.client_version, 5, crate::dat::installed(&cfg.ffxi_dir()), replies)?;
+                lobby.pol = Some(pol);
+                let chars = lobby.characters()?;
+                lobby.worlds()?;
+                Ok((lobby, chars))
+            })())
+        });
+    }
+
     fn login(&mut self, password: String, otp: String, create: bool) {
         // A stray space makes a different account (" lenon" vs "lenon"), so never send one.
         self.cfg.username = self.cfg.username.trim().to_string();
@@ -7002,7 +7081,10 @@ impl App {
                 let Reply::LoggedIn { account_id, session_hash, .. } = auth::send(&cfg.server, cfg.auth_port, Command::Login, &req)? else {
                     anyhow::bail!("unexpected reply from the login server");
                 };
-                let mut lobby = Lobby::connect(&cfg.server, cfg.view_port, cfg.data_port, account_id, session_hash, &cfg.client_version, replies)?;
+                let session = crate::net::lobby::Session::Lsb { account_id, hash: session_hash };
+                let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).unwrap_or_default();
+                // Region 5: not the Japanese client (FUN_1023e610).
+                let mut lobby = Lobby::connect(&cfg.server, cfg.view_port, cfg.data_port, session, &dll, &cfg.client_version, 5, crate::dat::installed(&cfg.ffxi_dir()), replies)?;
                 let chars = lobby.characters()?;
                 // Retail's connect step asks for the world list too (0x24, step 1 sub 17).
                 lobby.worlds()?;
@@ -7133,11 +7215,12 @@ impl App {
             Task::LoggedIn(Ok((lobby, chars))) | Task::Lobby(Ok((lobby, chars))) => {
                 self.status.clear();
                 // A login that worked: the password is remembered (sealed) or forgotten as the box says.
-                if let Phase::Login { password, .. } = &self.phase
+                if let Phase::Login { password, pol_password, .. } = &self.phase
                     && !password.is_empty()
                 {
+                    let secret = if is_playonline(&self.cfg.server) { format!("{pol_password}\n{password}") } else { password.clone() };
                     self.cfg.saved_password = match self.cfg.remember_password {
-                        true => crate::secret::seal(&self.cfg.server, &self.cfg.username, password).unwrap_or_else(|e| {
+                        true => crate::secret::seal(&self.cfg.server, &self.cfg.username, &secret).unwrap_or_else(|e| {
                             log::warn!("remembering the password: {e:#}");
                             String::new()
                         }),
@@ -7174,7 +7257,7 @@ impl App {
                         let net = net::spawn(login.clone(), self.cfg.username.clone(), codec);
                         self.status = format!("Connecting to {}:{}...", login.map.0, login.map.1);
                         let features = if let Phase::Characters { lobby: Some(l), .. } = &self.phase { l.features } else { 0 };
-                        let pol = Some(crate::net::profile::Cred { host: self.cfg.server.clone(), port: self.cfg.profile_port, irc_port: self.cfg.irc_port, account: login.account, hash: login.hash });
+                        let pol = login.lsb.map(|(account, hash)| crate::net::profile::Cred { host: self.cfg.server.clone(), port: self.cfg.profile_port, irc_port: self.cfg.irc_port, account, hash });
                         let world_name = match &self.phase {
                             Phase::Characters { chars, selected: Some(s), .. } => chars.get(*s).map(|c| c.world.clone()).unwrap_or_default(),
                             _ => String::new(),
@@ -10530,11 +10613,29 @@ impl App {
         let fading = self.lobby_fade.busy();
         let mut fade_action = false;
         match &mut self.phase {
-            Phase::Login { password, otp, focus } => {
+            Phase::Login { password, otp, pol_password, focus } => {
                 self.title_press = None;
                 if let Some(lu) = self.game_ui.as_mut() {
                     self.ui_drawn = true;
-                    let fields = [&mut self.cfg.server, &mut self.cfg.username, &mut *password, &mut *otp];
+                    let playonline = is_playonline(&self.cfg.server);
+                    let field = |label, text, secret, hint, help| LoginField { label, text, secret, hint, help };
+                    let mut fields = if playonline {
+                        vec![
+                            field("Server", &mut self.cfg.server, false, "", SERVER_HELP),
+                            field("PlayOnline ID", &mut self.cfg.pol_id, false, "", "The member's PlayOnline ID: four letters and four digits."),
+                            field("POL password", &mut *pol_password, true, "", "The member's PlayOnline password (15 characters at most)."),
+                            field("Square Enix ID", &mut self.cfg.username, false, "", "The Square Enix ID the PlayOnline member is registered to."),
+                            field("Password", &mut *password, true, "", "The Square Enix account's password."),
+                            field("One-time pass.", &mut *otp, false, "with a token only", "The six digits of the security token or app, for an account that uses one."),
+                        ]
+                    } else {
+                        vec![
+                            field("Server", &mut self.cfg.server, false, "", SERVER_HELP),
+                            field("Account", &mut self.cfg.username, false, "", ""),
+                            field("Password", &mut *password, true, "", ""),
+                            field("One-time code", &mut *otp, false, "only with 2FA", ""),
+                        ]
+                    };
                     let remembered = self.cfg.remember_password;
                     // While an error shows, the fields take no input (the OK window has it).
                     let none = UiInput { pointer: None, moved: false, clicked: false, pressed: false, down: false, released: false, right_clicked: false, middle_clicked: false, wheel: 0, events: Vec::new() };
@@ -10543,7 +10644,14 @@ impl App {
                     let modern_ui = self.cfg.modern_ui;
                     let mut view = None;
                     let help_over = self.twofa.as_ref().map(|t| t.help());
-                    let chosen = login_window(lu, shown, size, fields, &mut self.cfg.remember_password, focus, busy, &status, help_over, &self.cfg.client_version, &mut sounds, modern_ui.then_some(&mut view), ctx.native_pixels_per_point().unwrap_or(1.0));
+                    let chosen = login_window(lu, shown, size, &mut fields, playonline, &mut self.cfg.remember_password, focus, busy, &status, help_over, &self.cfg.client_version, &mut sounds, modern_ui.then_some(&mut view), ctx.native_pixels_per_point().unwrap_or(1.0));
+                    drop(fields);
+                    // A server typed over to or from PlayOnline: the passwords are the other service's, never sent there.
+                    if is_playonline(&self.cfg.server) != playonline {
+                        password.clear();
+                        pol_password.clear();
+                        otp.clear();
+                    }
                     let window = [size[0], size[1]];
                     // The popups keep retail's size but stand clear of our (larger) form: their bottom above its top.
                     let form_top = view.as_ref().map_or(f32::MAX, |v| v.frame[1] - 10.0);
@@ -10632,6 +10740,10 @@ impl App {
                     match chosen.filter(|_| self.login_error.is_none()) {
                         Some(LoginChoice::Exit) => self.exit_requested = true,
                         Some(LoginChoice::TwoFa) => self.twofa = Some(twofa::TwoFa::new()),
+                        Some(_) if is_playonline(&self.cfg.server) => {
+                            let (pp, p, o) = (pol_password.clone(), password.clone(), otp.clone());
+                            action = Some(Box::new(move |app: &mut App| app.login_playonline(pp, p, o)));
+                        }
                         Some(c) => {
                             let create = c == LoginChoice::Create;
                             let (p, o) = (password.clone(), if create { String::new() } else { otp.clone() });

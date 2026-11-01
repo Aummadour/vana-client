@@ -60,6 +60,8 @@ fn now() -> u32 {
 pub struct MapSession {
     sock: UdpSocket,
     cipher: Blowfish,
+    /// The key the cipher was made from, for 0x00A's ticket.
+    key: [u8; 16],
     codec: Codec,
     seq: u16,
     server_seq: u16,
@@ -72,6 +74,26 @@ pub struct MapSession {
     server_ack: u16,
     /// Header sequence of the last datagram handled; none before the first.
     last_in: Option<u16>,
+    /// Datagrams logged so far each way (the first few of a session are logged).
+    logged: (u32, u32),
+}
+
+const LOG_DATAGRAMS: u32 = 40;
+
+/// The sub-packets' ids and syncs, for the log.
+fn sub_ids(plain: &[u8]) -> String {
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at + 4 <= plain.len() {
+        let word = u16::from_le_bytes([plain[at], plain[at + 1]]);
+        let len = ((word >> 9) as usize) * 4;
+        if len == 0 {
+            break;
+        }
+        out.push(format!("{:03X}/{}", word & 0x1ff, u16::from_le_bytes([plain[at + 2], plain[at + 3]])));
+        at += len;
+    }
+    out.join(" ")
 }
 
 /// FUN_100fac80's raw payload limit.
@@ -81,7 +103,7 @@ impl MapSession {
     pub fn connect(server: SocketAddr, key: &[u8; 20], codec: Codec) -> Result<Self> {
         let sock = UdpSocket::bind("0.0.0.0:0")?;
         sock.connect(server)?;
-        Ok(Self { sock, cipher: Blowfish::for_session_key(key), codec, seq: 0, server_seq: 0, bytes_out: 0, bytes_in: 0, unacked: Vec::new(), server_ack: 0, last_in: None })
+        Ok(Self { sock, cipher: Blowfish::for_session_key(key), key: super::blowfish::session_key(key), codec, seq: 0, server_seq: 0, bytes_out: 0, bytes_in: 0, unacked: Vec::new(), server_ack: 0, last_in: None, logged: (0, 0) })
     }
 
     fn header(&mut self) -> Vec<u8> {
@@ -114,14 +136,23 @@ impl MapSession {
         };
         put(&mut body, 30, char_name);
         put(&mut body, 45, account);
+        // The ticket @0x40: MD5(the account's 15 bytes ‖ the Blowfish key) (FUN_100fba40 -> FUN_100dd800).
+        let mut h = Md5::new();
+        h.update(&body[45..60]);
+        h.update(self.key);
+        body[60..76].copy_from_slice(&h.finalize());
         body[80..84].copy_from_slice(b"WIN\0");
-        body[84..86].copy_from_slice(&2u16.to_le_bytes()); // English
+        // The language (FFXi.dll's map of polcore 0x1A5: 0 ja, 1 en, 2 de, 3 fr), then SYS\info02.bin's
+        // {01 01} after a normal start (FUN_102532c0).
+        body[84..86].copy_from_slice(&1u16.to_le_bytes());
+        body[86..88].copy_from_slice(&0x0101u16.to_le_bytes());
         // LoginPacketCheck: byte sum of everything from MyIP (packet offset 8) on.
         body[0] = body[4..].iter().fold(0u8, |a, &b| a.wrapping_add(b));
         let packet = build(0x00A, &body);
 
         let mut dgram = self.header();
         dgram.extend_from_slice(&self.stamp(&[packet]));
+        log::info!("map out (login): header {} [{}]", hex::encode(&dgram[..HEADER]), sub_ids(&dgram[HEADER..]));
         let digest = Md5::digest(&dgram[HEADER..]);
         dgram.extend_from_slice(&digest);
         self.sock.send(&dgram)?;
@@ -149,6 +180,10 @@ impl MapSession {
                 break;
             }
             raw.extend_from_slice(p);
+        }
+        if self.logged.1 < LOG_DATAGRAMS {
+            self.logged.1 += 1;
+            log::info!("map out: header {} [{}]", hex::encode(&dgram[..HEADER]), sub_ids(&raw));
         }
         let (mut body, bits) = self.codec.compress(&raw);
         body.extend_from_slice(&bits.to_le_bytes());
@@ -188,6 +223,10 @@ impl MapSession {
         // FUN_100f76b0: a datagram not newer than the last one handled is dropped (counted), and so is a sub-packet
         // whose sync is not newer; only an accepted datagram moves the stored sequence and ack.
         let seq = u16::from_le_bytes([dgram[0], dgram[1]]);
+        if self.logged.0 < LOG_DATAGRAMS {
+            self.logged.0 += 1;
+            log::info!("map in: header {} [{}]", hex::encode(&dgram[..HEADER]), sub_ids(&plain));
+        }
         let newer = |s: u16| self.last_in.is_none_or(|last| last.wrapping_sub(s) >= 0x8000);
         if !newer(seq) {
             // LSB resends its last datagram when our ack lags (map_networking.cpp parse).

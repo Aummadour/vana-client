@@ -12745,3 +12745,58 @@ DISPLAY13 at 100%; RX 6800 XT eGPU), MinGW cross builds, release and debug.
   without camera lists are unchanged. Test dat::zone::tests::escha_gate_variants. In both Ru'Aun scenes D is 1000,
   so there Unlimited now draws as Retail.
 - zone-shot with FFXI_NO_CLIP now renders as Unlimited does (D 0, K x 9, the list with the reach), not without lists.
+
+## PlayOnline sign-in (net/pol) and FFXiMain's -net 3 lobby path (2026-11-01)
+
+The client can sign a PlayOnline member in itself (no Viewer, no Wine) and speaks the lobby dialect of FFXiMain's
+`-net 3` path. Specs (with addresses): `~/ffxi/lab/research/pol_chat_spec.md`, `pol_profile_spec.md`,
+`pol_lobby_spec.md`.
+
+- Builds. The installer's Viewer is 1.18.00n (polcore f5af5837); the patch server installs 1.18.15e (polcore
+  73b1864b, app 7ba99828). Only 1.18.15e has the Square Enix ID login (profile 4/7), so the client speaks 1.18.15e. The
+  POL DLLs use FFXiMain's POL1 packer (compress_re/unpack_any.py); decompiles in ~/ffxi/lab/pol/gh118n and
+  scratch/pol/profile/gh1815e. Kuluu's ffxi-pol was the map; every fact was confirmed in our decompile and by running
+  polcore's own code (below), with corrections (spec sections "Kuluu").
+- Chat service (net/pol/chat.rs; ci000.pol.com:51240, IRC dialect, plain TCP): greeting (challenge = third word on,
+  less its 4-character trailer; base32: clock, client IPv4 / port, optional redirect), `USER x 8 * :<base64 of the
+  client's 255-bit RSA modulus, LE>`, numeric 300 (the 8-byte session key, RSA e = 0xffff, PKCS#1 type 2, key = message
+  bytes 7..0), then every line enciphered from the IV (the modulus's first 8 bytes): `NICK U<8 digits>:<MD5(challenge
+  ‖ POL password)>:<token>`, routing 300 (region, profile host byte) before 422, then the "profile available" NOTICE.
+  Lines carry a 4-character checksum trailer. Token byte 5 is the area code app.dll sets from env.dat ("01", US).
+- Cipher (net/pol/cipher.rs): Blowfish-16 whose P and S come from an MD5 expansion of the key (one MD5 context reused
+  after its final zeroes it), a non-chaining self-encryption pass, and an output-feedback stream that leaves CR / LF.
+  MD5 is hand-written there (md-5 keeps its compression private).
+- Profile service (net/pol/polpro.rs; pp%03d.pol.com:51220, one TCP connection per transaction): plain 0x28 handshake
+  (bytes 0x0c..0x17 are the previous header's ciphertext) and its token; header MD5(POL ID ‖ POL password ‖ token);
+  header / reply header from the IV, bodies continued; dword-sum checksums on fixed replies. List replies (0/9, 1/3)
+  stop after the records: polcore's readers go from the last record straight to done and never read what follows
+  (0x1001e490's and 0x10022260's state 5 -> 8; the trailer state 7 is unreachable). Sequence (Viewer + FFXiMain):
+  member login 4/7 (mode, SE ID, OTP, SHA1(hex(SHA1(hex(SHA1(password)) ‖ "playonline")) ‖ the minute)), polcore's own
+  ChangeMyStatus (-2,-2,1,-2,-1,-2), LoadMyStatus 4/6, handle list 0/9, character list 1/3, app.dll's ChangeMyStatus
+  (handle,-2,1,2,0,-2), FFXiMain's (-2,-1,0,-2,-1,1). That reply's first 16 bytes are K16; the 0x34-byte authCode is
+  assembled from it, the greeting's address and clock, the chat key and the host byte with polcore's *5-chain cipher.
+  ChangeMyStatus is modelled as polcore builds it (keep / none arguments, the handle's slot search, starting status
+  content -1, presence 4, activity 1000). Refusals 0x6e / 0x6f / 0x70 / 0xe2 ... in our words (status_text).
+- Lobby (net/lobby.rs): both dialects now use FFXiMain's request layouts (FUN_10116610): sizes (0x1F / 0x24 0x2C, 0x21
+  0x90, 0x28 0x44), the key field MD5(K16 ‖ counter) in every key-carrying request (LSB: K16 = MD5(session hash), what
+  xi_profile gives polcore), 0x07's @0x44 = 3 and @0x48 MD5(authCode ‖ key ‖ 3 ‖ FFXiMain.dll checksum ‖ content id)
+  (FUN_100185a0: 0x43FA0718 for 30261006_0), 0x26's region 5, authCode and installed-content mask, ids from the 0x20
+  record (the map char id = rec[+0xB] << 16 | rec u16 +4), the free slot's content id in 0x21 / 0x22. PlayOnline: one
+  link to ffxi00.pol.com:54001, no data socket, an MD5 of each packet at header +0x0C both ways, wait for the close
+  after 0x0B, then PlayOnline's ChangeMyStatus for the character (matched by content id and world key, linked only).
+- Map 0x00A: the ticket @0x40 = MD5(account[15] ‖ Blowfish key), language 1 (English; we sent 2, German), @0x5A
+  SYS\info02.bin's 0x0101 (FUN_102532c0).
+- The game keeps the chat link (PONG to PING); dropping it sends ChangeMyStatus (-2,-1,-2,-2,-1,-2), then closes.
+- Login form: a Server of "PlayOnline" switches to six fields (PlayOnline ID and password, Square Enix ID and
+  password, one-time password; config pol_id), Create account and Two-factor off; switching servers clears the
+  passwords; Remember password seals both. `vana-client pol-signin --chat --profile --credentials [--lobby]` signs in
+  against given test servers only.
+- Verification: polcore under Wine (MinGW harnesses, no network) gave the unit vectors the tests use; real polcore
+  1.18.15e completed a whole sign-in against scratch/pol/chat/tools/mock.py; our client against the same mock sent
+  byte-identical traffic (22 of 22 messages; OTP and wrong-password runs too) except the RSA modulus, the minute digest
+  and polcore's stale buffer bytes. A test lobby from the spec checks the -net 3 dialect (net::lobby tests). LSB login,
+  lobby and zone-in re-tested live.
+- Open *(inf / not verified)*: whether a server checks the token or the stale bytes (addr20 bytes 8..19 enter polcore's
+  authCode; ours are zero) and the handshake 0x0c..0x17; characters not yet linked to a handle (FFXiMain attaches them
+  and stores 1/10; we stop with a message rather than write the list); the Friend List / POL messages through net/pol
+  (ours speak LSB's xi_profile only).

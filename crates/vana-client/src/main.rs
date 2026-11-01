@@ -854,6 +854,22 @@ enum Cmd {
         user: String,
     },
     /// Log in headless: list characters, optionally create one or select one for the map server.
+    /// Sign a PlayOnline member in against the given test servers (no default host) and print
+    /// the lobby session; with --lobby, list the characters there.
+    PolSignin {
+        /// The chat service, HOST:PORT.
+        #[arg(long)]
+        chat: String,
+        /// The profile service, HOST:PORT, in place of the routed pp###.pol.com.
+        #[arg(long)]
+        profile: String,
+        /// JSON file with "pol_id", "pol_password", "se_id", "se_password" and optionally "otp".
+        #[arg(long)]
+        credentials: PathBuf,
+        /// The lobby, HOST:PORT.
+        #[arg(long)]
+        lobby: Option<String>,
+    },
     Login {
         /// JSON file with "username" and "password".
         #[arg(long)]
@@ -1004,8 +1020,9 @@ fn login(cfg: &config::Config, creds: &Credentials) -> Result<net::lobby::Lobby>
         anyhow::bail!("unexpected login reply");
     };
     println!("Logged in: account {account_id}");
-    let lobby =
-        net::lobby::Lobby::connect(&cfg.server, cfg.view_port, cfg.data_port, account_id, session_hash, &cfg.client_version, Default::default())?;
+    let session = net::lobby::Session::Lsb { account_id, hash: session_hash };
+    let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).unwrap_or_default();
+    let lobby = net::lobby::Lobby::connect(&cfg.server, cfg.view_port, cfg.data_port, session, &dll, &cfg.client_version, 5, dat::installed(&cfg.ffxi_dir()), Default::default())?;
     println!("Lobby: expansions 0x{:08X}, features 0x{:08X}", lobby.expansions, lobby.features);
     Ok(lobby)
 }
@@ -1678,6 +1695,28 @@ fn main() -> Result<()> {
             auth::send(&cfg.server, cfg.auth_port, Command::CreateAccount, &req)?;
             write_private(&credentials, &serde_json::to_vec_pretty(&creds)?)?;
             println!("Created account {}; credentials in {}", creds.username, credentials.display());
+            Ok(())
+        }
+        Cmd::PolSignin { chat, profile, credentials, lobby } => {
+            let cfg = config::Config::load();
+            let v: serde_json::Value = serde_json::from_slice(&std::fs::read(&credentials)?)?;
+            let s = |k: &str| v[k].as_str().unwrap_or_default().to_string();
+            let creds = net::pol::Credentials { pol_id: s("pol_id"), pol_password: s("pol_password"), se_id: s("se_id"), se_password: s("se_password"), otp: v["otp"].as_str().map(str::to_string) };
+            let (host, port) = chat.rsplit_once(':').ok_or_else(|| anyhow::anyhow!("--chat HOST:PORT"))?;
+            let servers = net::pol::Servers { chat: (host.to_string(), port.parse()?), profile: Some(profile.parse()?) };
+            let (session, pol) = net::pol::sign_in_at(&creds, &servers)?;
+            if let net::lobby::Session::PlayOnline { auth_code, k16 } = &session {
+                println!("signed in: value {} authCode {}", hex::encode(k16), hex::encode(&auth_code[..0x34]));
+            }
+            if let Some(l) = lobby {
+                let (host, port) = l.rsplit_once(':').ok_or_else(|| anyhow::anyhow!("--lobby HOST:PORT"))?;
+                let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).unwrap_or_default();
+                let mut lobby = net::lobby::Lobby::connect(host, port.parse()?, 0, session, &dll, &cfg.client_version, 5, dat::installed(&cfg.ffxi_dir()), Default::default())?;
+                lobby.pol = Some(pol);
+                for c in lobby.characters()?.iter().filter(|c| !c.is_empty_slot()) {
+                    println!("  {} ({})", c.name, c.world);
+                }
+            }
             Ok(())
         }
         Cmd::Login { credentials, create_char, race, face, size, job, nation, select, zone_in: stay } => {

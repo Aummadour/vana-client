@@ -556,7 +556,7 @@ pub fn topbar_shot(out: &std::path::Path, fade: &str, menu: Option<u16>, menu_sw
         chat_log: false,
     };
     gu.clear();
-    let login = config.is_some_and(|c| c == "login" || c.starts_with("login2fa"));
+    let login = config.is_some_and(|c| c == "login" || c == "loginpol" || c.starts_with("login2fa"));
     let lobby = login || config.is_some_and(|c| c.starts_with("lobycwin") || c.starts_with("lobby"));
     if login {
         let input = super::UiInput { pointer: None, moved: false, clicked: false, pressed: false, down: false, released: false, right_clicked: false, middle_clicked: false, wheel: 0, events: Vec::new() };
@@ -582,7 +582,19 @@ pub fn topbar_shot(out: &std::path::Path, fade: &str, menu: Option<u16>, menu_sw
             t
         });
         let help = twofa.as_ref().map(|t| t.help());
-        super::login_window(&mut gu, &input, [width, height], [&mut a, &mut b, &mut c, &mut d], &mut remember, &mut 0, false, "", help, &cfg.client_version, &mut Vec::new(), None, 1.0);
+        // loginpol: the PlayOnline server's fields.
+        let pol = config == Some("loginpol");
+        let (mut e, mut g) = ("ABCD1234".to_string(), "secret".to_string());
+        if pol {
+            a = "PlayOnline".into();
+        }
+        let f = |label, text, secret, hint| super::LoginField { label, text, secret, hint, help: "" };
+        let mut fields = if pol {
+            vec![f("Server", &mut a, false, ""), f("PlayOnline ID", &mut e, false, ""), f("POL password", &mut g, true, ""), f("Square Enix ID", &mut b, false, ""), f("Password", &mut c, true, ""), f("One-time pass.", &mut d, false, "with a token only")]
+        } else {
+            vec![f("Server", &mut a, false, ""), f("Account", &mut b, false, ""), f("Password", &mut c, true, ""), f("One-time code", &mut d, false, "only with 2FA")]
+        };
+        super::login_window(&mut gu, &input, [width, height], &mut fields, pol, &mut remember, &mut 0, false, "", help, &cfg.client_version, &mut Vec::new(), None, 1.0);
         if let Some(t) = twofa.as_mut() {
             super::twofa::window(&mut gu, &input, [width, height], t, false, &mut Vec::new(), None);
         }

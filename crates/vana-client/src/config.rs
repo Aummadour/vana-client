@@ -63,7 +63,10 @@ pub struct Config {
     pub installed: bool,
 
     pub server: String,
+    /// The login's account; the Square Enix ID for PlayOnline.
     pub username: String,
+    /// PlayOnline's member ID (8 characters), for the PlayOnline server.
+    pub pol_id: String,
     /// The login screen's Remember password (not retail), and the password sealed for this server and account
     /// (secret.rs; hex, empty when none).
     pub remember_password: bool,
@@ -274,6 +277,7 @@ impl Default for Config {
             installed: false,
             server: "127.0.0.1".into(),
             username: String::new(),
+            pol_id: String::new(),
             remember_password: false,
             saved_password: String::new(),
             auth_port: 54231,

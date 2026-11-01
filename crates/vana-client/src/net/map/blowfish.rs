@@ -11,6 +11,15 @@ pub struct Blowfish {
     s: [[u32; 256]; 4],
 }
 
+/// The map key: MD5 of the 16-byte value and the counter, strncpy'd (zero from its first zero byte on).
+pub fn session_key(key: &[u8; 20]) -> [u8; 16] {
+    let mut hash: [u8; 16] = Md5::digest(key).into();
+    if let Some(zero) = hash.iter().position(|&b| b == 0) {
+        hash[zero..].fill(0);
+    }
+    hash
+}
+
 impl Blowfish {
     pub fn new(key: &[u8]) -> Self {
         let mut bf = Self { p: bf_consts::P, s: bf_consts::S };
@@ -41,11 +50,7 @@ impl Blowfish {
 
     /// The cipher for a 20-byte map session key: MD5 of the key, cut at its first zero byte.
     pub fn for_session_key(key: &[u8; 20]) -> Self {
-        let mut hash: [u8; 16] = Md5::digest(key).into();
-        if let Some(zero) = hash.iter().position(|&b| b == 0) {
-            hash[zero..].fill(0);
-        }
-        Self::new(&hash)
+        Self::new(&session_key(key))
     }
 
     fn f(&self, x: u32) -> u32 {
