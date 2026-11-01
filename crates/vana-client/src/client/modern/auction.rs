@@ -44,13 +44,13 @@ fn heading(ui: &mut Ui, m: &super::Modern, text: &str) {
 /// Item rows (the list, the inventory for sale): icon, the stack size, the name in its tint, the cell at the right; the
 /// cursor's kept in view. The row clicked on the pane with the keys.
 #[allow(clippy::too_many_arguments)]
-fn item_rows(ui: &mut Ui, m: &super::Modern, info: &ItemCache, salt: &str, rows: &[PaneRow], cur: usize, focused: bool, note: Option<&str>) -> Option<usize> {
+fn item_rows(ui: &mut Ui, m: &super::Modern, info: &ItemCache, salt: &str, rows: &[PaneRow], cur: usize, focused: bool, note: Option<&str>, tall: f32) -> Option<usize> {
     let ctx = ui.ctx().clone();
     let seen = egui::Id::unique((salt, "auction cursor seen"));
     let follow = ctx.data(|d| d.get_temp::<usize>(seen)) != Some(cur);
     ctx.data_mut(|d| d.insert_temp(seen, cur));
     let mut click = None;
-    egui::ScrollArea::vertical().id_salt(salt).max_height(TALL).auto_shrink([false, true]).show(ui, |ui| {
+    egui::ScrollArea::vertical().id_salt(salt).max_height(tall).auto_shrink([false, true]).show(ui, |ui| {
         for (k, r) in rows.iter().enumerate() {
             let (rect, resp) = ui.allocate_exact_size(vec2(LIST_W - 14.0, ROW), Sense::click());
             let face = match () {
@@ -85,10 +85,10 @@ fn item_rows(ui: &mut Ui, m: &super::Modern, info: &ItemCache, salt: &str, rows:
 }
 
 /// The price history: date, seller → buyer, price per sale.
-fn history_rows(ui: &mut Ui, m: &super::Modern, rows: &[[String; 4]], cur: usize, focused: bool, note: Option<&str>) -> Option<usize> {
+fn history_rows(ui: &mut Ui, m: &super::Modern, rows: &[[String; 4]], cur: usize, focused: bool, note: Option<&str>, tall: f32) -> Option<usize> {
     let mut click = None;
     let follow = m.moved("auction history", cur);
-    super::kit::scroll(ui, "auction history", TALL, |ui| for (k, r) in rows.iter().enumerate() {
+    super::kit::scroll(ui, "auction history", tall, |ui| for (k, r) in rows.iter().enumerate() {
         let (rect, resp) = ui.allocate_exact_size(vec2(HIST_W - 14.0, ROW - 4.0), Sense::click());
         if k == cur && follow {
             ui.scroll_to_rect(rect, None);
@@ -129,10 +129,13 @@ fn search_box(ui: &mut Ui, m: &super::Modern) -> bool {
     resp.clicked()
 }
 
-/// One pane as a column.
-fn pane(ui: &mut Ui, m: &super::Modern, gu: &GameUi, info: &ItemCache, p: &Pane, focused: bool, bazaar: usize, mouse: &mut Mouse) {
+/// One pane as a column; a list reaches down to `fill` (the tallest menu column last frame), 12 rows at least. Its
+/// height.
+#[allow(clippy::too_many_arguments)]
+fn pane(ui: &mut Ui, m: &super::Modern, gu: &GameUi, info: &ItemCache, p: &Pane, focused: bool, bazaar: usize, mouse: &mut Mouse, fill: f32) -> f32 {
     ui.vertical(|ui| {
         ui.set_width(width(p));
+        let tall = |ui: &Ui| (fill - ui.min_rect().height()).max(TALL);
         match p {
             Pane::Menu { name, sel, off, labels } => {
                 let v = MenuWin { name, sel: *sel, off: off.clone(), labels: labels.clone(), marked: Vec::new(), values: Vec::new() };
@@ -144,7 +147,7 @@ fn pane(ui: &mut Ui, m: &super::Modern, gu: &GameUi, info: &ItemCache, p: &Pane,
             Pane::List { sales, rows, cursor, note } => {
                 let t = if *sales { caption(gu, "menu    auc1", 3, "Sales Status") } else { gu.title_msg(0x79).unwrap_or_else(|| "Bid".into()) };
                 heading(ui, m, &t);
-                let got = item_rows(ui, m, info, "auction list", rows, *cursor, focused, note.as_deref());
+                let got = item_rows(ui, m, info, "auction list", rows, *cursor, focused, note.as_deref(), tall(ui));
                 if focused {
                     mouse.row = got;
                 }
@@ -152,14 +155,14 @@ fn pane(ui: &mut Ui, m: &super::Modern, gu: &GameUi, info: &ItemCache, p: &Pane,
             Pane::History { item, rows, cursor, note } => {
                 let name = info.item(*item).map(|it| it.name.clone()).unwrap_or_default();
                 heading(ui, m, &format!("{}: {name}", gu.title_msg(0x77).unwrap_or_else(|| "Price History".into())));
-                let got = history_rows(ui, m, rows, *cursor, focused, note.as_deref());
+                let got = history_rows(ui, m, rows, *cursor, focused, note.as_deref(), tall(ui));
                 if focused {
                     mouse.row = got;
                 }
             }
             Pane::Sell { rows, cursor } => {
                 heading(ui, m, &caption(gu, "menu    auc1", 2, "Sell"));
-                let got = item_rows(ui, m, info, "auction sell", rows, *cursor, focused, rows.is_empty().then_some("Nothing to sell."));
+                let got = item_rows(ui, m, info, "auction sell", rows, *cursor, focused, rows.is_empty().then_some("Nothing to sell."), tall(ui));
                 if focused {
                     mouse.row = got;
                 }
@@ -170,7 +173,10 @@ fn pane(ui: &mut Ui, m: &super::Modern, gu: &GameUi, info: &ItemCache, p: &Pane,
                 }
             }
         }
-    });
+    })
+    .response
+    .rect
+    .height()
 }
 
 pub fn draw(p: &mut Panels, w: &mut World) {
@@ -219,13 +225,20 @@ pub fn draw(p: &mut Panels, w: &mut World) {
             ui.add_space(6.0);
         }
         ui.horizontal_top(|ui| {
+            let id = egui::Id::new("auction tallest menu");
+            let fill = ui.ctx().data(|d| d.get_temp::<f32>(id)).unwrap_or(0.0);
+            let mut tallest = 0.0f32;
             for (k, pn) in panes.iter().enumerate() {
                 if k > 0 {
                     ui.add_space(16.0);
                 }
                 let top = k + 1 == panes.len();
-                pane(ui, m, gu, &info, pn, top && free && !asking && !v.busy && search.is_none(), bazaar, &mut mouse);
+                let h = pane(ui, m, gu, &info, pn, top && free && !asking && !v.busy && search.is_none(), bazaar, &mut mouse, fill);
+                if matches!(pn, Pane::Menu { .. }) {
+                    tallest = tallest.max(h);
+                }
             }
+            ui.ctx().data_mut(|d| d.insert_temp(id, tallest));
         });
         if let Some((step, max, val, item)) = v.money {
             ui.add_space(10.0);
