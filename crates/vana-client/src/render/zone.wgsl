@@ -246,16 +246,17 @@ fn qrot(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
     return v + q.w * t + cross(q.xyz, t);
 }
 
-// As character::skin: p = sum(r * pos + t * w), n = normalize_or_zero(sum(r * normal)); pos and normal come pre-weighted.
+// As character::skin: p = sum(r * (s * pos) + t * w), n = normalize_or_zero(sum(r * normal)); pos and normal come
+// pre-weighted; s is the bone's accumulated scale (FUN_100339b0 pass 2).
 @vertex
 fn vs_skinned(v: SkinIn) -> VertexOut {
     return skin(v);
 }
 
 fn skin(v: SkinIn) -> VertexOut {
-    let a = 6u + 2u * v.bones.x;
-    let b = 6u + 2u * v.bones.y;
-    let p = qrot(pose[a], v.p0) + pose[a + 1u].xyz * v.w.x + qrot(pose[b], v.p1) + pose[b + 1u].xyz * v.w.y;
+    let a = 6u + 3u * v.bones.x;
+    let b = 6u + 3u * v.bones.y;
+    let p = qrot(pose[a], pose[a + 2u].xyz * v.p0) + pose[a + 1u].xyz * v.w.x + qrot(pose[b], pose[b + 2u].xyz * v.p1) + pose[b + 1u].xyz * v.w.y;
     let n = qrot(pose[a], v.n0) + qrot(pose[b], v.n1);
     let len = length(n);
     let nn = select(vec3<f32>(0.0), n / len, len > 1e-12);
@@ -309,8 +310,8 @@ fn shine_coords(i: u32) -> vec2<f32> {
     let w = &shine_verts;
     let n0 = vec3<f32>(bitcast<f32>((*w)[o + 3u]), bitcast<f32>((*w)[o + 4u]), bitcast<f32>((*w)[o + 5u]));
     let n1 = vec3<f32>(bitcast<f32>((*w)[o + 9u]), bitcast<f32>((*w)[o + 10u]), bitcast<f32>((*w)[o + 11u]));
-    let a = 6u + 2u * (*w)[o + 12u];
-    let b = 6u + 2u * (*w)[o + 13u];
+    let a = 6u + 3u * (*w)[o + 12u];
+    let b = 6u + 3u * (*w)[o + 13u];
     let n = qrot(pose[a], n0) + qrot(pose[b], n1);
     let len = length(n);
     let nn = select(vec3<f32>(0.0), n / len, len > 1e-12);

@@ -394,7 +394,7 @@ pub fn camera(w: &mut World, ticks: f32) -> bool {
     let top = w.actors.get(&m.id).and_then(|a| {
         let (bone, off) = *a.character.as_ref()?.skeleton.points.get(12)?;
         let bones = if a.bones.is_empty() { &a.rest } else { &a.bones };
-        bones.get(bone as usize).map(|(q, t)| -(*t + *q * off).y * a.scale)
+        bones.get(bone as usize).map(|b| -b.at(off).y * a.scale)
     });
     let mut h = d.h;
     if let Some(top) = top {

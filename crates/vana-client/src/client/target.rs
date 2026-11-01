@@ -870,7 +870,7 @@ fn point_height(w: &World, id: u32, k: usize) -> f32 {
     let Some(a) = w.actors.get(&id) else { return -1.5 };
     let point = a.character.as_ref().and_then(|c| c.skeleton.points.get(k).copied());
     let bones = if a.bones.is_empty() { &a.rest } else { &a.bones };
-    point.and_then(|(b, off)| bones.get(b as usize).map(|(q, t)| (*t + *q * off).y * a.scale)).unwrap_or(a.top * 0.7)
+    point.and_then(|(b, off)| bones.get(b as usize).map(|x| x.at(off).y * a.scale)).unwrap_or(a.top * 0.7)
 }
 
 /// FUN_1001ee60's target height: a snapshot at lock-on of the actor's look point (+0x8a8: point 7 for PCs and

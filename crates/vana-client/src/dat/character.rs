@@ -378,41 +378,69 @@ pub fn parse_animation(name: String, d: &[u8]) -> Result<Animation> {
     Ok(Animation { name, frames, speed, tracks })
 }
 
-/// World-space bone transforms (rotation, translation) for a pose.
-pub fn pose(skel: &Skeleton, anims: &[(&Animation, f32)]) -> Vec<(Quat, Vec3)> {
-    let mut local: Vec<(Quat, Vec3)> = skel.bones.iter().map(|b| (b.rot, b.pos)).collect();
+/// Bone 0's translation (rest + motion) through RotY(3 pi / 2) as FUN_10033800 does: (x, y, z) -> (-z, y, x).
+pub fn root_turn(t: Vec3) -> Vec3 {
+    Vec3::new(-t.z, t.y, t.x)
+}
+
+/// A posed bone: model-space rotation and translation, and the scale accumulated down the chain, which its
+/// vertices and points take in the bone's own frame (FUN_100339b0 pass 2).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BoneXf {
+    pub q: Quat,
+    pub t: Vec3,
+    pub s: Vec3,
+}
+
+impl BoneXf {
+    pub const IDENTITY: Self = Self { q: Quat::IDENTITY, t: Vec3::ZERO, s: Vec3::ONE };
+
+    /// A point given in the bone's frame, in model space.
+    pub fn at(&self, off: Vec3) -> Vec3 {
+        self.t + self.q * (self.s * off)
+    }
+
+    pub fn lerp(&self, to: &Self, k: f32) -> Self {
+        Self { q: self.q.slerp(to.q, k), t: self.t.lerp(to.t, k), s: self.s.lerp(to.s, k) }
+    }
+}
+
+/// Model-space bone transforms for a pose (FUN_10033800, FUN_100339b0): a child's translation is scaled by its
+/// parent's accumulated scale, in the parent's frame.
+pub fn pose(skel: &Skeleton, anims: &[(&Animation, f32)]) -> Vec<BoneXf> {
+    let mut local: Vec<(Quat, Vec3, Vec3)> = skel.bones.iter().map(|b| (b.rot, b.pos, Vec3::ONE)).collect();
     for (anim, frame) in anims {
         for t in &anim.tracks {
             let Some(b) = skel.bones.get(t.bone) else { continue };
-            let (r, tr, _scale) = t.sample(*frame);
+            let (r, tr, s) = t.sample(*frame);
             // Verified visually: r * rest poses correctly (rest * r folds the torso); translation adds
             // unrotated (shield bone 87 lands on the forearm only that way).
-            local[t.bone] = (r * b.rot, b.pos + tr);
+            local[t.bone] = (r * b.rot, b.pos + tr, s);
         }
     }
-    let mut world: Vec<(Quat, Vec3)> = Vec::with_capacity(local.len());
+    let mut world: Vec<BoneXf> = Vec::with_capacity(local.len());
     for (i, b) in skel.bones.iter().enumerate() {
-        let (r, t) = local[i];
+        let (r, t, s) = local[i];
         if i == 0 {
-            world.push((r, t));
+            world.push(BoneXf { q: r, t: root_turn(t), s });
         } else {
-            let (pr, pt) = world[b.parent];
-            world.push((pr * r, pt + pr * t));
+            let p = world[b.parent];
+            world.push(BoneXf { q: p.q * r, t: p.t + p.q * (p.s * t), s: p.s * s });
         }
     }
     world
 }
 
-/// Skinned position and normal per vertex.
-pub fn skin(part: &MeshPart, world: &[(Quat, Vec3)]) -> Vec<(Vec3, Vec3)> {
+/// Skinned position and normal per vertex (positions come pre-weighted; normals turn only).
+pub fn skin(part: &MeshPart, world: &[BoneXf]) -> Vec<(Vec3, Vec3)> {
     part.vertices
         .iter()
         .map(|inf| {
             let (mut p, mut n) = (Vec3::ZERO, Vec3::ZERO);
             for i in inf {
-                let (r, t) = world.get(i.bone).copied().unwrap_or((Quat::IDENTITY, Vec3::ZERO));
-                p += r * i.pos + t * i.weight;
-                n += r * i.normal;
+                let b = world.get(i.bone).copied().unwrap_or(BoneXf::IDENTITY);
+                p += b.q * (b.s * i.pos) + b.t * i.weight;
+                n += b.q * i.normal;
             }
             (p, n.normalize_or_zero())
         })
@@ -824,8 +852,7 @@ mod tests {
             let skel = super::load_file(&d).unwrap().skeleton.unwrap();
             let rest = super::pose(&skel, &[]);
             let (bone, off) = skel.points[12];
-            let (q, t) = rest[bone as usize];
-            let h = -(t + q * off).y;
+            let h = -rest[bone as usize].at(off).y;
             println!("file {file}: point 12 bone {bone} height {h:.2}");
             assert!((lo..hi).contains(&h), "file {file}: {h}");
         }

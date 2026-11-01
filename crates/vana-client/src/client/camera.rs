@@ -621,7 +621,7 @@ fn first_person(w: &mut World, ticks: f32, inp: &Inputs) {
     let point = |a: &super::Actor, k: usize| {
         let (bone, off) = *a.character.as_ref()?.skeleton.points.get(k)?;
         let bones = if a.bones.is_empty() { &a.rest } else { &a.bones };
-        bones.get(bone as usize).map(|(q, t)| -(*t + *q * off).y * a.scale)
+        bones.get(bone as usize).map(|b| -b.at(off).y * a.scale)
     };
     let me = w.actors.get(&w.my_id);
     let h = if matches!(super::ride::applied(w, w.my_id, status), 5 | 0x55) {

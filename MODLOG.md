@@ -1764,7 +1764,7 @@ with ~/ffxi/lab/combat/q.sh. Inferred items are marked *(inf)*.
   FUN_100339b0 pass 0 skips the carry subtree, pass 1 sets world[carry] = world[grip] *(inf: the copy)* and re-chains
   its children. Default sheathed (model reset all.c 145748 clears +0x31c / +0x324; init all.c 146831 sets +0x31c(1, 0)
   only for engaged or flagged actors). Not done in ours.
-- Track scale channels (Trion's 83 / 95 have 1.075) are ignored by our posing; FUN_10019d30 not checked.
+- Track scale channels are posed since 2026-11-01 (see "Motion scale and the root turn").
 
 ### Open
 - Weapon attach on draw / sheathe (vtable +0x31c; see "Weapons and motion lookup"), the bntg / klbt / hwat / res0 schedulers, dual-wield files,
@@ -2069,8 +2069,8 @@ Decompile: ~/ffxi/lab/creatorwork/ghidra/all.c / all.asm. Research notes with ad
   (FUN_1008dfb0 entity level, FUN_1017a400: a ray from y - 2 down 50, else from y + 2 up 15, nearest hit to the
   start, all faces). Before, only packets snapped, and monsters spawned before the zone loaded kept LSB's navmesh y
   (a few tenths high). The near-camera front-face variant (FUN_100a3560, depth <= 10) is not separate here.
-- Not done: retail's per-actor ground shadow (FUN_10032f80, "system kage tex"), root xz rotation by 3pi/2 for bone 0
-  translations and scale channels in posing (neither changes these models' heights).
+- Retail's per-actor ground shadow (FUN_10032f80, "system kage tex"): see "Actor ground shadows". The bone 0 turn and
+  scale channels in posing: done 2026-11-01 ("Motion scale and the root turn").
 
 ### Frame limiter and present mode (not retail)
 - config.json `frame_limit` (30, 60, 75, 90, 100, 120, 144, 165, 180, 200, 240, 300, 360 or 0 = unlimited; default
@@ -13117,3 +13117,31 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   passed the doll on, and 0x05 / 0x28 took `t.a1.id()`, None for a doll, so no motion played. Event files: 37 calls
   (31 with actor1 a doll); battle effect files 1,140 calls in 954 files, 68 0x05 and 53 0x28 with actor1 a doll. Now
   Effects::doll_of on those.
+
+## Motion scale and the root turn (2026-11-01)
+
+- Found on the CoP opening (zone 184 event 0x25): Bahamut (model 1473, file 2773, skeleton `baha`) flies by `hou0`
+  in motion file 32603 (DAT 499): op 0x05 `ba0?` for 378 ticks, then `ba1?` for 95 with a 30-tick blend. `ba00`
+  (190 keys) keys bone 1 at scale 0.5 on every key and moves it about 22 units along its flight; we ignored scale,
+  so he was drawn twice his size around the camera paths x000..x003. Retail frames (the user's recording, 4:08..4:24)
+  match ours shot for shot with scale applied.
+- Bone records (FUN_10018d00 writes 10 channels per bone into 13-float records at DAT_1044c718, stride 0x34): quat
+  @0, translation @0x10, local scale @0x1c, accumulated scale @0x28. Every record starts as identity, zero,
+  (1, 1, 1) (DAT_10345f04); region blends lerp translation and scale (FUN_10026870) as well as the rotation.
+- FUN_10033800: rotation = motion x rest (FUN_10031d30, Hamilton product, the same order as ours), translation =
+  rest + motion; bone 0's translation then goes through D3DX RotationY(0x4096cbe4 = 3 pi / 2) as a row vector:
+  (x, y, z) -> (-z, y, x). Asm 100338e6..10033918.
+- FUN_100339b0 pass 0: accumulated scale S(0) = s(0), S(i) = S(parent) x s(i) per axis; bone i's matrix = rotation
+  with translation t(i) x S(parent) per axis, times the parent's matrix (no scale in it yet). Pass 2 (called last
+  by FUN_10029320): matrix(i) = Scaling(S(i)) x matrix(i), so vertices and attach points scale in the bone's own
+  frame. Column form: T(i) = T(p) + Q(p) (S(p) x t(i)), Q(i) = Q(p) q(i), vertex = Q(i) (S(i) x v) + T(i).
+- How common: a scan of every DAT (scratch cop/scalescan.py) finds 467,935 tracks with a scale other than 1 in 130,895
+  motions, 143,090 of them uneven per axis, and some at 0 on an axis (`wz70` bone 31: (1, 0, 0)), so scale is a
+  general mechanism, not a special case.
+- Ours: dat::character::BoneXf (q, t, s; `at(off)` for points), pose() and skin(); render/anim.rs poses with scale
+  (scratch 6 vec4 per bone, track words 14..19); the pose region is 3 vec4 per bone (quat, translation, scale;
+  render/mod.rs POSE_PER_BONE), read by vs_skinned / the shine wrap (zone.wgsl) and render/points.rs. Attach
+  frames (FxActors::frame) take the scale too. Normals turn only (our shader normalises them) *(inf: retail's fixed
+  function lighting may see a scaled normal)*.
+- Op 0x5b with name bytes 00 fe fe fe (npc137's first thread in 184): retail passes any name but 0 / 'xxxx' to
+  SetAction; no motion of that name exists in DAT 499, so nothing plays in either client.

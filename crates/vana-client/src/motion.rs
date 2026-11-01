@@ -153,7 +153,7 @@ mod loop_tests {
         let skel = f.skeleton.as_ref().unwrap();
         let run = f.animations.iter().find(|a| a.name == "run0").unwrap();
         let pose = |frame: f32| crate::dat::character::pose(skel, &[(run, frame)]);
-        let diff = |a: &[(glam::Quat, glam::Vec3)], b: &[(glam::Quat, glam::Vec3)]| a.iter().zip(b).map(|(x, y)| x.0.angle_between(y.0)).fold(0f32, f32::max);
+        let diff = |a: &[crate::dat::character::BoneXf], b: &[crate::dat::character::BoneXf]| a.iter().zip(b).map(|(x, y)| x.q.angle_between(y.q)).fold(0f32, f32::max);
         assert!(diff(&pose(super::loop_frame(run.frames as f32 - 1e-4, run.frames)), &pose(0.0)) < 1e-2);
         // One tick at rate 1: frames += speed * 0.5.
         let step = run.speed * 0.5;

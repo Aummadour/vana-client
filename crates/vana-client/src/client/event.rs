@@ -859,8 +859,9 @@ impl Host for LiveHost<'_> {
                 }
                 Packet::Raw { id, body } => self.send(NetCommand::Packet { id, body }),
             },
-            Effect::Position { op: 0x36 | 0x37, actor, .. } => {
+            Effect::Position { op: op @ (0x36 | 0x37), actor, pos, dir } => {
                 let id = self.wid(actor);
+                log::debug!("event position {op:#x}: {id:#x} at ({:.2}, {:.2}, {:.2}) dir {dir:.3}", pos[0], pos[1], pos[2]);
                 self.st.snap.insert(id);
             }
             // 0x4b on an unbound actor turns the actor itself (+0x18).

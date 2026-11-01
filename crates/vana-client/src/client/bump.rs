@@ -40,7 +40,7 @@ pub fn hold(s: &mut State, hit: Option<(u32, f32)>, ticks: f32) -> bool {
 pub fn radius(a: &Actor) -> f32 {
     let Some(ch) = a.character.as_ref() else { return 0.0 };
     let Some(&(bone, off)) = ch.skeleton.points.get(44) else { return 0.0 };
-    let p = a.rest.get(bone as usize).map_or(off, |&(q, t)| t + q * off) * a.scale;
+    let p = a.rest.get(bone as usize).map_or(off, |b| b.at(off)) * a.scale;
     0.8 * p.x.hypot(p.z)
 }
 

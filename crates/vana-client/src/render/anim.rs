@@ -34,8 +34,8 @@ pub struct HeadLook {
     pub drop: f32,
     pub limits: [[f32; 3]; 2],
 }
-/// Scratch vec4s per job: local rotation and translation for the target and the blended-from pose.
-const SCRATCH: usize = TABLE * 4;
+/// Scratch vec4s per job: local rotation, translation and scale for the target and the blended-from pose.
+const SCRATCH: usize = TABLE * 6;
 
 const WGSL: &str = r#"
 @group(0) @binding(0) var<storage, read> data: array<u32>;
@@ -129,8 +129,13 @@ fn slerp(a: vec4<f32>, b0: vec4<f32>, s: f32) -> vec4<f32> {
     return (a * sin(theta * (1.0 - s)) + b * sin(theta * s)) * x;
 }
 
+// A track's scale channels (words 14..19).
+fn scale_at(an: u32, tr: u32, frame: f32) -> vec3<f32> {
+    return vec3<f32>(chan(an, tr + 14u, frame), chan(an, tr + 16u, frame), chan(an, tr + 18u, frame));
+}
+
 // An overlay animation's local transform of bone `b` (FUN_1001a420, regions 5 / 6): false when it keys no track for it.
-fn overlay_tf(skel: u32, b: u32, a: u32, frame: f32, q: ptr<function, vec4<f32>>, t: ptr<function, vec3<f32>>) -> bool {
+fn overlay_tf(skel: u32, b: u32, a: u32, frame: f32, q: ptr<function, vec4<f32>>, t: ptr<function, vec3<f32>>, sc: ptr<function, vec3<f32>>) -> bool {
     let ti = data[a + 2u + b];
     if (ti == 0u) { return false; }
     let s = skel + 1u + b * 8u;
@@ -139,16 +144,18 @@ fn overlay_tf(skel: u32, b: u32, a: u32, frame: f32, q: ptr<function, vec4<f32>>
     let tr = a + 2u + 256u + (ti - 1u) * 20u;
     *q = qmul(rot_at(a, tr, frame), rq);
     *t = rt + vec3<f32>(chan(a, tr + 8u, frame), chan(a, tr + 10u, frame), chan(a, tr + 12u, frame));
+    *sc = scale_at(a, tr, frame);
     return true;
 }
 
 // Local transform of bone `b` from the rest pose and a set of (animation, frame): the latest track wins.
-fn local_tf(skel: u32, b: u32, job: u32, first: u32, count: u32, q: ptr<function, vec4<f32>>, t: ptr<function, vec3<f32>>) {
+fn local_tf(skel: u32, b: u32, job: u32, first: u32, count: u32, q: ptr<function, vec4<f32>>, t: ptr<function, vec3<f32>>, sc: ptr<function, vec3<f32>>) {
     let s = skel + 1u + b * 8u;
     let rq = vec4<f32>(fl(s + 1u), fl(s + 2u), fl(s + 3u), fl(s + 4u));
     let rt = vec3<f32>(fl(s + 5u), fl(s + 6u), fl(s + 7u));
     *q = rq;
     *t = rt;
+    *sc = vec3<f32>(1.0);
     for (var k = 0u; k < count; k = k + 1u) {
         let a = jobs[job + first + 2u * k];
         let frame = bitcast<f32>(jobs[job + first + 2u * k + 1u]);
@@ -158,6 +165,7 @@ fn local_tf(skel: u32, b: u32, job: u32, first: u32, count: u32, q: ptr<function
             let r = rot_at(a, tr, frame);
             *q = qmul(r, rq);
             *t = rt + vec3<f32>(chan(a, tr + 8u, frame), chan(a, tr + 10u, frame), chan(a, tr + 12u, frame));
+            *sc = scale_at(a, tr, frame);
         }
     }
 }
@@ -186,22 +194,27 @@ fn pose_actors(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_i
     let ov_a = jobs[job + 26u];
     let ov_f = jf(job + 27u);
     let ov_w = jf(job + 28u);
+    // Scratch per bone: (q, t, s) of the target pose at 0..2, of the blended-from pose at 3..5.
     for (var b = lid; b < n; b = b + 64u) {
         var q: vec4<f32>;
         var t: vec3<f32>;
+        var s: vec3<f32>;
         // The overlay over both poses: its keyed bones' locals go toward its pose by the weight.
         var oq: vec4<f32>;
         var ot: vec3<f32>;
-        let over = ov_a != 0u && ov_w > 0.0 && overlay_tf(skel, b, ov_a, ov_f, &oq, &ot);
-        local_tf(skel, b, job, HEADu, n_to, &q, &t);
-        if (over) { q = slerp(q, oq, ov_w); t = mix(t, ot, ov_w); }
-        scratch[sc + 4u * b] = q;
-        scratch[sc + 4u * b + 1u] = vec4<f32>(t, 0.0);
+        var os: vec3<f32>;
+        let over = ov_a != 0u && ov_w > 0.0 && overlay_tf(skel, b, ov_a, ov_f, &oq, &ot, &os);
+        local_tf(skel, b, job, HEADu, n_to, &q, &t, &s);
+        if (over) { q = slerp(q, oq, ov_w); t = mix(t, ot, ov_w); s = mix(s, os, ov_w); }
+        scratch[sc + 6u * b] = q;
+        scratch[sc + 6u * b + 1u] = vec4<f32>(t, 0.0);
+        scratch[sc + 6u * b + 2u] = vec4<f32>(s, 0.0);
         if (n_from > 0u) {
-            local_tf(skel, b, job, HEADu + 2u * MAX_SETu, n_from, &q, &t);
-            if (over) { q = slerp(q, oq, ov_w); t = mix(t, ot, ov_w); }
-            scratch[sc + 4u * b + 2u] = q;
-            scratch[sc + 4u * b + 3u] = vec4<f32>(t, 0.0);
+            local_tf(skel, b, job, HEADu + 2u * MAX_SETu, n_from, &q, &t, &s);
+            if (over) { q = slerp(q, oq, ov_w); t = mix(t, ot, ov_w); s = mix(s, os, ov_w); }
+            scratch[sc + 6u * b + 3u] = q;
+            scratch[sc + 6u * b + 4u] = vec4<f32>(t, 0.0);
+            scratch[sc + 6u * b + 5u] = vec4<f32>(s, 0.0);
         }
     }
     storageBarrier();
@@ -209,31 +222,43 @@ fn pose_actors(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_i
     if (lid != 0u) { return; }
     // Parents precede children: chain in place, both poses.
     for (var b = 0u; b < n; b = b + 1u) {
-        if (b > 0u) {
+        if (b == 0u) {
+            // Bone 0's translation through RotY(3 pi / 2) (FUN_10033800).
+            for (var k = 0u; k < 6u; k = k + 3u) {
+                let lt = scratch[sc + k + 1u].xyz;
+                scratch[sc + k + 1u] = vec4<f32>(-lt.z, lt.y, lt.x, 0.0);
+            }
+        } else {
+            // FUN_100339b0: the child's translation scaled by the parent's accumulated scale, in the parent's frame.
             let p = data[skel + 1u + b * 8u];
-            for (var k = 0u; k < 4u; k = k + 2u) {
-                if (k == 2u && n_from == 0u) { break; }
-                let pq = scratch[sc + 4u * p + k];
-                let pt = scratch[sc + 4u * p + k + 1u].xyz;
-                let lq = scratch[sc + 4u * b + k];
-                let lt = scratch[sc + 4u * b + k + 1u].xyz;
-                scratch[sc + 4u * b + k] = qmul(pq, lq);
-                scratch[sc + 4u * b + k + 1u] = vec4<f32>(pt + qrot(pq, lt), 0.0);
+            for (var k = 0u; k < 6u; k = k + 3u) {
+                if (k == 3u && n_from == 0u) { break; }
+                let pq = scratch[sc + 6u * p + k];
+                let pt = scratch[sc + 6u * p + k + 1u].xyz;
+                let ps = scratch[sc + 6u * p + k + 2u].xyz;
+                let lq = scratch[sc + 6u * b + k];
+                let lt = scratch[sc + 6u * b + k + 1u].xyz;
+                let ls = scratch[sc + 6u * b + k + 2u].xyz;
+                scratch[sc + 6u * b + k] = qmul(pq, lq);
+                scratch[sc + 6u * b + k + 1u] = vec4<f32>(pt + qrot(pq, ps * lt), 0.0);
+                scratch[sc + 6u * b + k + 2u] = vec4<f32>(ps * ls, 0.0);
             }
         }
         // Head look (FUN_1002ac60), worked out at the lower of the two bones from the target pose: the head's
         // world place from the neck (its parent) and its local, point 4 for the body's reference direction.
         if (look_w > 0.0 && b == lo && data[skel + 1u + look_a * 8u] == look_b) {
-            let nq = scratch[sc + 4u * b];
-            let nt = scratch[sc + 4u * b + 1u].xyz;
-            let hq = qmul(nq, scratch[sc + 4u * look_a]);
-            let ht = nt + qrot(nq, scratch[sc + 4u * look_a + 1u].xyz);
-            let p3 = ht + qrot(hq, p3_off);
+            let nq = scratch[sc + 6u * b];
+            let nt = scratch[sc + 6u * b + 1u].xyz;
+            let ns = scratch[sc + 6u * b + 2u].xyz;
+            let hq = qmul(nq, scratch[sc + 6u * look_a]);
+            let ht = nt + qrot(nq, ns * scratch[sc + 6u * look_a + 1u].xyz);
+            let hs = ns * scratch[sc + 6u * look_a + 2u].xyz;
+            let p3 = ht + qrot(hq, hs * p3_off);
             var p4: vec3<f32>;
             if (p4_bone == look_a) {
-                p4 = ht + qrot(hq, p4_off);
+                p4 = ht + qrot(hq, hs * p4_off);
             } else {
-                p4 = scratch[sc + 4u * p4_bone + 1u].xyz + qrot(scratch[sc + 4u * p4_bone], p4_off);
+                p4 = scratch[sc + 6u * p4_bone + 1u].xyz + qrot(scratch[sc + 6u * p4_bone], scratch[sc + 6u * p4_bone + 2u].xyz * p4_off);
             }
             p4.y = p4.y - jf(job + 22u);
             let d = normalize(p4 - p3);
@@ -251,20 +276,23 @@ fn pose_actors(@builtin(workgroup_id) wg: vec3<u32>, @builtin(local_invocation_i
         // The neck turns by its share; the head by both, about its own pivot (bone locals turned against the neck's
         // pre-look rotation, FUN_1002ac60's second loop).
         if (look_w > 0.0 && (b == look_a || b == look_b)) {
-            for (var k = 0u; k < 4u; k = k + 2u) {
-                if (k == 2u && n_from == 0u) { break; }
+            for (var k = 0u; k < 6u; k = k + 3u) {
+                if (k == 3u && n_from == 0u) { break; }
                 let r = select(qmul(qmul(q7, q3), qconj(q7)), q7, b == look_b);
-                scratch[sc + 4u * b + k] = normalize(qmul(r, scratch[sc + 4u * b + k]));
+                scratch[sc + 6u * b + k] = normalize(qmul(r, scratch[sc + 6u * b + k]));
             }
         }
-        var q = scratch[sc + 4u * b];
-        var t = scratch[sc + 4u * b + 1u].xyz;
+        var q = scratch[sc + 6u * b];
+        var t = scratch[sc + 6u * b + 1u].xyz;
+        var s = scratch[sc + 6u * b + 2u].xyz;
         if (n_from > 0u) {
-            q = slerp(scratch[sc + 4u * b + 2u], q, blend);
-            t = mix(scratch[sc + 4u * b + 3u].xyz, t, blend);
+            q = slerp(scratch[sc + 6u * b + 3u], q, blend);
+            t = mix(scratch[sc + 6u * b + 4u].xyz, t, blend);
+            s = mix(scratch[sc + 6u * b + 5u].xyz, s, blend);
         }
-        pose[out + 2u * b] = q;
-        pose[out + 2u * b + 1u] = vec4<f32>(t, 0.0);
+        pose[out + 3u * b] = q;
+        pose[out + 3u * b + 1u] = vec4<f32>(t, 0.0);
+        pose[out + 3u * b + 2u] = vec4<f32>(s, 0.0);
     }
 }
 "#;
@@ -299,7 +327,7 @@ mod tests {
         let mut ga = GpuAnim::new(gpu);
         ga.begin();
         ga.job(ch, &[], to, &[], 0.0, 0, look, None);
-        let size = (n * 32) as u64;
+        let size = (n * 48) as u64;
         let out = gpu.device.create_buffer(&wgpu::BufferDescriptor { label: None, size, usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC, mapped_at_creation: false });
         let rb = gpu.device.create_buffer(&wgpu::BufferDescriptor { label: None, size, usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
         let mut enc = gpu.device.create_command_encoder(&Default::default());
@@ -310,7 +338,7 @@ mod tests {
         gpu.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None }).unwrap();
         let data = rb.slice(..).get_mapped_range().unwrap();
         let v: &[f32] = bytemuck::cast_slice(&data);
-        (0..n).map(|i| glam::Quat::from_slice(&v[i * 8..i * 8 + 4])).collect()
+        (0..n).map(|i| glam::Quat::from_slice(&v[i * 12..i * 12 + 4])).collect()
     }
 
     /// Hume M idle looking far to one side: the neck turns about its 17.7 deg limit and the head, which carries
@@ -348,7 +376,7 @@ mod tests {
             ga.begin();
             ga.job(&ch, &[], &to, f, t, 0, None, None);
             let n = cpu.len().min(TABLE - 1);
-            let size = (n * 32) as u64;
+            let size = (n * 48) as u64;
             let out = gpu.device.create_buffer(&wgpu::BufferDescriptor { label: None, size, usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC, mapped_at_creation: false });
             let rb = gpu.device.create_buffer(&wgpu::BufferDescriptor { label: None, size, usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
             let mut enc = gpu.device.create_command_encoder(&Default::default());
@@ -360,12 +388,13 @@ mod tests {
             let data = rb.slice(..).get_mapped_range().unwrap();
             let v: &[f32] = bytemuck::cast_slice(&data);
             let mut worst = 0f32;
-            for (i, (q, p)) in cpu.iter().take(n).enumerate() {
-                let g = &v[i * 8..i * 8 + 8];
+            for (i, b) in cpu.iter().take(n).enumerate() {
+                let g = &v[i * 12..i * 12 + 12];
                 let gq = glam::Quat::from_slice(&g[0..4]);
-                let dq = (gq - *q).length().min((gq + *q).length());
-                let dp = (glam::Vec3::from_slice(&g[4..7]) - *p).length();
-                worst = worst.max(dq).max(dp);
+                let dq = (gq - b.q).length().min((gq + b.q).length());
+                let dp = (glam::Vec3::from_slice(&g[4..7]) - b.t).length();
+                let ds = (glam::Vec3::from_slice(&g[8..11]) - b.s).length();
+                worst = worst.max(dq).max(dp).max(ds);
             }
             assert!(worst < 1e-3, "blend {t}: worst difference {worst}");
         }

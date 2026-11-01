@@ -335,12 +335,12 @@ mod tests {
         let skel = crate::dat::character::parse_skeleton(c.name(), c.data).unwrap();
         let (bone, off) = skel.points[0];
         let r = skel.point_rots.first().copied().unwrap_or(Vec3::ZERO);
-        let (q, t) = crate::dat::character::pose(&skel, &[])[bone as usize];
+        let b = crate::dat::character::pose(&skel, &[])[bone as usize];
         let local = Mat4::from_translation(off) * Mat4::from_rotation_z(r.z) * Mat4::from_rotation_y(r.y) * Mat4::from_rotation_x(r.x);
-        let w = Mat4::from_rotation_translation(q, t) * local * Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2);
+        let w = Mat4::from_scale_rotation_translation(b.s, b.q, b.t) * local * Mat4::from_rotation_y(std::f32::consts::FRAC_PI_2);
         let p = Vec3::new(2.773, -0.008, 0.320);
         let d = w.transform_vector3(p) - p;
-        assert!(d.length() < 1e-3, "bone {bone} q {q} t {t}: {p} -> {}", w.transform_vector3(p));
+        assert!(d.length() < 1e-3, "bone {bone} {b:?}: {p} -> {}", w.transform_vector3(p));
     }
 
     /// Spec 5.1: Fast Blade's op 7 at 30 fps with the actor at the origin: 9 / 13 samples at ticks 28 / 30, done at 92.

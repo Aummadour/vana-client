@@ -4503,7 +4503,7 @@ struct Actor {
     shadow_off: bool,
     noblob: bool,
     /// Last frame's bone transforms (model space) and model scale, for look points.
-    bones: Vec<(glam::Quat, Vec3)>,
+    bones: Vec<crate::dat::character::BoneXf>,
     scale: f32,
     /// Set once the rest-pose top is known.
     top_key: String,
@@ -4521,7 +4521,7 @@ struct Actor {
     look: actmotion::Look,
     emote: Option<String>,
     /// Rest-pose bones (model space), for attach points of a look target.
-    rest: Vec<(glam::Quat, Vec3)>,
+    rest: Vec<crate::dat::character::BoneXf>,
     /// /jump (draw actor +0x8bc): ticks left of the jump motion, below 0 none.
     jump: f32,
     /// The pick's bones (FUN_100cff40): those with geometry whose parent has some too, once per model.
@@ -4997,7 +4997,7 @@ fn attach_point(w: &World, places: &HashMap<u32, Place>, id: u32, k: u16) -> Opt
     let ch = a.character.as_ref()?;
     let model = actor_frame(p, a) * glam::Mat4::from_scale(a.axes.unwrap_or(Vec3::splat(a.scale)));
     let drop = |bone: u16| if bone == 0 { ride::bone0_drop(w, id, p.status) * a.scale } else { 0.0 };
-    match ch.skeleton.points.get(k as usize).and_then(|(bone, off)| a.rest.get(*bone as usize).map(|(q, t)| (*bone, *t + *q * *off))) {
+    match ch.skeleton.points.get(k as usize).and_then(|(bone, off)| a.rest.get(*bone as usize).map(|x| (*bone, x.at(*off)))) {
         Some((bone, local)) => Some(model.transform_point3(local) + Vec3::new(0.0, drop(bone), 0.0)),
         None => Some(p.pos + Vec3::new(0.0, a.top * 1.2, 0.0)),
     }
@@ -5137,7 +5137,7 @@ impl crate::fx::Actors for FxActors<'_> {
             *off * a.scale
         } else {
             let bones = if a.bones.is_empty() { &a.rest } else { &a.bones };
-            bones.get(*bone as usize).map(|(q, t)| (*t + *q * *off) * a.scale)?
+            bones.get(*bone as usize).map(|x| x.at(*off) * a.scale)?
         };
         let d = if *bone == 0 { self.drops.get(&id).copied().unwrap_or(0.0) } else { 0.0 };
         Some(if d == 0.0 { p } else { p + self.matrix(id).map_or(Vec3::new(0.0, d * a.scale, 0.0), |m| point_drop(m, d * a.scale)) })
@@ -5153,9 +5153,9 @@ impl crate::fx::Actors for FxActors<'_> {
         let (bone, off) = *ch.skeleton.points.get(k as usize)?;
         let r = ch.skeleton.point_rots.get(k as usize).copied().unwrap_or(Vec3::ZERO);
         let bones = if a.bones.is_empty() { &a.rest } else { &a.bones };
-        let (q, t) = *bones.get(bone as usize)?;
+        let b = *bones.get(bone as usize)?;
         let local = glam::Mat4::from_translation(off) * glam::Mat4::from_rotation_z(r.z) * glam::Mat4::from_rotation_y(r.y) * glam::Mat4::from_rotation_x(r.x);
-        let mut f = glam::Mat4::from_rotation_translation(q, t) * local;
+        let mut f = glam::Mat4::from_scale_rotation_translation(b.s, b.q, b.t) * local;
         f.w_axis = (f.w_axis.truncate() * a.scale).extend(1.0);
         Some(f)
     }
@@ -13210,7 +13210,7 @@ impl App {
                             && let Some(g) = w.ground.as_ref()
                         {
                             let m = actor_frame(&Place { pos, forward, tilt, status, ratio, size }, a) * glam::Mat4::from_scale(a.axes.unwrap_or(Vec3::splat(a.scale)));
-                            let pt = |k: usize| ch.skeleton.points.get(k).and_then(|(b, off)| a.rest.get(*b as usize).map(|(q, t)| m.transform_point3(*t + *q * *off)));
+                            let pt = |k: usize| ch.skeleton.points.get(k).and_then(|(b, off)| a.rest.get(*b as usize).map(|x| m.transform_point3(x.at(*off))));
                             let snapped = |p: Vec3| g.snap(p.x, p.z, p.y).map(|y| Vec3::new(p.x, y, p.z));
                             if let (Some(p10), Some(p11), Some(p8), Some(p9)) = (pt(10), pt(11), pt(8), pt(9))
                                 && let (Some(fa), Some(fb)) = (snapped((p10 + p11) * 0.5), snapped((p8 + p9) * 0.5))
@@ -13231,7 +13231,7 @@ impl App {
                         1.0
                     } else {
                         let (b12, off12) = ch.skeleton.points.get(12).copied().unwrap_or((0, Vec3::ZERO));
-                        let at = |bones: &[(glam::Quat, Vec3)]| model.transform_point3(bones.get(b12 as usize).map_or(Vec3::ZERO, |(q, t)| *t + *q * off12));
+                        let at = |bones: &[crate::dat::character::BoneXf]| model.transform_point3(bones.get(b12 as usize).map_or(Vec3::ZERO, |x| x.at(off12)));
                         let rest = at(&a.rest);
                         if Vec3::new(rest.x - eye.x, 0.0, rest.z - eye.z).length() > 0.5 + 2.0 * a.scale {
                             1.0
@@ -13243,12 +13243,12 @@ impl App {
                     };
                     // FUN_100d5b10: an event's look, else the target / face target; eased and weighted in world space.
                     let point = |k: usize| ch.skeleton.points.get(k).copied().unwrap_or((0, Vec3::ZERO));
-                    let p3 = model.transform_point3(a.rest.get(point(3).0 as usize).map_or(Vec3::ZERO, |(q, t)| *t + *q * point(3).1));
+                    let p3 = model.transform_point3(a.rest.get(point(3).0 as usize).map_or(Vec3::ZERO, |x| x.at(point(3).1)));
                     let target = match a.look.mode {
                         actmotion::LookMode::Actor(..) => look_points.get(id).copied(),
                         actmotion::LookMode::Facing(pitch, yaw) => {
                             let (p, y) = (pitch as f32 * TAU_4096, yaw as f32 * TAU_4096);
-                            let head = a.rest.get(point(7).0 as usize).map_or(Vec3::ZERO, |b| b.1);
+                            let head = a.rest.get(point(7).0 as usize).map_or(Vec3::ZERO, |b| b.t);
                             Some(model.transform_point3(head + Vec3::new(p.cos() * y.cos(), -p.sin(), -p.cos() * y.sin()) * 20.0))
                         }
                         actmotion::LookMode::Off => face_points.get(id).copied(),

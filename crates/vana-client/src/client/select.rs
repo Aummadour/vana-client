@@ -150,8 +150,7 @@ fn placement(feet: Vec3, scale: f32) -> Mat4 {
 pub fn rest_point(model: &Model, k: usize, place: Mat4) -> Option<Vec3> {
     let (bone, off) = model.skeleton.points.get(k)?;
     let rest = crate::dat::character::pose(&model.skeleton, &[]);
-    let (q, t) = rest.get(*bone as usize)?;
-    Some(place.transform_point3(*t + *q * *off))
+    Some(place.transform_point3(rest.get(*bone as usize)?.at(*off)))
 }
 
 impl SelectData {

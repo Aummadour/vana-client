@@ -1,7 +1,7 @@
 //! Offscreen renderer for one posed character (CPU skinning).
 
 use super::{Camera, Gpu, depth_view};
-use crate::dat::character::{Character, pose, skin};
+use crate::dat::character::{BoneXf, Character, pose, skin};
 use anyhow::Result;
 use bytemuck::{Pod, Zeroable};
 use glam::Vec3;
@@ -45,25 +45,25 @@ pub fn pose_character_blend(
     t: f32,
 ) -> PosedMesh {
     let (a, b) = (pose(&ch.skeleton, from), pose(&ch.skeleton, to));
-    let world: Vec<_> = a.iter().zip(&b).map(|((qa, ta), (qb, tb))| (qa.slerp(*qb, t), ta.lerp(*tb, t))).collect();
+    let world: Vec<_> = a.iter().zip(&b).map(|(x, y)| x.lerp(y, t)).collect();
     skin_character(ch, &world)
 }
 
 /// The bone transforms of a cross-fade from one motion to another (t = 0 all `from`).
-pub fn pose_blend(ch: &Character, from: &[(&crate::dat::character::Animation, f32)], to: &[(&crate::dat::character::Animation, f32)], t: f32) -> Vec<(glam::Quat, Vec3)> {
+pub fn pose_blend(ch: &Character, from: &[(&crate::dat::character::Animation, f32)], to: &[(&crate::dat::character::Animation, f32)], t: f32) -> Vec<BoneXf> {
     let (a, b) = (pose(&ch.skeleton, from), pose(&ch.skeleton, to));
-    a.iter().zip(&b).map(|((qa, ta), (qb, tb))| (qa.slerp(*qb, t), ta.lerp(*tb, t))).collect()
+    a.iter().zip(&b).map(|(x, y)| x.lerp(y, t)).collect()
 }
 
 /// Highest point (smallest y, y down) of the skinned mesh, positions only.
-pub fn skinned_top(ch: &Character, world: &[(glam::Quat, Vec3)]) -> f32 {
+pub fn skinned_top(ch: &Character, world: &[BoneXf]) -> f32 {
     let mut top = f32::MAX;
     for part in &ch.parts {
         for inf in &part.vertices {
             let mut y = 0.0;
             for i in inf {
-                let (r, t) = world.get(i.bone).copied().unwrap_or((glam::Quat::IDENTITY, Vec3::ZERO));
-                y += (r * i.pos).y + t.y * i.weight;
+                let b = world.get(i.bone).copied().unwrap_or(BoneXf::IDENTITY);
+                y += (b.q * (b.s * i.pos)).y + b.t.y * i.weight;
             }
             top = top.min(y);
         }
@@ -71,7 +71,7 @@ pub fn skinned_top(ch: &Character, world: &[(glam::Quat, Vec3)]) -> f32 {
     top
 }
 
-fn skin_character(ch: &Character, world: &[(glam::Quat, Vec3)]) -> PosedMesh {
+fn skin_character(ch: &Character, world: &[BoneXf]) -> PosedMesh {
     let (mut min, mut max) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
     let mut batches: Vec<(String, [f32; 2], Vec<[f32; 8]>)> = Vec::new();
     for part in &ch.parts {

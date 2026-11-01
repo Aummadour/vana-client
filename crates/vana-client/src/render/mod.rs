@@ -780,9 +780,11 @@ struct Skinned {
 
 /// Bones a pose region holds; influences on later bones read the identity slot after them.
 const MAX_BONES: usize = 255;
-/// Pose region in vec4s: model matrix columns, (alpha, flash ambient, flash fog, 0), then (quat, translation) per bone.
+/// Pose region in vec4s: model matrix columns, (alpha, flash ambient, flash fog, 0), then (quat, translation, scale)
+/// per bone.
 const POSE_HEAD: usize = 6;
-const POSE_BINDING: u64 = ((POSE_HEAD + 2 * (MAX_BONES + 1)) * 16) as u64;
+pub const POSE_PER_BONE: usize = 3;
+const POSE_BINDING: u64 = ((POSE_HEAD + POSE_PER_BONE * (MAX_BONES + 1)) * 16) as u64;
 
 /// Strip to list, dropping the degenerate triangles that join strips.
 fn strip_to_list(strip: &[u16]) -> Vec<u16> {
@@ -2285,7 +2287,7 @@ impl ZoneRenderer {
     }
 
     /// Queues a skinned actor's bones (world transforms from character::pose) and placement.
-    pub fn pose_actor(&mut self, actor: &mut ActorGpu, bones: &[(glam::Quat, Vec3)], model: Mat4) {
+    pub fn pose_actor(&mut self, actor: &mut ActorGpu, bones: &[crate::dat::character::BoneXf], model: Mat4) {
         let alpha = actor.alpha.clamp(0.0, 1.0);
         let tint = actor.tint;
         let flash = actor.flash;
@@ -2303,12 +2305,14 @@ impl ZoneRenderer {
         self.poses.push([alpha, flash[0], flash[1], f32::from_bits(u32::from_le_bytes(actor.lights))]);
         self.poses.push([area, tint[0], tint[1], tint[2]]);
         for i in 0..skin.bones {
-            let (q, t) = bones.get(i).copied().unwrap_or((glam::Quat::IDENTITY, Vec3::ZERO));
-            self.poses.push(q.to_array());
-            self.poses.push([t.x, t.y, t.z, 0.0]);
+            let b = bones.get(i).copied().unwrap_or(crate::dat::character::BoneXf::IDENTITY);
+            self.poses.push(b.q.to_array());
+            self.poses.push(b.t.extend(0.0).to_array());
+            self.poses.push(b.s.extend(0.0).to_array());
         }
         self.poses.push([0.0, 0.0, 0.0, 1.0]);
         self.poses.push([0.0; 4]);
+        self.poses.push([1.0, 1.0, 1.0, 0.0]);
     }
 
     /// Asks for an attach point (bone, offset) of an actor posed this frame, relative to its root in world axes,
