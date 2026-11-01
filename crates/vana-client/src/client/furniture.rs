@@ -382,11 +382,11 @@ pub fn load(index: &DatIndex, keys: &Keys, seq: u64, want: &[Key], map: u16, flo
         let Some(f) = table.entry(item) else { continue };
         let Some(file) = model_file(f.model) else { continue };
         let Some((pos, yaw)) = place(&f, map, floor, ext[6] as i8, ext[7] as i8, ext[8] as i8, ext[9]) else { continue };
+        log::info!("furniture {item:#x}: model {:#x}, file {file}, {pos:?} yaw {yaw:.2}", f.model);
         if (0x108..=0x12b).contains(&f.model) {
             skinned.push(((c, slot), f, file, pos, yaw));
             continue;
         }
-        log::debug!("furniture {item:#x}: file {file}, {pos:?} yaw {yaw:.2}");
         by_file.entry(file).or_default().push(((c, slot), f, pos, yaw, false));
         if f.pot()
             && let Some(pf) = table.plant_model(ext[4], ext[0]).and_then(model_file)
