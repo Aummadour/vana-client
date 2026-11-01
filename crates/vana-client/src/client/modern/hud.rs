@@ -642,7 +642,8 @@ pub fn draw(p: &mut Panels, w: &mut World) {
     if let Some(v) = status_view(p.look(), w) {
         status_panel(p, &v, small);
     }
-    if let Some(v) = where_view(p.look(), w) {
+    // Ours (user, 2026-11-01): the location panel is hidden while engaged; what rides on it drops to the chat window.
+    if let Some(v) = where_view(p.look(), w).filter(|_| w.my_motion.status != 1) {
         where_panel(p, &v);
     }
     let (party, allies) = party_rows(p.look(), w);
