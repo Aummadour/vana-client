@@ -2041,7 +2041,7 @@ Decompile: ~/ffxi/lab/creatorwork/ghidra/all.c / all.asm. Research notes with ad
   Elvaan, 1.3 Taru, 2.6 Galka (unit test dat::character::plate_points). Lift for bone-0 points: status 5 / 85 -1.3,
   63..83 -0.5 (FUN_1002b7a0; the mount sub-cases and the +0xa4 gate are not decoded).
 - About 40 NPC / monster models pick another point in their init scheduler (ops 0x9e arrow / 0x9f plate); those
-  follow the animated bone in retail. Not implemented: they use point 2.
+  follow the animated bone in retail. Done 2026-11-01 ("Plate and arrow points from `init`").
 - FUN_10084b20: the plate's letters hang down from the anchor (top edge on it), centred, -0.5 px; the arrow's tip
   is on the same point, truncated. Name pulse (FUN_100819d0): the target's alpha x (sin(ticks * 16 deg) * 32 + 96) /
   128.
@@ -6374,9 +6374,7 @@ vtable +0x1c4 of point +0x8a7 (2 from the constructor) plus f32 +0x8c0; FUN_1002
 times the size (no bone, no rotation, no status), lifted only for status 5 / 0x55 (-1.3) and 0x3f..0x53 (-0.5). A
 dead PC's plate stays at standing head height, as ours (plate_point). The PC `dead` scheduler (7072) has no 0xb4 /
 0x9f.
-- Not done: scheduler op 0xb4 (+0x8c0 for the op's duration; only 8 `cst0` schedulers, -1.5 for 600 ticks); op 0x9f
-  plate points (29 `init` + 3 `nam0` monster schedulers: those plates follow the posed bone, death motions
-  included); the current build's mount sub-case (asm 0x100d4619..0x100d4714: -0.5, or per-race tables for mount
+- Not done: scheduler op 0xb4 (+0x8c0 for the op's duration; only 8 `cst0` schedulers, -1.5 for 600 ticks); the current build's mount sub-case (asm 0x100d4619..0x100d4714: -0.5, or per-race tables for mount
   entity +0x1db 0x1d {0, .5, .5, .5, 1.1, -.7, -.7, .5, .05} / 0x25 {0, .4, .4, .4, .4, -.8, -.8, .4, .4}; -1.3
   without a mount actor or with k = FUN_10022340(race) 0 / 6, k not decoded).
 
@@ -13169,3 +13167,16 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   aborted the event before its message opened, and a mode-1 map ignores Escape, so nothing could close it. FUN_100ac9c0
   (the event's end) closes an open event map (DAT_10476cde != 0: FUN_101f14c0(1)); ours only forgot map_open. Now
   the end pushes Cmd::CloseEvent.
+
+## Plate and arrow points from `init` (scheduler ops 0x9e / 0x9f / 0xad) (2026-11-01)
+
+- User report: Laughing Bison's (Mhaura, model 1315 = file 2615, skeleton `kan-`) name and target arrow hung about 1.4
+  to the side of her. Her `init` runs ops 0xad, 0x9e and 0x9f, each with byte @8 = 0x1c: point 28 for the arrow and the
+  plate. Point 28 and point 2 are both bone 0 at (-1.4, -2.6, -0.1), but only point 2 takes the unrotated rest path.
+- Scheduler ops (asm 1005b759 / 1005b789 / 1005b7b9): FUN_100617c0 (actor1 through its dolls), vtable +0xb0 / +0xb8 /
+  +0xc0 with byte @8 = FUN_100a3150 / FUN_100a3170 / FUN_100a3190: actor +0x8a6 (arrow), +0x8a7 (plate), +0x8a8 (reader
+  not traced). FUN_1002b5e0 for any point but 2, with actor +0x30 bit 4: FUN_10029930, the posed point (the drawn
+  bone matrices, so it turns with bone 0's rest quarter turn and the facing and follows the motion).
+- Ours: Effects::anchor_points -> Actor::anchors (reset to 2 with each new model), Actor::anchor_at (posed in the actor
+  loop, CPU bones for such actors), client anchor_point (arrow 0 / plate 1). Seen live by the user: Laughing Bison's
+  plate and arrow over her.

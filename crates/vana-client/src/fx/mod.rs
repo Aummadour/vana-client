@@ -921,6 +921,8 @@ pub struct Effects {
     seq_over: f32,
     /// Op 0x6e for the client: actor, ticks, units a tick along its facing.
     pub self_moves: Vec<(u32, f32, f32)>,
+    /// Ops 0x9e / 0x9f / 0xad for the client: actor, which (0 arrow +0x8a6, 1 name plate +0x8a7, 2 +0x8a8), point.
+    pub anchor_points: Vec<(u32, u8, u8)>,
     /// Op 0x9a for the client: actor, entity +0x130 bit 1.
     pub gens_off: Vec<(u32, bool)>,
     /// Skill / magic actions' holds for the client: op 0x20 (actor2) / 0x59 (actor1, no reactions) as (actor, ticks,
@@ -1101,6 +1103,7 @@ impl Effects {
             actor_poses: HashMap::new(),
             seq_over: 0.0,
             self_moves: Vec::new(),
+            anchor_points: Vec::new(),
             gens_off: Vec::new(),
             holds: Vec::new(),
             locks: Vec::new(),

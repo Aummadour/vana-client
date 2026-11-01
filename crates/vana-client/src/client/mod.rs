@@ -1760,7 +1760,7 @@ fn name_plates(gu: &mut GameUi, world: &World, sw: f32, sh: f32, view_proj: glam
 /// Where the target cursor points (FUN_10153470 -> vtable +0x27c, FUN_100ce6d0): attach point 2 like the name
 /// plate (+0x8a6 = +0x8a7 = 2), projected and truncated; the plate hangs below the same point.
 fn target_point(world: &World, id: u32, sw: f32, sh: f32, view_proj: glam::Mat4) -> Option<(f32, f32)> {
-    let p = plate_point(world, id)?;
+    let p = anchor_point(world, id, 0)?;
     let clip = view_proj * p.extend(1.0);
     if clip.w <= 0.0 {
         return None;
@@ -1769,10 +1769,19 @@ fn target_point(world: &World, id: u32, sw: f32, sh: f32, view_proj: glam::Mat4)
     Some((((ndc.x + 1.0) / 2.0 * sw).trunc(), ((1.0 - ndc.y) / 2.0 * sh).trunc()))
 }
 
-/// FUN_100d23f0 for attach point 2 (FUN_1002b5e0): the actor position plus the skeleton's point 2 offset times
-/// the model scale, rest data only, so it does not move with the pose; then FUN_100d4560's bone-0 drop
-/// (ride::bone0_drop). Without points: the mesh top.
+/// The name plate's anchor (+0x8a7).
 fn plate_point(world: &World, id: u32) -> Option<Vec3> {
+    anchor_point(world, id, 1)
+}
+
+/// FUN_100d23f0 for the arrow's (0) or the plate's (1) attach point. Point 2 (FUN_1002b5e0): the actor position plus
+/// the skeleton's point 2 offset times the model scale, rest data only, so it does not move with the pose; then
+/// FUN_100d4560's bone-0 drop (ride::bone0_drop). Another point (ops 0x9e / 0x9f) is the posed point. Without points:
+/// the mesh top.
+fn anchor_point(world: &World, id: u32, which: usize) -> Option<Vec3> {
+    if let Some(p) = world.actors.get(&id).and_then(|a| a.anchor_at[which]) {
+        return Some(p);
+    }
     // A door's screen point (XiDoorActor vtable +0x27c, FUN_100ac390) is its own position (+0x1bc), unlifted; the
     // Mog House door is one too (FUN_101d2ff0, at its `_720` box centre).
     if let Some(e) = world.entities.get(&id).filter(|e| e.door != 0 || id == myroom::DOOR_ID) {
@@ -4504,6 +4513,11 @@ struct Actor {
     noblob: bool,
     /// Last frame's bone transforms (model space) and model scale, for look points.
     bones: Vec<crate::dat::character::BoneXf>,
+    /// Attach points of the target arrow (+0x8a6), the name plate (+0x8a7) and +0x8a8, 2 from the constructor
+    /// (FUN_100c3d20); scheduler ops 0x9e / 0x9f / 0xad set them.
+    anchors: [u8; 3],
+    /// The arrow's and the plate's posed points this frame (world), for anchors other than 2.
+    anchor_at: [Option<Vec3>; 2],
     scale: f32,
     /// Set once the rest-pose top is known.
     top_key: String,
@@ -4588,6 +4602,8 @@ impl Actor {
             shadow_off: false,
             noblob: false,
             bones: Vec::new(),
+            anchors: [2; 3],
+            anchor_at: [None; 2],
             scale: 1.0,
             top_key: String::new(),
             find_cache: Default::default(),
@@ -7969,6 +7985,7 @@ impl App {
                             (a.motion_names, a.rebase, a.fresh) = (None, true, true);
                             // Attach points from the rest pose while the GPU model builds ('spop' dolls it at once).
                             (a.rest, a.bones, a.motion_link) = (crate::dat::character::pose(&ch.skeleton, &[]), Vec::new(), None);
+                            (a.anchors, a.anchor_at) = ([2; 3], [None; 2]);
                         }
                         world.models.insert(key, ch);
                         // Looks no actor wears any more go once there are more than MODEL_CACHE.
@@ -9345,6 +9362,7 @@ impl App {
                 actor.gpu = None;
                 (actor.motion_names, actor.rebase, actor.fresh) = (None, true, true);
                 (actor.rest, actor.bones, actor.motion_link) = (crate::dat::character::pose(&m.skeleton, &[]), Vec::new(), None);
+                (actor.anchors, actor.anchor_at) = ([2; 3], [None; 2]);
             } else if world.models_loading.insert(key.clone()) {
                 wanted.push((key, source));
             }
@@ -9570,6 +9588,11 @@ impl App {
         }
         for (id, ticks, speed) in std::mem::take(&mut world.effects.self_moves) {
             ride::self_move(world, id, ticks, speed);
+        }
+        for (id, which, point) in std::mem::take(&mut world.effects.anchor_points) {
+            if let Some(a) = world.actors.get_mut(&id) {
+                a.anchors[which as usize] = point;
+            }
         }
         // Scheduler ops 0x29 / 0x2a / 0xa0 / 0x88: the model colour toward an ARGB target, stopped, or set.
         for op in std::mem::take(&mut world.effects.fades) {
@@ -13184,7 +13207,8 @@ impl App {
                     // FUN_10029320: a drawn weapon's carry bone rides its grip.
                     let held: Vec<(u16, u16)> = if a.drawn { ch.grips.iter().flatten().copied().collect() } else { Vec::new() };
                     let pose_now = || if from.is_empty() { crate::dat::character::pose_held(&ch.skeleton, &anims, &held) } else { crate::render::character::pose_blend(&ch, &from, &anims, t, &held) };
-                    if (w.locked && (*id == w.my_id || w.target == Some(*id))) || (w.camst.first && *id == w.my_id) || fx_posed.contains(id) {
+                    let posed_anchor = a.anchors[..2].iter().any(|&k| k != 2);
+                    if (w.locked && (*id == w.my_id || w.target == Some(*id))) || (w.camst.first && *id == w.my_id) || fx_posed.contains(id) || posed_anchor {
                         a.bones = pose_now();
                     } else {
                         a.bones.clear();
@@ -13227,6 +13251,11 @@ impl App {
                     }
                     let frame = actor_frame(&Place { pos, forward, tilt, status, ratio, size }, a);
                     let model = frame * glam::Mat4::from_scale(a.axes.unwrap_or(Vec3::splat(a.scale)));
+                    // FUN_1002b5e0: an arrow or plate point other than 2 is the posed point (FUN_10029930), in the world.
+                    for k in 0..2 {
+                        let bones = if a.bones.is_empty() { &a.rest } else { &a.bones };
+                        a.anchor_at[k] = ch.skeleton.points.get(a.anchors[k] as usize).filter(|_| a.anchors[k] != 2).and_then(|&(b, off)| bones.get(b as usize).map(|x| model.transform_point3(x.at(off))));
+                    }
                     // FUN_100cd040 (camera_collision_spec.md 2.2): the eye near posed point 12 fades the actor (not the
                     // player in first person, who fades on its own). A CPU pose only when the rest pose is close.
                     let cam_fade = if *id == w.my_id && w.camst.first {

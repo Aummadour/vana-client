@@ -1276,6 +1276,19 @@ impl Effects {
                 }
                 Flow::Next
             }
+            // Asm 1005b759 / 1005b789 / 1005b7b9: actor1 through its dolls (FUN_100617c0), vtable +0xb0 / +0xb8 / +0xc0 with
+            // byte @8: its target arrow (+0x8a6), name plate (+0x8a7) and +0x8a8 attach points (`init` of about 40 models).
+            0x9e | 0x9f | 0xad => {
+                if let Some(id) = self.doll_of(t.a1).id() {
+                    let which = match op.code {
+                        0x9e => 0,
+                        0x9f => 1,
+                        _ => 2,
+                    };
+                    self.anchor_points.push((id, which, op.raw.get(8).copied().unwrap_or(2)));
+                }
+                Flow::Next
+            }
             // FUN_100aad40: actor1 moves itself along its facing for u16 @6 ticks at f32 @8 / 60 units a tick (a dismounted
             // animal running off).
             0x6e => {
