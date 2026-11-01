@@ -14129,6 +14129,12 @@ pub fn run(cfg: Config, drive: Drive) -> Result<()> {
 mod tests {
     use super::*;
 
+    /// A new install's login form opens on Server Type Private.
+    #[test]
+    fn new_install_private() {
+        assert!(!is_playonline(&crate::config::Config::default().server));
+    }
+
     /// A mask-0 0x00E names an NPC: one ask until a full update; a full first update asks nothing.
     #[test]
     fn mask0_npc_asks() {
