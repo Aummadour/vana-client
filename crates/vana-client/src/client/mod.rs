@@ -8945,6 +8945,9 @@ impl App {
                         let f = forward_from_dir(dir);
                         camera::face(world, f.x.atan2(f.z));
                     }
+                    if mode == 1 {
+                        event::server_place(world, id, pos, dir);
+                    }
                     event::position_ack(world, mode);
                     // FUN_1008f740: entity +0x144 = Mode; 3 runs `pop0`, 6 `pop1` on the actor.
                     match mode {

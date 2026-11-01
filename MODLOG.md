@@ -13053,3 +13053,20 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
 - Op 0x10 (crossfade) in an event's sub-task (19 uses, e.g. 57106 gst0..) went to the default arm; it now reaches the
   screen as the root's does (Effects::event_crosses -> Screen::fx_cross), as does op 0xb0 (event_path_stops). Test
   shot_lifetime.
+
+## A mode-1 position moves a bound actor's event body (Mhaura's ferry left-behind) (2026-11-01)
+
+- User report: left behind by the Mhaura ferry (no permit), a ship cabin stayed at the dock and they could not get
+  back onto the pier. The cabin is sub-area 493 (file 593: room, door, pillars, the lantern, shelves, barrels, and its
+  own collision with the deck at y -2.074), loaded by RID `m6x0` on the gangway. Left behind, LSB plays event 204:
+  fdo0, op 0x47 sub 0 (8.112, -1.362, 5.239: the pier), the 0x05C round trip, fdi0. LSB answers with s2c 0x065 mode 1.
+- FUN_1009d500 case 1 (all.c 117396): the entity takes the place and facing (FUN_1009d360), and an actor with its
+  model (+0x120 bit 9) bound to the event (bit 7) has them copied into its event body (+0x260 +0x140..+0x15c). Ours set
+  our position only; the event's end kept the body's pose (the deck), so the trigger point never reached `m6x5` on the
+  pier, sub-area 493 never unloaded and its deck and the gangway's closed door box held us. Now event::server_place
+  (Runtime::place_body, snapped). Live (Lnxcsfix, `!pos 8.2 -3.9 -2.8 249`, `!cs 204`): 493 unloads during the
+  event and we stand on the pier.
+- Open: while docked the cabin and the ferry's `fune` mesh do not quite meet (the user saw cracks round the doors).
+  The sub-area is built for a ship at yaw 0; ours ends the arrival `seq0` at yaw about -0.062 (pat1's face step,
+  fx/drive.rs), 0.37 units off at the near doors. Retail's drive reads the same *(inf)*: to compare with the retail
+  client before changing it.

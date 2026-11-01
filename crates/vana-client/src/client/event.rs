@@ -2111,6 +2111,17 @@ pub fn strings(w: &mut World, s: Vec<String>) {
     }
 }
 
+/// s2c 0x05B / 0x065 mode 1 (FUN_1009d500 case 1): a bound actor with its model in moves its event body to the
+/// server's place at once (event 204's "back onto the pier"; the event's end then keeps that pose).
+pub fn server_place(w: &mut World, id: u32, pos: [f32; 3], dir: u8) {
+    let Some(l) = &mut w.event else { return };
+    if !l.st.bound.contains(&id) || !w.actors.contains_key(&id) {
+        return;
+    }
+    l.rt.place_body(if id == w.my_id { PLAYER } else { id }, pos, rad_of(dir));
+    l.st.snap.insert(id);
+}
+
 /// s2c 0x05B / 0x065 position modes 1 and 2 end a 0x05C round trip (FUN_1009d500).
 pub fn position_ack(w: &mut World, mode: u8) {
     if matches!(mode, 1 | 2)

@@ -635,6 +635,16 @@ impl Runtime {
         self.wait_pos = false;
     }
 
+    /// FUN_1009d500 case 1: a bound actor's body (+0x260 +0x140 / +0x150) takes the server's place and facing.
+    pub fn place_body(&mut self, own: u32, pos: [f32; 3], dir: f32) {
+        for (i, v) in self.vms.iter().enumerate() {
+            if v.own == own {
+                let b = &mut self.bodies[i];
+                (b.pos, b.dir, b.tilt) = (pos, dir, [0.0; 2]);
+            }
+        }
+    }
+
     /// Transforms of the bound actors (the client draws event actors from these).
     pub fn actors(&self) -> impl Iterator<Item = (u32, &Body)> {
         self.vms.iter().enumerate().map(|(i, v)| (v.own, &self.bodies[i]))
