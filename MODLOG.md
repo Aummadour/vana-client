@@ -12873,3 +12873,33 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   speckled_wash_kept). With vana-upscale on, tex-pack's Floyd-Steinberg alpha dither turns the upscaled speck edges
   into fine noise, so the specks wash out (brightest minus darkest: stock (27, 24, 30), pack (21, 19, 23), retail
   (32, 32, 37)).
+
+## Trimmed 0x00E updates: the look read zero-padded (2026-11-01)
+
+- A server may send 0x00E only as long as its contents: a kind-0 NPC with a short name ("Moogle" from @0x34) ends near
+  0x3c. FUN_1009b550 reads the look at @0x30 whatever the packet's size (kind 0 needs only the model u16 @0x32). Ours
+  parsed the look only from packets of at least 0x44 bytes, so such NPCs got no model and were never drawn (the Mog
+  House moogle, and every short-named NPC of Ru'Lude Gardens on that server: about 30 entities ever had a long
+  update there). LSB pads its updates, so this never showed. Now the look is read zero-padded from any update of
+  at least 0x34 bytes (test trimmed_npc_update); the 0x00E log line prints every update with its size.
+- The earlier entry's reading of the mask-0 0x00E as the server naming NPCs to ask for was wrong for this case: the
+  mask-0 updates seen named NPCs already fully known (kind 1, 0x0c4 / 0x02a / 0x022 / 0x098), so no c2s 0x017 went
+  out. The wrapper rule itself stands (FUN_100fbc30).
+- Ru'Lude Gardens' lifts: LSB defines none there (only Elevator Button, model 50, at the Mog House door); not seen
+  in any logged update, so they too came short. Not confirmed yet.
+
+## Our upscale pack: flat alpha levels kept flat (2026-11-01)
+
+- tex-pack dithered every translucent image's alpha (Floyd-Steinberg onto DXT3's 16 levels, "Our upscale pack:
+  dithered glows and DXT3 banding"). Art drawn in a few flat levels, like zone 116's river wash 'effect  kaw1' (64 x 64,
+  0 / 34 / 68, 18.6 % clear specks), came out as fine noise once Upscayl had softened the speck edges: the specks
+  washed out.
+- Snapping each pixel to the nearest stock level was tried first and was worse: Upscayl fills the speck centres in,
+  so only 2.9 % of the 256 x 256 kaw1 stayed clear (brightest minus darkest river pixels (17, 15, 18)).
+- Now a stock image with at most three alpha levels (halved as encoded) is quantized to those levels in the stock
+  image's shares: the faintest upscaled pixels take the lowest level (texpack::stock_levels, encode; cached as
+  `<key>.bc2q`). East Sarutabaruta at 21:00 with the user's mods: river (53, 47, 60), brightest minus darkest
+  (31, 27, 32); before (21, 18, 23); the user's retail screenshot (33, 34, 38).
+- 191 translucent stock images qualify (mostly water: kaw1, umi0, miizu, hamon, mizh, ...). `tex-pack --redo KEYS`
+  rebuilds the files holding listed keys even when already built (406 files; list in
+  ~/ffxi/lab/scratch/water/pack/discrete.tsv). The published slim copy (hd-pack-1) predates this.

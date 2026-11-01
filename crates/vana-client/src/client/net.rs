@@ -869,9 +869,10 @@ fn entity(p: &SubPacket, kind: EntityKind) -> EntityUpdate {
         look: (kind == EntityKind::Player && flags & 0x10 != 0 && p.data.len() >= 0x48 + 18).then(|| look_at(p, 0x48)),
         motion: motion_state(p),
         // FUN_1009b550's look switch: a model id (kind 0) and doors / lifts / ships on every update, the slot looks
-        // (kinds 1 / 7) only with 0x10.
-        npc: (kind == EntityKind::Npc && flags & 0x20 == 0 && p.data.len() >= 0x30 + 20 && (!matches!(p.u8(0x30) & 7, 1 | 7) || flags & 0x10 != 0))
-            .then(|| crate::dat::npc::parse_look(&p.data[0x30..0x44]).ok())
+        // (kinds 1 / 7) only with 0x10. It reads @0x30 whatever the size: a server may trim the packet after the
+        // model or the name (a "Moogle" ends near 0x3c), so the look is read zero-padded.
+        npc: (kind == EntityKind::Npc && flags & 0x20 == 0 && p.data.len() >= 0x34 && (!matches!(p.u8(0x30) & 7, 1 | 7) || flags & 0x10 != 0))
+            .then(|| crate::dat::npc::parse_look(&std::array::from_fn::<u8, 20, _>(|i| p.u8(0x30 + i))).ok())
             .flatten(),
         claim: (kind == EntityKind::Npc && flags & 0x02 != 0).then(|| p.u32(0x2C)),
         mob: (kind == EntityKind::Npc && flags & 7 != 0).then(|| p.u8(0x20) & 1 != 0),
@@ -1205,9 +1206,10 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
                     0x051 => tx.send(NetEvent::SelfLook(look_at(&p, 4)))?,
                     0x00E => {
                         // The first NPC updates of a session, for comparing servers: index, id, mask, the look @0x30.
-                        if npc_logged < 400 && p.data.len() >= 0x44 {
+                        if npc_logged < 400 {
                             npc_logged += 1;
-                            log::info!("0x00E index {:#05x} id {:08x} mask {:02x}: look {}", p.u16(8), p.u32(4), p.u8(10), hex::encode(&p.data[0x30..0x44]));
+                            let look = p.data.get(0x30..p.data.len().min(0x44)).unwrap_or_default();
+                            log::info!("0x00E index {:#05x} id {:08x} mask {:02x} ({:#x} bytes): look {}", p.u16(8), p.u32(4), p.u8(10), p.data.len(), hex::encode(look));
                         }
                         tx.send(NetEvent::Entity(entity(&p, EntityKind::Npc)))?
                     }
@@ -1561,6 +1563,15 @@ mod tests {
             data[*at..*at + b.len()].copy_from_slice(b);
         }
         SubPacket { id, sync: 0, data }
+    }
+
+    /// A 0x00E trimmed after its name (0x3c bytes) still gives its model; a trimmed lift (kind 3) its lift data.
+    #[test]
+    fn trimmed_npc_update() {
+        let p = sub(0x00E, 0x3c, &[(4, &0x010f_3080u32.to_le_bytes()), (8, &0x80u16.to_le_bytes()), (10, &[0x0f]), (0x32, &0x52u16.to_le_bytes()), (0x34, b"Moogle")]);
+        assert!(matches!(entity(&p, EntityKind::Npc).npc, Some(crate::dat::npc::NpcLook::Model(0x52))));
+        let p = sub(0x00E, 0x40, &[(10, &[0x07]), (0x30, &[3]), (0x34, &7u32.to_le_bytes()), (0x38, &100u32.to_le_bytes())]);
+        assert_eq!(entity(&p, EntityKind::Npc).lift, Some((7, 100, 100)));
     }
 
     /// 0x00A's voyage fields (spec 6): start, start + length, flags3 bit 26 reverse, flags4 bits 19..20 the route;
