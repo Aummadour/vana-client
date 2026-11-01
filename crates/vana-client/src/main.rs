@@ -815,6 +815,8 @@ enum Cmd {
     },
     /// Render a zone offscreen to a PNG. Coordinates are game units (Y points down).
     ZoneShot {
+        /// The scene number (0x00A's scene): the zone id below 256; from 256 the zone-in's own (Western Adoulin
+        /// 256 is 700, file 83891).
         zone: u32,
         #[arg(long)]
         out: PathBuf,

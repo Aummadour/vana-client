@@ -174,6 +174,7 @@ fn self_contained(id: u32, file: &[u8], f: super::character::CharFile, skeleton:
         f.textures.len(),
         f.animations.len()
     )];
+    log.push(format!("attach points: {:?}", skeleton.points.iter().take(4).collect::<Vec<_>>()));
     log.extend(f.warnings);
     let mount = f.moun.map(|moun| super::character::MountInfo { moun, rate: f.info.map_or(0xff, |i| i[15]), cam: f.info.map_or(0xff, |i| i[14]) });
     let mut ch = Character { skeleton, parts: f.parts, textures: f.textures, animations: f.animations, size_info: [0xFF; 4], motions: Default::default(), schedulers: f.schedulers, pc: None, mount, log, packed: None, skin: None, files: vec![id], part_files: Vec::new(), cib: [-1; 3], ranged: -1, init_hidden: Default::default() };
