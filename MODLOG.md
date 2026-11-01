@@ -13078,3 +13078,10 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   event's end. Scripts set it on the cast (3,504 sites in 30 story zones; every participant of the Seekers scenes).
   Ours dropped the op, so cutscene actors went through our occlusion queries and could vanish for a frame or two
   after a cut. Now Entity::no_occlusion skips the query and its stale result.
+
+## Cutscenes leave first person (2026-11-01)
+
+- The event's start keeps the first-person flag (FUN_100ad2c0: DAT_10351bb8 = DAT_10475578 when our model is in).
+  Op 0x46 sub 1 (FUN_100b47a0) calls FUN_100acf70(0) -> FUN_100a7350: first person off, our model shown; sub 0 calls
+  it with the saved flag, as does the event's end (FUN_100acf20). Ours kept first person through cutscenes, our own
+  model faded out in every one started from it. Now State::first_saved, applied on 0x46 and in finish.

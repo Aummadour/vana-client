@@ -427,6 +427,9 @@ pub struct State {
     /// Op 0x92 (+0x12c bit 16): a bound actor's name is not drawn while the event runs (FUN_10096000); unbinding
     /// clears it.
     pub no_name: HashSet<u32>,
+    /// First person at the event's start (DAT_10351bb8 = DAT_10475578, FUN_100ad2c0): op 0x46 sub 1 leaves it, sub 0
+    /// and the end put it back (FUN_100acf70).
+    first_saved: bool,
     pub poses: HashMap<u32, Pose>,
     /// Event status (+0x174) by actor, set by op 0xac sub 1: the status a bound actor poses with (+0x170).
     pub event_status: HashMap<u32, u8>,
@@ -496,6 +499,7 @@ impl State {
             idle: HashMap::new(),
             bound: HashSet::new(),
             no_name: HashSet::new(),
+            first_saved: false,
             poses: HashMap::new(),
             event_status: HashMap::new(),
             event_rides: HashMap::new(),
@@ -769,6 +773,7 @@ impl Host for LiveHost<'_> {
             Effect::Camera { flag, offset } => {
                 self.st.camera_flag = flag;
                 self.w.cam_free = flag;
+                self.w.camst.first = flag && self.st.first_saved;
                 if flag {
                     self.w.screen.shot = None;
                     let dir = self.w.net.me.lock().map(|m| m.dir).unwrap_or(0);
@@ -1737,6 +1742,7 @@ fn begin(w: &mut World, mut wt: Box<Waiting>, index: &DatIndex) {
     let start = Start { zone: s.zone, event: s.event, target: s.target, params: s.params, strings: s.strings.clone() };
     let mut st = State::new(s);
     st.camera_flag = w.cam_free;
+    st.first_saved = w.camst.first;
     // FUN_100bb300 -> FUN_1008cda0: a server-hidden actor (+0x120 bits 14 / 15) starts the event hidden; the
     // model colour goes back to 0x80808080 unless Mode & 0x200 (FUN_10095c00).
     for b in blocks.iter().filter(|b| bound_block(b, st.start.event)) {
@@ -1986,6 +1992,8 @@ fn keep_pose(w: &mut World, p: Pose) {
 /// FUN_100ac9c0 / FUN_100bb750 / FUN_1008d710: the bound actors go back to their own transforms and status
 /// bits, event motions and looks end, deferred despawns happen.
 fn finish(w: &mut World, live: Box<Live>) {
+    // FUN_100acf20: first person as it was before the event.
+    w.camst.first = live.st.first_saved;
     // Op 0x77's weather without its 0x78: the lighting goes back with the event, so the effects do too.
     if live.st.time.is_some_and(|t| t.1.is_some()) {
         let wt = w.weather;
