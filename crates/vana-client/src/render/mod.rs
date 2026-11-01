@@ -311,6 +311,8 @@ impl Draw {
 /// The scene projection's near and far planes. Near is retail's 0.1 (FUN_100146e0): the eye keeps only 0.17 off the
 /// floor, and a deeper near plane cut into slopes beside it.
 pub const NEAR: f32 = 0.1;
+/// A sub-area draw's texture from this up is the zone's slot (texture - ZONE_TEXTURE).
+const ZONE_TEXTURE: usize = 1 << 20;
 pub const FAR: f32 = 2000.0;
 
 #[derive(Clone, Copy)]
@@ -374,7 +376,10 @@ pub struct ZoneRenderer {
     /// The zone's instances' placements and camera lists (ZoneGeometry), and the list in force (MZB offset, 0 none).
     inst_placement: Vec<u32>,
     camera_lists: HashMap<u32, Vec<u32>>,
-    camera_list: u32,
+    /// The list in force and, beyond retail's draw distance, the reach past which unlisted placements draw (ours).
+    camera_list: (u32, Option<f32>),
+    /// Per placement its variant group and whether it is the group's simplest mesh (ZoneScene::variant_groups).
+    variants: Vec<Option<(u32, bool)>>,
     /// All scenery in one vertex and one index buffer, uploaded once; draws keep the file order.
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
@@ -458,6 +463,8 @@ pub struct ZoneRenderer {
     pub voyage: Mat4,
     /// The scenery's draw distance D and Clipping factor K (dat/weather.rs clipping); D 0 draws at any distance.
     pub clip: [f32; 2],
+    /// Retail's D whatever the Draw Distance setting: where the camera list's reach ends (set_camera_list).
+    pub retail_reach: f32,
 }
 
 /// A sub-area's scenery (FUN_101787c0 loads it into zone slot 1): its own buffers and draws, its textures in the
@@ -1236,6 +1243,7 @@ pub struct ZoneGeometry {
     /// (zone::camera_lists).
     inst_placement: Vec<u32>,
     camera_lists: HashMap<u32, Vec<u32>>,
+    variants: Vec<Option<(u32, bool)>>,
     /// Each instance's world bounding sphere (centre, radius), for the lamps' lights (set_lamps).
     spheres: Vec<[f32; 4]>,
     /// Config 0011: the animated meshes' vertex deltas (GpuVertex flags >> 8, minus 1), their instances and the
@@ -1249,19 +1257,23 @@ pub struct ZoneGeometry {
 
 impl ZoneGeometry {
     pub fn build(scene: &ZoneScene) -> Self {
-        Self::build_with(scene, &scene.light_keys, &[], true)
+        Self::build_with(scene, &scene.light_keys, &[], &[], true)
     }
 
     /// With the point-light table `keys` (a sub-area's light refs resolve into the zone's table, FUN_1017a5e0).
-    /// `areas`: area keys already in slots (the zone's, for a sub-area); new ones follow.
-    pub fn build_keyed(scene: &ZoneScene, keys: &[u32], areas: &[u32]) -> Self {
-        Self::build_with(scene, keys, areas, false)
+    /// `areas`: area keys already in slots (the zone's, for a sub-area); new ones follow. `zone_textures`: the zone's
+    /// texture names in slot order, which a sub-area's meshes also name (textures are found by name across the loaded
+    /// files; Ru'Aun's sub-areas take their stone from the zone's file).
+    pub fn build_keyed(scene: &ZoneScene, keys: &[u32], areas: &[u32], zone_textures: &[String]) -> Self {
+        Self::build_with(scene, keys, areas, zone_textures, false)
     }
 
     /// `animate`: the animated meshes keep their deltas (not for a sub-area).
-    fn build_with(scene: &ZoneScene, keys: &[u32], areas: &[u32], animate: bool) -> Self {
-        // Slot 0 is the plain white texture; scene textures follow in order.
-        let texture_slot: HashMap<&str, usize> = scene.textures.iter().enumerate().map(|(i, t)| (t.name.as_str(), i + 1)).collect();
+    fn build_with(scene: &ZoneScene, keys: &[u32], areas: &[u32], zone_textures: &[String], animate: bool) -> Self {
+        // Slot 0 is the plain white texture; scene textures follow in order; a name only the zone has is
+        // ZONE_TEXTURE + its zone slot (ZoneRenderer::set_sub).
+        let mut texture_slot: HashMap<&str, usize> = zone_textures.iter().enumerate().map(|(i, t)| (t.as_str(), ZONE_TEXTURE + i + 1)).collect();
+        texture_slot.extend(scene.textures.iter().enumerate().map(|(i, t)| (t.name.as_str(), i + 1)));
         // A placement's refs become their table slot + 1, except keys starting with 'c', which the main scenery
         // path skips (FUN_10175ac0).
         let light_keys: Vec<u32> = keys.iter().copied().take(LIGHTS).collect();
@@ -1478,7 +1490,7 @@ impl ZoneGeometry {
             all_indices.push(0);
         }
         let sway_curves = if sway_insts.is_empty() { Default::default() } else { scene.sway.clone() };
-        Self { matrices, links, light_keys, area_keys, door_parts, door_bases, draws, verts: all_verts, indices: all_indices, cull, inst_placement, camera_lists: scene.camera_lists.clone(), spheres, deltas, sway_insts, sway_curves, bumps }
+        Self { matrices, links, light_keys, area_keys, door_parts, door_bases, draws, verts: all_verts, indices: all_indices, cull, inst_placement, camera_lists: scene.camera_lists.clone(), variants: if scene.camera_lists.is_empty() { Vec::new() } else { scene.variant_groups() }, spheres, deltas, sway_insts, sway_curves, bumps }
     }
 
     fn parts(&self) -> [&[u8]; 3] {
@@ -1637,7 +1649,8 @@ impl ZoneRenderer {
             lamps_last: Vec::new(),
             inst_placement: geo.inst_placement.clone(),
             camera_lists: geo.camera_lists.clone(),
-            camera_list: 0,
+            camera_list: (0, None),
+            variants: geo.variants.clone(),
             lights,
             light_keys: geo.light_keys.clone(),
             vertices: buffer("scenery vertices", v, wgpu::BufferUsages::VERTEX),
@@ -1694,6 +1707,7 @@ impl ZoneRenderer {
             now: 0.0,
             voyage: Mat4::IDENTITY,
             clip: [0.0, 1.0],
+            retail_reach: 0.0,
         }
     }
 
@@ -1725,17 +1739,30 @@ impl ZoneRenderer {
 
     /// FUN_10179390: the camera list the eye's probe found (MZB offset, 0 none; Ground::camera_list). While one is in
     /// force the zone's scenery draws only its placements (FUN_1017b510; door groups and a sub-area's scenery always).
-    pub fn set_camera_list(&mut self, gpu: &Gpu, list: u32) {
-        if list == self.camera_list {
+    /// `far` (ours, Draw Distance past Retail): beyond that distance, where retail draws nothing, the unlisted
+    /// placements draw too, but of a variant group (ZoneScene::variant_groups) only its simplest mesh, and none when
+    /// the list holds another of its variants: two variants at one spot fight for depth.
+    pub fn set_camera_list(&mut self, gpu: &Gpu, list: u32, far: Option<f32>) {
+        let same = |a: Option<f32>, b: Option<f32>| match (a, b) {
+            (Some(a), Some(b)) => (a - b).abs() <= a.max(b) * 0.01,
+            (a, b) => a.is_none() && b.is_none(),
+        };
+        if list == self.camera_list.0 && same(far, self.camera_list.1) {
             return;
         }
-        self.camera_list = list;
+        self.camera_list = (list, far);
         let Some(c) = self.cull.as_mut() else { return };
         match self.camera_lists.get(&list) {
             Some(l) => {
                 let listed: std::collections::HashSet<u32> = l.iter().copied().collect();
+                let variant = |p: u32| self.variants.get(p as usize).copied().flatten();
+                let groups: std::collections::HashSet<u32> = l.iter().filter_map(|&p| variant(p)).map(|v| v.0).collect();
                 let allowed: Vec<bool> = self.inst_placement.iter().map(|p| *p == u32::MAX || listed.contains(p)).collect();
-                c.set_mask(gpu, Some(&allowed));
+                let beyond: Vec<bool> = match far {
+                    Some(_) => self.inst_placement.iter().map(|&p| !listed.contains(&p) && variant(p).is_none_or(|(g, simplest)| simplest && !groups.contains(&g))).collect(),
+                    None => Vec::new(),
+                };
+                c.set_mask(gpu, Some((&allowed, &beyond, far.unwrap_or(0.0))));
             }
             None => c.set_mask(gpu, None),
         }
@@ -1803,7 +1830,12 @@ impl ZoneRenderer {
         let white = self.textures[0].clone();
         self.textures.extend(std::iter::repeat_n(white, textures.len()));
         self.pending.extend(textures.into_iter().enumerate().map(|(k, t)| (tex_base + k, t, None)));
-        let draws = geo.draws.iter().map(|d| Draw { texture: if d.texture == 0 { 0 } else { tex_base + d.texture - 1 }, instances: d.instances.clone(), mirrored: d.mirrored.clone(), ..*d }).collect();
+        let texture = |t: usize| match t {
+            0 => 0,
+            t if t > ZONE_TEXTURE => t - ZONE_TEXTURE,
+            t => tex_base + t - 1,
+        };
+        let draws = geo.draws.iter().map(|d| Draw { texture: texture(d.texture), instances: d.instances.clone(), mirrored: d.mirrored.clone(), ..*d }).collect();
         let instances = buffer("sub-area instances", m, wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE);
         let cull = cull::Cull::new(gpu, &self.cull_layout, &geo.cull, &instances);
         self.sub = Some(SubGeometry {
@@ -1859,7 +1891,12 @@ impl ZoneRenderer {
             let white = self.textures[0].clone();
             self.textures.extend(std::iter::repeat_n(white, textures.len()));
             self.pending.extend(textures.into_iter().enumerate().map(|(k, t)| (tex_base + k, t, None)));
-            let draws = geo.draws.iter().map(|d| Draw { texture: if d.texture == 0 { 0 } else { tex_base + d.texture - 1 }, instances: d.instances.clone(), mirrored: d.mirrored.clone(), ..*d }).collect();
+            let texture = |t: usize| match t {
+            0 => 0,
+            t if t > ZONE_TEXTURE => t - ZONE_TEXTURE,
+            t => tex_base + t - 1,
+        };
+        let draws = geo.draws.iter().map(|d| Draw { texture: texture(d.texture), instances: d.instances.clone(), mirrored: d.mirrored.clone(), ..*d }).collect();
             self.furniture.push(SubGeometry {
                 vertices: buffer("furniture vertices", v, wgpu::BufferUsages::VERTEX),
                 indices: buffer("furniture indices", i, wgpu::BufferUsages::INDEX),

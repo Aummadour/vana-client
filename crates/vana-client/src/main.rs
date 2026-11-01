@@ -1275,22 +1275,24 @@ fn main() -> Result<()> {
                         if let Some(v) = voyage_v {
                             r.voyage = v;
                         }
-                        // The draw distance at full Clipping and the camera list under the eye (FFXI_NO_CLIP: neither,
-                        // FFXI_NO_LISTS: no list, to compare).
-                        if let Some(l) = lighting.filter(|_| std::env::var_os("FFXI_NO_CLIP").is_none()) {
+                        // The draw distance at full Clipping and the camera list under the eye (FFXI_NO_CLIP: Unlimited,
+                        // the list within retail's distance; FFXI_NO_LISTS: no list, to compare).
+                        if let Some(l) = lighting {
                             let (d, k) = dat::weather::clipping(l.draw_dist, 1.0, zone as u16);
-                            r.clip = [d, k];
+                            let unlimited = std::env::var_os("FFXI_NO_CLIP").is_some();
+                            r.clip = if unlimited { [0.0, k * 9.0] } else { [d, k] };
                             let list = match scene.collision.as_ref().filter(|_| std::env::var_os("FFXI_NO_LISTS").is_none()) {
                                 Some(c) => client::ground::Ground::from_collision(c, &scene.light_keys).camera_list(camera.eye),
                                 None => 0,
                             };
                             println!("draw distance {d:.1}, K {k}, camera list {list:#x} ({} placements)", scene.camera_lists.get(&list).map_or(0, |l| l.len()));
-                            r.set_camera_list(gpu, list);
+                            r.set_camera_list(gpu, list, unlimited.then_some(d));
                         }
                         if let Some((id, s)) = &sub_scene {
                             let mut all = scene.light_keys.clone();
                             all.extend(s.light_keys.iter().filter(|k| **k != 0 && !scene.light_keys.contains(k)));
-                            let geo = render::ZoneGeometry::build_keyed(s, &all, r.area_keys());
+                            let names: Vec<String> = scene.textures.iter().map(|t| t.name.clone()).collect();
+                            let geo = render::ZoneGeometry::build_keyed(s, &all, r.area_keys(), &names);
                             r.set_sub(gpu, *id, &geo, s.textures.clone(), all);
                         }
                         // Area lighting at the same hour and weather, the sub-area's areas first.

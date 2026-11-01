@@ -7793,7 +7793,7 @@ impl App {
                         }
                         // The area's sub-areas (its interiors) for the event's op 0x75.
                         let asked = world.sub.asked.take();
-                        let sub = subarea::SubArea::new(scene.regions.clone(), scene.collision.take(), geometry.light_keys.clone(), geometry.area_keys.clone());
+                        let sub = subarea::SubArea::new(scene.regions.clone(), scene.collision.take(), geometry.light_keys.clone(), geometry.area_keys.clone(), scene.textures.iter().map(|t| t.name.clone()).collect());
                         let old = std::mem::replace(&mut world.sub, sub);
                         if world.area.home_sub.is_none() {
                             world.area.home_sub = Some(old);
@@ -7833,7 +7833,7 @@ impl App {
                 match result {
                     Ok((mut scene, ground, weather, geometry, (zone_fx, global_fx))) => {
                         let asked = world.sub.asked.take();
-                        world.sub = subarea::SubArea::new(scene.regions.clone(), scene.collision.take(), geometry.light_keys.clone(), geometry.area_keys.clone());
+                        world.sub = subarea::SubArea::new(scene.regions.clone(), scene.collision.take(), geometry.light_keys.clone(), geometry.area_keys.clone(), scene.textures.iter().map(|t| t.name.clone()).collect());
                         world.sub.asked = asked;
                         world.zone_weather = weather;
                         (world.light_ease, world.light_acc) = (Default::default(), 0.0);
@@ -8000,12 +8000,12 @@ impl App {
                 if let Some(g) = &w.ground {
                     g.close_all_doors();
                 }
-                let (collision, keys, areas) = (w.sub.zone_collision.clone(), w.sub.zone_keys.clone(), w.sub.zone_areas.clone());
+                let (collision, keys, areas, textures) = (w.sub.zone_collision.clone(), w.sub.zone_keys.clone(), w.sub.zone_areas.clone(), w.sub.zone_textures.clone());
                 match self.game_data() {
                     Ok((index, zkeys)) => {
                         let tx = self.tasks_tx.clone();
                         std::thread::spawn(move || {
-                            let _ = tx.send(Task::SubAreaLoaded(zone_id, id, subarea::load(&index, &zkeys, id, collision, &keys, &areas)));
+                            let _ = tx.send(Task::SubAreaLoaded(zone_id, id, subarea::load(&index, &zkeys, id, collision, &keys, &areas, &textures)));
                         });
                     }
                     Err(e) => {
@@ -12512,6 +12512,7 @@ impl App {
                     // Unlimited lifts the zone's distance only: a placement's own distance still holds (Ru'Aun's 1-unit
                     // helper strips), as far as at the largest step (3x).
                     r.clip = if scale > 0.0 { [d * scale, k * scale * scale] } else { [0.0, k * 9.0] };
+                    r.retail_reach = d;
                     if steps > 0 {
                         log::debug!(target: "light", "{minute:.3}: bg dir {:.3} colour {:.4}", w.light_ease.bg.dir, w.light_ease.bg.color);
                     }
@@ -13011,9 +13012,11 @@ impl App {
                 let budget = if w.zone_uploading.is_some() || w.downloading.is_some() { crate::render::MIP_BUDGET } else { crate::render::MIP_BUDGET_WORLD };
                 perf::timed(|| "mips".into(), || gfx.gpu.run_mips(&mut encoder, budget));
                 mark!("mips");
-                // FUN_10179390: the camera list under the eye, at the Retail draw distance only (render/cull.rs).
-                let list = if self.cfg.draw_distance == 100 { w.ground.as_ref().map_or(0, |g| g.camera_list(camera.eye)) } else { 0 };
-                r.set_camera_list(&gfx.gpu, list);
+                // FUN_10179390: the camera list under the eye (render/cull.rs); past Retail it holds within retail's
+                // distance and the rest draws beyond it.
+                let list = w.ground.as_ref().map_or(0, |g| g.camera_list(camera.eye));
+                let far = (self.cfg.draw_distance != 100).then_some(r.retail_reach).filter(|d| *d > 0.0);
+                r.set_camera_list(&gfx.gpu, list, far);
                 // Config 0017: bump mapping's lighting (one eased light, vertex fog) or the two-light model; never in 182.
                 r.bump_mode = self.cfg.tool("0017") != 0 && w.zone != Some(182);
                 // Config 0011: the animated meshes' sway this frame (render/sway.rs).

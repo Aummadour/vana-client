@@ -686,6 +686,57 @@ pub struct ZoneScene {
     pub bumps: Vec<super::bump::BumpMap>,
 }
 
+impl ZoneScene {
+    /// Ours (the Draw Distance setting): placements that are variants of one object, by placement index. Some zones
+    /// place a detailed mesh and a simpler stand-in for it at the same spot with the same LOD record (Escha - Ru'Aun's
+    /// bri_gate_a_h / m_bri_gate_a); retail's camera lists show one or the other. A group is placements with the same
+    /// transform whose meshes have nearly the same box; the bool marks its simplest mesh (fewest vertices).
+    pub fn variant_groups(&self) -> Vec<Option<(u32, bool)>> {
+        let names: std::collections::HashSet<&str> = self.meshes.iter().map(|m| m.name.as_str()).collect();
+        let mesh = |p: &Placement| {
+            let high = p.lod_names(|n| names.contains(n))[2].to_string();
+            self.meshes.iter().find(|m| m.name == high).map(|m| (m.min, m.max, m.models.iter().map(|x| x.vertices.len()).sum::<usize>()))
+        };
+        let key = |p: &Placement| {
+            let q = |v: f32| (v * 1000.0).round() as i64;
+            (p.translate.map(q), p.rotate.map(q), p.scale.map(q))
+        };
+        let mut by_spot: std::collections::HashMap<_, Vec<usize>> = Default::default();
+        for (i, p) in self.placements.iter().enumerate().filter(|(_, p)| p.drawn() && p.id == 0) {
+            by_spot.entry(key(p)).or_default().push(i);
+        }
+        let iou = |a: ([f32; 3], [f32; 3]), b: ([f32; 3], [f32; 3])| {
+            let vol = |lo: [f32; 3], hi: [f32; 3]| (0..3).map(|k| (hi[k] - lo[k]).max(0.0)).product::<f32>();
+            let lo = [0, 1, 2].map(|k| a.0[k].max(b.0[k]));
+            let hi = [0, 1, 2].map(|k| a.1[k].min(b.1[k]));
+            let inter = vol(lo, hi);
+            inter / (vol(a.0, a.1) + vol(b.0, b.1) - inter).max(1e-6)
+        };
+        let mut out = vec![None; self.placements.len()];
+        let mut next = 0u32;
+        for spot in by_spot.values().filter(|s| s.len() > 1) {
+            let info: Vec<_> = spot.iter().map(|&i| mesh(&self.placements[i])).collect();
+            let mut seen = vec![false; spot.len()];
+            for a in 0..spot.len() {
+                let Some(ia) = info[a].filter(|_| !seen[a]) else { continue };
+                let members: Vec<usize> = (a..spot.len())
+                    .filter(|&b| b == a || (!seen[b] && self.placements[spot[b]].name != self.placements[spot[a]].name && info[b].is_some_and(|ib| iou((ia.0, ia.1), (ib.0, ib.1)) > 0.7)))
+                    .collect();
+                if members.len() < 2 {
+                    continue;
+                }
+                let simplest = *members.iter().min_by_key(|&&b| info[b].map_or(usize::MAX, |x| x.2)).unwrap();
+                for &b in &members {
+                    seen[b] = true;
+                    out[spot[b]] = Some((next, b == simplest));
+                }
+                next += 1;
+            }
+        }
+        out
+    }
+}
+
 pub fn load_scene(keys: &Keys, file: &[u8]) -> Result<ZoneScene> {
     let mut scene = ZoneScene { regions: Vec::new(), collision: None, placements: Vec::new(), meshes: Vec::new(), textures: Vec::new(), warnings: Vec::new(), light_keys: Vec::new(), paths: Default::default(), camera_lists: Default::default(), sway: sway_curves(file), bumps: Vec::new() };
     let list: Vec<Chunk> = chunks(file)?;
@@ -737,6 +788,23 @@ pub fn load_scene(keys: &Keys, file: &[u8]) -> Result<ZoneScene> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Escha - Ru'Aun (scene 733): the gate's detailed mesh and its stand-in form a group whose simplest is the
+    /// stand-in; the gate's other part at the same origin is not in it.
+    #[test]
+    fn escha_gate_variants() {
+        let cfg = crate::config::Config::load();
+        let Ok(index) = crate::dat::DatIndex::open(&cfg.ffxi_dir()) else { return };
+        let Ok(dll) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")) else { return };
+        let (Ok(keys), Ok(file)) = (Keys::from_ffximain(&dll), index.read(file_id(733))) else { return };
+        let z = load_scene(&keys, &file).unwrap();
+        let v = z.variant_groups();
+        let at = |name: &str, sx: f32| z.placements.iter().position(|p| p.name == name && p.scale[0] == sx && p.translate[2] == -362.0526).unwrap();
+        let (stand_in, detailed, part) = (v[at("m_bri_gate_a", 1.0)].unwrap(), v[at("bri_gate_a_h", 1.0)].unwrap(), v[at("bri_gate_bf_h", 1.0)]);
+        assert_eq!(stand_in.0, detailed.0);
+        assert!(stand_in.1 && !detailed.1);
+        assert!(part.is_none_or(|p| p.0 != stand_in.0));
+    }
 
     fn header(flag: u8, w: u32, h: u32, bits: u16, extra: usize) -> Vec<u8> {
         let mut p = vec![0u8; 57 + extra];

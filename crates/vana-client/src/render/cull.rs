@@ -173,7 +173,8 @@ pub struct Cull {
     /// Each run's instances, and while a camera list is in force (set_mask), the runs with a listed instance.
     ranges: Vec<(u32, u32)>,
     listed: Option<Vec<bool>>,
-    /// Word 0: a camera list is in force; then a bit per instance, set when it may draw.
+    /// Word 0: a camera list is in force; word 1 the reach squared past which the second set draws, word 2 the words
+    /// per set; then a bit per instance in each set: listed (it may draw), then unlisted but drawn beyond the reach.
     mask: wgpu::Buffer,
     /// The visible instances, run by run (the scenery's instance vertex buffer), and the draws' indirect arguments.
     pub out: wgpu::Buffer,
@@ -202,7 +203,7 @@ impl Cull {
         let out = empty("culled instances", data.out_len as u64 * INSTANCE_BYTES, storage | wgpu::BufferUsages::VERTEX);
         let args = empty("cull args", data.args.len() as u64 * 20, storage | wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_SRC);
         let vis = empty("cull visibility", data.bounds.len() as u64 * 4, storage);
-        let mask = with("cull camera list", &vec![0u8; (1 + data.bounds.len().div_ceil(32)) * 4], storage);
+        let mask = with("cull camera list", &vec![0u8; (3 + 2 * data.bounds.len().div_ceil(32)) * 4], storage);
         let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("cull"),
             layout,
@@ -217,16 +218,21 @@ impl Cull {
         Some(Self { group, instances: data.bounds.len() as u32, runs: data.runs.len() as u32, boxes: data.boxes.clone(), arg_run: data.arg_run.clone(), ranges, listed: None, mask, out, args })
     }
 
-    /// A camera list in force (FUN_1017b510: the slot draws only its placements): `allowed` per instance, or None for
+    /// A camera list in force (FUN_1017b510: the slot draws only its placements): per instance whether it is
+    /// listed and whether, unlisted, it draws beyond `reach` (ours, the Draw Distance setting past Retail); None for
     /// every instance.
-    pub fn set_mask(&mut self, gpu: &Gpu, allowed: Option<&[bool]>) {
-        let mut words = vec![0u32; 1 + (self.instances as usize).div_ceil(32)];
-        self.listed = allowed.map(|a| {
-            words[0] = 1;
-            for (i, _) in a.iter().enumerate().filter(|(_, on)| **on) {
-                words[1 + i / 32] |= 1 << (i % 32);
+    pub fn set_mask(&mut self, gpu: &Gpu, mask: Option<(&[bool], &[bool], f32)>) {
+        let n = (self.instances as usize).div_ceil(32);
+        let mut words = vec![0u32; 3 + 2 * n];
+        self.listed = mask.map(|(allowed, beyond, reach)| {
+            (words[0], words[1], words[2]) = (1, (reach * reach).to_bits(), n as u32);
+            for (set, flags) in [allowed, beyond].iter().enumerate() {
+                for (i, _) in flags.iter().enumerate().filter(|(_, on)| **on) {
+                    words[3 + set * n + i / 32] |= 1 << (i % 32);
+                }
             }
-            self.ranges.iter().map(|&(s, e)| a.get(s as usize..e as usize).is_some_and(|r| r.iter().any(|&on| on))).collect()
+            let any = |f: &[bool], s: u32, e: u32| f.get(s as usize..e as usize).is_some_and(|r| r.iter().any(|&on| on));
+            self.ranges.iter().map(|&(s, e)| any(allowed, s, e) || any(beyond, s, e)).collect()
         });
         gpu.queue.put(&self.mask, 0, bytemuck::cast_slice(&words));
     }

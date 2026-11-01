@@ -658,9 +658,6 @@ fn cull_col(i: u32, k: u32) -> vec4<f32> {
 // mesh's box (through the model as vs_main places it) against the six planes of the view frustum (clip x, y in
 // -w..w, z in 0..w) and retail's far plane at view depth D.
 fn cull_visible(i: u32) -> bool {
-    if (cull_mask[0] != 0u && (cull_mask[1u + i / 32u] & (1u << (i % 32u))) == 0u) {
-        return false;
-    }
     let m3 = cull_col(i, 3u);
     var model = mat4x4<f32>(cull_col(i, 0u), cull_col(i, 1u), cull_col(i, 2u), m3);
     let band = cull_col(i, 6u);
@@ -668,6 +665,17 @@ fn cull_visible(i: u32) -> bool {
     let origin = select(m3.xyz, (u.voyage * m3).xyz, voyaged);
     let d = u.eye.xyz - origin;
     let d2 = dot(d, d);
+    // The camera list (render/cull.rs set_mask): listed, or unlisted and marked to draw beyond the reach.
+    if (cull_mask[0] != 0u) {
+        let w = i / 32u;
+        let bit = 1u << (i % 32u);
+        if ((cull_mask[3u + w] & bit) == 0u) {
+            let beyond = (cull_mask[3u + cull_mask[2] + w] & bit) != 0u;
+            if (!beyond || d2 <= bitcast<f32>(cull_mask[1])) {
+                return false;
+            }
+        }
+    }
     let c = cull_bounds[2u * i];
     let h = cull_bounds[2u * i + 1u];
     let far = u.area_info.z;

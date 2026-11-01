@@ -12716,3 +12716,32 @@ DISPLAY13 at 100%; RX 6800 XT eGPU), MinGW cross builds, release and debug.
   Unlimited): the lavender slab over the island before, gone after.
 - The walkway's flat pale look is not this: it is the same in both and the stock texture is plain sand, smoothed
   further by the installed upscale packs (mods off shows faint grain).
+
+## Ru'Aun's sub-areas: textures found in the zone; variant stand-ins and the camera lists past Retail (2026-11-01)
+
+- User report: Ru'Aun Gardens and Escha - Ru'Aun still flickered while moving after the own-distance fix (MODLOG
+  "Draw Distance Unlimited: a placement's own distance still holds"), with three screenshots of Escha - Ru'Aun: flat
+  white pillars and arches, and fine straight hatching (vertical on walls receding sideways, diagonal checker on
+  others). Corrections to that entry: the walkway's flat white was not "plain sand smoothed by the packs", and the
+  flicker was mostly not the `id_*` helpers (see below).
+- Escha - Ru'Aun is scene 733 (0x00A map number; file 733 + 0x144f7 = 83924), not zone 289 + 100: zone-shot and
+  probes must use the scene number, or they render another zone (file 389).
+- Sub-area textures: sub-area 533 (Ru'Aun Gardens) has 46 models and 626 (Escha - Ru'Aun) 29 whose texture names
+  (`model   tur_f`, `tur_w2`, `tou_t1` ...) are only in the zone's file. Ours resolved a sub-area's names in its own
+  file only; unresolved is slot 0, white: the white walkway and pillars. Now ZoneGeometry::build_keyed takes the
+  zone's texture names, and set_sub maps those to the zone's slots *(inf: retail's texture lookup is by name over
+  everything loaded; not traced)*.
+- Variant stand-ins: Escha - Ru'Aun places detailed meshes and simpler stand-ins for them at the same spot with the
+  same LOD record and both meshes present, e.g. `bri_gate_a_h` (486 vertices) and `m_bri_gate_a` (96), each also
+  mirrored; 1,974 same-spot pairs of different meshes in the scene. FUN_1017afe0 / FUN_1017c9c0 draw any placement
+  whose slot mesh exists, so the pick between them is the camera list's (FUN_10179390 / FUN_1017b510): the list at
+  the camera holds one or the other. Ours applied camera lists only at Draw Distance Retail (100); at 1.5x .. 3x and
+  Unlimited both drew and their coincident faces fought for depth (the hatching; zone-shot at the user's spot showed
+  it at Unlimited and not with the list).
+- Now the list holds at every setting. Past Retail, an unlisted placement also draws beyond retail's D (the env's,
+  ZoneRenderer::retail_reach) unless a variant of it is listed, and of a variant group with none listed only the
+  simplest mesh (ZoneScene::variant_groups: same transform, different mesh names, mesh boxes IoU > 0.7, fewest
+  vertices). The cull mask carries both sets and the reach (render/cull.rs set_mask, zone.wgsl cull_visible). Zones
+  without camera lists are unchanged. Test dat::zone::tests::escha_gate_variants. In both Ru'Aun scenes D is 1000,
+  so there Unlimited now draws as Retail.
+- zone-shot with FFXI_NO_CLIP now renders as Unlimited does (D 0, K x 9, the list with the reach), not without lists.
