@@ -344,15 +344,18 @@ fn update(@builtin(global_invocation_id) gid: vec3<u32>) {
             case 0x1du: { set_ef(b, E_UV + 1u, fmod2(key_t(b, s, t))); el[b + E_STATE] = el[b + E_STATE] | ST_SCROLL_V; }
             case 0x54u: { set_ef(b, E_UV, fmod2(ef(b, E_UV) + key_n(b, s, t) * dt)); el[b + E_STATE] = el[b + E_STATE] | ST_SCROLL_U; }
             case 0x55u: { set_ef(b, E_UV + 1u, fmod2(ef(b, E_UV + 1u) + key_n(b, s, t) * dt)); el[b + E_STATE] = el[b + E_STATE] | ST_SCROLL_V; }
-            // D3b morph weights +0x194.. (class 0xf only): the slot keyframe at life t, or the day fraction with
-            // parameter bit 4, repeated (param >> 5) & 0x1ff times.
+            // D3b morph weights +0x194.. (class 0xf only; case 0x1004bf13): the slot keyframe at the day fraction with
+            // parameter bit 4, else at life t repeated (param >> 5) & 0x1ff times.
             case 0x1eu, 0x1fu, 0x20u, 0x21u, 0x22u: {
                 if (el[b + E_KIND] == DK_MORPH) {
                     let prm = sl(b, s + 1u);
                     var x = t;
-                    if ((prm & 0x10u) != 0u) { x = p.time.z; }
                     let n = (prm >> 5u) & 0x1ffu;
-                    if (n != 0u) { x = fract(x * f32(n)); }
+                    if ((prm & 0x10u) != 0u) {
+                        x = p.time.z;
+                    } else if (n != 0u) {
+                        x = fract(x * f32(n));
+                    }
                     set_ef(b, E_MORPH_W + code - 0x1eu, key_t(b, s, x));
                 }
             }
@@ -413,6 +416,16 @@ fn update(@builtin(global_invocation_id) gid: vec3<u32>) {
             }
             case 0x27u: { set_ef(b, E_UV, ef(b, E_UV) + opf(r) * dt); el[b + E_STATE] = el[b + E_STATE] | ST_SCROLL_U; }
             case 0x28u: { set_ef(b, E_UV + 1u, ef(b, E_UV + 1u) + opf(r) * dt); el[b + E_STATE] = el[b + E_STATE] | ST_SCROLL_V; }
+            // Cases 0x1004b627 / b683 / b6c1: a sine sway at sin(elapsed / 60 x f1 + f2) x dt, amplitudes S[s..s+2], heading
+            // S[s+3]: 0x29 along (cos, sin) in x / z, 0x2a in y, 0x2b along (sin, cos) (fish in Buburimu).
+            case 0x29u, 0x2au, 0x2bu: {
+                let v = sin((maxl - life) * opf(r) / 60.0 + opf(r + 1u)) * slf(b, s + code - 0x29u) * dt;
+                let h = slf(b, s + 3u);
+                var d = vec3<f32>(0.0, v, 0.0);
+                if (code == 0x29u) { d = vec3<f32>(cos(h), 0.0, sin(h)) * v; }
+                if (code == 0x2bu) { d = vec3<f32>(sin(h), 0.0, cos(h)) * v; }
+                set_ev3(b, E_POS, ev3(b, E_POS) + d);
+            }
             // FUN_100499d0 case 0x1004a0a2: d == 0 hides; below near kept, to far faded, else 0 (expire on bit 0).
             case 0x2eu: {
                 let d = distance(p.eye.xyz, world_of(b, parent));

@@ -1552,6 +1552,76 @@ mod tests {
         println!("{checked} elements agree");
         assert!(checked > 20, "only {checked} elements");
     }
+
+    /// Buburimu's fish (DAT 218 gyl1 / gyb1: no velocity, only the op 0x29 / 0x2b sway) swim on the GPU as the CPU
+    /// reference has them.
+    #[test]
+    fn gpu_fish_sway() {
+        let cfg = crate::config::Config::load();
+        let Ok(index) = crate::dat::DatIndex::open(&cfg.ffxi_dir()) else { return };
+        let Ok(dll) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(gpu) = Gpu::headless() else { return };
+        let mut fx = Effects::new();
+        fx.set_keys(Arc::new(crate::dat::zone::Keys::from_ffximain(&dll).unwrap()));
+        fx.set_global(crate::fx::lib::Library::load(0, index.read(0).unwrap()).unwrap());
+        fx.load_zone(crate::fx::lib::Library::load(218, index.read(218).unwrap()).unwrap());
+        let mut eg = EffectsGpu::new(&gpu, wgpu::TextureFormat::Rgba8UnormSrgb);
+        let mut cpu: HashMap<u32, Elem> = HashMap::new();
+        let mut start: HashMap<u32, glam::Vec3> = HashMap::new();
+        let eye = glam::Vec3::new(460.0, 15.0, -140.0);
+        let view = glam::camera::rh::view::look_at_mat4(eye, glam::Vec3::new(470.0, 22.0, -118.0), glam::Vec3::NEG_Y);
+        let mut view_rot = view;
+        view_rot.w_axis = glam::Vec4::W;
+        let f = Frame { dt: 2.0, seconds: 2.0 / 60.0, dayfrac: 0.4, view, view_rot, eye, draw_distance: 2000.0, area_light: glam::Vec3::ONE, focal: 350.0, moon_phase: 0, weekday: 0 };
+        for _ in 0..90 {
+            fx.tick(&f, &crate::fx::NoActors);
+            for wr in &fx.writes {
+                match wr {
+                    Write::Full(e, el) => {
+                        cpu.insert(*e, (**el).clone());
+                        start.insert(*e, el.v3(w::POS));
+                    }
+                    Write::Words(e, off, ws) => {
+                        if let Some(c) = cpu.get_mut(e) {
+                            c.0[*off..*off + ws.len()].copy_from_slice(ws);
+                        }
+                    }
+                    Write::Parts(..) | Write::LightOff(_) => {}
+                }
+            }
+            let slots: Vec<u32> = fx.slots.iter().flatten().copied().collect();
+            let mut enc = gpu.device.create_command_encoder(&Default::default());
+            eg.update(&gpu, &mut enc, &mut fx, &f);
+            gpu.queue.submit([enc.finish()]);
+            gpu.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None }).unwrap();
+            eg.after_submit(&gpu, &mut fx);
+            let reg = &fx.reg;
+            let key = |id: u32, x: f32, eased: bool, v0: Option<f32>| -> f32 {
+                let Some(d) = reg.key_desc.get(id as usize) else { return 0.0 };
+                let k = crate::dat::generator::KeyFrame { keys: reg.key_data[d[0] as usize..(d[0] + d[1]) as usize].iter().map(|p| (p[0], p[1])).collect() };
+                match v0 {
+                    Some(v) => k.sample_v0(x, eased, v),
+                    None => k.sample(x, eased),
+                }
+            };
+            for c in cpu.values_mut() {
+                update_ref(c, &reg.ops, &key, &slots, &f);
+            }
+        }
+        let g = eg.read_elems(&gpu, fx.elems.len());
+        let named = |e: u32, n: &[u8; 4]| fx.elems.get(e as usize).and_then(|c| c.as_ref()).and_then(|c| fx.insts.get(c.inst)).and_then(|x| x.as_ref()).is_some_and(|x| x.name == *n);
+        for n in [b"gyl1", b"gyb1"] {
+            let fish: Vec<u32> = cpu.keys().copied().filter(|&e| named(e, n)).collect();
+            assert!(!fish.is_empty(), "no {} element", String::from_utf8_lossy(n));
+            for e in fish {
+                let gw = &g[e as usize * w::WORDS..(e as usize + 1) * w::WORDS];
+                let gp = glam::Vec3::new(f32::from_bits(gw[w::POS]), f32::from_bits(gw[w::POS + 1]), f32::from_bits(gw[w::POS + 2]));
+                let cp = cpu[&e].v3(w::POS);
+                assert!((gp - cp).length() < 1e-2, "{}: gpu {gp} cpu {cp}", String::from_utf8_lossy(n));
+                assert!((gp - start[&e]).length() > 0.3, "{} did not move: {} -> {gp}", String::from_utf8_lossy(n), start[&e]);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

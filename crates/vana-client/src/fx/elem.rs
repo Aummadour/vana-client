@@ -451,6 +451,16 @@ pub fn update_ref(e: &mut Elem, ops: &[u32], key: &dyn Fn(u32, f32, bool, Option
                 e.set(w::UV + 1, e.f(w::UV + 1) + of(1) * dt);
                 e.0[w::STATE] |= st::SCROLL_V;
             }
+            0x29..=0x2b => {
+                let v = ((maxl - life) * of(1) / 60.0 + of(2)).sin() * e.sf(s + (code - 0x29) as usize) * dt;
+                let h = e.sf(s + 3);
+                let d = match code {
+                    0x29 => Vec3::new(h.cos(), 0.0, h.sin()) * v,
+                    0x2b => Vec3::new(h.sin(), 0.0, h.cos()) * v,
+                    _ => Vec3::new(0.0, v, 0.0),
+                };
+                e.set_v3(w::POS, e.v3(w::POS) + d);
+            }
             // Case 0x1004b181: a D3b's keys 0 / 1 by camera distance (0 behind the camera: unchanged).
             0x6e if e.0[w::KIND] == dk::MORPH => {
                 let wp = world(e);

@@ -12962,3 +12962,18 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   at (2.0, -7.5) by the door, while the Orchestrion that unlocks it is ordinary furniture wherever it was placed. Only
   FUN_101d4c20 / FUN_101d4c80 read the gated table; nothing moves the NPC onto the furniture. The original client does
   the same (user, 2026-11-01): an invisible target by the door. Not a bug.
+
+## Effect update ops 0x29..0x2b: the sine sway (Buburimu's fish) (2026-11-01)
+
+- FUN_100499d0's table at 0x1004d08c (index op - 1): 0x29 -> 0x1004b627, 0x2a -> 0x1004b683, 0x2b -> 0x1004b6c1. Each
+  takes x = (elem +0x114 - +0x110) x f1 x 1/60 (0x1031ffd0) + f2, i.e. the elapsed ticks in seconds, and v = sin(x) x
+  amplitude x frame +0xeb0 (dt, FUN_1004d420): 0x29 amplitude S[s], pos x += cos(S[s+3]) v, z += sin(S[s+3]) v; 0x2a
+  S[s+1], y += v; 0x2b S[s+2], z += cos(S[s+3]) v, x += sin(S[s+3]) v. Rotation is untouched. Emission ops 0x3d (S[s+3],
+  the heading) and 0x3e..0x40 (S[s..s+2]) fill the slots.
+- Zone 118 (DAT 218) has 16 self-starting fish generators (gyb1 / gyb2, gyd1..gyd4, gye1..gye4, gyh1, gyl1..gyl3,
+  gyz1 / gyz2) in the bay near (441..485, 22, -116..-122): D3b morphs mgy* (textures sak*), zgya the shark. gyl / gyb
+  have no velocity (gyl's op 0x02 slot is zero), so the sway is their only motion; ours skipped the three ops and they
+  sat still. gyd follows path psa1 (ops 0x54 / 0x34). Now in effects.wgsl and update_ref; test gpu_fish_sway.
+- Correction to "D3b morph elements": ops 0x1e..0x22 (case 0x1004bf13) sample at the day fraction (DAT_106175bc,
+  Vana'diel seconds of the day / 86400) when the parameter has bit 4, with no repeat; only life t is repeated
+  (param >> 5) & 0x1ff times (fmod 1). Ours repeated the day fraction too (gyl's weights take 0x51).
