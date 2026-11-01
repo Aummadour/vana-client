@@ -12903,3 +12903,18 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
 - 191 translucent stock images qualify (mostly water: kaw1, umi0, miizu, hamon, mizh, ...). `tex-pack --redo KEYS`
   rebuilds the files holding listed keys even when already built (406 files; list in
   ~/ffxi/lab/scratch/water/pack/discrete.tsv). The published slim copy (hd-pack-1) predates this.
+
+## Mog House: the item-gated NPC, built (2026-11-01)
+
+- Correction and completion of "Mog House: the item-gated NPC (FUN_101d4c80)": the row table at 0x103383d8 holds u32
+  item ids (up to 32 per row, rows of 0x21 words), the u16 model at +0x80 (0x10338458); one row: 0x1aa, 0x11e, 0x11f,
+  model 0x737. FUN_101d4c20 gives row x 32 + index; FUN_101d4ba0 / FUN_101d4be0 set / clear that bit of myroom +0x44.
+  Set by the scan FUN_101d2b10 for an installed piece on the other floor and by FUN_101d39e0 when a piece on this
+  floor gets its object; cleared by FUN_101d5140 when the object goes. So: any row item installed, either floor.
+- FUN_101d5fe0 = S+0x40db1 bit 4 clear = S+0x40db0 bit 12, set at the zone-in from FUN_100f9650 (myroom::has_floors).
+  In a room without floors (rent-a-rooms, the Mog Garden) the row's NPCs are always hidden.
+- FUN_100859d0 sets the model's +0xb2 bit 3 (hidden), FUN_10085990 clears it; FUN_10083430 rejects any +0xb2 != 0,
+  so a hidden one is not targetable. FUN_101d4c80 runs every frame of the myroom update (FUN_101d4a20, game mode 0x60).
+- Seen on a server that sends it: the Symphonic Curator (model 0x737) in Ru'Lude Gardens' rent-a-room, which ours
+  drew (a black 3 mm stand-in) and let be targeted. Ours: furniture::gated_hidden in event::hidden (drawing, plates,
+  picking, Tab, the target drop). Not seen live in a furnished room with an Orchestrion.

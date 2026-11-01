@@ -201,6 +201,26 @@ fn move_in_place(w: &mut World, want: &[Key]) -> bool {
 /// FUN_101d2b10's item types: furnishing 10, flowerpot 12 (mannequins, 14, are a race body: not drawn yet).
 const TYPES: [u16; 2] = [10, 12];
 
+/// FUN_101d4c80's one row (0x103383d8): items 0x1aa Orchestrion, 0x11e / 0x11f Nanaa Mihgo statues; model 0x737
+/// (the Symphonic Curator, a 3 mm stand-in).
+const GATED_ITEMS: [u16; 3] = [0x1aa, 0x11e, 0x11f];
+const GATED_MODEL: u16 = 0x737;
+
+/// FUN_101d4c80 in the Mog House: zone NPCs of the gated model are shown only in a furnished room (FUN_101d5fe0)
+/// with one of the row's items installed on either floor (myroom +0x44, set by FUN_101d2b10 / FUN_101d39e0, cleared
+/// by FUN_101d5140); else hidden (+0xb2 bit 3), which takes their targeting too (FUN_10083430).
+pub fn gated_hidden(w: &World) -> Vec<u32> {
+    let Some(r) = w.myroom.filter(|_| w.in_scene()) else { return Vec::new() };
+    let ty = |id: u16| w.item_info.as_ref().and_then(|i| i.item(id)).map_or(0, |it| it.item_type);
+    let installed = w.inv.slots.iter().any(|(&(c, s), &(id, _))| {
+        matches!(c, 1 | 9) && (1..0x51).contains(&s) && GATED_ITEMS.contains(&id) && (TYPES.contains(&ty(id)) || ty(id) == MANNEQUIN) && w.inv.ext.get(&(c, s)).is_some_and(|x| x[1] & 0x40 != 0)
+    });
+    if super::myroom::has_floors(&r) && installed {
+        return Vec::new();
+    }
+    w.entities.iter().filter(|(id, e)| *id >> 24 == 1 && e.model == GATED_MODEL).map(|(id, _)| *id).collect()
+}
+
 /// DAT_1037d7b4[floor]: the grid origin (column, level, row).
 pub const ORIGIN: [[f32; 3]; 2] = [[10.0, 0.0, 12.0], [10.0, 0.0, 13.0]];
 

@@ -2155,6 +2155,7 @@ pub fn hidden(w: &World) -> HashSet<u32> {
     if hide_me || w.layout.is_some() || super::garden::hides_player(w) {
         out.insert(me);
     }
+    out.extend(super::furniture::gated_hidden(w));
     // FUN_100a17f0(1): the moogle gone over to the Mog House (own model hidden, +0x120 bit 15).
     if w.moogle_hidden
         && let Some(id) = super::moogle::moogle_actor(w)
