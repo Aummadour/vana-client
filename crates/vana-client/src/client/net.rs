@@ -1004,6 +1004,7 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
     let mut last_send = Instant::now();
     let mut last_login = Instant::now();
     let mut my_index = 0u16;
+    let mut npc_logged = 0u32;
     loop {
         if let Some(packets) = map.recv(Duration::from_millis(20))? {
             answered = true;
@@ -1029,13 +1030,23 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
                         let event = (event_num != 0).then(|| EventStart { target: p.u32(4), index: p.u16(8), zone: event_num, event: event_para, mode: p.u16(0x66), zone2: p.u16(0x40), ..Default::default() });
                         tx.send(NetEvent::ZoneIn { zone: p.u32(48) as u16, pos, dir: p.u8(11), char_id: p.u32(4), index: p.u16(8), name: text(&p, 132, 16), look: look_at(&p, 68), motion: motion_state(&p), game_time: p.u32(0x3C), weather: p.u16(0x68), music: std::array::from_fn(|i| p.u16(0x56 + 2 * i)), event, area: area_line(&p), sub_map: if p.u16(0x60) != scene && myroom.is_none() { p.u16(0x60) } else { 0 }, scene, myroom, room_flag: matches!(p.u32(0x80), 1 | 4 | 5), dead_counter: p.u32(0xA4), play_time: p.u32(0xA0), mog_zone: p.u8(0xaf) & 1 != 0, send_count: p.u16(0xac), ship: ship_data(&p), monstrosity: p.u16(0x7E) != 0 })?;
                     }
+                    // FUN_100fb730: 4 cancels a logout (nothing sent); otherwise 0x00D goes out with the old key, and 2
+                    // (zone change) and 3 (Mog House) reconnect to @8 / @0xC, each kept when 0; the rest end the session.
+                    0x00B if p.u8(4) == 4 => log::info!("map: logout cancelled"),
                     0x00B => {
                         let state = p.u8(4);
-                        // Acknowledge with the old key before leaving (0x00D).
                         map.send(&[build(0x00D, &[0u8; 4])])?;
-                        if state == 2 {
-                            let ip = Ipv4Addr::from(p.u32(8).to_le_bytes());
-                            return Ok(Outcome::Zone(SocketAddr::from((ip, p.u32(12) as u16))));
+                        if matches!(state, 2 | 3) {
+                            let ip = match p.u32(8) {
+                                0 => addr.ip(),
+                                ip => Ipv4Addr::from(ip.to_le_bytes()).into(),
+                            };
+                            let port = match p.u32(12) as u16 {
+                                0 => addr.port(),
+                                port => port,
+                            };
+                            log::info!("map: zone change (0x00B state {state}) to {ip}:{port}");
+                            return Ok(Outcome::Zone(SocketAddr::new(ip, port)));
                         }
                         tx.send(NetEvent::Logout { state: state as u32 })?;
                         return Ok(Outcome::Done);
@@ -1189,7 +1200,14 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
                     0x03A => tx.send(NetEvent::MagicScheduler { ids: (p.u32(4), p.u32(8)), indices: (p.u16(0xc), p.u16(0xe)), file: p.u16(0x10), kind: p.u8(0x12) })?,
                     0x039 => tx.send(NetEvent::MapScheduler { ids: (p.u32(4), p.u32(8)), indices: (p.u16(0x10), p.u16(0x12)), name: p.u32(12).to_le_bytes() })?,
                     0x051 => tx.send(NetEvent::SelfLook(look_at(&p, 4)))?,
-                    0x00E => tx.send(NetEvent::Entity(entity(&p, EntityKind::Npc)))?,
+                    0x00E => {
+                        // The first NPC updates of a session, for comparing servers: index, id, mask, the look @0x30.
+                        if npc_logged < 200 && p.data.len() >= 0x44 {
+                            npc_logged += 1;
+                            log::info!("0x00E index {:#05x} id {:08x} mask {:02x}: look {}", p.u16(8), p.u32(4), p.u8(10), hex::encode(&p.data[0x30..0x44]));
+                        }
+                        tx.send(NetEvent::Entity(entity(&p, EntityKind::Npc)))?
+                    }
                     0x057 => tx.send(NetEvent::Weather(p.u16(8), p.u16(0x0a)))?,
                     // s2c 0x009 (LAB_100fbd40): MesNo @0xa, its parameters as "Para0 %u Para1 %u ..." text in Data @0xd.
                     0x009 => {
