@@ -998,6 +998,9 @@ pub struct Effects {
     pub screen_ops: Vec<(u8, [u8; 4], f32, f32)>,
     /// Camera ops (0x04 / 0x81) of an event's tasks this frame, for the cutscene camera (client/event.rs Screen).
     pub event_cameras: Vec<EventCamera>,
+    /// Ops 0x10 (crossfade ticks) and 0xb0 (camera path 4cc to end) of an event's tasks this frame.
+    pub event_crosses: Vec<f32>,
+    pub event_path_stops: Vec<u32>,
     /// The running task's event: the tasks its op creates take it (tasks.rs run_op).
     spawn_event: bool,
     /// Ops 0x79 / 0x8c / 0xa4 / 0xa5: actor1's battle / idle / run / walk motion set (motion::MotionNames::apply).
@@ -1140,6 +1143,8 @@ impl Effects {
             door_moves: Vec::new(),
             screen_ops: Vec::new(),
             event_cameras: Vec::new(),
+            event_crosses: Vec::new(),
+            event_path_stops: Vec::new(),
             spawn_event: false,
             motion_sets: Vec::new(),
             base_resets: Vec::new(),

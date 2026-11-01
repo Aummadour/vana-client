@@ -101,6 +101,8 @@ struct Sched {
 
 struct Shot {
     file: Arc<SchedFile>,
+    /// Its scheduler's file id (with `tag`): a stop of that scheduler ends it (op 0x52; FUN_10073b20 kills children).
+    file_id: u32,
     /// The scheduler that started it.
     tag: String,
     path: usize,
@@ -142,13 +144,15 @@ pub struct Screen {
     blur: ([f32; 5], [f32; 5], f32, f32),
     blur_starts: u32,
     /// Camera paths an event's effect tasks asked for (fx_camera), started at the next advance.
-    fx_shots: Vec<(Arc<SchedFile>, String, String, f32, [crate::fx::sched::Who; 2])>,
+    fx_shots: Vec<(Arc<SchedFile>, u32, String, String, f32, [crate::fx::sched::Who; 2])>,
+    /// Crossfades (op 0x10) of an event's effect tasks, their lengths, started at the next advance.
+    fx_crosses: Vec<f32>,
 }
 
 
 impl Default for Screen {
     fn default() -> Self {
-        Screen { scheds: Vec::new(), files: HashMap::new(), shot: None, tick: 0.0, fade: ([1.0; 3], [1.0; 3], 0.0, 0.0), cross: None, flash: ([0.0; 4], [0.0; 4], 0.0, 0.0), blur: ([0.5, 0.5, 0.5, 0.0, 1.0], [0.5, 0.5, 0.5, 0.0, 1.0], 0.0, 0.0), blur_starts: 0, fx_shots: Vec::new() }
+        Screen { scheds: Vec::new(), files: HashMap::new(), shot: None, tick: 0.0, fade: ([1.0; 3], [1.0; 3], 0.0, 0.0), cross: None, flash: ([0.0; 4], [0.0; 4], 0.0, 0.0), blur: ([0.5, 0.5, 0.5, 0.0, 1.0], [0.5, 0.5, 0.5, 0.0, 1.0], 0.0, 0.0), blur_starts: 0, fx_shots: Vec::new(), fx_crosses: Vec::new() }
     }
 }
 
@@ -193,8 +197,32 @@ impl Screen {
     pub fn fx_camera(&mut self, index: &DatIndex, c: crate::fx::EventCamera) {
         let four = |v: [u8; 4]| String::from_utf8_lossy(&v).trim_end_matches('\0').to_string();
         if let Some(f) = self.file(index, c.file) {
-            self.fx_shots.push((f, four(c.tag), four(c.path.to_le_bytes()), c.ticks.max(1.0), c.who));
+            self.fx_shots.push((f, c.file, four(c.tag), four(c.path.to_le_bytes()), c.ticks.max(1.0), c.who));
         }
+    }
+
+    /// Op 0x10 in an event's effect task (FUN_1005f020 for any task): a crossfade over `ticks`.
+    pub fn fx_cross(&mut self, ticks: f32) {
+        self.fx_crosses.push(ticks.max(1.0));
+    }
+
+    /// The camera task ends now (its scheduler stopped, op 0x52; or op 0xb0 named its path): the camera holds there.
+    fn end_shot(&mut self, matches: impl Fn(&Shot) -> bool) {
+        let now = self.tick;
+        if let Some(s) = self.shot.as_mut().filter(|s| matches(s)) {
+            s.ticks = (now - s.start).max(0.0);
+        }
+    }
+
+    /// Op 0xb0 (FUN_1003bd70): the camera task playing path `name` ends.
+    pub fn stop_path(&mut self, name: &str) {
+        let paths = |s: &Shot| s.file.title.as_ref().and_then(|t| t.paths.get(s.path)).map(|p| p.name.clone());
+        self.end_shot(|s| paths(s).is_some_and(|p| p == name));
+    }
+
+    /// The camera task is alive (FUN_1003c3e0 ends it with its time).
+    fn shot_live(&self) -> bool {
+        self.shot.as_ref().is_some_and(|s| self.tick - s.start < s.ticks)
     }
 
     fn lerp<const N: usize>(&self, (from, to, start, len): ([f32; N], [f32; N], f32, f32)) -> [f32; N] {
@@ -228,6 +256,7 @@ impl Screen {
         let mut shot = None;
         let mut fade = None;
         let mut cross = None;
+        let mut stops: Vec<String> = Vec::new();
         for s in &mut self.scheds {
             while s.cursor < s.ops.len() && now >= s.next_at {
                 let op = &s.ops[s.cursor];
@@ -245,6 +274,8 @@ impl Screen {
                         fade = Some((m, at, (op.ticks as f32 * s.speed - 1.0).max(0.0)));
                     }
                     0x10 => cross = Some(Cross { start: at, len: (op.ticks as f32 * s.speed).max(1.0), camera: current, captured: false }),
+                    // Case 0xb0 (FUN_1003bd70): the camera task playing path u32 @8 ends.
+                    0xb0 if op.data.len() >= 12 => stops.push(String::from_utf8_lossy(&op.data[8..12]).trim_end_matches('\0').to_string()),
                     _ => {}
                 }
                 s.next_at = at + op.wait as f32 * s.speed;
@@ -257,15 +288,21 @@ impl Screen {
             if let Some(p) = f.title.as_ref().and_then(|t| t.paths.get(path)) {
                 log::info!("event camera {tag}: path {} flags {:#x}, {} keys, {ticks} ticks{}", p.name, p.flags, p.keys.len(), if p.flags & crate::dat::title::FROM_CURRENT != 0 { ", from the current camera" } else { "" });
             }
-            self.shot = Some(Shot { file: f, tag, path, start: at, ticks, from: current.map(key_of), follow, who, frame: None });
+            self.shot = Some(Shot { file: f, file_id: file, tag, path, start: at, ticks, from: current.map(key_of), follow, who, frame: None });
+        }
+        for name in stops {
+            self.stop_path(&name);
+        }
+        for len in std::mem::take(&mut self.fx_crosses) {
+            cross = Some(Cross { start: now, len, camera: current, captured: false });
         }
         // The effect tasks' paths after the runner's (they ran this frame).
-        for (f, tag, name, ticks, who) in std::mem::take(&mut self.fx_shots) {
+        for (f, file_id, tag, name, ticks, who) in std::mem::take(&mut self.fx_shots) {
             let Some(path) = f.title.as_ref().and_then(|t| t.paths.iter().position(|p| p.name == name)) else { continue };
             if let Some(p) = f.title.as_ref().and_then(|t| t.paths.get(path)) {
                 log::info!("event camera {tag} (effect task): path {} flags {:#x}, {} keys, {ticks} ticks", p.name, p.flags, p.keys.len());
             }
-            self.shot = Some(Shot { file: f, tag, path, start: now, ticks, from: current.map(key_of), follow, who, frame: None });
+            self.shot = Some(Shot { file: f, file_id, tag, path, start: now, ticks, from: current.map(key_of), follow, who, frame: None });
         }
         if let Some((to, at, ticks)) = fade {
             self.fade = (self.multiply(), to, at, ticks);
@@ -721,6 +758,7 @@ impl Host for LiveHost<'_> {
                 let who = |a: u32| if a == 0 { crate::fx::sched::Who::None } else { crate::fx::sched::Who::Actor(self.wid(a)) };
                 self.w.effects.stop_event_scheduler(file, u32::from_le_bytes(crate::dat::generator::fourcc(&tag)), who(actor), who(target));
                 self.w.screen.scheds.retain(|x| !(x.file == file && x.tag == tag && x.actor == actor && x.target == target));
+                self.w.screen.end_shot(|s| s.file_id == file && s.tag == tag);
             }
             // 0x46 sub 0 kills the camera tasks (FUN_1003c780) and puts the camera behind the player.
             // Op 0x71: the window takes the text engine from the chat line (FUN_101c68a0).
@@ -730,6 +768,7 @@ impl Host for LiveHost<'_> {
             }
             Effect::Camera { flag, offset } => {
                 self.st.camera_flag = flag;
+                self.w.cam_free = flag;
                 if flag {
                     self.w.screen.shot = None;
                     let dir = self.w.net.me.lock().map(|m| m.dir).unwrap_or(0);
@@ -1472,6 +1511,10 @@ impl Host for LiveHost<'_> {
         self.w.entities.get(&id).map(|e| super::monstrosity::name(e).to_string()).filter(|n| !n.is_empty()).or_else(|| self.w.npc_names.get(&id).cloned()).unwrap_or_default()
     }
 
+    fn camera_free(&self) -> bool {
+        self.w.cam_free
+    }
+
     fn player_word(&self) -> u32 {
         self.w.stats.as_ref().map_or(0, |s| s.main.0 as u32 | (s.main.1 as u32) << 8)
     }
@@ -1684,6 +1727,7 @@ fn begin(w: &mut World, mut wt: Box<Waiting>, index: &DatIndex) {
     let dialog = Dialog::load(index, fz).map_err(|e| log::warn!("dialogue of zone {fz}: {e:#}")).ok();
     let start = Start { zone: s.zone, event: s.event, target: s.target, params: s.params, strings: s.strings.clone() };
     let mut st = State::new(s);
+    st.camera_flag = w.cam_free;
     // FUN_100bb300 -> FUN_1008cda0: a server-hidden actor (+0x120 bits 14 / 15) starts the event hidden; the
     // model colour goes back to 0x80808080 unless Mode & 0x200 (FUN_10095c00).
     for b in blocks.iter().filter(|b| bound_block(b, st.start.event)) {
@@ -2167,8 +2211,10 @@ pub fn camera_frame(screen: &mut Screen, effects: &crate::fx::Effects, actors: &
 /// its frame is known.
 pub fn camera(w: &World) -> Option<Camera> {
     let l = w.event.as_ref()?;
-    if l.st.camera_flag {
-        return None;
+    // A live camera task shows (FUN_10014820 takes its requests); without one the camera holds where it was while
+    // op 0x46's mode is off (FUN_1001e030 / FUN_1001fd70 return), else the free camera runs.
+    if !w.screen.shot_live() {
+        return if l.st.camera_flag { None } else { w.last_camera };
     }
     let s = w.screen.shot.as_ref()?;
     let path = s.file.title.as_ref()?.paths.get(s.path).filter(|p| !p.keys.is_empty())?;
@@ -2985,6 +3031,38 @@ mod tests {
         assert!((b.zoom - 0.99).abs() < 1e-6 && (b.a - 60.0 / 255.0).abs() < 1e-3, "{b:?}");
         sc.fx_op(0x0e, [0x80, 0x80, 0x80, 0], 1.0, 0.0);
         assert!(sc.blur().is_none());
+    }
+
+    /// A camera task lives for its ticks; op 0xb0 naming its path, or a stop of its scheduler, ends it there.
+    #[test]
+    fn shot_lifetime() {
+        let Ok(index) = crate::dat::DatIndex::open(&crate::config::Config::load().ffxi_dir()) else { return };
+        if index.read(30777).is_err() {
+            return;
+        }
+        let who = [crate::fx::sched::Who::None; 2];
+        let cam = |path: &str| crate::fx::EventCamera { file: 30777, tag: *b"x000", path: u32::from_le_bytes(crate::dat::generator::fourcc(path)), ticks: 50.0, who };
+        let mut sc = Screen::default();
+        sc.fx_camera(&index, cam("d000"));
+        sc.advance(None, None);
+        assert!(sc.shot_live());
+        sc.tick = 49.0;
+        assert!(sc.shot_live());
+        sc.tick = 50.0;
+        assert!(!sc.shot_live(), "ends with its time");
+        sc.fx_camera(&index, cam("d000"));
+        sc.advance(None, None);
+        sc.tick = 60.0;
+        sc.stop_path("d001");
+        assert!(sc.shot_live(), "another path's stop");
+        sc.stop_path("d000");
+        assert!(!sc.shot_live(), "op 0xb0");
+        sc.fx_camera(&index, cam("d000"));
+        sc.advance(None, None);
+        sc.end_shot(|s| s.file_id == 30777 && s.tag == "x001");
+        assert!(sc.shot_live(), "another scheduler's stop");
+        sc.end_shot(|s| s.file_id == 30777 && s.tag == "x000");
+        assert!(!sc.shot_live(), "its scheduler's stop");
     }
 
     /// Case 0xf starts from the colour drawn now (+0x320): a fade begun mid-fade goes on from there, and the same op

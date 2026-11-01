@@ -150,6 +150,10 @@ pub trait Host {
     fn player_word(&self) -> u32 {
         0
     }
+    /// DAT_10346088, op 0x46's camera mode: free (1) unless an event set 0 (FUN_10082b20 / be0); it outlives events.
+    fn camera_free(&self) -> bool {
+        true
+    }
     /// Values 0x7f07 / 0x7f87: an actor's race byte (+0xef); 0 for non-PC looks.
     fn race(&self, _actor: u32) -> u8 {
         0
@@ -382,7 +386,7 @@ impl Runtime {
             end_phase: 0,
             cancelled: false,
             done: false,
-            camera: false,
+            camera: host.camera_free(),
             cam_seed: None,
             last_speaker: None,
             names: None,

@@ -1454,6 +1454,20 @@ impl Effects {
             }
             // FUN_10057000 cases 0x0f / 0x72 / 0x0e: the scene multiply, the additive screen flash and the feedback
             // blur, a global task each (a new one ends the last at its target).
+            // Cases 0x10 (crossfade, FUN_1005f020) and 0xb0 (FUN_1003bd70: the camera task playing path u32 @8 ends) in an
+            // event's task; the event's own scheduler's are the runner's.
+            0x10 => {
+                if t.event && !t.event_root {
+                    self.event_crosses.push(op.dur.max(1) as f32 * t.speed);
+                }
+                Flow::Next
+            }
+            0xb0 => {
+                if t.event && !t.event_root {
+                    self.event_path_stops.push(op.u32_at(8));
+                }
+                Flow::Next
+            }
             // An event's own scheduler's fade is client/event.rs's runner's (played twice, the second started at the
             // first's target: a cut).
             0x0f if t.event_root => Flow::Next,

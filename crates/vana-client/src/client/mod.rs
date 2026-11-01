@@ -5922,6 +5922,8 @@ struct World {
     /// Scheduler tasks, cutscene camera and screen fades (they outlive the event), and the camera drawn last.
     screen: event::Screen,
     last_camera: Option<Camera>,
+    /// DAT_10346088 (event op 0x46): the free camera runs unless an event turned it off; reset at zone-in.
+    cam_free: bool,
     /// After an event: ticks to the next 0x016 about ourselves, until a full 0x00D comes (FUN_100ac9c0 +0x1f8).
     /// Movement is not held for it: retail players never stand frozen after talking to an NPC.
     self_lock: Option<f32>,
@@ -7742,6 +7744,7 @@ impl App {
                             event_pending: None,
                             screen: Default::default(),
                             last_camera: None,
+                            cam_free: true,
                             self_lock: None,
                             map_open: None,
                             map_cmds: Vec::new(),
@@ -9664,6 +9667,12 @@ impl App {
         }
         for (code, c, zoom, ticks) in std::mem::take(&mut world.effects.screen_ops) {
             world.screen.fx_op(code, c, zoom, ticks);
+        }
+        for ticks in std::mem::take(&mut world.effects.event_crosses) {
+            world.screen.fx_cross(ticks);
+        }
+        for name in std::mem::take(&mut world.effects.event_path_stops) {
+            world.screen.stop_path(String::from_utf8_lossy(&name.to_le_bytes()).trim_end_matches('\0'));
         }
         for c in std::mem::take(&mut world.effects.event_cameras) {
             if let Some(index) = world.index.clone() {

@@ -13034,3 +13034,22 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   -cos r, -sin r sin y). Op 0x46 sub 0 (FUN_10082b20) resets the roll. Ours always used (0, -1, 0): 10,354 of the
   80,194 event camera paths carry a roll (about 4,600 of 1 degree or more, some to 180; CoP's Bahamut c004 -5.5 ->
   -17.6 degrees; 17 title flyover paths). Now title::up_of in the cutscene camera and the flyover.
+
+## Cutscene camera: the mode flag, the task's life, stops, sub-task crossfades (2026-11-01)
+
+- Op 0x46's mode is one global, DAT_10346088, written only by FUN_10082b20 (1) / FUN_10082be0 (0) from op 0x46, zone
+  entry (FUN_100929e0) and a UI path; an event's start leaves it, so it is normally 1 (free). Ours started each event
+  at 0: sub 2 answered 0, and the 101 scripts of the form `46 02 L; if L == 0 -> 46 00` (battlefield entries) put
+  the camera behind the player. Now World::cam_free (true at zone-in), the VM's sub 2 reads it, sub 0 / 1 / 3 write
+  it.
+- The camera task ends with its time (FUN_1003c3e0); with none the camera holds while the mode is 0 (FUN_1001e030 /
+  FUN_1001fd70 return) and the free camera runs at 1. A live task shows either way (FUN_10014820 takes its requests,
+  *(inf: the frame order)*). Ours showed a shot only at 0 and re-framed ended framed shots on moving actors; now a live
+  shot shows, and without one the camera holds (World::last_camera) or runs free.
+- The camera task is a child of its scheduler (FUN_10073820) and dies with it (FUN_10073b20 -> FUN_100738e0): event
+  op 0x52's stop (FUN_10061ed0 -> FUN_10055f40) ends the shot of that scheduler (Shot::file_id / tag). Scheduler op
+  0xb0 (FUN_1003bd70) ends the task playing the named path (525 uses; 36 cut a path early, 46 stop another
+  scheduler's). Both freeze the camera where it was.
+- Op 0x10 (crossfade) in an event's sub-task (19 uses, e.g. 57106 gst0..) went to the default arm; it now reaches the
+  screen as the root's does (Effects::event_crosses -> Screen::fx_cross), as does op 0xb0 (event_path_stops). Test
+  shot_lifetime.
