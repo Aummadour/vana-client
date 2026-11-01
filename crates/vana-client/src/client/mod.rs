@@ -12151,6 +12151,13 @@ impl App {
                 let id = world.entities.iter().filter(|(_, e)| e.name == name).min_by(|a, b| (a.1.pos - pos).length().total_cmp(&(b.1.pos - pos).length())).map(|(id, _)| *id);
                 target::set(world, id);
             }
+            // Test drives only: act:autorun toggles autorun toward the camera's view (script keys never reach the key
+            // functions).
+            if let (Some("autorun"), Phase::World(world)) = (action.as_deref(), &mut self.phase) {
+                let d = world.cam.look - world.cam.eye;
+                world.autorun = !world.autorun;
+                world.autorun_dir = Vec3::new(d.x, 0.0, d.z).normalize_or_zero();
+            }
             // act:fxdump logs every live effect element and the player's position.
             if let (Some("fxdump"), Phase::World(world)) = (action.as_deref(), &self.phase) {
                 fx_dump(world);

@@ -12665,3 +12665,24 @@ DISPLAY13 at 100%; RX 6800 XT eGPU), MinGW cross builds, release and debug.
   hold at frame `frames` (the last key); motion lengths (frames / (speed x 0.5)) are one frame shorter, as retail's.
   Test motion::loop_tests::run_cycle_has_no_hitch (Mithra run0: every 60 Hz step moves the pose; it fails on the
   old wrap with "held pose at frame 12").
+
+## Casting right after stopping: the position goes first (ours, not retail) (2026-10-31)
+
+- User report: stopping and at once casting (Utsusemi), shooting or using an item is interrupted over and over,
+  as though the server saw movement after the action started. Retail has the same behaviour (the user: "a bug we
+  copied from retail").
+- The client sends one datagram every 400 ms (retail's cadence), the queued commands first and the tick's 0x015
+  last. LSB (magic_state.cpp, range_state.cpp, item_state.cpp) starts an action at the position it last heard
+  (m_startPos = loc.p) and interrupts on any later 0x015 more than 0.3 away (items: changed at 0.1 rounding), and a
+  cast at once when the last two 0x015 were more than 0.3 apart (m_startedMoving from m_lastMoveDistance, computed
+  on every 0x015, moved or not). LSB's parse (map_networking.cpp) runs every sub-packet of a datagram whose sync is
+  that datagram's, in order, and only then moves client_packet_id. So [cast, 0x015] started the cast up to 400 ms
+  back on the run, then moved us: interrupted.
+- Ours: when the datagram holds a 0x01A magic (category 3) or ranged attack (0x10), or a 0x037 item use, and we are
+  not moving, the tick's 0x015 goes first and twice (client/net.rs add_position): the first moves the server to
+  where we stopped, the second leaves m_lastMoveDistance 0, then the action starts there. Moving, the 0x015 goes
+  last as before, so casting on the run is still interrupted.
+- Live (Lnxcsfix as WHM 30, run 1.2 s, stop, cast at once; `act:autorun`, a test-only script step): old order 6 of 6
+  Cures interrupted, new 6 of 6 cast; Potions 4 of 4 "fails to activate" against 4 of 4 used; casting while still
+  running interrupted 2 of 2. Ranged attacks not tried live (same path). Test client::net::tests::position_before_
+  interruptible_actions.

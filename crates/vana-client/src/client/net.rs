@@ -768,6 +768,26 @@ pub fn charreq_body(index: u16) -> [u8; 4] {
 }
 
 /// c2s 0x01A body (FUN_10077120, size 0x1c): UniqueNo, ActIndex, ActionID, ActionBuf[4] zeroed.
+/// The tick's 0x015 into the datagram: last, as retail. Ours, not retail: the server starts a cast, a ranged attack or
+/// an item where it last heard we were, and stops it on any move after that or when the last two positions were apart
+/// (LSB HasMoved, m_lastMoveDistance). Standing still, the position goes before such an action, twice, so it starts
+/// where we stopped.
+fn add_position(queue: &mut Vec<Vec<u8>>, pos: Vec<u8>, moving: bool) {
+    if !moving && queue.iter().any(|p| stopped_by_moving(p)) {
+        queue.splice(0..0, [pos.clone(), pos]);
+    } else {
+        queue.push(pos);
+    }
+}
+
+/// A built sub-packet the server interrupts on movement (LSB HasMoved): 0x01A magic (3) or ranged attack (0x10),
+/// 0x037 item use.
+fn stopped_by_moving(p: &[u8]) -> bool {
+    let id = u16::from_le_bytes([p[0], p[1]]) & 0x1ff;
+    let category = p.get(10..12).map_or(0, |c| u16::from_le_bytes([c[0], c[1]]));
+    (id == 0x01A && matches!(category, 0x03 | 0x10)) || id == 0x037
+}
+
 pub fn action_body(target: u32, index: u16, action: u16) -> Vec<u8> {
     let mut body = vec![0u8; 24];
     body[0..4].copy_from_slice(&target.to_le_bytes());
@@ -1464,7 +1484,7 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
                 body[16] = s.dir;
                 // FUN_10096c00: @0x16 the current target's ActIndex (FUN_10152f20).
                 body[18..20].copy_from_slice(&s.target.to_le_bytes());
-                queue.push(build(0x015, &body));
+                add_position(&mut queue, build(0x015, &body), s.moving);
             }
             map.send(&queue)?;
             stats.sent.fetch_add(map.bytes_out - tx_seen, Relaxed);
@@ -1478,6 +1498,27 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Standing still, a cast or a ranged attack goes after the position, sent twice; moving, or with only other
+    /// packets, the position goes last as retail's.
+    #[test]
+    fn position_before_interruptible_actions() {
+        let pos = build(0x015, &[0u8; 28]);
+        let ids = |q: &[Vec<u8>]| q.iter().map(|p| u16::from_le_bytes([p[0], p[1]]) & 0x1ff).collect::<Vec<_>>();
+        let cast = build(0x01A, &action_body(1, 2, 0x03));
+        let mut q = vec![cast.clone()];
+        add_position(&mut q, pos.clone(), false);
+        assert_eq!(ids(&q), [0x015, 0x015, 0x01A]);
+        let mut q = vec![build(0x01A, &action_body(1, 2, 0x10))];
+        add_position(&mut q, pos.clone(), false);
+        assert_eq!(ids(&q), [0x015, 0x015, 0x01A]);
+        let mut q = vec![cast];
+        add_position(&mut q, pos.clone(), true);
+        assert_eq!(ids(&q), [0x01A, 0x015]);
+        let mut q = vec![build(0x01A, &action_body(1, 2, 0x02))];
+        add_position(&mut q, pos, false);
+        assert_eq!(ids(&q), [0x01A, 0x015]);
+    }
 
     /// s2c 0x009 Data: LSB's /random ("string2 Lnxtest string3 523") and its Para keys.
     #[test]
