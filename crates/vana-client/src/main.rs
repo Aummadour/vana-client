@@ -905,16 +905,18 @@ fn zone_in(cfg: &config::Config, m: &net::lobby::MapLogin, account: &str, stay: 
     let mut map = MapSession::connect(addr, &m.key, codec)?;
     // The zone server learns of us a moment after the lobby replies, so retry like the client does.
     let mut attempt = 1;
-    map.send_login(m.char_id, &m.name, account, attempt)?;
+    map.send_login(m.char_id, &m.name, account, 0)?;
     let first = loop {
-        if let Some(packets) = map.recv(Duration::from_millis(500))? {
+        if let Some(packets) = map.recv(Duration::from_millis(400))?
+            && packets.iter().any(|p| p.id == 0x00A)
+        {
             break packets;
         }
         attempt += 1;
-        if attempt > 20 {
+        if attempt > 150 {
             anyhow::bail!("the zone server did not answer the login");
         }
-        map.send_login(m.char_id, &m.name, account, attempt)?;
+        map.send_login(m.char_id, &m.name, account, 2)?;
     };
     println!("zone server answered after {attempt} attempt(s)");
     let mut backlog = Some(first);
@@ -935,6 +937,7 @@ fn zone_in(cfg: &config::Config, m: &net::lobby::MapLogin, account: &str, stay: 
                 *counts.entry(p.id).or_default() += 1;
                 match p.id {
                     0x00A => {
+                        map.zoned_in(&p);
                         println!(
                             "0x00A zone-in: {} zone {} pos ({:.2}, {:.2}, {:.2}) dir {} index {}",
                             p.str(132, 16), p.u32(48), p.f32(12), p.f32(16), p.f32(20), p.u8(11) as i8, p.u16(8)

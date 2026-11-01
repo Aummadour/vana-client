@@ -995,8 +995,9 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
     use std::sync::atomic::Ordering::Relaxed;
     let mut map = MapSession::connect(addr, &login.key, codec.clone())?;
     let (mut rx_seen, mut tx_seen) = (0u64, 0u64);
-    let mut attempt = 1u16;
-    map.send_login(login.char_id, &login.name, account, attempt)?;
+    // FFXiMain sends the plain login every 400 ms until the zone-in (s2c 0x00A) is handled, not just any datagram.
+    let mut tries = 1u32;
+    map.send_login(login.char_id, &login.name, account, 0)?;
     let mut answered = false;
     let mut zoned = false;
     let mut queue: Vec<Vec<u8>> = Vec::new();
@@ -1011,7 +1012,10 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
             stats.last_rx_ms.store(stats.now_ms(), Relaxed);
             for p in packets {
                 match p.id {
+                    // A zone-in once in the session is ignored (FUN_100fa5c0: error 0x10 outside state 2).
+                    0x00A if zoned => log::info!("map: a repeated zone-in ignored"),
                     0x00A => {
+                        map.zoned_in(&p);
                         let pos = [p.f32(12), p.f32(16), p.f32(20)];
                         let (scene, myroom) = scene_of(&p);
                         *me.lock().unwrap() = SelfState { pos, dir: p.u8(11), moving: false, target: 0 };
@@ -1381,12 +1385,12 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
                 }
             }
         }
-        if !answered && last_login.elapsed() > Duration::from_millis(500) {
-            attempt += 1;
-            if attempt > 20 {
+        if !zoned && last_login.elapsed() >= Duration::from_millis(400) {
+            tries += 1;
+            if tries > 150 {
                 anyhow::bail!("the zone server did not answer the login");
             }
-            map.send_login(login.char_id, &login.name, account, attempt)?;
+            map.send_login(login.char_id, &login.name, account, if answered { 3 } else { 2 })?;
             last_login = Instant::now();
         }
         while let Ok(cmd) = rx.try_recv() {
@@ -1473,7 +1477,7 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
             }
         }
         // Retail sends one datagram every 400 ms (config +0xd0 = 400, net+0x417c), each with a fresh 0x015.
-        if answered && last_send.elapsed() >= Duration::from_millis(400) {
+        if zoned && last_send.elapsed() >= Duration::from_millis(400) {
             if zoned {
                 let s = *me.lock().unwrap();
                 let mut body = [0u8; 28];

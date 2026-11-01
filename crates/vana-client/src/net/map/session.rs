@@ -76,6 +76,10 @@ pub struct MapSession {
     last_in: Option<u16>,
     /// Datagrams logged so far each way (the first few of a session are logged).
     logged: (u32, u32),
+    /// From the zone-in (s2c 0x00A u32 @0x94 / @0x98): every later datagram's header carries it (FUN_100fa9f0).
+    cert: Option<[u32; 2]>,
+    /// The header clock (DAT_10492e10): seconds and ms at an instant, set by the zone-in and every 30th datagram.
+    clock: Option<(u32, u32, std::time::Instant)>,
 }
 
 const LOG_DATAGRAMS: u32 = 40;
@@ -103,16 +107,34 @@ impl MapSession {
     pub fn connect(server: SocketAddr, key: &[u8; 20], codec: Codec) -> Result<Self> {
         let sock = UdpSocket::bind("0.0.0.0:0")?;
         sock.connect(server)?;
-        Ok(Self { sock, cipher: Blowfish::for_session_key(key), key: super::blowfish::session_key(key), codec, seq: 0, server_seq: 0, bytes_out: 0, bytes_in: 0, unacked: Vec::new(), server_ack: 0, last_in: None, logged: (0, 0) })
+        Ok(Self { sock, cipher: Blowfish::for_session_key(key), key: super::blowfish::session_key(key), codec, seq: 0, server_seq: 0, bytes_out: 0, bytes_in: 0, unacked: Vec::new(), server_ack: 0, last_in: None, logged: (0, 0), cert: None, clock: None })
     }
 
+    /// @0 our sequence, @2 the last server datagram handled, @4 / @8 the clock's ms and seconds; after the zone-in
+    /// @0x0C = 1 and the zone-in's two words @0x10 / @0x14 (FUN_100fa9f0, FUN_100fdbf0).
     fn header(&mut self) -> Vec<u8> {
         self.seq = self.seq.wrapping_add(1);
         let mut h = vec![0u8; HEADER];
         h[..2].copy_from_slice(&self.seq.to_le_bytes());
         h[2..4].copy_from_slice(&self.server_seq.to_le_bytes());
-        h[8..12].copy_from_slice(&now().to_le_bytes());
+        let (secs, ms) = match self.clock {
+            Some((s, m, at)) => {
+                let t = m as u64 + at.elapsed().as_millis() as u64;
+                (s.wrapping_add((t / 1000) as u32), (t % 1000) as u32)
+            }
+            None => (now(), 0),
+        };
+        h[4..8].copy_from_slice(&ms.to_le_bytes());
+        h[8..12].copy_from_slice(&secs.to_le_bytes());
         h
+    }
+
+    /// The zone-in (s2c 0x00A, LAB_100facf0): its two words for every later header, its clock (@0x38 seconds, @0x34
+    /// ms, FUN_100dc150).
+    pub fn zoned_in(&mut self, p: &SubPacket) {
+        self.cert = Some([p.u32(0x94), p.u32(0x98)]);
+        self.clock = Some((p.u32(0x38), p.u32(0x34), std::time::Instant::now()));
+        log::info!("map: zone-in, header words {:08x} {:08x}", p.u32(0x94), p.u32(0x98));
     }
 
     fn stamp(&self, packets: &[Vec<u8>]) -> Vec<u8> {
@@ -125,7 +147,8 @@ impl MapSession {
         body
     }
 
-    /// The opening 0x00A goes out unencrypted and uncompressed; `attempt` counts retries.
+    /// The opening 0x00A goes out unencrypted and uncompressed; `attempt` @6 is DAT_104df920: 0 at first, then 2, or 3
+    /// once a datagram was read (FUN_100fa940).
     pub fn send_login(&mut self, char_id: u32, char_name: &str, account: &str, attempt: u16) -> Result<()> {
         let mut body = vec![0u8; 88];
         body[2..4].copy_from_slice(&attempt.to_le_bytes());
@@ -180,6 +203,11 @@ impl MapSession {
                 break;
             }
             raw.extend_from_slice(p);
+        }
+        if let Some([a, b]) = self.cert {
+            dgram[0x0C] = 1;
+            dgram[0x10..0x14].copy_from_slice(&a.to_le_bytes());
+            dgram[0x14..0x18].copy_from_slice(&b.to_le_bytes());
         }
         if self.logged.1 < LOG_DATAGRAMS {
             self.logged.1 += 1;
@@ -251,6 +279,11 @@ impl MapSession {
         self.server_seq = seq;
         self.server_ack = u16::from_le_bytes([dgram[2], dgram[3]]);
         self.last_in = Some(seq);
+        // Every 30th datagram re-syncs the clock to the server's header (FUN_100fbd10; ours without the drift limit).
+        if seq % 30 == 0 && self.clock.is_some() {
+            let at = |o: usize| u32::from_le_bytes(dgram[o..o + 4].try_into().unwrap());
+            self.clock = Some((at(8), at(4), std::time::Instant::now()));
+        }
         Ok(Some(out))
     }
 }
