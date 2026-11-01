@@ -1,5 +1,7 @@
 <p align="center"><img src="assets/vana-client.png" alt="vana-client icon" width="160"></p>
 
+<p align="center"><a href="https://ko-fi.com/K3K51TO6S1"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support me on Ko-fi"></a></p>
+
 # vana-client
 
 A native client for FINAL FANTASY XI, written in Rust, for [LandSandBoat](https://github.com/LandSandBoat/server)
