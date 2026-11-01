@@ -5873,7 +5873,7 @@ Spec `~/ffxi/lab/research/model_gens_spec.md`.
 ## The Mog House door and the visibility cull (2026-10-24)
 
 - The client-made "Door: Back to Town" (entity +0x12c bit 17, set only by FUN_101d2cc0; vtable +0x148) is never culled
-  (tabcull spec step 6). Ours had made World::visible a candidate rule (5596cc4) but never put the door in it: it has
+  (tabcull spec step 6). Ours had made World::visible a candidate rule (3cef4a5) but never put the door in it: it has
   no model and door 0, so Tab and the mouse skipped it and nobody could leave the Mog House. Now always visible, and
   the mouse pick gives it the doors' 0.5-tall box (FUN_100ad320; it is an XiDoorActor, kind 3). Confirmed by the user.
 - Test tool: `act:goto:X,Z` adds a walk waypoint (as --goto) from a script.
@@ -11472,7 +11472,7 @@ Regime (config `regime`, its drawer `regime_out`). The state comes from packets 
 - Crawlers' Nest (zone 197, file 297) drew its cave walls and floor untextured (the user's report): vana-upscale's
   ROM/0/76.DAT held "model dav_wf" as an 80-byte stub (header 2048 x 4096, no pixels). A 4x DXT3 of 512 x 1024 is 8 MB
   plus the header: its 19-bit size field (16-byte units) wrapped to 6 units. tex-pack halves such images since
-  2931631, but files built before that were kept by its resume. The merge took the stub over the stock / AshenbubsHD
+  73b8575, but files built before that were kept by its resume. The merge took the stub over the stock / AshenbubsHD
   image, parse_img refused it, and every model on that texture lost it (92 of 170 models textured instead of 158).
 - A scan of the whole pack (~/ffxi/lab/scratch/crawl/scan_pack.py: IMG payloads under 57 + w x h / 2) found 4: ROM/0/100.DAT,
   ROM/0/76.DAT and ROM5/0/27.DAT (dav_wf), ROM4/0/20.DAT (riz_wf01). Rebuilt with tex-pack (the four removed, halved
@@ -12379,7 +12379,7 @@ since "Ship voyages: the moving world" listed them as not done.
   chat's own layout reads (its lines' floor, the full log's bottom, its rect while gone). A held panel folds into its
   bottom edge as a free one does (Show.fold), and a resizable one keeps its grip, on the bottom corner away from the
   hold (mirrored on the left; a resize there moves the free side only).
-- Fixed on the way (since the chat's docking, 58ac44f): a bottom-placed panel being dragged saved its bottom as the drawn
+- Fixed on the way (since the chat's docking, 27ee5ac): a bottom-placed panel being dragged saved its bottom as the drawn
   rect's, then stood that bottom minus its placed height; a drawn rect a pixel taller crept it down every frame until
   the screen's edge. It is now its top plus the placed height.
 - Live (Lnxcsfix, 2026-10-30): the chat dragged sideways stays level (top 1297.7 px through the drag); held on the
@@ -12402,7 +12402,7 @@ since "Ship voyages: the moving world" listed them as not done.
 
 ## Modern UI: flyouts anywhere taken out again; edge windows float; the skillchain helper reworked (2026-10-30)
 - User: "I hate the new interface. Put it back the way it was" (making any window a flyout and joining windows'
-  frames, "Modern UI: flyouts anywhere" and its two follow-ups). The modern UI files are back as they were at 456ddaa;
+  frames, "Modern UI: flyouts anywhere" and its two follow-ups). The modern UI files are back as they were at e6aa722;
   that code stays at tag `modern-ui-flyouts-anywhere`. Kept from the same request, as the user quoted only from its
   third point: edge windows (Timers, the map, Wide Scan, the training regime, the skillchain helper) slide along their
   edge with no ghost while within 64 pt of it, pulled further their ghost follows the pointer, and let go away from
