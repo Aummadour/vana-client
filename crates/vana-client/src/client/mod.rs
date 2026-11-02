@@ -358,6 +358,8 @@ struct Opts {
     player_bump: bool,
     occlusion: bool,
     menu_reach: bool,
+    /// The scenery drawn as lines (a mod's engine switch).
+    wireframe: bool,
 }
 
 impl Default for Opts {
@@ -377,6 +379,7 @@ impl Default for Opts {
             player_bump: true,
             occlusion: true,
             menu_reach: true,
+            wireframe: false,
         }
     }
 }
@@ -13812,7 +13815,7 @@ impl App {
                 r.set_camera_list(&gfx.gpu, list, far);
                 // Config 0017: bump mapping's lighting (one eased light, vertex fog) or the two-light model; never in 182.
                 r.bump_mode = self.cfg.tool("0017") != 0 && w.zone != Some(182);
-                (r.mod_clear, r.mod_ambient) = (w.opts.clear, w.opts.ambient);
+                (r.mod_clear, r.mod_ambient, r.wireframe) = (w.opts.clear, w.opts.ambient, w.opts.wireframe);
                 // Config 0011: the animated meshes' sway this frame (render/sway.rs).
                 let steps = match self.cfg.tool("0011") {
                     0 => 1,

@@ -50,7 +50,7 @@ Settled for every row:
 | Windower official add-ons | 128 | 128 | 0 | 0 |
 | Windower plugins | 17 | 16 | 1 | 0 |
 | Windower deprecated plugins | 26 | 26 | 0 | 0 |
-| Windower features | 11 | 9 | 1 | 1 |
+| Windower features | 11 | 10 | 0 | 1 |
 | Windower community add-ons | 55 | 54 | 1 | 0 |
 | Windower community capabilities | 13 | 12 | 0 | 1 |
 | Ashita v4 official add-ons | 81 | 79 | 0 | 2 |
@@ -61,9 +61,9 @@ Settled for every row:
 | Ashita v4 community add-ons | 147 | 143 | 1 | 3 |
 | Ashita v3 community add-ons | 22 | 22 | 0 | 0 |
 | Ashita add-ons rated from descriptions | 28 | 28 | 0 | 0 |
-| Windower, all | 250 | 245 | 3 | 2 |
+| Windower, all | 250 | 246 | 2 | 2 |
 | Ashita, all | 365 | 354 | 4 | 7 |
-| **Total** | **615** | **599** | **7** | **9** |
+| **Total** | **615** | **600** | **6** | **9** |
 
 ## Open gaps
 
@@ -74,13 +74,12 @@ Ranked by the rows each one blocks (listed outside parentheses).
 2. **vendor input devices**, 2 rows: G-keys, Stream Deck and other HID devices directly. Blocks Binder, GBinder.
 3. **video capture**, 2 rows: recording the game window. Blocks DashCam, Video capture.
 4. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
-5. **engine settings from Lua**, 1 row: wireframe from Lua. Blocks Render knobs.
-6. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
-7. **native list options**, 1 row: options for native lists (the spell list trimmed; what its shortcut list is was not
+5. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
+6. **native list options**, 1 row: options for native lists (the spell list trimmed; what its shortcut list is was not
    found). Blocks trimspells.
-8. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it). Blocks
+7. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it). Blocks
    fastswap.
-9. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
+8. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
 
 Most wanted non-blocking gaps (rows that list them in parentheses):
 
@@ -316,7 +315,7 @@ Most wanted non-blocking gaps (rows that list them in parentheses):
 | Input commands | `input`, `type`, `paste`, `setkey` down / up, block keyboard / mouse | `commands.run`, `chat.set_line`, `input.send` / `press`, `input.on_key` / `on_mouse` returning true; client.paste | covered | - |
 | Launcher profiles | Resolution, UI scale, super sampling, window mode, sound, bump / mip mapping, gamma, which add-ons load | native Settings screen, Mods page, `FFXI_CONFIG` per instance | covered | - |
 | Pipes and MMF input | Named pipes and memory-mapped key input for external programs | net.listen (a local TCP port for external programs); commands.run; input.press; net.pipe | covered | - |
-| Render knobs | Wireframe, gamma, forced ambient light | native Gamma setting; client.set_option(ambient) | partly | engine settings from Lua: wireframe |
+| Render knobs | Wireframe, gamma, forced ambient light | native Gamma setting; client.set_option(ambient / wireframe) | covered | - |
 | Screenshots | `screenshot` bmp / jpg / png, optionally without overlays | native screenshot key (PNG, interface hidden); client.screenshot | covered | - |
 | showfps | FPS counter | `frame` event `dt` + `hud.text`; F12 overlay | covered | - |
 | Video capture | `video start` / `stop` | none | missing | video capture |

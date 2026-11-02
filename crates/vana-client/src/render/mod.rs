@@ -128,7 +128,7 @@ impl Gpu {
         // BC textures go up compressed when the adapter has them (zone and model DXT1 / DXT3); timestamps between
         // passes give the F12 overlay its GPU times (render/gputime.rs); indirect draws from any instance let the
         // scenery be culled on the GPU (render/cull.rs).
-        let mut wanted = wgpu::Features::TEXTURE_COMPRESSION_BC | wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS | wgpu::Features::INDIRECT_FIRST_INSTANCE;
+        let mut wanted = wgpu::Features::TEXTURE_COMPRESSION_BC | wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS | wgpu::Features::INDIRECT_FIRST_INSTANCE | wgpu::Features::POLYGON_MODE_LINE;
         // FFXI_NO_GPU_TIME / FFXI_NO_CULL: without the timestamps or the culling's indirect draws (driver checks).
         if std::env::var_os("FFXI_NO_GPU_TIME").is_some() {
             wanted.remove(wgpu::Features::TIMESTAMP_QUERY | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS);
@@ -343,6 +343,9 @@ pub struct ZoneRenderer {
     pub light_keys: Vec<u32>,
     scenery: [[wgpu::RenderPipeline; 3]; 4],
     scenery_bump: [wgpu::RenderPipeline; 3],
+    /// The scenery as lines by cull, where the device draws lines (a mod's wireframe switch).
+    scenery_wire: Option<[wgpu::RenderPipeline; 3]>,
+    pub wireframe: bool,
     actor_pipeline: wgpu::RenderPipeline,
     sky_pipeline: wgpu::RenderPipeline,
     line_pipeline: wgpu::RenderPipeline,
@@ -759,6 +762,11 @@ fn shine_wrap() -> f32 {
 }
 
 impl ZoneRenderer {
+    /// The wireframe pipeline for a cull while a mod has it on.
+    fn wire(&self, c: usize) -> Option<&wgpu::RenderPipeline> {
+        self.scenery_wire.as_ref().filter(|_| self.wireframe).map(|w| &w[c])
+    }
+
     /// A skinned actor's shine group: the shared uniform slots and its own vertices.
     fn shine_group<'a>(&self, gpu: &Gpu, skin: &'a Skinned) -> &'a wgpu::BindGroup {
         skin.shine.get_or_init(|| {
@@ -815,6 +823,7 @@ pub struct ZonePipes {
     /// Scenery by Draw::mode (opaque, cut out, blend, blend + cut out) and cull (none, back, front).
     scenery: [[wgpu::RenderPipeline; 3]; 4],
     scenery_bump: [wgpu::RenderPipeline; 3],
+    scenery_wire: Option<[wgpu::RenderPipeline; 3]>,
     actor_pipeline: wgpu::RenderPipeline,
     sky_pipeline: wgpu::RenderPipeline,
     skin_pipeline: wgpu::RenderPipeline,
@@ -982,11 +991,11 @@ impl ZonePipes {
         // Scenery: front faces clockwise as D3D's; normal placements cull CCW (back), mirrored ones CW (front).
         // Bit-31 models: SRCALPHA / INVSRCALPHA, depth tested (LESSEQUAL) but not written, ZBIAS 8 *(inf: as a constant
         // depth bias of -8)*.
-        let make_scenery = |fragment: &str, blend: bool, cull: Option<wgpu::Face>| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let make_scenery = |fragment: &str, blend: bool, cull: Option<wgpu::Face>, wire: bool| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(fragment),
             layout: Some(&layout),
             vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_main"), compilation_options: Default::default(), buffers: &vertex_layouts },
-            primitive: wgpu::PrimitiveState { front_face: wgpu::FrontFace::Cw, cull_mode: cull, ..Default::default() },
+            primitive: wgpu::PrimitiveState { front_face: wgpu::FrontFace::Cw, cull_mode: cull, polygon_mode: if wire { wgpu::PolygonMode::Line } else { wgpu::PolygonMode::Fill }, ..Default::default() },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: DEPTH_FORMAT,
                 depth_write_enabled: Some(!blend),
@@ -1005,7 +1014,8 @@ impl ZonePipes {
             cache: None,
         });
         let culls = [None, Some(wgpu::Face::Back), Some(wgpu::Face::Front)];
-        let scenery = [("fs_opaque", false), ("fs_alpha_test", false), ("fs_blend", true), ("fs_blend_test", true)].map(|(f, b)| culls.map(|c| make_scenery(f, b, c)));
+        let scenery = [("fs_opaque", false), ("fs_alpha_test", false), ("fs_blend", true), ("fs_blend_test", true)].map(|(f, b)| culls.map(|c| make_scenery(f, b, c, false)));
+        let scenery_wire = device.features().contains(wgpu::Features::POLYGON_MODE_LINE).then(|| culls.map(|c| make_scenery("fs_opaque", false, c, true)));
         // Config 0017's type-3 meshes (FUN_10175ac0 case 3): the colour texture, then the normal map at group 2.
         let bump_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("zone bumped"), bind_group_layouts: &[Some(&globals_layout), Some(&texture_layout), Some(&texture_layout)], immediate_size: 0 });
         let scenery_bump = culls.map(|cull| {
@@ -1225,7 +1235,7 @@ impl ZonePipes {
         let cull_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("cull"), bind_group_layouts: &[Some(&globals_layout), None, None, Some(&cull_layout)], immediate_size: 0 });
         let make_cull = |entry: &str| device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some(entry), layout: Some(&cull_pl), module: &shader, entry_point: Some(entry), compilation_options: Default::default(), cache: None });
         let cull = [make_cull("cs_cull_vis"), make_cull("cs_cull_compact")];
-        Self { globals_layout, texture_layout, pose_layout, scenery, scenery_bump, actor_pipeline, sky_pipeline, skin_pipeline, shine_layout, shine_wrap_layout, shine_pipeline, refract_pipeline, line_pipeline, world_pipelines, sil_layout, sil_pipeline, cull_layout, cull }
+        Self { globals_layout, texture_layout, pose_layout, scenery, scenery_bump, scenery_wire, actor_pipeline, sky_pipeline, skin_pipeline, shine_layout, shine_wrap_layout, shine_pipeline, refract_pipeline, line_pipeline, world_pipelines, sil_layout, sil_pipeline, cull_layout, cull }
     }
 }
 
@@ -1665,6 +1675,8 @@ impl ZoneRenderer {
             bump_mode: true,
             scenery_bump: p.scenery_bump,
             scenery: p.scenery,
+            scenery_wire: p.scenery_wire,
+            wireframe: false,
             actor_pipeline: p.actor_pipeline,
             sky_pipeline: p.sky_pipeline,
             line_pipeline: p.line_pipeline,
@@ -2692,7 +2704,7 @@ impl ZoneRenderer {
                         }
                         pass.set_bind_group(1, &m.textures[d.texture.min(m.textures.len() - 1)], &[]);
                         if pipe != c {
-                            pass.set_pipeline(&self.scenery[mode as usize][c]);
+                            pass.set_pipeline(self.wire(c).unwrap_or(&self.scenery[mode as usize][c]));
                             pipe = c;
                         }
                         pass.draw_indexed(d.first_index..d.first_index + d.index_count, d.base_vertex, range);
@@ -2866,7 +2878,7 @@ impl ZoneRenderer {
             }
             let want = if bump.is_some() { 8 + c } else { c };
             if *pipe != want {
-                pass.set_pipeline(if bump.is_some() { &self.scenery_bump[c] } else { &self.scenery[mode as usize][c] });
+                pass.set_pipeline(self.wire(c).unwrap_or(if bump.is_some() { &self.scenery_bump[c] } else { &self.scenery[mode as usize][c] }));
                 *pipe = want;
             }
             match culled {
