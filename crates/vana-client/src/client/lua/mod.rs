@@ -3,6 +3,7 @@
 //! wake-ups; what the mods asked for is applied after it.
 
 mod api;
+mod docs;
 mod manifest;
 mod vm;
 
@@ -334,5 +335,38 @@ fn apply(w: &mut World, op: Op) {
             None => w.chat.push(text),
         },
         Op::Run(line) => super::textcmd::run(w, &line, super::textcmd::Mode::Typed),
+    }
+}
+
+/// LuaLS stubs for the whole mod API (`vana-client lua-stubs`).
+pub fn stubs() -> String {
+    docs::stubs()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mlua::{Table, Value};
+
+    /// Every documented function is bound, and every function in a documented namespace is documented.
+    #[test]
+    fn docs_match_bindings() {
+        let vm = Vm::new(manifest::Manifest::default(), PathBuf::from(".")).unwrap();
+        api::install(&vm.lua, &vm, (serde_json::Value::Null, serde_json::Value::Null), serde_json::Value::Null).unwrap();
+        let g = vm.lua.globals();
+        for f in docs::FUNCS {
+            let v: Value = if f.ns.is_empty() { g.get(f.name).unwrap() } else { g.get::<Table>(f.ns).unwrap().get(f.name).unwrap() };
+            assert!(matches!(v, Value::Function(_)), "{}.{} is documented but not bound", f.ns, f.name);
+        }
+        let namespaces: std::collections::BTreeSet<&str> = docs::FUNCS.iter().map(|f| f.ns).filter(|n| !n.is_empty()).collect();
+        for ns in namespaces {
+            let t: Table = g.get(ns).unwrap();
+            for pair in t.pairs::<String, Value>() {
+                let (name, v) = pair.unwrap();
+                if matches!(v, Value::Function(_)) {
+                    assert!(docs::FUNCS.iter().any(|f| f.ns == ns && f.name == name), "{ns}.{name} is bound but not documented");
+                }
+            }
+        }
     }
 }

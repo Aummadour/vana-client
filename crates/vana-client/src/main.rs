@@ -265,6 +265,11 @@ enum Cmd {
         #[arg(long)]
         out: PathBuf,
     },
+    /// LuaLS stubs for the Lua mod API (docs/lua-mods.md), for editors.
+    LuaStubs {
+        #[arg(long)]
+        out: PathBuf,
+    },
     /// The stock status icons as PNGs plus status.tsv (id, name, description, icon key).
     StatusDump {
         #[arg(long)]
@@ -1655,6 +1660,11 @@ fn main() -> Result<()> {
         Cmd::MovieShot { frames, out, size } => movie_shot(&frames, &out, size.as_deref()),
         Cmd::TexExport { out } => texpack::export(&out),
         Cmd::StatusDump { out } => texpack::status_dump(&out),
+        Cmd::LuaStubs { out } => {
+            std::fs::write(&out, client::lua_stubs())?;
+            println!("{}", out.display());
+            Ok(())
+        }
         Cmd::TexPack { manifest, upscaled, out, redo } => texpack::pack(&manifest, &upscaled, &out, redo.as_deref()),
         Cmd::TexSlim { pack, out } => texpack::slim(&pack, &out),
         Cmd::ModInstall { archive, root } => {
