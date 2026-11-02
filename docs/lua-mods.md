@@ -36,6 +36,9 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   - an entity's `target_index` / `target_id` (its face target from 0x00D / 0x00E; ours our target; LSB fills it for
     players only, never a monster's battle target), our pet's `mpp` / `tp` (s2c 0x068), `game.cast` (our cast bar:
     spell, total, left, progress); checked live (our target, a Cure's bar)
+  - `game.macros` (the palette's book, set, titles and the current set's 20 macros) and `actions.macro` /
+    `macro_set` / `macro_edit` (run one as its key does, switch book and set, change a line or title and save);
+    checked live
   - `res.item`, `spell`, `ability`, `status`, `zone`, `title`, `key_item`, `job`, `augments` (an item's extdata
     decoded as the item window shows it: lines, the short line, message id / value pairs; checked live)
   - `res.message` (a battle / system message expanded as the log prints it, with actor, target and values),

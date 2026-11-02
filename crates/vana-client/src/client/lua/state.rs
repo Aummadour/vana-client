@@ -228,6 +228,38 @@ pub(super) fn install(lua: &Lua, game: &Table) -> mlua::Result<()> {
         })?,
     )?;
     game.set(
+        "macros",
+        lua.create_function(|lua, ()| {
+            let w = world(lua)?;
+            let Some(m) = w.macros.as_ref() else { return Ok(None) };
+            let t = lua.create_table()?;
+            t.set("book", m.book + 1)?;
+            t.set("set", m.set + 1)?;
+            t.set("book_title", m.book_title(m.book))?;
+            let books = lua.create_table()?;
+            for b in 0..40 {
+                books.push(m.book_title(b))?;
+            }
+            t.set("books", books)?;
+            for (row, base) in [("ctrl", 0), ("alt", 10)] {
+                let r = lua.create_table()?;
+                for n in 0..10 {
+                    let Some(rec) = m.recs.get(base + n) else { continue };
+                    let e = lua.create_table()?;
+                    e.set("title", rec.title())?;
+                    let lines = lua.create_table()?;
+                    for k in 0..6 {
+                        lines.push(crate::dat::font::decode_sjis(rec.line(k)))?;
+                    }
+                    e.set("lines", lines)?;
+                    r.push(e)?;
+                }
+                t.set(row, r)?;
+            }
+            Ok(Some(t))
+        })?,
+    )?;
+    game.set(
         "map",
         lua.create_function(|lua, ()| {
             let w = world(lua)?;

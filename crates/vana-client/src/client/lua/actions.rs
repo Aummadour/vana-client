@@ -29,6 +29,10 @@ pub(in crate::client) enum Action {
     Choose(usize),
     /// The event's waiting page goes on, as Enter does.
     Advance,
+    /// A macro of the current set run (0..9 Ctrl, 10..19 Alt), the book and set switched, a line or title edited.
+    Macro(usize),
+    MacroSet(usize, usize),
+    MacroEdit { n: usize, line: Option<usize>, text: String },
     Talk(u32),
     Target(Option<u32>),
     Lock(bool),
@@ -156,6 +160,29 @@ pub(super) fn apply(w: &mut World, gu: Option<&GameUi>, a: Action) {
         Action::Advance => {
             if event::active(w) {
                 event::key(w, egui::Key::Enter);
+            }
+        }
+        Action::Macro(n) => {
+            if let Some(m) = w.macros.as_mut() {
+                m.start(n);
+            }
+        }
+        Action::MacroSet(book, set) => {
+            if let Some(m) = w.macros.as_mut() {
+                m.switch(book.min(39), set.min(9));
+            }
+        }
+        Action::MacroEdit { n, line, text } => {
+            let mon = super::super::monstrosity::active(w);
+            if let Some(m) = w.macros.as_mut() {
+                let b = crate::dat::font::encode_sjis(&text);
+                let ok = match line {
+                    Some(k) => m.set_line(n, k, &b),
+                    None => m.set_title(n, &b),
+                };
+                if ok {
+                    m.save(mon);
+                }
             }
         }
         Action::Choose(k) => {
@@ -369,6 +396,31 @@ pub(super) fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
     t.set("mount", lua.create_function(|lua, name: String| queue(lua, Action::Line(format!("/mount \"{name}\""))))?)?;
     t.set("dismount", lua.create_function(|lua, ()| queue(lua, Action::Line("/dismount".into())))?)?;
     t.set("advance", lua.create_function(|lua, ()| queue(lua, Action::Advance))?)?;
+    // A macro of the current set: row "ctrl" | "alt", 1..10.
+    let slot = |row: &str, n: usize| -> mlua::Result<usize> {
+        let base = match row {
+            "ctrl" => 0,
+            "alt" => 10,
+            _ => return Err(mlua::Error::runtime("a macro row is \"ctrl\" or \"alt\"")),
+        };
+        if !(1..=10).contains(&n) {
+            return Err(mlua::Error::runtime("a macro is 1..10"));
+        }
+        Ok(base + n - 1)
+    };
+    t.set("macro", lua.create_function(move |lua, (row, n): (String, usize)| queue(lua, Action::Macro(slot(&row, n)?)))?)?;
+    t.set("macro_set", lua.create_function(|lua, (book, set): (usize, usize)| queue(lua, Action::MacroSet(book.clamp(1, 40) - 1, set.clamp(1, 10) - 1)))?)?;
+    t.set(
+        "macro_edit",
+        lua.create_function(move |lua, (row, n, line, text): (String, usize, Value, String)| {
+            let line = match line {
+                Value::Integer(k) if (1..=6).contains(&k) => Some(k as usize - 1),
+                Value::String(s) if s.to_str()?.as_ref() as &str == "title" => None,
+                _ => return Err(mlua::Error::runtime("a macro line is 1..6, or \"title\"")),
+            };
+            queue(lua, Action::MacroEdit { n: slot(&row, n)?, line, text })
+        })?,
+    )?;
     t.set("scan", lua.create_function(|lua, ()| queue(lua, Action::Scan))?)?;
     t.set("track", lua.create_function(|lua, index: u16| queue(lua, Action::Track(index)))?)?;
     t.set("untrack", lua.create_function(|lua, ()| queue(lua, Action::Untrack))?)?;

@@ -796,6 +796,10 @@ function game.abilities() end
 ---@return {main: table?, sub: table?}
 function game.job_data() end
 
+--- The macro palette: {book, set (1-based), book_title, books (the 40 titles), ctrl, alt (10 macros each: {title, lines (6)})}; nil before the macros load.
+---@return table?
+function game.macros() end
+
 --- The map the client shows where we stand (a map it has and we own): {zone, number (the map's page), file (its DAT id), scale, origin {x, y} (the image's top left in map pixels), size (512), px_per_unit (map pixels per world unit)}; nil with none.
 ---@return table?
 function game.map() end
@@ -855,6 +859,23 @@ function actions.use_item(item, target) end
 ---@param index integer 
 ---@param target integer? a server id; none: ourselves
 function actions.use_slot(bag, index, target) end
+
+--- Runs a macro of the current set, as its key does: row 'ctrl' or 'alt', 1..10.
+---@param row string 
+---@param n integer 
+function actions.macro(row, n) end
+
+--- Switches the macro palette to a book (1..40) and set (1..10).
+---@param book integer 
+---@param set integer 
+function actions.macro_set(book, set) end
+
+--- Changes a macro of the current set (and saves the set): its line 1..6, or 'title'.
+---@param row string 
+---@param n integer 
+---@param line integer|'title' 
+---@param text string 
+function actions.macro_edit(row, n, line, text) end
 
 --- Engages a target, or switches to it while engaged (/attack).
 ---@param target integer|string? none: the current target
