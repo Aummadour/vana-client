@@ -82,6 +82,15 @@ pub struct UiBatch {
     /// modern layer's edge windows give way to them).
     pub modern: Option<ModernFrame>,
     pub frames: Vec<[f32; 4]>,
+    /// The game font's text in the TrueType face without the modern skin (a mod's switch).
+    pub ttf: bool,
+}
+
+impl UiBatch {
+    /// The game font's text is drawn in the TrueType face (the modern skin, or a mod's switch).
+    pub fn ttf_text(&self) -> bool {
+        self.modern.is_some() || self.ttf
+    }
 }
 
 /// The margin between a retail window's rect and the modern frame's border, as a share of the frame's corner.

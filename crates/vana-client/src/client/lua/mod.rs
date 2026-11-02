@@ -85,13 +85,13 @@ pub(in crate::client) struct WinReq {
 }
 
 /// The behaviour switches (client.set_option) by name; false for an unknown name or value.
-pub(super) const OPTIONS: [&str; 18] = [
+pub(super) const OPTIONS: [&str; 19] = [
     "macro_palette_delay", "ah_result_delay", "equipset_delay", "log_slide", "cutscene_speed", "animation_rate", "clear_colour", "ambient", "minimap_span",
-    "move_lock", "all_maps", "dead_commands", "compass_monsters", "player_collision", "occlusion", "menu_reach", "send_interval", "wireframe",
+    "move_lock", "all_maps", "dead_commands", "compass_monsters", "player_collision", "occlusion", "menu_reach", "send_interval", "wireframe", "ttf_text",
 ];
 
 /// The switches retail has off.
-const OFF: [&str; 4] = ["all_maps", "dead_commands", "compass_monsters", "wireframe"];
+const OFF: [&str; 5] = ["all_maps", "dead_commands", "compass_monsters", "wireframe", "ttf_text"];
 
 /// An {r, g, b} (0..255) as gamma-space floats; false / nil: none.
 fn rgb_of(v: &serde_json::Value) -> Option<Option<[f32; 3]>> {
@@ -120,6 +120,7 @@ fn set_option(w: &mut World, name: &str, v: &serde_json::Value) -> bool {
         ("occlusion", Some(b)) => w.opts.occlusion = b,
         ("menu_reach", Some(b)) => w.opts.menu_reach = b,
         ("wireframe", Some(b)) => w.opts.wireframe = b,
+        ("ttf_text", Some(b)) => w.opts.ttf_text = b,
         ("log_slide", Some(b)) => (w.log.anim.instant, w.log2.anim.instant, w.modern_log.anim.instant) = (!b, !b, !b),
         ("cutscene_speed", _) => match v.as_f64() {
             Some(k) => w.opts.cutscene_speed = (k as f32).clamp(1.0, 4.0),
@@ -165,6 +166,7 @@ pub(super) fn option(w: &World, name: &str) -> Option<serde_json::Value> {
         "occlusion" => json!(w.opts.occlusion),
         "menu_reach" => json!(w.opts.menu_reach),
         "wireframe" => json!(w.opts.wireframe),
+        "ttf_text" => json!(w.opts.ttf_text),
         "log_slide" => json!(!w.log.anim.instant),
         "cutscene_speed" => json!(w.opts.cutscene_speed),
         "animation_rate" => json!(w.opts.anim_rate),

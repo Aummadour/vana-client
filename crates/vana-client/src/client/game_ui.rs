@@ -216,6 +216,8 @@ pub struct GameUi {
     skin_on: bool,
     /// UI pixels per modern (egui) point: the retail windows' modern frame is drawn at the panels' size.
     pub modern_scale: f32,
+    /// The game font's text in the TrueType face in the classic UI too (client.set_option ttf_text).
+    pub ttf_text: bool,
     /// The lobby's help line for the modern layer's help bar (the login form sets it).
     pub modern_help: Option<(String, [u8; 4])>,
     started: Instant,
@@ -339,7 +341,7 @@ pub struct WorldView<'a> {
 impl GameUi {
     pub fn new(data: GameUiData) -> Self {
         crate::render::ui::set_caption_words(caption_words(&data));
-        Self { data, renderer: None, scene_depth: None, batch: UiBatch::default(), modern_frame: None, skin_on: false, modern_scale: 1.0, modern_help: None, started: Instant::now(), pending: Vec::new(), images: Default::default(), help: HelpScroll::default(), party_window: "menu    ptw0".into(), log_top: None, style_index: 0, replaced: Vec::new(), style_saved: Default::default(), scroll_seen: Default::default(), hover: Default::default(), modern_order: Default::default(), bars: Vec::new(), bar_hold: None, anims: Default::default(), contents: Default::default(), anim_frame: 1, anim_acc: 0.0, open_ticks: 25.0, log_faded: false, log_bottom: None, target_up: false, walk: Walk::default(), focus: (None, None), presses: Default::default() }
+        Self { data, renderer: None, scene_depth: None, batch: UiBatch::default(), modern_frame: None, skin_on: false, modern_scale: 1.0, ttf_text: false, modern_help: None, started: Instant::now(), pending: Vec::new(), images: Default::default(), help: HelpScroll::default(), party_window: "menu    ptw0".into(), log_top: None, style_index: 0, replaced: Vec::new(), style_saved: Default::default(), scroll_seen: Default::default(), hover: Default::default(), modern_order: Default::default(), bars: Vec::new(), bar_hold: None, anims: Default::default(), contents: Default::default(), anim_frame: 1, anim_acc: 0.0, open_ticks: 25.0, log_faded: false, log_bottom: None, target_up: false, walk: Walk::default(), focus: (None, None), presses: Default::default() }
     }
 
     /// FUN_1015e530 / FUN_101177d0 for a window drawn this frame with frame rect `r`: false while it opens (only the
@@ -539,7 +541,7 @@ impl GameUi {
     }
 
     pub fn text_width(&self, s: &str) -> f32 {
-        if self.batch.modern.is_some() {
+        if self.batch.ttf_text() {
             return self.modern_runs(s, [0x80; 4]).iter().map(|(t, _)| mtext::width(t, Face::Regular, mtext::TEXT_EM)).sum();
         }
         self.data.font.text_width(&encode_sjis(s)) as f32
@@ -576,7 +578,7 @@ impl GameUi {
 
     /// One line in the game font; align 0 = left at x, 1 = centred on x.
     pub fn text(&mut self, s: &str, x: f32, y: f32, align: u8, color: [u8; 4]) {
-        if self.batch.modern.is_some() {
+        if self.batch.ttf_text() {
             let runs = self.modern_runs(s, color);
             let w: f32 = runs.iter().map(|(t, _)| mtext::width(t, Face::Regular, mtext::TEXT_EM)).sum();
             let mut x = if align == 1 { x - w / 2.0 } else { x };
@@ -598,7 +600,7 @@ impl GameUi {
     /// blended here (retail adds its glyphs), so dark text and outlines show.
     pub fn text_in(&mut self, s: &str, x: f32, y: f32, color: [u8; 4], scale: f32, face: Option<HudFace>) {
         let f = match face {
-            None if self.batch.modern.is_some() => return self.text_scaled(s, x, y, color, scale),
+            None if self.batch.ttf_text() => return self.text_scaled(s, x, y, color, scale),
             None | Some(HudFace::Game) => {
                 let sjis = encode_sjis(s);
                 let mut quads = Vec::new();
@@ -628,7 +630,7 @@ impl GameUi {
     }
 
     pub fn text_scaled(&mut self, s: &str, x: f32, y: f32, color: [u8; 4], scale: f32) {
-        if self.batch.modern.is_some() {
+        if self.batch.ttf_text() {
             let mut x = x;
             for (t, c) in self.modern_runs(s, color) {
                 let col = [c[2], c[1], c[0], c[3]].map(|v| (v as f32 / 128.0).min(1.0));
@@ -1353,6 +1355,11 @@ impl GameUi {
         self.batch.modern = self.skin();
     }
 
+    /// The game font's text in the TrueType face, from now on (this frame's batch too).
+    pub fn set_ttf(&mut self, on: bool) {
+        (self.ttf_text, self.batch.ttf) = (on, on);
+    }
+
     /// How far the modern frame stands out past a retail window (0 with the skin off): windows placed by an edge keep
     /// that far in.
     pub fn modern_margin(&self) -> f32 {
@@ -1375,6 +1382,7 @@ impl GameUi {
     pub fn clear(&mut self) {
         self.batch = UiBatch::default();
         self.batch.modern = self.skin();
+        self.batch.ttf = self.ttf_text;
         self.log_top = None;
         self.log_bottom = None;
         self.target_up = false;

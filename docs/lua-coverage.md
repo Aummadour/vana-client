@@ -57,13 +57,13 @@ Settled for every row:
 | Ashita v3 official add-ons | 13 | 13 | 0 | 0 |
 | Ashita v4 plugins | 10 | 9 | 0 | 1 |
 | Ashita v3 plugins | 27 | 27 | 0 | 0 |
-| Ashita community plugins | 37 | 35 | 2 | 0 |
+| Ashita community plugins | 37 | 36 | 1 | 0 |
 | Ashita v4 community add-ons | 147 | 143 | 1 | 3 |
 | Ashita v3 community add-ons | 22 | 22 | 0 | 0 |
 | Ashita add-ons rated from descriptions | 28 | 28 | 0 | 0 |
 | Windower, all | 250 | 248 | 1 | 1 |
-| Ashita, all | 365 | 356 | 3 | 6 |
-| **Total** | **615** | **604** | **4** | **7** |
+| Ashita, all | 365 | 357 | 2 | 6 |
+| **Total** | **615** | **605** | **3** | **7** |
 
 ## Open gaps
 
@@ -72,17 +72,16 @@ Ranked by the rows each one blocks (listed outside parentheses).
 1. **gamepad input (deferred)**, 6 rows: pad buttons and sticks as events and binds (deferred with gamepad support).
    Blocks Capability: gamepad input, cBind, Crossbar, tCrossBar, trigger, XIVCrossbar.
 2. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
-3. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
-4. **native list options**, 1 row: options for native lists (the spell list trimmed; what its shortcut list is was not
+3. **native list options**, 1 row: options for native lists (the spell list trimmed; what its shortcut list is was not
    found). Blocks trimspells.
-5. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it). Blocks
+4. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it). Blocks
    fastswap.
-6. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
+5. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
 
 Most wanted non-blocking gaps (rows that list them in parentheses):
 
 - **packet layouts**, 102 rows: named fields and decoded views for packet ids (raw bytes work today).
-- **font families**, 50 rows: named system fonts for `hud.text` (it has the game font, the UI's regular and bold faces,
+- **font families**, 51 rows: named system fonts for `hud.text` (it has the game font, the UI's regular and bold faces,
   outlines and shadows).
 - **packet batch order**, 9 rows: inserting packets ahead of one in a hook (block and re-inject works today). In
   Ashitacast, Ashitacast / LegacyAC, dlac, GearSwap, GearSwap framework libs, GearSwap job-file API, LuAshitacast,
@@ -584,7 +583,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | Snap | Snaps a boxed window to a saved place / size | client.window / set_window; storage; client.set_window | covered | - |
 | Stun | Reactive auto-stun from rules | event `action`; actions.cast (automation) | covered | - |
 | Stylist | Any player's look by command; anti-blink | packets.on_in(0x00D, 0x051) edit | covered | (look / race override in render) |
-| TrueFont | Game text in chosen TrueType fonts | native modern UI fonts | partly | game font replacement |
+| TrueFont | Game text in chosen TrueType fonts | native modern UI fonts; client.set_option('ttf_text', true) | covered | (font families) |
 | TrueFPS | High frame rates; faster cutscenes; stall recovery | native unlocked frame rate; client.set_option('cutscene_speed', n) | covered | - |
 | Uberwarp | NPC warp systems by command | actions.talk / choose; packets.inject_out(0x05B) | covered | (packet layouts) |
 | VNM | Line to the last known VNM position | draw.line | covered | - |

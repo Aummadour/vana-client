@@ -359,8 +359,9 @@ struct Opts {
     player_bump: bool,
     occlusion: bool,
     menu_reach: bool,
-    /// The scenery drawn as lines (a mod's engine switch).
+    /// The scenery drawn as lines, and the game font's text in the TrueType face (a mod's switches).
     wireframe: bool,
+    ttf_text: bool,
 }
 
 impl Default for Opts {
@@ -381,6 +382,7 @@ impl Default for Opts {
             occlusion: true,
             menu_reach: true,
             wireframe: false,
+            ttf_text: false,
         }
     }
 }
@@ -1897,6 +1899,8 @@ fn window_closes(w: &mut World, events: &[egui::Event]) {
 }
 
 fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2], keys: &mut HashSet<KeyCode>, view_proj: glam::Mat4, numpad_slash: bool) -> Vec<[f32; 4]> {
+    // A mod's TrueType text switch, from this frame's drawing on.
+    gu.set_ttf(world.opts.ttf_text);
     let (sw, sh) = (size[0] as f32, size[1] as f32);
     world.ui_wh = (sw, sh);
     world.lua.set_view_proj(view_proj);
@@ -7230,9 +7234,11 @@ impl App {
         self.phase = Phase::login(&self.cfg);
         self.lobby_fade = LobbyFade::default();
         self.close_asked = false;
-        // The character's window style (config 0x12) replaced lobby images (the select screen drew gray).
+        // The character's window style (config 0x12) replaced lobby images (the select screen drew gray); a mod's
+        // TrueType text ends with the world.
         if let Some(gu) = self.game_ui.as_mut() {
             gu.reset_style();
+            gu.set_ttf(false);
         }
         if error {
             log::warn!("back to the login screen: {}", self.status);
