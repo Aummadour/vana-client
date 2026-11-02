@@ -1715,6 +1715,7 @@ pub(super) fn window_click(w: &mut World, mod_id: &str, win_id: &str, click: sup
                     C::Alpha(i, s) => win.set_colour(i, None, Some(s)),
                     C::Sort(i, c) => win.sort(i, c),
                     C::Canvas(i, x, y) => win.canvas_click(i, x, y),
+                    C::CanvasDrag(i, phase, x, y) => win.canvas_drag(i, phase, x, y),
                 });
             }
         }
@@ -1759,7 +1760,7 @@ fn classic_places(w: &World) -> Vec<(usize, String, f32, f32)> {
 }
 
 /// The pointer on the classic mod windows (the topmost under it); whether it is over a control.
-pub(super) fn pointer_classic(w: &mut World, gu: &super::game_ui::GameUi, p: (f32, f32), moved: bool, clicked: bool) -> bool {
+pub(super) fn pointer_classic(w: &mut World, gu: &super::game_ui::GameUi, p: (f32, f32), moved: bool, clicked: bool, held: (bool, bool, bool)) -> bool {
     let mut places = classic_places(w);
     // An open modal window is the only one the pointer reaches; a click outside a popup closes it.
     if let Some((k, mid)) = w.lua.modal() {
@@ -1779,10 +1780,10 @@ pub(super) fn pointer_classic(w: &mut World, gu: &super::game_ui::GameUi, p: (f3
             let mut st = vm.st.borrow_mut();
             let Some(win) = st.windows.iter_mut().find(|x| x.id == id) else { continue };
             let (wx, wy) = win.classic_size();
-            if p.0 < x || p.1 < y || p.0 >= x + wx || p.1 >= y + wy {
+            if win.drag.is_none() && (p.0 < x || p.1 < y || p.0 >= x + wx || p.1 >= y + wy) {
                 continue;
             }
-            let (hover, ev, se) = win.pointer_classic(gu, x, y, p, moved, clicked);
+            let (hover, ev, se) = win.pointer_classic(gu, x, y, p, moved, clicked, held);
             (hover, ev, se, vm.manifest.id.clone())
         };
         // A click on a window gives it the focus (not a HUD's).

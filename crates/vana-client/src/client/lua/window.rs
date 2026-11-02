@@ -139,6 +139,8 @@ pub struct Window {
     pub modal: bool,
     pub popup: bool,
     pub anchor: Option<(f32, f32)>,
+    /// A canvas being dragged: its element and the last place reported.
+    pub drag: Option<(usize, f32, f32)>,
 }
 
 /// What happened in a window, for the mod's handler.
@@ -154,6 +156,8 @@ pub enum Event {
     Sort { id: String, column: usize },
     /// A click on a canvas, in its units.
     Click { id: String, x: f32, y: f32 },
+    /// A drag on a canvas: 0 start, 1 a move, 2 the release; where, and the move since the last report.
+    Drag { id: String, phase: u8, x: f32, y: f32, dx: f32, dy: f32 },
     Close,
 }
 
@@ -169,6 +173,7 @@ impl Event {
             Event::Toggle { id, open } => json!({"kind": "toggle", "id": id, "open": open}),
             Event::Sort { id, column } => json!({"kind": "sort", "id": id, "column": column + 1}),
             Event::Click { id, x, y } => json!({"kind": "click", "id": id, "x": x.round() as i64, "y": y.round() as i64}),
+            Event::Drag { id, phase, x, y, dx, dy } => json!({"kind": (["drag_start", "drag", "drag_end"][*phase as usize % 3]), "id": id, "x": x.round() as i64, "y": y.round() as i64, "dx": dx.round() as i64, "dy": dy.round() as i64}),
             Event::Close => json!({"kind": "close"}),
         }
     }
@@ -235,6 +240,7 @@ impl Window {
             modal: false,
             popup: false,
             anchor: None,
+            drag: None,
         }
     }
 
@@ -669,6 +675,22 @@ impl Window {
         (ev, Vec::new())
     }
 
+    /// A canvas drag at (x, y) in its units: 0 starts it, 1 moves (reported when it moved), 2 ends it.
+    pub fn canvas_drag(&mut self, i: usize, phase: u8, x: f32, y: f32) -> (Vec<Event>, Vec<Se>) {
+        let Some(Elem::Canvas { id, .. }) = self.elems.get(i) else { return (Vec::new(), Vec::new()) };
+        let id = id.clone();
+        let (lx, ly) = match (phase, self.drag) {
+            (0, _) => (x, y),
+            (_, Some((j, lx, ly))) if j == i => (lx, ly),
+            _ => return (Vec::new(), Vec::new()),
+        };
+        if phase == 1 && lx == x && ly == y {
+            return (Vec::new(), Vec::new());
+        }
+        self.drag = (phase != 2).then_some((i, x, y));
+        (vec![Event::Drag { id, phase, x, y, dx: x - lx, dy: y - ly }], Vec::new())
+    }
+
     /// The classic list's text width and its columns.
     fn classic_list_w(&self, rows: usize, height: usize) -> f32 {
         let (w, _) = self.classic_size();
@@ -737,8 +759,18 @@ impl Window {
 
     /// The pointer on the classic page at (x, y): the cursor follows it over controls, a click acts. Whether it is
     /// over a control, and what it did.
-    pub fn pointer_classic(&mut self, gu: &GameUi, x: f32, y: f32, p: (f32, f32), moved: bool, clicked: bool) -> (bool, Vec<Event>, Vec<Se>) {
+    pub fn pointer_classic(&mut self, gu: &GameUi, x: f32, y: f32, p: (f32, f32), moved: bool, clicked: bool, held: (bool, bool, bool)) -> (bool, Vec<Event>, Vec<Se>) {
         let inside = |r: &[f32; 4]| p.0 >= r[0] && p.1 >= r[1] && p.0 < r[0] + r[2] && p.1 < r[1] + r[3];
+        let (pressed, down, released) = held;
+        // A drag keeps the pointer, inside the canvas or not, until the button comes up.
+        if let Some((di, ..)) = self.drag {
+            if let Some(r) = self.classic_controls(gu, x, y).into_iter().find(|c| c.0 == di).map(|c| c.2) {
+                let (cx, cy) = (p.0 - r[0], p.1 - r[1]);
+                let ev = if released || !down { self.canvas_drag(di, 2, cx, cy).0 } else if moved { self.canvas_drag(di, 1, cx, cy).0 } else { Vec::new() };
+                return (true, ev, Vec::new());
+            }
+            self.drag = None;
+        }
         let Some((i, k, r)) = self.classic_controls(gu, x, y).into_iter().find(|c| inside(&c.2)) else { return (false, Vec::new(), Vec::new()) };
         let mut se = Vec::new();
         #[derive(PartialEq)]
@@ -762,7 +794,12 @@ impl Window {
         };
         let (list, buttons) = (e == K::List, e == K::Buttons);
         if e == K::Canvas {
-            return (false, if clicked { self.canvas_click(i, p.0 - r[0], p.1 - r[1]).0 } else { Vec::new() }, Vec::new());
+            let (cx, cy) = (p.0 - r[0], p.1 - r[1]);
+            let mut ev = if clicked { self.canvas_click(i, cx, cy).0 } else { Vec::new() };
+            if pressed {
+                ev.extend(self.canvas_drag(i, 0, cx, cy).0);
+            }
+            return (false, ev, Vec::new());
         }
         if (moved || clicked) && !self.edit && (self.at != i || (buttons && self.col != k)) {
             (self.at, self.col) = (i, if buttons { k } else { 0 });

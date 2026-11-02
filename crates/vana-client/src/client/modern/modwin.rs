@@ -19,6 +19,8 @@ pub enum Click {
     Alpha(usize, usize),
     Sort(usize, usize),
     Canvas(usize, f32, f32),
+    /// A canvas drag: element, phase (0 start, 1 move, 2 release), where.
+    CanvasDrag(usize, u8, f32, f32),
 }
 
 fn rgba(c: [u8; 4]) -> Color32 {
@@ -263,12 +265,22 @@ pub fn draw(p: &mut Panels, w: &mut World) {
                         });
                     }
                     Elem::Canvas { w: cw, h: ch, cmds, .. } => {
-                        let (r, resp) = ui.allocate_exact_size(vec2(*cw, *ch), Sense::click());
+                        let (r, resp) = ui.allocate_exact_size(vec2(*cw, *ch), Sense::click_and_drag());
                         canvas(ui, m, ctx, gu, items, r, cmds);
+                        let at = resp.interact_pointer_pos().or_else(|| ctx.input(|inp| inp.pointer.latest_pos())).map(|q| (q.x - r.min.x, q.y - r.min.y));
                         if resp.clicked()
                             && let Some(q) = resp.interact_pointer_pos()
                         {
                             clicks.push(Click::Canvas(i, q.x - r.min.x, q.y - r.min.y));
+                        }
+                        if let Some((x, y)) = at {
+                            if resp.drag_started() {
+                                clicks.push(Click::CanvasDrag(i, 0, x, y));
+                            } else if resp.drag_stopped() {
+                                clicks.push(Click::CanvasDrag(i, 2, x, y));
+                            } else if resp.dragged() {
+                                clicks.push(Click::CanvasDrag(i, 1, x, y));
+                            }
                         }
                         ui.add_space(6.0);
                     }

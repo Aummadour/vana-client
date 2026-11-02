@@ -58,12 +58,12 @@ Settled for every row:
 | Ashita v4 plugins | 10 | 9 | 0 | 1 |
 | Ashita v3 plugins | 27 | 26 | 0 | 1 |
 | Ashita community plugins | 37 | 34 | 3 | 0 |
-| Ashita v4 community add-ons | 147 | 142 | 2 | 3 |
+| Ashita v4 community add-ons | 147 | 143 | 1 | 3 |
 | Ashita v3 community add-ons | 22 | 22 | 0 | 0 |
 | Ashita add-ons rated from descriptions | 28 | 28 | 0 | 0 |
 | Windower, all | 250 | 244 | 3 | 3 |
-| Ashita, all | 365 | 351 | 5 | 9 |
-| **Total** | **615** | **595** | **8** | **12** |
+| Ashita, all | 365 | 352 | 4 | 9 |
+| **Total** | **615** | **596** | **7** | **12** |
 
 ## Open gaps
 
@@ -77,12 +77,11 @@ Ranked by the rows each one blocks (listed outside parentheses).
 4. **vendor input devices**, 2 rows: G-keys, Stream Deck and other HID devices directly. Blocks Binder, GBinder.
 5. **video capture**, 2 rows: recording the game window. Blocks DashCam, Video capture.
 6. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
-7. **drag and drop**, 1 row: dragging between elements in `ui.window` (a canvas takes clicks only). Blocks boussole.
-8. **engine settings from Lua**, 1 row: wireframe from Lua. Blocks Render knobs.
-9. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
-10. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it).
-    Blocks fastswap.
-11. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
+7. **engine settings from Lua**, 1 row: wireframe from Lua. Blocks Render knobs.
+8. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
+9. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it). Blocks
+   fastswap.
+10. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
 
 Most wanted non-blocking gaps (rows that list them in parentheses):
 
@@ -621,7 +620,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | BGMBard | Day / night music in any zone | packets.on_in(0x00A music ids); ui.window (input, choice, section) | covered | (packet layouts) |
 | bludex | Blue magic codex and set planner | game.job_data / spells; res.spell; actions.blue_set / blue_remove; hud.image / on; ui.window (canvas) | covered | (packet layouts) |
 | bluspells | Builds blue magic sets visually | game.job_data; res.spell; actions.blue_set; ui.window | covered | - |
-| boussole | Replacement map with markers and tracked mobs | game.entities / party; packets; draw.to_screen; hud.*; ui.window (input, columns, tabs, section, choice, colour, tips, canvas); fs; ui.prompt / menu; client.paste; game.map / map_pos; hud.map | partly | drag and drop |
+| boussole | Replacement map with markers and tracked mobs | game.entities / party; packets; draw.to_screen; hud.*; ui.window (input, columns, tabs, section, choice, colour, tips, canvas); fs; ui.prompt / menu; client.paste; game.map / map_pos; hud.map; canvas drag events | covered | - |
 | boxhelper | Hints for brown treasure casket numbers | filters.chat; packets.on_in(0x034); ui.window (columns) | covered | (packet layouts) |
 | ButterFeet | Removes the job-ability movement wait (ja0wait patch) | client.set_option('move_lock', false) | covered | - |
 | calculator | In-game calculator | ui.window (buttons, text) | covered | - |
