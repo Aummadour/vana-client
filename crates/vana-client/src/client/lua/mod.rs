@@ -760,11 +760,9 @@ pub(super) fn window_key(w: &mut World, key: egui::Key) -> bool {
 /// The open mod windows in the classic UI, cascaded from the Config pages' place; their rects.
 pub(super) fn draw_classic(gu: &mut super::game_ui::GameUi, w: &World) -> Vec<[f32; 4]> {
     let mut out = Vec::new();
-    let mut k = 0.0;
-    for vm in w.lua.vms.iter().filter(|v| v.suspended.is_none()) {
-        for win in vm.st.borrow().windows.iter().filter(|w| w.open) {
-            out.push(win.draw_classic(gu, 16.0 + 24.0 * k, 48.0 + 24.0 * k));
-            k += 1.0;
+    for (v, id, x, y) in classic_places(w) {
+        if let Some(win) = w.lua.vms[v].st.borrow().windows.iter().find(|x| x.id == id) {
+            out.push(win.draw_classic(gu, x, y));
         }
     }
     out
@@ -806,4 +804,46 @@ pub(super) fn window_click(w: &mut World, mod_id: &str, win_id: &str, click: sup
         host.ui_events.extend(ev.into_iter().map(|e| (mod_id.to_string(), win_id.to_string(), e)));
         w.sounds.extend(se.into_iter().map(|s| s as u32));
     }
+}
+
+/// The classic places of the open windows, in draw order (cascaded from the Config pages' place).
+fn classic_places(w: &World) -> Vec<(usize, String, f32, f32)> {
+    let mut out = Vec::new();
+    let mut k = 0.0;
+    for (v, vm) in w.lua.vms.iter().enumerate().filter(|(_, v)| v.suspended.is_none()) {
+        for win in vm.st.borrow().windows.iter().filter(|w| w.open) {
+            out.push((v, win.id.clone(), 16.0 + 24.0 * k, 48.0 + 24.0 * k));
+            k += 1.0;
+        }
+    }
+    out
+}
+
+/// The pointer on the classic mod windows (the topmost under it); whether it is over a control.
+pub(super) fn pointer_classic(w: &mut World, gu: &super::game_ui::GameUi, p: (f32, f32), moved: bool, clicked: bool) -> bool {
+    for (v, id, x, y) in classic_places(w).into_iter().rev() {
+        let (hover, ev, se, mod_id) = {
+            let vm = &w.lua.vms[v];
+            let mut st = vm.st.borrow_mut();
+            let Some(win) = st.windows.iter_mut().find(|x| x.id == id) else { continue };
+            let (wx, wy) = win.classic_size();
+            if p.0 < x || p.1 < y || p.0 >= x + wx || p.1 >= y + wy {
+                continue;
+            }
+            let (hover, ev, se) = win.pointer_classic(gu, x, y, p, moved, clicked);
+            (hover, ev, se, vm.manifest.id.clone())
+        };
+        // A click on a window gives it the focus.
+        if clicked {
+            for (j, vm) in w.lua.vms.iter().enumerate() {
+                for win in vm.st.borrow_mut().windows.iter_mut() {
+                    win.focus = j == v && win.id == id && win.open;
+                }
+            }
+        }
+        w.lua.ui_events.extend(ev.into_iter().map(|e| (mod_id.clone(), id.clone(), e)));
+        w.sounds.extend(se.into_iter().map(|s| s as u32));
+        return hover;
+    }
+    false
 }

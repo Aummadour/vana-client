@@ -233,6 +233,65 @@ impl Window {
         self.key(egui::Key::Enter)
     }
 
+    /// The classic page's controls at (x, y), as drawn: (element, column or list row, rect).
+    fn classic_controls(&self, gu: &GameUi, x: f32, y: f32) -> Vec<(usize, usize, [f32; 4])> {
+        let (w, _) = self.classic_size();
+        let mut out = Vec::new();
+        let mut ey = y + TOP;
+        for (i, e) in self.elems.iter().enumerate() {
+            match e {
+                Elem::Buttons { items, .. } => {
+                    let need = items.iter().map(|s| gu.label_width(s) + 12.0).fold(0.0, f32::max).ceil();
+                    let bw = if need <= 64.0 && items.len() >= 3 { 64.0 } else if need <= 88.0 { 88.0 } else { need };
+                    for c in 0..items.len() {
+                        out.push((i, c, [x + 32.0 + (bw + 8.0) * c as f32, ey + 14.0, bw, 16.0]));
+                    }
+                }
+                Elem::Slider { .. } => out.push((i, 0, [x + SLIDER_X, ey + 14.0, (w - SLIDER_X - 48.0).max(96.0), 16.0])),
+                Elem::List { rows, top, height, .. } => {
+                    for k in (*top..rows.len()).take(*height) {
+                        out.push((i, k, [x + 32.0, ey + LINE * (k - *top) as f32, w - 64.0, LINE]));
+                    }
+                }
+                _ => {}
+            }
+            ey += Self::classic_h(e);
+        }
+        out
+    }
+
+    /// The pointer on the classic page at (x, y): the cursor follows it over controls, a click acts. Whether it is
+    /// over a control, and what it did.
+    pub fn pointer_classic(&mut self, gu: &GameUi, x: f32, y: f32, p: (f32, f32), moved: bool, clicked: bool) -> (bool, Vec<Event>, Vec<Se>) {
+        let inside = |r: &[f32; 4]| p.0 >= r[0] && p.1 >= r[1] && p.0 < r[0] + r[2] && p.1 < r[1] + r[3];
+        let Some((i, k, r)) = self.classic_controls(gu, x, y).into_iter().find(|c| inside(&c.2)) else { return (false, Vec::new(), Vec::new()) };
+        let mut se = Vec::new();
+        let list = matches!(self.elems.get(i), Some(Elem::List { .. }));
+        if (moved || clicked) && !self.edit && (self.at != i || (!list && self.col != k)) {
+            (self.at, self.col) = (i, if list { 0 } else { k });
+            se.push(Se::Cursor);
+        }
+        if list
+            && let Some(Elem::List { at, .. }) = self.elems.get_mut(i)
+            && (moved || clicked)
+        {
+            *at = k;
+        }
+        if !clicked {
+            return (true, Vec::new(), se);
+        }
+        let (ev, more) = match self.elems.get(i) {
+            Some(Elem::Slider { n, .. }) => {
+                let stop = (((p.0 - r[0]) / r[2]).clamp(0.0, 1.0) * (*n - 1) as f32).round() as usize;
+                self.slide(i, stop)
+            }
+            Some(Elem::List { .. }) => self.pick(i, k),
+            _ => self.click_button(i, k),
+        };
+        se.extend(more);
+        (true, ev, se)
+    }
+
     /// Each element's height on the classic page.
     fn classic_h(e: &Elem) -> f32 {
         match e {

@@ -2561,6 +2561,13 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
         }
         world.sounds.extend(s.sounds.drain(..).map(|x| x as u32));
     }
+    // Mouse on the Lua mods' windows (the modern UI's panels take egui's).
+    if !world.modern
+        && let Some(p) = input.pointer
+        && lua::pointer_classic(world, gu, p, input.moved, input.clicked)
+    {
+        gu.hover.set(true);
+    }
     // While Modern is on configwi alone is the modern page's (egui's mouse); retail's windows over it take it.
     let modern_page = world.modern && world.config.as_ref().is_some_and(|c| c.stack.len() <= 1);
     if let (Some(c), Some(p), None, false) = (world.config.as_mut(), input.pointer, world.settings.as_ref(), modern_page) {
