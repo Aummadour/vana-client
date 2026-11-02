@@ -1,6 +1,7 @@
 //! First start without game files (not retail: retail's installer was its own program). The title and login are
 //! drawn from the DATs, so until they exist a small window of our own asks to download the free retail client from
-//! Square Enix, installs its game files, brings them up to date and deletes what it downloaded.
+//! Square Enix, installs its game files, brings them up to date and deletes what it downloaded, or to point at game
+//! files already on disk.
 
 use crate::install::Progress;
 use anyhow::{Context, Result};
@@ -27,6 +28,25 @@ const MARKER: &str = ".vana-installing";
 /// No game files where the config says they are, or a first start that did not finish.
 pub fn needed(ffxi_dir: &Path) -> bool {
     !ffxi_dir.join("VTABLE.DAT").is_file() || ffxi_dir.parent().is_some_and(|g| g.join(MARKER).is_file() || g.join(".download").is_dir())
+}
+
+/// The game folder (the one that holds `FINAL FANTASY XI`) for an install picked in the window: the
+/// `FINAL FANTASY XI` folder itself, or a folder above it in the Windows layout (`PlayOnline/SquareEnix`).
+pub fn existing(picked: &Path) -> Result<PathBuf> {
+    let candidates = [
+        picked.parent().filter(|_| picked.file_name().is_some_and(|n| n == "FINAL FANTASY XI")).map(Path::to_path_buf),
+        Some(picked.to_path_buf()),
+        Some(picked.join("SquareEnix")),
+        Some(picked.join("PlayOnline").join("SquareEnix")),
+    ];
+    let found = candidates.into_iter().flatten().find(|g| g.join("FINAL FANTASY XI").join("VTABLE.DAT").is_file());
+    let Some(game_dir) = found else {
+        anyhow::bail!("No game files in {}: pick the FINAL FANTASY XI folder (the one with VTABLE.DAT) or a folder above it.", picked.display());
+    };
+    if needed(&game_dir.join("FINAL FANTASY XI")) {
+        anyhow::bail!("The install in {} did not finish: choose Download and install with that folder to resume it.", game_dir.display());
+    }
+    Ok(game_dir)
 }
 
 /// What closing the client does to the step under way.
@@ -64,16 +84,27 @@ pub struct FirstRun {
     progress: Arc<Progress>,
     /// The folder picker's answer (it runs on its own thread so the window keeps drawing).
     picked: Arc<Mutex<Option<Option<PathBuf>>>>,
-    picking: bool,
+    /// The picker open, and what its answer is for.
+    picking: Option<Pick>,
+    /// The game files were found in place rather than downloaded.
+    found: bool,
     /// The finish page's choices (Linux): an application menu entry, a desktop shortcut.
     menu: bool,
     shortcut: bool,
     note: String,
 }
 
+#[derive(Clone, Copy)]
+enum Pick {
+    /// Where to download and install.
+    Install,
+    /// An install already on disk.
+    Existing,
+}
+
 impl FirstRun {
     pub fn new(game_dir: PathBuf) -> Self {
-        Self { game_dir, stage: Arc::new(Mutex::new(Stage::Ask)), progress: Arc::new(Progress::default()), picked: Default::default(), picking: false, menu: true, shortcut: false, note: String::new() }
+        Self { game_dir, stage: Arc::new(Mutex::new(Stage::Ask)), progress: Arc::new(Progress::default()), picked: Default::default(), picking: None, found: false, menu: true, shortcut: false, note: String::new() }
     }
 
     /// Where the game files go (the config default, or the folder picked).
@@ -81,11 +112,15 @@ impl FirstRun {
         &self.game_dir
     }
 
-    fn pick(&mut self) {
-        self.picking = true;
+    fn pick(&mut self, what: Pick) {
+        self.picking = Some(what);
         let (start, out) = (self.game_dir.clone(), self.picked.clone());
+        let title = match what {
+            Pick::Install => "Install the game files in",
+            Pick::Existing => "The FINAL FANTASY XI folder",
+        };
         std::thread::spawn(move || {
-            let mut dialog = rfd::FileDialog::new().set_title("Install the game files in");
+            let mut dialog = rfd::FileDialog::new().set_title(title);
             if let Some(dir) = start.ancestors().find(|d| d.is_dir()) {
                 dialog = dialog.set_directory(dir);
             }
@@ -120,10 +155,24 @@ impl FirstRun {
         if stage == 2 && !super::desktop::supported() {
             return Action::Ready;
         }
-        if let Some(answer) = self.picked.lock().unwrap().take() {
-            self.picking = false;
-            if let Some(dir) = answer {
-                self.game_dir = dir;
+        if let Some(answer) = self.picked.lock().unwrap().take()
+            && let Some(what) = self.picking.take()
+            && let Some(dir) = answer
+        {
+            self.note.clear();
+            match what {
+                Pick::Install => self.game_dir = dir,
+                Pick::Existing => match existing(&dir) {
+                    Ok(game_dir) => {
+                        self.game_dir = game_dir;
+                        self.found = true;
+                        *self.stage.lock().unwrap() = Stage::Done;
+                        if !super::desktop::supported() {
+                            return Action::Ready;
+                        }
+                    }
+                    Err(e) => self.note = format!("{e:#}"),
+                },
             }
         }
         let failed = match &*self.stage.lock().unwrap() {
@@ -155,12 +204,21 @@ impl FirstRun {
                                         self.game_dir.display()
                                     )).size(17.0));
                                     ui.add_space(6.0);
-                                    if ui.add_enabled(!self.picking, egui::Button::new(egui::RichText::new("Change install folder...").size(15.0))).clicked() {
-                                        self.pick();
+                                    let picking = self.picking.is_some();
+                                    ui.horizontal(|ui| {
+                                        if ui.add_enabled(!picking, egui::Button::new(egui::RichText::new("Change install folder...").size(15.0))).clicked() {
+                                            self.pick(Pick::Install);
+                                        }
+                                        if ui.add_enabled(!picking, egui::Button::new(egui::RichText::new("Use existing game files...").size(15.0))).clicked() {
+                                            self.pick(Pick::Existing);
+                                        }
+                                    });
+                                    if !self.note.is_empty() {
+                                        ui.label(egui::RichText::new(&self.note).color(egui::Color32::from_rgb(0xe0, 0x80, 0x70)));
                                     }
                                     ui.add_space(16.0);
                                     ui.horizontal(|ui| {
-                                        if ui.add_enabled(!self.picking, egui::Button::new(egui::RichText::new("Download and install").size(19.0))).clicked() {
+                                        if ui.add_enabled(!picking, egui::Button::new(egui::RichText::new("Download and install").size(19.0))).clicked() {
                                             self.start();
                                             action = Action::Begin(self.game_dir.clone());
                                         }
@@ -170,7 +228,15 @@ impl FirstRun {
                                     });
                                 }
                                 2 => {
-                                    ui.label(egui::RichText::new("The game files are installed and up to date.").size(17.0));
+                                    if self.found {
+                                        ui.label(egui::RichText::new(format!(
+                                            "Using the game files in\n\n{}\n\nIf they are behind the current version, the Update button on the \
+                                             title screen brings them up to date.",
+                                            self.game_dir.join("FINAL FANTASY XI").display()
+                                        )).size(17.0));
+                                    } else {
+                                        ui.label(egui::RichText::new("The game files are installed and up to date.").size(17.0));
+                                    }
                                     ui.add_space(12.0);
                                     ui.checkbox(&mut self.menu, egui::RichText::new("Add vana-client to the application menu").size(16.0));
                                     ui.checkbox(&mut self.shortcut, egui::RichText::new("Add a shortcut to the desktop").size(16.0));
@@ -270,4 +336,26 @@ fn run(game_dir: &Path, p: &Arc<Progress>) -> Result<()> {
         log::warn!("desktop entry: {e:#}");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn existing_finds_the_game_folder_from_any_level() {
+        let base = std::env::temp_dir().join(format!("vana-firstrun-{}", std::process::id()));
+        let game = base.join("PlayOnline").join("SquareEnix");
+        let ffxi = game.join("FINAL FANTASY XI");
+        std::fs::create_dir_all(&ffxi).unwrap();
+        assert!(existing(&base).is_err());
+        std::fs::write(ffxi.join("VTABLE.DAT"), b"").unwrap();
+        for picked in [&ffxi, &game, &base.join("PlayOnline"), &base] {
+            assert_eq!(existing(picked).unwrap(), game, "picked {}", picked.display());
+        }
+        // An install vana-client stopped part-way is resumed, not used.
+        std::fs::write(game.join(MARKER), b"").unwrap();
+        assert!(existing(&ffxi).is_err());
+        std::fs::remove_dir_all(&base).unwrap();
+    }
 }

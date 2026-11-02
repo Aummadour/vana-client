@@ -93,7 +93,8 @@ target/release/vana-client install /path/to/FFXIFullSetup_US.part1.exe
 
 This unpacks the game to `~/.local/share/vana-client/game/FINAL FANTASY XI` with the same layout the Windows
 installer uses. Use `--game-dir` to put it somewhere else. An existing Windows install can also be copied there,
-or pointed at with `game_dir` in the config (see below).
+or pointed at with `game_dir` in the config (see below). Started without game files, the client offers to download
+them, or to use an install already on disk with "Use existing game files...".
 
 The installer's data is years old. To bring it up to the current retail version from the PlayOnline patch server:
 
