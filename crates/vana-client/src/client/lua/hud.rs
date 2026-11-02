@@ -24,7 +24,7 @@ pub(super) struct Elem {
     pub kind: Kind,
 }
 
-fn colour(v: Value) -> mlua::Result<Option<[u8; 4]>> {
+pub(super) fn colour(v: Value) -> mlua::Result<Option<[u8; 4]>> {
     Ok(match v {
         Value::Table(t) => {
             let get = |k: &str, i: i64, d: u8| -> mlua::Result<u8> { Ok(t.get::<Option<u8>>(k)?.or(t.get::<Option<u8>>(i)?).unwrap_or(d)) };

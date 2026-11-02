@@ -295,6 +295,8 @@ fn text_field_open(w: &World) -> bool {
         || macroedit::typing(w)
         || faqmain::typing(w)
         || polmail::composing(w)
+        // A Lua mod window's line being typed.
+        || w.lua.typing()
         // The modern list search (magic, abilities, items, journal, the auction's bid pages) takes the letters.
         || w.list_search.is_some()
         // The modern Wide Scan name filter and the full log's find.
@@ -1891,6 +1893,7 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
     let macro_typing = macroedit::typing(world);
     let faq_typing = faqmain::typing(world);
     let mail_typing = polmail::composing(world);
+    let lua_typing = world.lua.typing();
     // The Wide Scan flyout's name filter.
     let scan_typing = world.scan_typing && world.modern;
     if scan_typing {
@@ -1917,7 +1920,7 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
     if list_typing {
         keys.clear();
     }
-    let input_open = event::input(world).is_some() || map_typing || post_typing || search_typing || ls_typing || comment_typing || macro_typing || faq_typing || mail_typing || list_typing || scan_typing || find_typing;
+    let input_open = event::input(world).is_some() || map_typing || post_typing || search_typing || ls_typing || comment_typing || macro_typing || faq_typing || mail_typing || lua_typing || list_typing || scan_typing || find_typing;
     if post_typing {
         post::text_events(world, &input.events);
         keys.clear();
@@ -1938,6 +1941,9 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
         keys.clear();
     } else if mail_typing {
         polmail::text_events(world, &input.events);
+        keys.clear();
+    } else if lua_typing {
+        lua::window_text(world, &input.events);
         keys.clear();
     } else if map_typing && let Some(m) = world.map.as_mut() {
         m.text_events(&input.events);
@@ -4082,6 +4088,10 @@ fn bar_text(gu: &GameUi, world: &World, items: &[(usize, [f32; 4])]) -> hudtop::
     }
     if let Some(s) = &world.settings {
         (bars.help[1], bars.title[1]) = (s.help(), s.title().into());
+    }
+    // A Lua mod window with the keys: its title and the help under its cursor.
+    if let Some((title, help)) = world.lua.focused_help() {
+        (bars.help[1], bars.title[1]) = (help, title);
     }
     // The palette's caption (FUN_101a3d00): group 10 0x27 "Macro Set %s (#%d)"; titles "MacroPalette" (group 0xd
     // 0x50) under the cursor cell's macro title.

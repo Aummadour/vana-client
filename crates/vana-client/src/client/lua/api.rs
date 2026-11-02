@@ -226,10 +226,11 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
                 _ => None,
             };
             let elems: Option<Table> = spec.get("elements")?;
-            w.elems = match elems {
+            let parsed: Vec<(super::window::Elem, super::window::Meta)> = match elems {
                 Some(t) => t.sequence_values::<Table>().map(|e| e.and_then(|e| elem(&e))).collect::<mlua::Result<_>>()?,
                 None => Vec::new(),
             };
+            (w.elems, w.meta) = parsed.into_iter().unzip();
             w.settle();
             Ok(())
         })?,
@@ -240,10 +241,42 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
             let st = state(lua);
             let mut s = st.borrow_mut();
             let w = s.windows.iter_mut().find(|w| w.id == id).ok_or_else(|| mlua::Error::runtime(format!("no window {id:?}")))?;
-            let e = w.elems.iter_mut().find(|e| e.id() == Some(eid.as_str())).ok_or_else(|| mlua::Error::runtime(format!("no element {eid:?} in {id:?}")))?;
-            update(e, &fields)?;
+            let k = w.elems.iter().position(|e| e.id() == Some(eid.as_str())).ok_or_else(|| mlua::Error::runtime(format!("no element {eid:?} in {id:?}")))?;
+            update(&mut w.elems[k], &fields)?;
+            w.meta.resize(w.elems.len(), Default::default());
+            if let Some(v) = fields.get::<Option<String>>("tip")? {
+                w.meta[k].tip = v;
+            }
+            if fields.contains_key("page")? {
+                w.meta[k].page = fields.get::<Option<i64>>("page")?.map(|p| (p.max(1) - 1) as usize);
+            }
             w.settle();
             Ok(())
+        })?,
+    )?;
+    ui.set(
+        "get",
+        lua.create_function(|lua, (id, eid): (String, String)| {
+            use super::window::Elem;
+            let st = state(lua);
+            let s = st.borrow();
+            let w = s.windows.iter().find(|w| w.id == id).ok_or_else(|| mlua::Error::runtime(format!("no window {id:?}")))?;
+            let e = w.elems.iter().find(|e| e.id() == Some(eid.as_str())).ok_or_else(|| mlua::Error::runtime(format!("no element {eid:?} in {id:?}")))?;
+            let t = lua.create_table()?;
+            match e {
+                Elem::Text { text, .. } | Elem::Input { text, .. } => t.set("text", text.as_str())?,
+                Elem::Buttons { marked, .. } => t.set("at", marked.map(|m| m + 1))?,
+                Elem::Slider { at, .. } | Elem::List { at, .. } | Elem::Tabs { at, .. } | Elem::Choice { at, .. } => t.set("at", at + 1)?,
+                Elem::Gauge { value, .. } => t.set("value", *value)?,
+                Elem::Colour { value: [r, g, b, a], .. } => {
+                    let c = lua.create_table()?;
+                    (c.set("r", *r)?, c.set("g", *g)?, c.set("b", *b)?, c.set("a", *a)?);
+                    t.set("value", c)?;
+                }
+                Elem::Section { open, .. } => t.set("open", *open)?,
+                Elem::Separator => {}
+            }
+            Ok(t)
         })?,
     )?;
     ui.set(
@@ -1009,8 +1042,60 @@ fn player(lua: &Lua) -> mlua::Result<Table> {
     Ok(t)
 }
 
-/// One element of a window spec ({type = "text" | "buttons" | "slider" | "list" | "separator", ...}).
-fn elem(t: &Table) -> mlua::Result<super::window::Elem> {
+/// A list's rows: strings, or {cells..., icon = {kind = "item" | "status", id}, colour}.
+fn rows(v: Option<Table>) -> mlua::Result<Vec<super::window::Row>> {
+    use super::window::Row;
+    let cell = |v: Value| -> String {
+        match v {
+            Value::String(s) => s.to_string_lossy(),
+            Value::Integer(i) => i.to_string(),
+            Value::Number(n) => n.to_string(),
+            Value::Boolean(b) => b.to_string(),
+            _ => String::new(),
+        }
+    };
+    let Some(v) = v else { return Ok(Vec::new()) };
+    v.sequence_values::<Value>()
+        .map(|r| {
+            Ok(match r? {
+                Value::Table(t) => {
+                    let cells = match t.get::<Option<Table>>("cells")? {
+                        Some(c) => c.sequence_values::<Value>().map(|v| v.map(cell)).collect::<mlua::Result<_>>()?,
+                        None => t.sequence_values::<Value>().map(|v| v.map(cell)).collect::<mlua::Result<_>>()?,
+                    };
+                    let icon = match t.get::<Option<Table>>("icon")? {
+                        Some(i) => Some((i.get::<Option<String>>("kind")?.as_deref() != Some("status"), i.get::<u16>("id")?)),
+                        None => None,
+                    };
+                    Row { cells, icon, colour: super::hud::colour(t.get("colour")?)? }
+                }
+                other => Row::text(&cell(other)),
+            })
+        })
+        .collect()
+}
+
+fn columns(v: Option<Table>) -> mlua::Result<Vec<super::window::Col>> {
+    let Some(v) = v else { return Ok(Vec::new()) };
+    v.sequence_values::<Table>()
+        .map(|c| {
+            let c = c?;
+            Ok(super::window::Col {
+                title: c.get::<Option<String>>("title")?.unwrap_or_default(),
+                width: c.get::<Option<f32>>("width")?.unwrap_or(0.0),
+                right: c.get::<Option<String>>("align")?.as_deref() == Some("right"),
+            })
+        })
+        .collect()
+}
+
+/// One element of a window spec ({type = "text" | "buttons" | ..., tip, page}) and what every element carries.
+fn elem(t: &Table) -> mlua::Result<(super::window::Elem, super::window::Meta)> {
+    let meta = super::window::Meta { tip: t.get::<Option<String>>("tip")?.unwrap_or_default(), page: t.get::<Option<i64>>("page")?.map(|p| (p.max(1) - 1) as usize) };
+    Ok((elem_only(t)?, meta))
+}
+
+fn elem_only(t: &Table) -> mlua::Result<super::window::Elem> {
     use super::window::Elem;
     let kind: String = t.get("type")?;
     let id = || -> mlua::Result<String> { t.get::<Option<String>>("id")?.ok_or_else(|| mlua::Error::runtime(format!("a {kind} element needs an id"))) };
@@ -1022,7 +1107,12 @@ fn elem(t: &Table) -> mlua::Result<super::window::Elem> {
             let n = t.get::<Option<usize>>("steps")?.unwrap_or(2).max(1);
             Elem::Slider { id: id()?, label: t.get::<Option<String>>("label")?.unwrap_or_default(), n, at: index("at")?.unwrap_or(0).min(n - 1), shown: t.get::<Option<String>>("shown")?.unwrap_or_default() }
         }
-        "list" => Elem::List { id: id()?, rows: t.get::<Option<Vec<String>>>("rows")?.unwrap_or_default(), at: index("at")?.unwrap_or(0), top: 0, height: t.get::<Option<usize>>("height")?.unwrap_or(8).max(1) },
+        "list" => Elem::List { id: id()?, rows: rows(t.get("rows")?)?, columns: columns(t.get("columns")?)?, at: index("at")?.unwrap_or(0), top: 0, height: t.get::<Option<usize>>("height")?.unwrap_or(8).max(1) },
+        "tabs" => Elem::Tabs { id: id()?, items: t.get::<Option<Vec<String>>>("items")?.unwrap_or_default(), at: index("at")?.unwrap_or(0) },
+        "input" => Elem::Input { id: id()?, label: t.get::<Option<String>>("label")?.unwrap_or_default(), text: t.get::<Option<String>>("text")?.unwrap_or_default(), max: t.get::<Option<usize>>("max")?.unwrap_or(64).clamp(1, 1024) },
+        "choice" => Elem::Choice { id: id()?, label: t.get::<Option<String>>("label")?.unwrap_or_default(), items: t.get::<Option<Vec<String>>>("items")?.unwrap_or_default(), at: index("at")?.unwrap_or(0) },
+        "colour" | "color" => Elem::Colour { id: id()?, label: t.get::<Option<String>>("label")?.unwrap_or_default(), value: super::hud::colour(t.get("value")?)?.unwrap_or([255; 4]), alpha: t.get::<Option<bool>>("alpha")?.unwrap_or(false) },
+        "section" => Elem::Section { id: id()?, label: t.get::<Option<String>>("label")?.unwrap_or_default(), open: t.get::<Option<bool>>("open")?.unwrap_or(true) },
         "gauge" => Elem::Gauge { id: t.get::<Option<String>>("id")?.unwrap_or_default(), label: t.get::<Option<String>>("label")?.unwrap_or_default(), value: t.get::<Option<f32>>("value")?.unwrap_or(0.0), text: t.get::<Option<String>>("text")?.unwrap_or_default(), kind: t.get::<Option<String>>("kind")?.unwrap_or_else(|| "hp".into()) },
         "separator" => Elem::Separator,
         other => return Err(mlua::Error::runtime(format!("unknown element type {other:?}"))),
@@ -1049,8 +1139,9 @@ fn update(e: &mut super::window::Elem, t: &Table) -> mlua::Result<()> {
             if let Some(v) = t.get::<Option<String>>("shown")? { *shown = v; }
             *at = (*at).min(*n - 1);
         }
-        Elem::List { rows, at, height, .. } => {
-            if let Some(v) = t.get::<Option<Vec<String>>>("rows")? { *rows = v; }
+        Elem::List { rows: r, columns: c, at, height, .. } => {
+            if t.contains_key("rows")? { *r = rows(t.get("rows")?)?; }
+            if t.contains_key("columns")? { *c = columns(t.get("columns")?)?; }
             if let Some(v) = t.get::<Option<i64>>("at")? { *at = (v.max(1) - 1) as usize; }
             if let Some(v) = t.get::<Option<usize>>("height")? { *height = v.max(1); }
         }
@@ -1059,6 +1150,29 @@ fn update(e: &mut super::window::Elem, t: &Table) -> mlua::Result<()> {
             if let Some(v) = t.get::<Option<f32>>("value")? { *value = v; }
             if let Some(v) = t.get::<Option<String>>("text")? { *text = v; }
             if let Some(v) = t.get::<Option<String>>("kind")? { *kind = v; }
+        }
+        Elem::Tabs { items, at, .. } => {
+            if let Some(v) = t.get::<Option<Vec<String>>>("items")? { *items = v; }
+            if let Some(v) = t.get::<Option<i64>>("at")? { *at = (v.max(1) - 1) as usize; }
+        }
+        Elem::Choice { label, items, at, .. } => {
+            if let Some(v) = t.get::<Option<String>>("label")? { *label = v; }
+            if let Some(v) = t.get::<Option<Vec<String>>>("items")? { *items = v; }
+            if let Some(v) = t.get::<Option<i64>>("at")? { *at = (v.max(1) - 1) as usize; }
+        }
+        Elem::Input { label, text, max, .. } => {
+            if let Some(v) = t.get::<Option<String>>("label")? { *label = v; }
+            if let Some(v) = t.get::<Option<String>>("text")? { *text = v; }
+            if let Some(v) = t.get::<Option<usize>>("max")? { *max = v.clamp(1, 1024); }
+        }
+        Elem::Colour { label, value, alpha, .. } => {
+            if let Some(v) = t.get::<Option<String>>("label")? { *label = v; }
+            if let Some(v) = super::hud::colour(t.get("value")?)? { *value = v; }
+            if let Some(v) = t.get::<Option<bool>>("alpha")? { *alpha = v; }
+        }
+        Elem::Section { label, open, .. } => {
+            if let Some(v) = t.get::<Option<String>>("label")? { *label = v; }
+            if let Some(v) = t.get::<Option<bool>>("open")? { *open = v; }
         }
         Elem::Separator => {}
     }

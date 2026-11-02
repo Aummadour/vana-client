@@ -1200,6 +1200,33 @@ impl Host {
     pub(super) fn focused(&self) -> bool {
         self.vms.iter().any(|v| v.suspended.is_none() && v.st.borrow().windows.iter().any(|w| w.open && w.focus))
     }
+
+    /// Whether a mod window's line is being typed (it takes the text and the keys).
+    pub(super) fn typing(&self) -> bool {
+        self.vms.iter().any(|v| v.suspended.is_none() && v.st.borrow().windows.iter().any(|w| w.open && w.focus && w.typing()))
+    }
+
+    /// The focused window's title and the help under its cursor, for the classic help bar.
+    pub(super) fn focused_help(&self) -> Option<(String, String)> {
+        self.vms.iter().filter(|v| v.suspended.is_none()).find_map(|v| v.st.borrow().windows.iter().find(|w| w.open && w.focus).map(|w| (w.title.clone(), w.help_now().to_string())))
+    }
+}
+
+/// Typed text for the focused window's line.
+pub(super) fn window_text(w: &mut World, events: &[egui::Event]) {
+    let host = &mut w.lua;
+    let mut hit = None;
+    for vm in host.vms.iter().filter(|v| v.suspended.is_none()) {
+        let mut st = vm.st.borrow_mut();
+        if let Some(win) = st.windows.iter_mut().find(|w| w.open && w.focus && w.typing()) {
+            let (ev, se) = win.text(events);
+            hit = Some((vm.manifest.id.clone(), win.id.clone(), ev, se));
+            break;
+        }
+    }
+    let Some((id, win, ev, se)) = hit else { return };
+    host.ui_events.extend(ev.into_iter().map(|e| (id.clone(), win.clone(), e)));
+    w.sounds.extend(se.into_iter().map(|s| s as u32));
 }
 
 /// A key for the focused mod window, if any (its events go to the mod's handler next phase).
@@ -1225,7 +1252,7 @@ pub(super) fn draw_classic(gu: &mut super::game_ui::GameUi, w: &World) -> Vec<[f
     let mut out = Vec::new();
     for (v, id, x, y) in classic_places(w) {
         if let Some(win) = w.lua.vms[v].st.borrow().windows.iter().find(|x| x.id == id) {
-            out.push(win.draw_classic(gu, x, y));
+            out.push(win.draw_classic(gu, w.item_info.as_deref(), x, y));
         }
     }
     out
@@ -1249,6 +1276,7 @@ pub(super) fn window_click(w: &mut World, mod_id: &str, win_id: &str, click: sup
     use super::modern::ModClick as C;
     let host = &mut w.lua;
     let mut out = None;
+    let mut ended = Vec::new();
     for vm in host.vms.iter() {
         let mut st = vm.st.borrow_mut();
         let mine = vm.manifest.id == mod_id;
@@ -1256,6 +1284,10 @@ pub(super) fn window_click(w: &mut World, mod_id: &str, win_id: &str, click: sup
         for win in st.windows.iter_mut() {
             let this = mine && win.id == win_id && win.open;
             if !hud {
+                // A window losing the focus ends its edit.
+                if win.focus && !this {
+                    ended.extend(win.end_edit().into_iter().map(|e| (vm.manifest.id.clone(), win.id.clone(), e)));
+                }
                 win.focus = this;
             }
             if this {
@@ -1263,10 +1295,16 @@ pub(super) fn window_click(w: &mut World, mod_id: &str, win_id: &str, click: sup
                     C::Button(i, c) => win.click_button(i, c),
                     C::Slide(i, s) => win.slide(i, s),
                     C::Row(i, r) => win.pick(i, r),
+                    C::Turn(i, d) => win.turn_to(i, d, None),
+                    C::TurnTo(i, k) => win.turn_to(i, 0, Some(k)),
+                    C::Colour(i, rgb) => win.set_colour(i, Some(rgb), None),
+                    C::Alpha(i, s) => win.set_colour(i, None, Some(s)),
+                    C::Sort(i, c) => win.sort(i, c),
                 });
             }
         }
     }
+    host.ui_events.extend(ended);
     if let Some((ev, se)) = out {
         host.ui_events.extend(ev.into_iter().map(|e| (mod_id.to_string(), win_id.to_string(), e)));
         w.sounds.extend(se.into_iter().map(|s| s as u32));
@@ -1308,11 +1346,17 @@ pub(super) fn pointer_classic(w: &mut World, gu: &super::game_ui::GameUi, p: (f3
         // A click on a window gives it the focus (not a HUD's).
         let hud = w.lua.vms[v].st.borrow().windows.iter().any(|x| x.id == id && x.hud);
         if clicked && !hud {
+            let mut ended = Vec::new();
             for (j, vm) in w.lua.vms.iter().enumerate() {
                 for win in vm.st.borrow_mut().windows.iter_mut() {
-                    win.focus = j == v && win.id == id && win.open;
+                    let this = j == v && win.id == id && win.open;
+                    if win.focus && !this {
+                        ended.extend(win.end_edit().into_iter().map(|e| (vm.manifest.id.clone(), win.id.clone(), e)));
+                    }
+                    win.focus = this;
                 }
             }
+            w.lua.ui_events.extend(ended);
         }
         w.lua.ui_events.extend(ev.into_iter().map(|e| (mod_id.clone(), id.clone(), e)));
         w.sounds.extend(se.into_iter().map(|s| s as u32));
