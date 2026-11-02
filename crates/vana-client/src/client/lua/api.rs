@@ -404,6 +404,7 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     g.set("timer", timer)?;
     super::actions::install(lua, &g)?;
     super::input::install(lua, &g)?;
+    super::runtime::install(lua, &g, vm)?;
     let start = Instant::now();
     g.set("clock", lua.create_function(move |_, ()| Ok(start.elapsed().as_secs_f64()))?)?;
 

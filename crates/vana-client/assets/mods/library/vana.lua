@@ -187,6 +187,11 @@ timer = {}
 game = {}
 actions = {}
 res = {}
+fs = {}
+json = {}
+mods = {}
+text = {}
+client = {}
 settings = {}
 
 --- Writes its arguments to the chat log (dim) and vana-client.log.
@@ -663,6 +668,95 @@ function res.key_item(id) end
 ---@param id integer 
 ---@return string?
 function res.job(id) end
+
+--- A file's bytes, or nil: the mod's data folder first (what it wrote), then its own files. "shared/..." is the area every mod with files.shared can reach.
+---@param path string relative, / separated
+---@return string?
+function fs.read(path) end
+
+--- Writes a file in the mod's data folder (folders made as needed).
+---@param path string 
+---@param data string 
+function fs.write(path, data) end
+
+--- Adds to the end of a file in the mod's data folder.
+---@param path string 
+---@param data string 
+function fs.append(path, data) end
+
+--- Whether a file or folder is there (data folder or the mod's own files).
+---@param path string 
+---@return boolean
+function fs.exists(path) end
+
+--- The names in a folder, sorted (folders end in /): the data folder's and the mod's own.
+---@param path? string none: the top
+---@return string[]
+function fs.list(path) end
+
+--- Makes a folder (and its parents) in the data folder.
+---@param path string 
+function fs.mkdir(path) end
+
+--- Removes a file or a folder with everything in it, from the data folder.
+---@param path string 
+function fs.remove(path) end
+
+--- Moves a file or folder within the data folder.
+---@param from string 
+---@param to string 
+function fs.rename(from, to) end
+
+--- Plain data as JSON text.
+---@param value any 
+---@param options? {pretty: boolean?} 
+---@return string
+function json.encode(value, options) end
+
+--- JSON text as Lua values.
+---@param text string 
+---@return any
+function json.decode(text) end
+
+--- Every loaded mod: id, name, version and the functions it provides.
+---@return {id: string, name: string, version: string, provides: string[]}[]
+function mods.list() end
+
+--- Offers a function to other mods (mods.call). Values cross as copies of plain data.
+---@param name string 
+---@param func function 
+function mods.provide(name, func) end
+
+--- Calls another mod's provided function now, in its VM, and returns what it returned (copies). It cannot sleep.
+---@param mod string its id
+---@param name string 
+---@param ... any 
+---@return any
+function mods.call(mod, name, ...) end
+
+--- Raises an event in every other mod: their events.on handlers get the values once the running handler is done (the same mod phase). Prefix the name with your mod's id.
+---@param event string 
+---@param ... any plain data
+function mods.emit(event, ...) end
+
+--- Shift-JIS bytes (packets, game files) as text.
+---@param bytes string 
+---@return string
+function text.from_shift_jis(bytes) end
+
+--- Text as Shift-JIS bytes.
+---@param text string 
+---@return string
+function text.to_shift_jis(text) end
+
+--- A line with its auto-translate phrases as plain words.
+---@param text string 
+---@return string
+function text.plain(text) end
+
+--- Puts text on the clipboard.
+---@param text string 
+function client.copy(text) end
 
 --- Writes storage.account and storage.character now (they are also written at logout and unload).
 function storage.save() end

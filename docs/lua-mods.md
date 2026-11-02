@@ -71,6 +71,16 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   - test drives' keys and mouse go through the same filters and binds
   - checked live: a key taken (Space left the chat line shut), F9 taken, binds by function and by line, a click's
     place, the chat line opened by a mod and sent by its own Enter
+- **Runtime helpers:**
+  - `os.time`, `os.date`, `os.clock`, `os.difftime` (nothing else of `os`)
+  - `fs.read` / `write` / `append` / `exists` / `list` / `mkdir` / `remove` / `rename` in the mod's data folder
+    (mod-data/<id>/files), reads falling back to the mod's own files; `shared/...` with `files.shared`; no `..`
+  - `json.encode` / `decode`
+  - `mods.list`, `mods.provide` / `mods.call` (a function in another mod's VM, values copied), `mods.emit` (an event
+    to every other mod)
+  - `text.from_shift_jis` / `to_shift_jis` / `plain` (auto-translate phrases as words); `client.copy`
+  - checked live: a call returning two values, an emitted table, files written, appended, listed and read back, the
+    mod's own file read, `..` and `shared/` refused, JSON both ways, the os subset, Shift-JIS round trip
 - **Bundled mods:** `/dps` (the first Extra ported).
 - **Mods folder:** `mods/<id>/` (enabled through config `mods`); a test run uses `mods` beside its FFXI_CONFIG copy.
 

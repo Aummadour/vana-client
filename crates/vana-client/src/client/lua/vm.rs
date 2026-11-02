@@ -104,6 +104,8 @@ pub(super) struct ModState {
     pub key_filters: Vec<(u64, RegistryKey)>,
     pub mouse_filters: Vec<(u64, RegistryKey)>,
     pub binds: Vec<super::input::Bind>,
+    /// Functions other mods may call (mods.provide).
+    pub provided: Vec<(String, RegistryKey)>,
 }
 
 impl ModState {
@@ -165,9 +167,16 @@ pub(super) struct Stats {
 impl Vm {
     pub fn new(manifest: Manifest, dir: PathBuf, src: Source) -> mlua::Result<Self> {
         // The base library always loads; no io, os, package or debug.
-        let lua = Lua::new_with(StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::UTF8 | StdLib::COROUTINE, LuaOptions::default())?;
+        let lua = Lua::new_with(StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::UTF8 | StdLib::COROUTINE | StdLib::OS, LuaOptions::default())?;
         lua.set_memory_limit(MEMORY)?;
         let g = lua.globals();
+        // os: the clock and the date only.
+        let os: mlua::Table = g.get("os")?;
+        let keep = lua.create_table()?;
+        for name in ["time", "date", "clock", "difftime"] {
+            keep.raw_set(name, os.get::<Value>(name)?)?;
+        }
+        g.raw_set("os", keep)?;
         for name in ["dofile", "loadfile"] {
             g.raw_set(name, Value::Nil)?;
         }

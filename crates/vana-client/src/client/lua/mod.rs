@@ -7,6 +7,7 @@ mod api;
 mod docs;
 pub(super) mod input;
 mod manifest;
+mod runtime;
 mod vm;
 pub(super) mod window;
 
@@ -25,6 +26,8 @@ pub(super) enum Op {
     Key(input::Synth),
     /// The chat line opened with this text, or closed.
     Line { text: String, open: bool },
+    /// Text for the clipboard.
+    Copy(String),
 }
 
 /// The mods of this session.
@@ -55,6 +58,8 @@ pub struct Host {
     fired: Vec<(String, String, bool)>,
     /// Keys the mods pressed, for the app to hand the game this frame.
     pub(in crate::client) synth: Vec<input::Synth>,
+    /// Every loaded mod, for mods.list / call / emit.
+    dir: runtime::Shared,
 }
 
 /// Mod folders watched for saved files (`/lua watch`): a thread polls their .lua / .toml files' times and names a mod
@@ -326,7 +331,9 @@ impl Host {
         }
         vm.lua.set_app_data(self.last.clone());
         vm.lua.set_app_data(self.input.clone());
+        vm.lua.set_app_data(self.dir.clone());
         api::install(&vm.lua, &vm, storage).map_err(|e| format!("{e}"))?;
+        self.dir.borrow_mut().mods.push(runtime::Entry { id: vm.manifest.id.clone(), name: vm.manifest.name.clone(), version: vm.manifest.version.clone(), lua: vm.lua.weak(), st: vm.st.clone() });
         log::info!("lua mod {} {} loaded from {}", vm.manifest.id, vm.manifest.version, vm.dir.display());
         lend(&vm, w, |vm| {
             vm.run_entry();
@@ -340,6 +347,7 @@ impl Host {
     /// Sends `unload`, saves its storage and drops the VM.
     fn unload(&mut self, w: &World, k: usize) {
         let vm = self.vms.remove(k);
+        self.dir.borrow_mut().mods.retain(|m| m.id != vm.manifest.id);
         self.filters_dirty = true;
         lend(&vm, w, |vm| vm.emit("unload", ()));
         save(&vm, w);
@@ -644,6 +652,17 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
         }
         let events = std::mem::take(&mut host.events);
         let ui_events = std::mem::take(&mut host.ui_events);
+        // Events mods sent each other (mods.emit), to every other mod listening.
+        let emitted = std::mem::take(&mut host.dir.borrow_mut().emitted);
+        for (from, name, args) in &emitted {
+            for vm in host.vms.iter().filter(|v| v.suspended.is_none() && v.manifest.id != *from && v.has_handler(name)) {
+                lend(vm, w, |vm| {
+                    use mlua::LuaSerdeExt;
+                    let vals: Vec<mlua::Value> = args.iter().map(|a| vm.lua.to_value(a).unwrap_or(mlua::Value::Nil)).collect();
+                    vm.emit(name, mlua::MultiValue::from_iter(vals));
+                });
+            }
+        }
         for vm in host.vms.iter().filter(|v| v.suspended.is_none()) {
             lend(vm, w, |vm| {
                 use mlua::LuaSerdeExt;
@@ -756,6 +775,7 @@ fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
         Op::Run(line) => super::textcmd::run(w, &line, super::textcmd::Mode::Typed),
         Op::Act(a) => actions::apply(w, gu, a),
         Op::Key(k) => w.lua.synth.push(k),
+        Op::Copy(text) => w.copied = Some(text),
         Op::Line { text, open: true } => {
             (w.chat_input, w.chat_caret, w.chat_anchor) = (text, None, None);
             w.typing = true;
@@ -808,7 +828,7 @@ mod tests {
             assert!(matches!(v, Value::Function(_)), "{}.{} is documented but not bound", f.ns, f.name);
         }
         // Every global table but Lua's own is a namespace of ours, documented or not.
-        const STD: [&str; 6] = ["_G", "table", "string", "math", "utf8", "coroutine"];
+        const STD: [&str; 7] = ["_G", "table", "string", "math", "utf8", "coroutine", "os"];
         let namespaces: Vec<String> = g.pairs::<String, Value>().filter_map(|p| p.ok()).filter(|(k, v)| matches!(v, Value::Table(_)) && !STD.contains(&k.as_str())).map(|p| p.0).collect();
         for ns in namespaces {
             let ns = ns.as_str();
