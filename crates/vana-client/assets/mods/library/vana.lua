@@ -187,6 +187,7 @@ ui = {}
 hud = {}
 ui.native = {}
 render = {}
+audio = {}
 packets = {}
 chat = {}
 input = {}
@@ -408,6 +409,20 @@ function render.camera_distance() end
 --- Sets the camera's distance, as the wheel does (not in first person).
 ---@param scale number 0.5..3
 function render.set_camera_distance(scale) end
+
+--- Plays a sound file from the mod's folder (16-bit PCM WAV, mono or stereo, any rate; or a game SeWave file) at the effects volume.
+---@param path string 
+---@param volume? number 0..1, default 1
+function audio.play(path, volume) end
+
+--- Plays one of the game's sound effects by id (sound/win/se).
+---@param id integer 
+---@param volume? number 0..1
+function audio.play_se(id, volume) end
+
+--- Plays an interface sound by id (the menus' cursor, select, cancel...).
+---@param id integer 
+function audio.play_ui(id) end
 
 --- Hooks received packets (one id, or every one when nil) before the client reads them. The handler gets {id, data, original, injected, blocked, outgoing} (data and original are the whole sub-packet, header included) and returns nil to leave it, false to block it, or new bytes. Hooks chain across mods: a blocked packet still reaches later ones. Needs packets.read; changing or blocking needs packets.write.
 ---@param id integer? packet id

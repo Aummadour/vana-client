@@ -57,6 +57,8 @@ Built (client/lua/, modern/modwin.rs), each checked live:
 - **Render** (`render`): per entity, while the mod runs (the newest mod's wins): hidden (model and plate), plate name and
   colour, alpha, tint, size; the camera's distance read and set. Checked live (a renamed, tinted, doubled NPC, a hidden
   one, ourselves translucent, the camera pulled back).
+- **Audio** (`audio`): the mod's WAV files (16-bit PCM, any rate) through our mixer at the effects volume, the game's
+  sound effects and interface sounds by id. Checked live (a WAV, a game effect, an 8-bit file refused).
 - **Permissions:** each one a mod asks for is a row on its Extras page (ON / OFF, with what it allows on the help
   line), or `/lua grant` / `revoke`; kept in mod-data/grants.json. A mod loaded without them says where to allow them.
 - **Packets** (`packets.read` / `packets.write`):
@@ -101,7 +103,7 @@ Built (client/lua/, modern/modwin.rs), each checked live:
 
 Next (docs/lua-mods.md 6): packet layouts and decoded views, batch order (the rest of
 phase 4); the rest of phase 5 (trade, shops, BLU / PUP sets as actions; native window drive and list rows; engine settings such as draw distance and frame limit); the other Extras as
-bundled mods; then world-space drawing, audio, ipc / net, and the coverage table.
+bundled mods; then world-space drawing, music overrides, ipc / net, and the coverage table.
 
 ## 1. The bar
 

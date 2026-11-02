@@ -4,6 +4,7 @@
 
 mod actions;
 mod api;
+pub(super) mod audio;
 mod docs;
 mod hud;
 pub(super) mod input;
@@ -38,6 +39,7 @@ pub(super) enum Op {
     Config(u16, u32),
     /// The camera's distance (the zoom's scale).
     CameraDistance(f32),
+    Sound(audio::Sound),
 }
 
 /// The mods of this session.
@@ -70,6 +72,8 @@ pub struct Host {
     pub(in crate::client) synth: Vec<input::Synth>,
     /// Every loaded mod, for mods.list / call / emit.
     dir: runtime::Shared,
+    /// Sounds the mods asked for, for the app's mixer.
+    pub(in crate::client) sounds: Vec<audio::Sound>,
     /// What the UI knows that mods read (the map grid).
     info: std::rc::Rc<std::cell::RefCell<state::FrameInfo>>,
     /// HUD elements clicked since the last mod phase: (mod, element, button).
@@ -813,6 +817,7 @@ fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
         Op::Copy(text) => w.copied = Some(text),
         Op::Interface(show) => w.ui_hidden = !show,
         Op::CameraDistance(k) => super::camera::set_distance(w, k),
+        Op::Sound(s) => w.lua.sounds.push(s),
         Op::Config(id, v) => {
             if w.game.set(id, v) {
                 super::cfgapply::apply(w, id);

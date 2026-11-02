@@ -224,6 +224,16 @@ impl Audio {
         let _ = self.tx.send(Req::Se { id, level: lv });
     }
 
+    /// A sound file's bytes (WAV or SeWave, a Lua mod's) at a level 0..127 before the effects factor.
+    pub fn play_bytes(&mut self, bytes: Arc<[u8]>, level: i32) {
+        if self.status.voices.load(std::sync::atomic::Ordering::Relaxed) >= self.max_se {
+            return;
+        }
+        let lv = ((level as f32 * self.effects) as i32).clamp(0, 127) as u8;
+        log::debug!("mod sound: {} bytes at level {lv}", bytes.len());
+        let _ = self.tx.send(Req::Cmd(Cmd::PlaySe { bytes, level: lv, pan: 0x40, priority: 0, handle: 0, limit: 0 }));
+    }
+
     /// A positioned effect voice (FUN_100370d0 -> FUN_10036130 -> cmd 2) under `handle`; level 0..127 before the
     /// effects factor, pan 0..127. A full table (the 0029 limit) steals the oldest lower-priority voice (FUN_1023fb90)
     /// rather than refusing, unlike the plain sound call FUN_10037510.

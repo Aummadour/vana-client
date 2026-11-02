@@ -7176,6 +7176,14 @@ impl App {
             for id in w.sounds.drain(..) {
                 a.play_ui_se(id);
             }
+            // The Lua mods' sounds.
+            for s in w.lua.sounds.drain(..) {
+                match s {
+                    lua::audio::Sound::File(bytes, level) => a.play_bytes(bytes, level),
+                    lua::audio::Sound::Se(id, level) => a.play_se(id, level),
+                    lua::audio::Sound::Ui(id) => a.play_ui_se(id),
+                }
+            }
             let hour = w.clock.map(|(t, at)| crate::dat::weather::vana_minute(t, at.elapsed().as_secs_f32()) as u32 / 60).unwrap_or(12);
             // Op 0x77's hour is the clock's while it holds (FUN_100b6880).
             let hour = event::hour(w).unwrap_or(hour);
@@ -14159,7 +14167,7 @@ impl ApplicationHandler for App {
 }
 
 /// The windows open now by name, for F12 and the mods (ui.native.windows).
-pub(super) fn open_windows(w: &World) -> Vec<&'static str> {
+fn open_windows(w: &World) -> Vec<&'static str> {
     [
         ("menu", w.menu.is_some()),
         ("confirm", w.confirm.is_some()),
