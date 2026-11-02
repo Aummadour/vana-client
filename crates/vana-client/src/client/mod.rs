@@ -65,7 +65,6 @@ mod bump;
 mod doors;
 mod lifts;
 mod ships;
-mod dps;
 mod skillchain;
 mod clock;
 mod lamps;
@@ -5887,8 +5886,6 @@ struct World {
     synth_amount: bool,
     /// Config `stamp_all_lines` (extra).
     stamp_all_lines: bool,
-    /// The /dps tally (client/dps.rs).
-    dps: dps::Dps,
     /// The skillchain helper's resonances and seen skills (client/skillchain.rs).
     skillchain: skillchain::Tracker,
     /// Config `target_distance` / `target_hpp` / `auto_advance` (extras).
@@ -7571,7 +7568,6 @@ impl App {
                             map_overlay: self.cfg.map_overlay,
                             synth_amount: self.cfg.synth_amount,
                             stamp_all_lines: self.cfg.stamp_all_lines,
-                            dps: Default::default(),
                             skillchain: Default::default(),
                             target_distance: self.cfg.target_distance,
                             target_hpp: self.cfg.target_hpp,

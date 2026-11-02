@@ -14,7 +14,8 @@ use vm::Vm;
 
 /// What a mod asked the client to do, applied after the mod phase.
 pub(super) enum Op {
-    Chat { text: String, mode: Option<u8> },
+    /// A line with a mode (its colour, filters and indent), or only a mode's colour.
+    Chat { text: String, mode: Option<u8>, colour: Option<u8> },
     Print(String),
     Run(String),
 }
@@ -157,6 +158,10 @@ fn changes(a: &Snap, b: &Snap) -> Vec<(&'static str, Vec<serde_json::Value>)> {
     out
 }
 
+/// Mods built into the client (assets/mods): our own features on the mod API (docs/lua-mods.md 7.4). Each is (id,
+/// mod.toml, files).
+const BUNDLED: &[(&str, &str, &[(&str, &str)])] = &[("dps", include_str!("../../../assets/mods/dps/mod.toml"), &[("init.lua", include_str!("../../../assets/mods/dps/init.lua"))])];
+
 /// Where mods keep their settings and storage: beside an FFXI_CONFIG copy for test runs.
 fn data_dir() -> PathBuf {
     match std::env::var_os("FFXI_CONFIG") {
@@ -207,13 +212,24 @@ impl Host {
     /// Creates the VM of the mod in `dir`, runs its entry file and sends it `load`.
     fn load(&mut self, w: &World, dir: PathBuf) -> Result<(), String> {
         let m = manifest::read(&dir).map_err(|e| format!("{e:#}"))?;
+        self.load_with(w, m, dir.clone(), vm::Source::Dir(dir))
+    }
+
+    /// A bundled mod (assets/mods) by id.
+    fn load_bundled(&mut self, w: &World, id: &str) -> Result<(), String> {
+        let (_, text, files) = BUNDLED.iter().find(|b| b.0 == id).ok_or_else(|| format!("no bundled mod {id}"))?;
+        let m = manifest::parse(text, id).map_err(|e| format!("{e:#}"))?;
+        self.load_with(w, m, PathBuf::from("bundled").join(id), vm::Source::Bundled(files))
+    }
+
+    fn load_with(&mut self, w: &World, m: manifest::Manifest, dir: PathBuf, src: vm::Source) -> Result<(), String> {
         if self.vms.iter().any(|v| v.manifest.id == m.id) {
             return Err(format!("{} is already loaded", m.id));
         }
         let data = data_dir().join(&m.id);
         let storage = (read_json(&data.join("account.json")), read_json(&data.join(Self::char_file(w))));
         let settings = load_settings(&m, &data, &Self::char_file(w));
-        let vm = Vm::new(m, dir).map_err(|e| format!("{e:#}"))?;
+        let vm = Vm::new(m, dir, src).map_err(|e| format!("{e:#}"))?;
         vm.st.borrow_mut().settings = settings;
         api::install(&vm.lua, &vm, storage).map_err(|e| format!("{e}"))?;
         log::info!("lua mod {} {} loaded from {}", vm.manifest.id, vm.manifest.version, vm.dir.display());
@@ -240,6 +256,18 @@ impl Host {
         self.started = true;
         let cfg = crate::config::Config::load();
         let root = mods_dir();
+        // Bundled mods (our own features on the mod API) run unless turned off in `mods` or replaced by a folder.
+        for (id, ..) in BUNDLED {
+            let off = cfg.mods.iter().any(|r| r.name == *id && !r.enabled);
+            let folder = cfg.mods.iter().any(|r| r.name == *id && r.enabled) && root.join(id).join("mod.toml").is_file();
+            if off || folder {
+                continue;
+            }
+            if let Err(e) = self.load_bundled(w, id) {
+                log::warn!("lua mod {id}: {e}");
+                w.chat.push_colour(format!("Mod {id}: {e}"), ERROR);
+            }
+        }
         for r in cfg.mods.iter().filter(|r| r.enabled) {
             let dir = root.join(&r.name);
             if !dir.join("mod.toml").is_file() {
@@ -283,7 +311,8 @@ impl Host {
             "load" => match args.get(1) {
                 Some(id) => {
                     let dir = mods_dir().join(id);
-                    match self.load(w, dir) {
+                    let r = if !dir.join("mod.toml").is_file() && BUNDLED.iter().any(|b| b.0 == *id) { self.load_bundled(w, id) } else { self.load(w, dir) };
+                    match r {
                         Ok(()) => out.push((format!("Loaded {id}."), super::WHITE)),
                         Err(e) => out.push((e, ERROR)),
                     }
@@ -294,9 +323,11 @@ impl Host {
                 Some(k) => {
                     let dir = self.vms[k].dir.clone();
                     let id = self.vms[k].manifest.id.clone();
+                    let bundled = matches!(self.vms[k].src, vm::Source::Bundled(_));
                     self.unload(w, k);
                     if args[0] == "reload" {
-                        match self.load(w, dir) {
+                        let r = if bundled { self.load_bundled(w, &id) } else { self.load(w, dir) };
+                        match r {
                             Ok(()) => out.push((format!("Reloaded {id}."), super::WHITE)),
                             Err(e) => out.push((e, ERROR)),
                         }
@@ -505,12 +536,16 @@ pub(super) fn frame(w: &mut World) {
 fn apply(w: &mut World, op: Op) {
     match op {
         Op::Print(text) => w.chat.push_colour(text, DIM),
-        Op::Chat { text, mode } => match mode {
-            Some(m) => {
+        Op::Chat { text, mode, colour } => match (mode, colour) {
+            (Some(m), _) => {
                 let (colour, indent) = w.battle.as_ref().map_or((super::WHITE, false), |b| (b.colour_in(m, &w.game), b.indents(m)));
                 w.chat.push_event(text, colour, indent, m);
             }
-            None => w.chat.push(text),
+            (None, Some(c)) => {
+                let colour = w.battle.as_ref().map_or(super::WHITE, |b| b.colour_in(c, &w.game));
+                w.chat.push_colour(text, colour);
+            }
+            (None, None) => w.chat.push(text),
         },
         Op::Run(line) => super::textcmd::run(w, &line, super::textcmd::Mode::Typed),
     }
@@ -529,7 +564,7 @@ mod tests {
     /// Every documented function is bound, and every function in a documented namespace is documented.
     #[test]
     fn docs_match_bindings() {
-        let vm = Vm::new(manifest::Manifest::default(), PathBuf::from(".")).unwrap();
+        let vm = Vm::new(manifest::Manifest::default(), PathBuf::from("."), vm::Source::Dir(PathBuf::from("."))).unwrap();
         api::install(&vm.lua, &vm, (serde_json::Value::Null, serde_json::Value::Null)).unwrap();
         let g = vm.lua.globals();
         for f in docs::FUNCS {
@@ -869,5 +904,15 @@ impl Host {
                 format!("lua {}  {:.2} ms avg  {:.1} peak  {} slow  {} KB  {} errors{state}", v.manifest.id, st.stats.avg, st.stats.peak, st.stats.slow, v.lua.used_memory() / 1024, st.errors.len())
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod stub_tests {
+    /// The stubs in assets/mods/library are what `lua-stubs` writes now (regenerate them after an API change:
+    /// `vana-client lua-stubs --out crates/vana-client/assets/mods/library/vana.lua`).
+    #[test]
+    fn committed_stubs_current() {
+        assert_eq!(include_str!("../../../assets/mods/library/vana.lua"), super::stubs(), "assets/mods/library/vana.lua is stale");
     }
 }

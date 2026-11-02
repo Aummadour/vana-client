@@ -654,11 +654,13 @@ fn print(w: &mut World, m: Msg) {
         log::info!("battle message {} before the message tables loaded", m.id);
         return;
     };
-    // Ours: the /dps tally, whatever the filters show (a damage number's message, main and proc records).
+    // Ours: a damage number's message (main and proc records), whatever the filters show, for the mods' `damage`
+    // event (the bundled dps mod tallies it).
     if let Some(which @ (0 | 1)) = m.which
         && bt.screen_kind(m.id) == 1
     {
-        super::dps::add(w, m.actor, m.work[1 + which as usize]);
+        let value = m.work[1 + which as usize];
+        w.lua.raise("damage", vec![m.actor.into(), m.target.into(), value.into(), m.id.into()]);
     }
     // Chat Filters (0x32 / 0x33) hide battle messages on the client, number and line.
     if bt.filtered(m.id, filter_relation(w, m.actor, m.target), &w.game) {
@@ -1006,7 +1008,7 @@ fn one_action(w: &mut World, a: &Action) {
     if w.hide_ready_lines
         && matches!(a.category, category::SKILL_START | category::MAGIC_START | category::ITEM_START | category::RANGED_START)
         && a.actor != w.my_id
-        && (super::dps::ours(w, a.actor) || !w.entities.get(&a.actor).is_some_and(|e| e.mob))
+        && (ours(w, a.actor) || !w.entities.get(&a.actor).is_some_and(|e| e.mob))
     {
         messages.clear();
     }
@@ -2162,4 +2164,13 @@ mod queue_tests {
         assert_eq!(crate::client::net::battle_message2(&pkt(0x2d, 0x32b)).queued, 0x32b);
         assert_eq!(crate::client::net::battle_message2(&pkt(0x2d, 6)).queued, 0);
     }
+}
+
+/// Us, a party member, or the pet of either (its master's ActIndex).
+pub(super) fn ours(w: &World, actor: u32) -> bool {
+    if actor == w.my_id || w.party.party().any(|m| m.id == actor) {
+        return true;
+    }
+    let Some(master) = w.entities.get(&actor).map(|e| e.master).filter(|&m| m != 0) else { return false };
+    master == w.my_index || w.party.party().any(|m| w.entities.get(&m.id).is_some_and(|e| e.index == master))
 }

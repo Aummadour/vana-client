@@ -65,7 +65,7 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     g.set("log", log)?;
 
     // require: the mod's own files (a.b -> a/b.lua or a/b/init.lua), loaded once.
-    let dir = vm.dir.clone();
+    let src = vm.src.clone();
     let loaded = lua.create_table()?;
     g.set(
         "require",
@@ -79,9 +79,9 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
                 return Err(mlua::Error::runtime(format!("require {name:?}: outside the mod's folder")));
             }
             let rel = name.replace('.', "/");
-            let path = [dir.join(format!("{rel}.lua")), dir.join(&rel).join("init.lua")].into_iter().find(|p| p.is_file()).ok_or_else(|| mlua::Error::runtime(format!("module {name:?} not found in the mod's folder")))?;
-            let src = std::fs::read_to_string(&path).map_err(|e| mlua::Error::runtime(format!("{}: {e}", path.display())))?;
-            let f = lua.load(src).set_name(format!("@{rel}.lua")).set_mode(mlua::chunk::ChunkMode::Text).into_function()?;
+            let file = [format!("{rel}.lua"), format!("{rel}/init.lua")].into_iter().find(|p| src.exists(p)).ok_or_else(|| mlua::Error::runtime(format!("module {name:?} not found in the mod's folder")))?;
+            let text = src.read(&file).map_err(|e| mlua::Error::runtime(format!("{file}: {e}")))?;
+            let f = lua.load(text).set_name(format!("@{file}")).set_mode(mlua::chunk::ChunkMode::Text).into_function()?;
             let v: Value = f.call(name.as_str())?;
             let v = if v.is_nil() { Value::Boolean(true) } else { v };
             loaded.raw_set(name.as_str(), v.clone())?;
@@ -284,8 +284,14 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     let chat = lua.create_table()?;
     chat.set(
         "add",
-        lua.create_function(|lua, (text, mode): (String, Option<u8>)| {
-            state(lua).borrow_mut().ops.push(Op::Chat { text, mode });
+        lua.create_function(|lua, (text, how): (String, Value)| {
+            let (mode, colour) = match how {
+                Value::Integer(m) => (Some(m as u8), None),
+                Value::Number(m) => (Some(m as u8), None),
+                Value::Table(t) => (t.get::<Option<u8>>("mode")?, t.get::<Option<u8>>("colour")?),
+                _ => (None, None),
+            };
+            state(lua).borrow_mut().ops.push(Op::Chat { text, mode, colour });
             Ok(())
         })?,
     )?;
@@ -667,6 +673,7 @@ fn entity(lua: &Lua, w: &World, id: u32, e: &super::super::Entity) -> mlua::Resu
     t.set("speed", f32::from(e.motion.speed) / 10.0)?;
     t.set("claim", e.claim)?;
     t.set("targetable", e.flags & 6 == 0 && !e.untargetable && !e.target_off)?;
+    t.set("master", e.master)?;
     t.set("hidden", e.flags & 2 != 0)?;
     Ok(t)
 }
@@ -691,6 +698,7 @@ fn self_entity(lua: &Lua, w: &World) -> mlua::Result<Table> {
     t.set("claim", 0)?;
     t.set("targetable", true)?;
     t.set("hidden", false)?;
+    t.set("master", 0)?;
     t.set("me", true)?;
     Ok(t)
 }

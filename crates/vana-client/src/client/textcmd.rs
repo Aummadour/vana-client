@@ -628,11 +628,6 @@ pub fn run(w: &mut World, line: &str, mode: Mode) {
         find(w, line[first.len()..].trim());
         return;
     }
-    // Ours (the DPS-meter add-ons): /dps prints the party's damage since the last /dps reset (client/dps.rs).
-    if first.eq_ignore_ascii_case("/dps") {
-        super::dps::command(w, line.split_whitespace().nth(1));
-        return;
-    }
     let first_flags = table().get(first).map_or(0, |e| e.1);
     let target_cmd = first_flags & flag::TARGET != 0;
     // With the prompt up a typed line runs only with flag 0x02 (else group 7 0xa4); a macro line is dropped.

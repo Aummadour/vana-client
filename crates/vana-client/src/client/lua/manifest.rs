@@ -70,9 +70,15 @@ pub const PERMISSIONS: [&str; 10] = ["actions", "automation", "packets.read", "p
 pub fn read(dir: &Path) -> Result<Manifest> {
     let path = dir.join("mod.toml");
     let text = std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?;
-    let mut m: Manifest = toml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
+    let folder = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    parse(&text, &folder).with_context(|| format!("parsing {}", path.display()))
+}
+
+/// A manifest's text; `folder` is the id when it names none.
+pub fn parse(text: &str, folder: &str) -> Result<Manifest> {
+    let mut m: Manifest = toml::from_str(text)?;
     if m.id.is_empty() {
-        m.id = dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        m.id = folder.to_string();
     }
     if m.name.is_empty() {
         m.name = m.id.clone();

@@ -29,9 +29,34 @@ function sleep_frames(n) return coroutine.yield(token, "frames", n or 1) end
 function wait_until(test, timeout) return coroutine.yield(token, "until", test, timeout) end
 "#;
 
+/// Where a mod's files come from: its folder, or the binary (a bundled mod, assets/mods).
+#[derive(Clone)]
+pub(super) enum Source {
+    Dir(PathBuf),
+    Bundled(&'static [(&'static str, &'static str)]),
+}
+
+impl Source {
+    pub fn read(&self, rel: &str) -> std::io::Result<String> {
+        match self {
+            Source::Dir(d) => std::fs::read_to_string(d.join(rel)),
+            Source::Bundled(files) => files.iter().find(|f| f.0 == rel).map(|f| f.1.to_string()).ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound)),
+        }
+    }
+
+    pub fn exists(&self, rel: &str) -> bool {
+        match self {
+            Source::Dir(d) => d.join(rel).is_file(),
+            Source::Bundled(files) => files.iter().any(|f| f.0 == rel),
+        }
+    }
+}
+
 pub(super) struct Vm {
     pub manifest: Manifest,
+    /// The folder (a bundled mod's is "bundled/<id>"), and where its files are read.
     pub dir: PathBuf,
+    pub src: Source,
     pub lua: Lua,
     pub st: Rc<RefCell<ModState>>,
     /// Why the mod stopped (errors, memory, budget): handlers off until reloaded.
@@ -122,7 +147,7 @@ pub(super) struct Stats {
 }
 
 impl Vm {
-    pub fn new(manifest: Manifest, dir: PathBuf) -> mlua::Result<Self> {
+    pub fn new(manifest: Manifest, dir: PathBuf, src: Source) -> mlua::Result<Self> {
         // The base library always loads; no io, os, package or debug.
         let lua = Lua::new_with(StdLib::TABLE | StdLib::STRING | StdLib::MATH | StdLib::UTF8 | StdLib::COROUTINE, LuaOptions::default())?;
         lua.set_memory_limit(MEMORY)?;
@@ -153,7 +178,7 @@ impl Vm {
         let token_table = lua.create_table()?;
         lua.load(PRELUDE).set_name("=prelude").call::<()>(token_table.clone())?;
         let token = lua.create_registry_value(token_table)?;
-        let vm = Self { manifest, dir, lua, st, suspended: None, token };
+        let vm = Self { manifest, dir, src, lua, st, suspended: None, token };
         vm.set_hook_on_main()?;
         Ok(vm)
     }
@@ -172,8 +197,8 @@ impl Vm {
 
     /// Runs the entry file.
     pub fn run_entry(&self) {
-        let path = self.dir.join(&self.manifest.entry);
-        let r = std::fs::read_to_string(&path).map_err(|e| mlua::Error::runtime(format!("{}: {e}", path.display()))).and_then(|src| {
+        let entry = self.manifest.entry.clone();
+        let r = self.src.read(&entry).map_err(|e| mlua::Error::runtime(format!("{entry}: {e}"))).and_then(|src| {
             let f = self.lua.load(src).set_name(format!("@{}", self.manifest.entry)).set_mode(mlua::chunk::ChunkMode::Text).into_function()?;
             Ok(f)
         });

@@ -107,7 +107,7 @@ fn skill_of(a: &Action) -> Option<Skill> {
 
 /// Us, a party member (trusts included) or a pet of either.
 pub fn ours(w: &World, actor: u32) -> bool {
-    super::dps::ours(w, actor)
+    super::combat::ours(w, actor)
 }
 
 /// 0x028: a party skill that hit a monster opens, continues or replaces its resonance.
