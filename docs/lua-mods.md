@@ -92,7 +92,10 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   `client.set_window` (move, size through the Settings' sizing path; always on top, minimised, borderless full
   screen, the frame, kept out of screen captures) and `client.focus` (`multibox`);
   `client.screenshot` (under the screenshots folder, subfolders allowed); `client.paste` (`clipboard`) and
-  `client.copy`; `client.run` (a program without a shell, its exit code and output to a handler; `exec`). Checked
+  `client.copy`; `client.run` (a program without a shell, its exit code and output to a handler; `exec`);
+  `client.option` / `set_option`: behaviour switches while the mod runs, retail's back when it unloads (the macro
+  palette's wait for the next whole second, the AH bid result's wait, the 0.9 s between equip sets, the log's slide,
+  the cutscene speed 1..4; set, read and released checked live, their effects not all seen live). Checked
   live but `client.focus` (not tried: it would take the desktop's focus); the place reads nil under Wayland.
 - **Permissions:** each one a mod asks for is a row on its Extras page (ON / OFF, with what it allows on the help
   line), or `/lua grant` / `revoke`; kept in mod-data/grants.json. A mod loaded without them says where to allow them.

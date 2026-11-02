@@ -337,6 +337,21 @@ fn jump(w: &mut World) {
 /// FUN_10096640 / FUN_100882d0: c2s 0x01A ActionID 0x14 once per zone load (LSB SendResRdy; in the Mog House it
 /// sends the moogle). Waits for the world (and our model), then outside the Mog House for SendCount KingFlag
 /// actors or 600 ticks from the zone load; in the Mog House for the room object's 20-frame count.
+/// Switches Lua mods set (client.set_option): retail's waits (on by default) and the cutscene speed.
+#[derive(Clone, Copy, Debug)]
+struct Opts {
+    macro_delay: bool,
+    ah_delay: bool,
+    equipset_delay: bool,
+    cutscene_speed: f32,
+}
+
+impl Default for Opts {
+    fn default() -> Self {
+        Self { macro_delay: true, ah_delay: true, equipset_delay: true, cutscene_speed: 1.0 }
+    }
+}
+
 #[derive(Default)]
 struct ResRdy {
     pub sent: bool,
@@ -6246,6 +6261,8 @@ struct World {
     cast_spell: u16,
     /// Our pet's vitals and target (s2c 0x068 type 4).
     pet_sync: Option<net::PetSync>,
+    /// Behaviour switches Lua mods set (client.set_option).
+    opts: Opts,
     /// The cast bar was opened by an event (op 0xb4 7, mode 4): it shows the time left (FUN_1012bfe0).
     cast_event: bool,
     /// "menu    eventtim" (FUN_1012c500, op 0xb4 0xa): total and remaining ticks.
@@ -8000,6 +8017,7 @@ impl App {
                             cast_bar: None,
                             cast_spell: 0,
                             pet_sync: None,
+                            opts: Opts::default(),
                             cast_event: false,
                             event_timer: None,
                             objective: Default::default(),
@@ -10518,7 +10536,7 @@ impl App {
         } else if pal.0 != held {
             if pal.1 != held {
                 (pal.1, pal.2) = (held, secs);
-            } else if secs != pal.2 {
+            } else if secs != pal.2 || !world.opts.macro_delay {
                 pal.0 = held;
             }
         }
@@ -12594,6 +12612,11 @@ impl App {
         let shoot = self.step_drive();
         let dt = self.last_frame.elapsed().as_secs_f32().min(0.1);
         self.last_frame = Instant::now();
+        // A Lua mod's cutscene speed: the whole frame runs faster while an event plays.
+        let dt = match &self.phase {
+            Phase::World(w) if w.opts.cutscene_speed > 1.0 && event::active(w) => (dt * w.opts.cutscene_speed).min(0.25),
+            _ => dt,
+        };
         self.key_functions(dt);
         perf::timed(|| "movement".into(), || self.update_movement(dt));
         if matches!(&self.phase, Phase::Characters { screen: LobbyScreen::Create, .. }) && (self.creator_simple || self.creator.as_ref().is_some_and(|c| c.wants().is_some())) && self.lobby_fade.next.is_none() {

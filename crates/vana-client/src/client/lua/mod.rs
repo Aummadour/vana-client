@@ -56,6 +56,8 @@ pub(super) enum Op {
     Shot(String),
     /// The clipboard read for client.paste.
     Paste,
+    /// A behaviour switch set (client.set_option): (mod, name, value).
+    Option(String, String, serde_json::Value),
     /// A timer in the Timers window added or replaced (mod, name, seconds, section, group, icon kind and id, total,
     /// fills), or removed (seconds None), or all the mod's removed (name None).
     Timer { mod_id: String, name: Option<String>, secs: Option<f32>, section: usize, group: Option<String>, icon: Option<(String, u16)>, total: f32, fills: bool },
@@ -73,6 +75,49 @@ pub(in crate::client) struct WinReq {
     pub fullscreen: Option<bool>,
     pub border: Option<bool>,
     pub protected: Option<bool>,
+}
+
+/// The behaviour switches (client.set_option) by name; false for an unknown name or value.
+pub(super) const OPTIONS: [&str; 5] = ["macro_palette_delay", "ah_result_delay", "equipset_delay", "log_slide", "cutscene_speed"];
+
+fn set_option(w: &mut World, name: &str, v: &serde_json::Value) -> bool {
+    let b = v.as_bool();
+    match (name, b) {
+        ("macro_palette_delay", Some(b)) => w.opts.macro_delay = b,
+        ("ah_result_delay", Some(b)) => w.opts.ah_delay = b,
+        ("equipset_delay", Some(b)) => w.opts.equipset_delay = b,
+        ("log_slide", Some(b)) => (w.log.anim.instant, w.log2.anim.instant, w.modern_log.anim.instant) = (!b, !b, !b),
+        ("cutscene_speed", _) => match v.as_f64() {
+            Some(k) => w.opts.cutscene_speed = (k as f32).clamp(1.0, 4.0),
+            None => return false,
+        },
+        _ => return false,
+    }
+    true
+}
+
+/// A switch's value now.
+pub(super) fn option(w: &World, name: &str) -> Option<serde_json::Value> {
+    use serde_json::json;
+    Some(match name {
+        "macro_palette_delay" => json!(w.opts.macro_delay),
+        "ah_result_delay" => json!(w.opts.ah_delay),
+        "equipset_delay" => json!(w.opts.equipset_delay),
+        "log_slide" => json!(!w.log.anim.instant),
+        "cutscene_speed" => json!(w.opts.cutscene_speed),
+        _ => return None,
+    })
+}
+
+/// Switches whose mod is gone go back to retail's.
+fn release_options(w: &mut World) {
+    let loaded = w.lua.mod_ids();
+    let gone: Vec<String> = w.lua.opt_owners.iter().filter(|(_, m)| !loaded.contains(*m)).map(|(n, _)| n.clone()).collect();
+    for n in gone {
+        w.lua.opt_owners.remove(&n);
+        let default = if n == "cutscene_speed" { serde_json::json!(1.0) } else { serde_json::json!(true) };
+        set_option(w, &n, &default);
+    }
 }
 
 /// The mods of this session.
@@ -109,6 +154,8 @@ pub struct Host {
     pub(in crate::client) sounds: Vec<audio::Sound>,
     /// The bus to the other clients, open while a mod holds multibox.
     ipc: Option<ipc::Bus>,
+    /// The behaviour switches mods set, by name: the mod that set it (put back when it unloads).
+    opt_owners: std::collections::BTreeMap<String, String>,
     /// Requests for the app after the frame: the window, a screenshot, a clipboard read; and the text read.
     pub(in crate::client) win_reqs: Vec<WinReq>,
     pub(in crate::client) shot: Option<String>,
@@ -674,6 +721,9 @@ fn save(vm: &Vm, w: &World) {
 
 /// The mod phase (docs/lua-mods.md 3.2): once a frame in the world.
 pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
+    if !w.lua.opt_owners.is_empty() {
+        release_options(w);
+    }
     let mut host = std::mem::take(&mut w.lua);
     if !host.started {
         if w.zone.is_none() || w.name.is_empty() {
@@ -896,6 +946,11 @@ fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
         Op::Window(r) => w.lua.win_reqs.push(r),
         Op::Shot(name) => w.lua.shot = Some(name),
         Op::Paste => w.lua.paste_wanted = true,
+        Op::Option(mod_id, name, v) => {
+            if set_option(w, &name, &v) {
+                w.lua.opt_owners.insert(name, mod_id);
+            }
+        }
         Op::Timer { mod_id, name, secs, section, group, icon, total, fills } => {
             let Some(name) = name else {
                 w.timers.mods.retain(|t| t.mod_id != mod_id);

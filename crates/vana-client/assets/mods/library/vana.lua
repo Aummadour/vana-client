@@ -1173,6 +1173,16 @@ function client.copy(text) end
 ---@param handler fun(text: string) 
 function client.paste(handler) end
 
+--- A behaviour switch's value (see set_option).
+---@param name string 
+---@return boolean|number
+function client.option(name) end
+
+--- Sets a behaviour switch while the mod is loaded (retail's back when it unloads): macro_palette_delay (false: the Ctrl / Alt palette opens at once, not at the next whole second), ah_result_delay (false: a bid's result prints at once), equipset_delay (false: no 0.9 s wait between equip sets), log_slide (false: new log lines show at once), cutscene_speed (1..4: events play that much faster).
+---@param name string 
+---@param value boolean|number 
+function client.set_option(name, value) end
+
 --- The game window: {x, y (its place on the desktop, when the system tells it), w, h (pixels), focused}.
 ---@return {x: integer?, y: integer?, w: integer, h: integer, focused: boolean}
 function client.window() end

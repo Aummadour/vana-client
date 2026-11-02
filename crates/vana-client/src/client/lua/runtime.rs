@@ -301,6 +301,25 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
         })?,
     )?;
     client.set(
+        "option",
+        lua.create_function(|lua, name: String| {
+            let v = super::option(world(lua)?, &name).ok_or_else(|| mlua::Error::runtime(format!("no option {name:?} ({})", super::OPTIONS.join(", "))))?;
+            lua.to_value(&v)
+        })?,
+    )?;
+    let me = vm.manifest.id.clone();
+    client.set(
+        "set_option",
+        lua.create_function(move |lua, (name, v): (String, Value)| {
+            if !super::OPTIONS.contains(&name.as_str()) {
+                return Err(mlua::Error::runtime(format!("no option {name:?} ({})", super::OPTIONS.join(", "))));
+            }
+            let v: serde_json::Value = lua.from_value(v)?;
+            state(lua).borrow_mut().ops.push(super::Op::Option(me.clone(), name, v));
+            Ok(())
+        })?,
+    )?;
+    client.set(
         "window",
         lua.create_function(|lua, ()| {
             let f = lua.app_data_ref::<Rc<RefCell<super::state::FrameInfo>>>().map(|f| f.clone()).unwrap_or_default();

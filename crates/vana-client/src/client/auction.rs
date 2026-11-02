@@ -675,7 +675,8 @@ fn bid_result(w: &mut World, p: &AucPacket) {
     w.bid.pending = false;
     let ticks = ((p.pc as u32).wrapping_mul(p.p8) % 120 + 180) as f32;
     w.bid.result = Some((kind, ticks, p.pc, p.p10, p.p8));
-    if w.auction.is_none() {
+    // A Lua mod's no-wait switch (client.set_option "ah_result_delay") prints it at once.
+    if w.auction.is_none() || !w.opts.ah_delay {
         print_result(w, true);
     }
 }
