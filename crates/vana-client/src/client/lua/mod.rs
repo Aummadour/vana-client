@@ -45,6 +45,8 @@ pub(super) enum Op {
     Sound(audio::Sound),
     /// A message to the same mod in the other clients: (mod, the character it is for, text).
     Ipc(String, Option<String>, String),
+    /// A mod takes the music (a track or silence) or gives it back (None).
+    Music(String, Option<audio::Music>),
 }
 
 /// The mods of this session.
@@ -81,6 +83,9 @@ pub struct Host {
     pub(in crate::client) sounds: Vec<audio::Sound>,
     /// The bus to the other clients, open while a mod holds multibox.
     ipc: Option<ipc::Bus>,
+    /// The music a mod holds (the mod, what), and whether the app must act on a change.
+    pub(in crate::client) music: Option<(String, audio::Music)>,
+    pub(in crate::client) music_dirty: bool,
     /// What the UI knows that mods read (the map grid).
     info: std::rc::Rc<std::cell::RefCell<state::FrameInfo>>,
     /// HUD elements clicked since the last mod phase: (mod, element, button).
@@ -374,6 +379,9 @@ impl Host {
     fn unload(&mut self, w: &World, k: usize) {
         let vm = self.vms.remove(k);
         self.dir.borrow_mut().mods.retain(|m| m.id != vm.manifest.id);
+        if self.music.as_ref().is_some_and(|m| m.0 == vm.manifest.id) {
+            (self.music, self.music_dirty) = (None, true);
+        }
         let mut info = self.info.borrow_mut();
         for mods in info.hidden.values_mut() {
             mods.remove(&vm.manifest.id);
@@ -838,6 +846,13 @@ fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
         Op::Interface(show) => w.ui_hidden = !show,
         Op::CameraDistance(k) => super::camera::set_distance(w, k),
         Op::Sound(s) => w.lua.sounds.push(s),
+        Op::Music(mod_id, m) => {
+            let now = m.map(|m| (mod_id.clone(), m));
+            // Giving it back only counts from the mod that holds it.
+            if now.is_some() || w.lua.music.as_ref().is_some_and(|h| h.0 == mod_id) {
+                (w.lua.music, w.lua.music_dirty) = (now, true);
+            }
+        }
         Op::Ipc(mod_id, to, text) => {
             if let Some(b) = &w.lua.ipc {
                 b.send(&mod_id, &w.name, to.as_deref(), &text);

@@ -68,6 +68,8 @@ pub const FUNCS: &[Func] = &[
     Func { ns: "render", name: "set_camera_distance", doc: "Sets the camera's distance, as the wheel does (not in first person).", params: &[("scale", "number", "0.5..3")], ret: "" },
     Func { ns: "audio", name: "play", doc: "Plays a sound file from the mod's folder (16-bit PCM WAV, mono or stereo, any rate; or a game SeWave file) at the effects volume.", params: &[("path", "string", ""), ("volume?", "number", "0..1, default 1")], ret: "" },
     Func { ns: "audio", name: "play_se", doc: "Plays one of the game's sound effects by id (sound/win/se).", params: &[("id", "integer", ""), ("volume?", "number", "0..1")], ret: "" },
+    Func { ns: "audio", name: "music", doc: "Holds the music on a game track by id (the zone's choice of field, battle, night tracks stops until given back); nil gives it back, and the context's track plays again.", params: &[("id?", "integer", "")], ret: "" },
+    Func { ns: "audio", name: "mute_music", doc: "Silences the music while held (true, the default) or gives it back (false).", params: &[("on?", "boolean", "")], ret: "" },
     Func { ns: "audio", name: "play_ui", doc: "Plays an interface sound by id (the menus' cursor, select, cancel...).", params: &[("id", "integer", "")], ret: "" },
     Func { ns: "draw", name: "line", doc: "Creates or replaces a line in the world: from, to ({x, y, z}, entity coordinates), colour {r, g, b, a}. It draws over the scene but behind what stands in front of it.", params: &[("id", "string", ""), ("spec", "table", "")], ret: "" },
     Func { ns: "draw", name: "ring", doc: "Creates or replaces a horizontal ring: at, radius (yalms), colour, segments (default 48), filled.", params: &[("id", "string", ""), ("spec", "table", "")], ret: "" },

@@ -5,6 +5,13 @@ use super::api::state;
 use mlua::{Lua, Table};
 use std::sync::Arc;
 
+/// A mod's hold on the music: a game track by id, or silence.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(in crate::client) enum Music {
+    Track(u32),
+    Mute,
+}
+
 /// A sound a mod asked for, played by the app after the mod phase.
 pub(in crate::client) enum Sound {
     /// File bytes and a level 0..127.
@@ -48,6 +55,27 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
         "play_ui",
         lua.create_function(|lua, id: u32| {
             state(lua).borrow_mut().ops.push(super::Op::Sound(Sound::Ui(id)));
+            Ok(())
+        })?,
+    )?;
+    let me = vm.manifest.id.clone();
+    t.set(
+        "music",
+        lua.create_function(move |lua, id: Option<u32>| {
+            let m = match id {
+                Some(id) => Some(Music::Track(id)),
+                None => None,
+            };
+            state(lua).borrow_mut().ops.push(super::Op::Music(me.clone(), m));
+            Ok(())
+        })?,
+    )?;
+    let me = vm.manifest.id.clone();
+    t.set(
+        "mute_music",
+        lua.create_function(move |lua, on: Option<bool>| {
+            let m = on.unwrap_or(true).then_some(Music::Mute);
+            state(lua).borrow_mut().ops.push(super::Op::Music(me.clone(), m));
             Ok(())
         })?,
     )?;

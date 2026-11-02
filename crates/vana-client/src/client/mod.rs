@@ -7189,8 +7189,19 @@ impl App {
             // Op 0x77's hour is the clock's while it holds (FUN_100b6880).
             let hour = event::hour(w).unwrap_or(hour);
             let party = w.party.party().count().max(1) as u32;
+            // A Lua mod's hold on the music: its track or silence; given back, the context's track again.
+            if std::mem::take(&mut w.lua.music_dirty) {
+                log::info!("lua music: {:?} (playing {})", w.lua.music.as_ref().map(|m| m.1), a.status.bgm.load(std::sync::atomic::Ordering::Relaxed) as i64 - 1);
+                match w.lua.music.as_ref().map(|m| m.1) {
+                    Some(lua::audio::Music::Track(id)) => a.change_music(id, 0x7f, 0x7f, 0, 0x3c, false),
+                    Some(lua::audio::Music::Mute) => a.stop_music(0x3c),
+                    None => w.music.forget(),
+                }
+            }
             let cx = crate::audio::MusicContext { status: w.my_motion.status, hour, party, party_battle: party_battle(w), myroom: w.myroom.is_some_and(|r| r.map != 0x2d4), basket: w.actors.get(&w.my_id).is_some_and(|a| matches!(&a.source, Some(Source::Pc(l)) if l.range == 0xc)) };
-            if let Some(c) = w.music.select(cx) {
+            if w.lua.music.is_none()
+                && let Some(c) = w.music.select(cx)
+            {
                 log::info!("music: {c:?}");
                 if c.clear {
                     a.clear_positions();

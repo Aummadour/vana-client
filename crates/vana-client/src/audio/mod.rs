@@ -650,6 +650,11 @@ impl ZoneMusic {
         }
     }
 
+    /// Forgets the track playing, so the next select picks the context's again (after a mod's override).
+    pub fn forget(&mut self) {
+        self.last_id = 0xffff;
+    }
+
     pub fn select(&mut self, cx: MusicContext) -> Option<Change> {
         if !self.ready {
             return None;

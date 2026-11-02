@@ -429,6 +429,14 @@ function audio.play(path, volume) end
 ---@param volume? number 0..1
 function audio.play_se(id, volume) end
 
+--- Holds the music on a game track by id (the zone's choice of field, battle, night tracks stops until given back); nil gives it back, and the context's track plays again.
+---@param id? integer 
+function audio.music(id) end
+
+--- Silences the music while held (true, the default) or gives it back (false).
+---@param on? boolean 
+function audio.mute_music(on) end
+
 --- Plays an interface sound by id (the menus' cursor, select, cancel...).
 ---@param id integer 
 function audio.play_ui(id) end
