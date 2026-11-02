@@ -13,6 +13,18 @@ pub(super) enum Kind {
     Ring(Vec3, f32, u32, bool),
     /// Centre and size (an axis-aligned wire box).
     Box(Vec3, Vec3),
+    /// Text at a point, drawn with the HUD (centred, behind what stands in front).
+    Text { at: Vec3, text: String, size: f32, outline: Option<[u8; 4]> },
+    /// A PNG of the mod's on a quad `w` x `h` centred at a point: on the ground, upright or turned to the camera,
+    /// turned by `yaw` (radians, 0 east as entity headings).
+    Image { at: Vec3, w: f32, h: f32, yaw: f32, facing: Facing, key: String, img: std::sync::Arc<(u32, u32, Vec<u8>)> },
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum Facing {
+    Ground,
+    Upright,
+    Camera,
 }
 
 #[derive(Clone)]
@@ -51,8 +63,38 @@ fn put(lua: &Lua, id: String, kind: Kind, colour: [u8; 4]) -> mlua::Result<()> {
     Ok(())
 }
 
-pub(super) fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
+pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<()> {
     let t = lua.create_table()?;
+    t.set(
+        "text",
+        lua.create_function(|lua, (id, s): (String, Table)| {
+            let kind = Kind::Text { at: vec3(s.get("at")?)?, text: s.get::<Option<String>>("text")?.unwrap_or_default(), size: s.get::<Option<f32>>("size")?.unwrap_or(1.0).clamp(0.25, 8.0), outline: super::hud::colour(s.get("outline")?)? };
+            put(lua, id, kind, colour(&s)?)
+        })?,
+    )?;
+    let (src, mod_id) = (vm.src.clone(), vm.manifest.id.clone());
+    t.set(
+        "image",
+        lua.create_function(move |lua, (id, s): (String, Table)| {
+            let path: String = s.get("path")?;
+            if path.contains("..") || path.starts_with('/') || path.contains(':') {
+                return Err(mlua::Error::runtime(format!("{path:?}: outside the mod's folder")));
+            }
+            let bytes = match &src {
+                super::vm::Source::Dir(d) => std::fs::read(d.join(&path)).map_err(|e| mlua::Error::runtime(format!("{path}: {e}")))?,
+                super::vm::Source::Bundled(_) => return Err(mlua::Error::runtime("bundled mods carry no image files")),
+            };
+            let img = super::hud::decode_png(&bytes).map_err(|e| mlua::Error::runtime(format!("{path}: {e} (a PNG)")))?;
+            let facing = match s.get::<Option<String>>("facing")?.as_deref() {
+                Some("upright") => Facing::Upright,
+                Some("camera") => Facing::Camera,
+                _ => Facing::Ground,
+            };
+            let (w, h) = (s.get::<Option<f32>>("w")?.unwrap_or(2.0).max(0.01), s.get::<Option<f32>>("h")?.unwrap_or(2.0).max(0.01));
+            let kind = Kind::Image { at: vec3(s.get("at")?)?, w, h, yaw: s.get::<Option<f32>>("yaw")?.unwrap_or(0.0), facing, key: format!("lua image {mod_id}/{path}"), img: std::sync::Arc::new(img) };
+            put(lua, id, kind, colour(&s)?)
+        })?,
+    )?;
     t.set("line", lua.create_function(|lua, (id, s): (String, Table)| put(lua, id, Kind::Line(vec3(s.get("from")?)?, vec3(s.get("to")?)?), colour(&s)?))?)?;
     t.set(
         "ring",
@@ -122,6 +164,7 @@ pub(super) fn vertices(w: &World) -> [Vec<LineVertex>; 2] {
                         }
                     }
                 }
+                Kind::Text { .. } | Kind::Image { .. } => {}
                 Kind::Box(c, size) => {
                     let h = size * 0.5;
                     let corner = |i: u32| c + Vec3::new(if i & 1 != 0 { h.x } else { -h.x }, if i & 2 != 0 { h.y } else { -h.y }, if i & 4 != 0 { h.z } else { -h.z });
@@ -133,4 +176,75 @@ pub(super) fn vertices(w: &World) -> [Vec<LineVertex>; 2] {
         }
     }
     out
+}
+
+/// The texts and images in the world, with the HUD (after the name plates): projected each frame and depth-tested
+/// against the scene; an image in 8 x 8 pieces so its perspective holds.
+pub(super) fn draw_overlay(gu: &mut super::super::game_ui::GameUi, w: &World) {
+    let (sw, sh) = w.ui_wh;
+    let vp = w.lua.info.borrow().view_proj;
+    let cam = super::super::camera::view(w);
+    let project = |p: Vec3| -> Option<([f32; 2], f32)> {
+        let clip = vp * p.extend(1.0);
+        if clip.w <= 1e-4 {
+            return None;
+        }
+        let ndc = clip.truncate() / clip.w;
+        Some(([(ndc.x + 1.0) / 2.0 * sw, (1.0 - ndc.y) / 2.0 * sh], ndc.z))
+    };
+    for vm in w.lua.vms.iter().filter(|v| v.suspended.is_none()) {
+        for s in vm.st.borrow().shapes.iter() {
+            match &s.kind {
+                Kind::Text { at, text, size, outline } => {
+                    let Some(([x, y], z)) = project(*at) else { continue };
+                    if !(0.0..=1.0).contains(&z) {
+                        continue;
+                    }
+                    gu.depth(Some(z));
+                    let tw = gu.width_in(text, None) * size;
+                    let (x, y) = (x - tw / 2.0, y - 8.0 * size);
+                    if let Some(o) = outline {
+                        for (dx, dy) in [(-1.0, -1.0), (0.0, -1.0), (1.0, -1.0), (-1.0, 0.0), (1.0, 0.0), (-1.0, 1.0), (0.0, 1.0), (1.0, 1.0)] {
+                            gu.text_in(text, x + dx, y + dy, super::hud::tint(*o), *size, None);
+                        }
+                    }
+                    gu.text_in(text, x, y, super::hud::tint(s.colour), *size, None);
+                    gu.depth(None);
+                }
+                Kind::Image { at, w: iw, h: ih, yaw, facing, key, img } => {
+                    if !gu.has_image(key) {
+                        gu.image(key, img.0, img.1, img.2.clone());
+                    }
+                    // The quad's across (u) and down (v) directions; y is down in the world.
+                    let (fwd, right) = (Vec3::new(yaw.cos(), 0.0, -yaw.sin()), Vec3::new(yaw.sin(), 0.0, yaw.cos()));
+                    let (u, v) = match facing {
+                        Facing::Ground => (right, -fwd),
+                        Facing::Upright => (right, Vec3::Y),
+                        Facing::Camera => {
+                            let inv = cam.view().inverse();
+                            (inv.x_axis.truncate().normalize_or_zero(), -inv.y_axis.truncate().normalize_or_zero())
+                        }
+                    };
+                    let point = |a: f32, b: f32| *at + u * (a - 0.5) * *iw + v * (b - 0.5) * *ih;
+                    const N: usize = 8;
+                    let colour = s.colour.map(|c| c as f32 / 255.0);
+                    for j in 0..N {
+                        for i in 0..N {
+                            let (a0, a1, b0, b1) = (i as f32 / N as f32, (i + 1) as f32 / N as f32, j as f32 / N as f32, (j + 1) as f32 / N as f32);
+                            let c = [point(a0, b0), point(a1, b0), point(a0, b1), point(a1, b1)].map(project);
+                            let [Some(p0), Some(p1), Some(p2), Some(p3)] = c else { continue };
+                            let z = (p0.1 + p1.1 + p2.1 + p3.1) / 4.0;
+                            if !(0.0..=1.0).contains(&z) {
+                                continue;
+                            }
+                            gu.depth(Some(z));
+                            gu.image_corners(key, [p0.0, p1.0, p2.0, p3.0], [[a0, b0], [a1, b0], [a0, b1], [a1, b1]], colour);
+                        }
+                    }
+                    gu.depth(None);
+                }
+                _ => {}
+            }
+        }
+    }
 }

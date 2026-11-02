@@ -1056,6 +1056,7 @@ pub(super) fn world_shapes(w: &World) -> [Vec<crate::render::LineVertex>; 2] {
 /// The mods' HUD elements, under the windows (world_hud).
 pub(super) fn draw_hud(gu: &mut super::game_ui::GameUi, w: &World) {
     if w.lua.started && !w.lua.all_hidden {
+        draw::draw_overlay(gu, w);
         hud::draw(gu, w);
     } else {
         w.lua.info.borrow_mut().hud_rects.clear();

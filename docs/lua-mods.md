@@ -89,7 +89,10 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   `mute_music`). Checked live (a WAV, a game effect, an 8-bit file refused; track 115 over the zone's, muted, back).
 - **World space** (`draw`): lines, rings (outline or filled) and wire boxes in entity coordinates, drawn after the
   effects and tested against the scene's depth (no writes); `draw.to_screen` for labels (window pixels, as `hud` takes).
-  Checked live (rings at our feet, a line and a box at an NPC, a label over her head).
+  Checked live (rings at our feet, a line and a box at an NPC, a label over her head). `draw.text` (text at a world
+  point) and `draw.image` (a PNG of the mod's on a world quad: on the ground, upright toward a yaw, or turned to the
+  camera; in 8 x 8 pieces for its perspective), both drawn with the HUD behind what stands in front; checked live (a
+  circle under us, a label over us, an upright and a camera-facing panel).
 - **Network and other windows:** `net.request` (HTTP(S) on its own thread, the answer to a callback in a later mod
   phase; `net`), `net.open_url`; `ipc.send` and the `ipc_message` event between game windows on one machine (local
   UDP, ports listed in the runtime folder; `multibox`). Checked live against a local server and a stand-in window.

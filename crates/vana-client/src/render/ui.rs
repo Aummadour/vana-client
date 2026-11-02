@@ -534,6 +534,11 @@ impl UiBatch {
     }
 
     /// A whole texture stretched over a rect, alpha blended.
+    /// A texture over any four corners (top left, top right, bottom left, bottom right) with their uvs.
+    pub fn push_image_corners(&mut self, texture: &str, corners: [[f32; 2]; 4], uvs: [[f32; 2]; 4], rgba: [f32; 4]) {
+        self.push_quad(Some(texture), Blend::Alpha, corners, uvs, [rgba; 4]);
+    }
+
     pub fn push_image(&mut self, texture: &str, x: f32, y: f32, w: f32, h: f32, rgba: [f32; 4]) {
         self.push_quad(Some(texture), Blend::Alpha, [[x, y], [x + w, y], [x, y + h], [x + w, y + h]], [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]], [rgba; 4]);
     }

@@ -510,6 +510,16 @@ function draw.ring(id, spec) end
 ---@param spec table 
 function draw.box(id, spec) end
 
+--- Creates or replaces a text at a world point: at {x, y, z}, text, size, colour, outline ({r, g, b, a}); centred there, drawn with the HUD and hidden behind what stands in front of it.
+---@param id string 
+---@param spec table 
+function draw.text(id, spec) end
+
+--- Creates or replaces a PNG from the mod's folder on a world quad: at {x, y, z} (its centre), w, h (world units), facing ('ground' (default): flat, the image's top toward yaw; 'upright': standing, its front toward yaw (read from there); 'camera': always turned to the camera), yaw (radians, 0 east as entity headings), colour (a tint); behind what stands in front of it.
+---@param id string 
+---@param spec table 
+function draw.image(id, spec) end
+
 --- Removes a shape.
 ---@param id string 
 function draw.remove(id) end

@@ -183,7 +183,7 @@ fn put(lua: &Lua, id: String, kind: Kind, spec: Table) -> mlua::Result<()> {
 }
 
 /// A PNG's pixels as RGBA.
-fn decode_png(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
+pub(super) fn decode_png(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
     let mut d = png::Decoder::new(std::io::Cursor::new(bytes));
     d.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut r = d.read_info().map_err(|e| e.to_string())?;
@@ -302,7 +302,7 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
 }
 
 /// The game font's colour (BGRA, 0x80 = 1.0) of an RGBA colour.
-fn tint(c: [u8; 4]) -> [u8; 4] {
+pub(super) fn tint(c: [u8; 4]) -> [u8; 4] {
     [c[2] / 2 + c[2] % 2, c[1] / 2 + c[1] % 2, c[0] / 2 + c[0] % 2, c[3] / 2 + c[3] % 2]
 }
 
