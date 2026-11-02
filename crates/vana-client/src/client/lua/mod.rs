@@ -789,9 +789,13 @@ pub(super) fn window_click(w: &mut World, mod_id: &str, win_id: &str, click: sup
     for vm in host.vms.iter() {
         let mut st = vm.st.borrow_mut();
         let mine = vm.manifest.id == mod_id;
+        let hud = mine && st.windows.iter().any(|w| w.id == win_id && w.hud);
         for win in st.windows.iter_mut() {
-            win.focus = mine && win.id == win_id && win.open;
-            if win.focus {
+            let this = mine && win.id == win_id && win.open;
+            if !hud {
+                win.focus = this;
+            }
+            if this {
                 out = Some(match click {
                     C::Button(i, c) => win.click_button(i, c),
                     C::Slide(i, s) => win.slide(i, s),
@@ -812,8 +816,13 @@ fn classic_places(w: &World) -> Vec<(usize, String, f32, f32)> {
     let mut k = 0.0;
     for (v, vm) in w.lua.vms.iter().enumerate().filter(|(_, v)| v.suspended.is_none()) {
         for win in vm.st.borrow().windows.iter().filter(|w| w.open) {
-            out.push((v, win.id.clone(), 16.0 + 24.0 * k, 48.0 + 24.0 * k));
-            k += 1.0;
+            match win.place {
+                Some((x, y)) => out.push((v, win.id.clone(), x, y)),
+                None => {
+                    out.push((v, win.id.clone(), 16.0 + 24.0 * k, 48.0 + 24.0 * k));
+                    k += 1.0;
+                }
+            }
         }
     }
     out
@@ -833,8 +842,9 @@ pub(super) fn pointer_classic(w: &mut World, gu: &super::game_ui::GameUi, p: (f3
             let (hover, ev, se) = win.pointer_classic(gu, x, y, p, moved, clicked);
             (hover, ev, se, vm.manifest.id.clone())
         };
-        // A click on a window gives it the focus.
-        if clicked {
+        // A click on a window gives it the focus (not a HUD's).
+        let hud = w.lua.vms[v].st.borrow().windows.iter().any(|x| x.id == id && x.hud);
+        if clicked && !hud {
             for (j, vm) in w.lua.vms.iter().enumerate() {
                 for win in vm.st.borrow_mut().windows.iter_mut() {
                     win.focus = j == v && win.id == id && win.open;

@@ -204,6 +204,12 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
             w.title = spec.get::<Option<String>>("title")?.unwrap_or_default();
             w.width = spec.get::<Option<f32>>("width")?.unwrap_or(0.0);
             w.help = spec.get::<Option<String>>("help")?.unwrap_or_default();
+            w.hud = spec.get::<Option<bool>>("hud")?.unwrap_or(false);
+            w.framed = spec.get::<Option<bool>>("frame")?.unwrap_or(true);
+            w.place = match (spec.get::<Option<f32>>("x")?, spec.get::<Option<f32>>("y")?) {
+                (Some(x), Some(y)) => Some((x, y)),
+                _ => None,
+            };
             let elems: Option<Table> = spec.get("elements")?;
             w.elems = match elems {
                 Some(t) => t.sequence_values::<Table>().map(|e| e.and_then(|e| elem(&e))).collect::<mlua::Result<_>>()?,
@@ -233,7 +239,20 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
             let w = s.windows.iter_mut().find(|w| w.id == id).ok_or_else(|| mlua::Error::runtime(format!("no window {id:?}")))?;
             w.open = true;
             w.settle();
-            s.focus_request = Some(id);
+            if !w.hud {
+                s.focus_request = Some(id);
+            }
+            Ok(())
+        })?,
+    )?;
+    ui.set(
+        "show",
+        lua.create_function(|lua, id: String| {
+            let st = state(lua);
+            let mut s = st.borrow_mut();
+            let w = s.windows.iter_mut().find(|w| w.id == id).ok_or_else(|| mlua::Error::runtime(format!("no window {id:?}")))?;
+            w.open = true;
+            w.settle();
             Ok(())
         })?,
     )?;
@@ -750,13 +769,14 @@ fn elem(t: &Table) -> mlua::Result<super::window::Elem> {
     let id = || -> mlua::Result<String> { t.get::<Option<String>>("id")?.ok_or_else(|| mlua::Error::runtime(format!("a {kind} element needs an id"))) };
     let index = |k: &str| -> mlua::Result<Option<usize>> { Ok(t.get::<Option<i64>>(k)?.map(|i| (i.max(1) - 1) as usize)) };
     Ok(match kind.as_str() {
-        "text" => Elem::Text { text: t.get::<Option<String>>("text")?.unwrap_or_default(), dim: t.get::<Option<bool>>("dim")?.unwrap_or(false) },
+        "text" => Elem::Text { id: t.get::<Option<String>>("id")?.unwrap_or_default(), text: t.get::<Option<String>>("text")?.unwrap_or_default(), dim: t.get::<Option<bool>>("dim")?.unwrap_or(false) },
         "buttons" => Elem::Buttons { id: id()?, label: t.get::<Option<String>>("label")?.unwrap_or_default(), items: t.get::<Option<Vec<String>>>("items")?.unwrap_or_default(), marked: index("marked")? },
         "slider" => {
             let n = t.get::<Option<usize>>("steps")?.unwrap_or(2).max(1);
             Elem::Slider { id: id()?, label: t.get::<Option<String>>("label")?.unwrap_or_default(), n, at: index("at")?.unwrap_or(0).min(n - 1), shown: t.get::<Option<String>>("shown")?.unwrap_or_default() }
         }
         "list" => Elem::List { id: id()?, rows: t.get::<Option<Vec<String>>>("rows")?.unwrap_or_default(), at: index("at")?.unwrap_or(0), top: 0, height: t.get::<Option<usize>>("height")?.unwrap_or(8).max(1) },
+        "gauge" => Elem::Gauge { id: t.get::<Option<String>>("id")?.unwrap_or_default(), label: t.get::<Option<String>>("label")?.unwrap_or_default(), value: t.get::<Option<f32>>("value")?.unwrap_or(0.0), text: t.get::<Option<String>>("text")?.unwrap_or_default(), kind: t.get::<Option<String>>("kind")?.unwrap_or_else(|| "hp".into()) },
         "separator" => Elem::Separator,
         other => return Err(mlua::Error::runtime(format!("unknown element type {other:?}"))),
     })
@@ -766,7 +786,7 @@ fn elem(t: &Table) -> mlua::Result<super::window::Elem> {
 fn update(e: &mut super::window::Elem, t: &Table) -> mlua::Result<()> {
     use super::window::Elem;
     match e {
-        Elem::Text { text, dim } => {
+        Elem::Text { text, dim, .. } => {
             if let Some(v) = t.get::<Option<String>>("text")? { *text = v; }
             if let Some(v) = t.get::<Option<bool>>("dim")? { *dim = v; }
         }
@@ -786,6 +806,12 @@ fn update(e: &mut super::window::Elem, t: &Table) -> mlua::Result<()> {
             if let Some(v) = t.get::<Option<Vec<String>>>("rows")? { *rows = v; }
             if let Some(v) = t.get::<Option<i64>>("at")? { *at = (v.max(1) - 1) as usize; }
             if let Some(v) = t.get::<Option<usize>>("height")? { *height = v.max(1); }
+        }
+        Elem::Gauge { label, value, text, kind, .. } => {
+            if let Some(v) = t.get::<Option<String>>("label")? { *label = v; }
+            if let Some(v) = t.get::<Option<f32>>("value")? { *value = v; }
+            if let Some(v) = t.get::<Option<String>>("text")? { *text = v; }
+            if let Some(v) = t.get::<Option<String>>("kind")? { *kind = v; }
         }
         Elem::Separator => {}
     }

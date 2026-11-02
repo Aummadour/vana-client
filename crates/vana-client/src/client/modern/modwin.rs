@@ -20,12 +20,13 @@ pub fn draw(p: &mut Panels, w: &mut World) {
         let id = format!("mod:{mod_id}:{}", win.id);
         let width = if win.width > 0.0 { win.width } else { 360.0 };
         let mut clicks: Vec<Click> = Vec::new();
-        let title = Title { icon: None, text: &win.title, note: None };
-        p.panel(&id, Some(title), width, |ui| {
+        let title = (!win.title.is_empty()).then_some(Title { icon: None, text: &win.title, note: None });
+        let frame = if win.framed { "window_normal" } else { "none" };
+        p.framed(&id, title, width, frame, |ui| {
             for (i, e) in win.elems.iter().enumerate() {
                 let here = win.focus && i == win.at;
                 match e {
-                    Elem::Text { text, dim } => {
+                    Elem::Text { text, dim, .. } => {
                         let c = if *dim { m.theme.color("muted") } else { m.theme.color("text") };
                         ui.label(RichText::new(text).size(m.theme.small).color(c));
                         ui.add_space(4.0);
@@ -55,6 +56,11 @@ pub fn draw(p: &mut Panels, w: &mut World) {
                             clicks.push(Click::Row(i, k));
                         }
                         ui.add_space(6.0);
+                    }
+                    Elem::Gauge { label, value, text, kind, .. } => {
+                        let (r, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 33.0), egui::Sense::hover());
+                        let bar = egui::Rect::from_min_max(pos2(r.min.x, r.max.y - super::hud::BAR), r.max);
+                        super::hud::labelled_bar(ui, m, kind, bar, value.clamp(0.0, 1.0), (label, m.theme.color("text")), (text, m.theme.color("text")));
                     }
                     Elem::Separator => {
                         ui.separator();

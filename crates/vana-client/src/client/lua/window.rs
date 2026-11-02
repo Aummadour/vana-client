@@ -7,12 +7,16 @@ use crate::audio::Ui as Se;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Elem {
-    Text { text: String, dim: bool },
+    /// `id` (may be empty) lets ui.update find it.
+    Text { id: String, text: String, dim: bool },
     /// A row of buttons under a heading; `marked` makes them options (the chosen one marked, Enter sets it).
     Buttons { id: String, label: String, items: Vec<String>, marked: Option<usize> },
     Slider { id: String, label: String, n: usize, at: usize, shown: String },
     /// Rows of text with a cursor; `height` rows show at once.
     List { id: String, rows: Vec<String>, at: usize, top: usize, height: usize },
+    /// A bar filled `value` (0..1) with its label and text; `kind` is the art pack's gauge (hp, mp, tp, cast,
+    /// experience, recast).
+    Gauge { id: String, label: String, value: f32, text: String, kind: String },
     Separator,
 }
 
@@ -24,6 +28,7 @@ impl Elem {
     pub fn id(&self) -> Option<&str> {
         match self {
             Elem::Buttons { id, .. } | Elem::Slider { id, .. } | Elem::List { id, .. } => Some(id),
+            Elem::Text { id, .. } | Elem::Gauge { id, .. } if !id.is_empty() => Some(id),
             _ => None,
         }
     }
@@ -43,6 +48,11 @@ pub struct Window {
     pub at: usize,
     pub col: usize,
     pub edit: bool,
+    /// A HUD window never takes the keys (a click still acts); drawn without a frame when `framed` is off; at
+    /// `place` (classic UI pixels) when given.
+    pub hud: bool,
+    pub framed: bool,
+    pub place: Option<(f32, f32)>,
 }
 
 /// What happened in a window, for the mod's handler.
@@ -75,7 +85,7 @@ const SLIDER_X: f32 = 88.0;
 
 impl Window {
     pub fn new(id: &str) -> Self {
-        Window { id: id.into(), title: String::new(), width: 0.0, help: String::new(), elems: Vec::new(), open: false, focus: false, at: 0, col: 0, edit: false }
+        Window { id: id.into(), title: String::new(), width: 0.0, help: String::new(), elems: Vec::new(), open: false, focus: false, at: 0, col: 0, edit: false, hud: false, framed: true, place: None }
     }
 
     fn stops(&self) -> Vec<usize> {
@@ -298,6 +308,7 @@ impl Window {
             Elem::Text { .. } => LINE,
             Elem::Buttons { .. } | Elem::Slider { .. } => PITCH,
             Elem::List { height, .. } => LINE * *height as f32 + 6.0,
+            Elem::Gauge { .. } => LINE + 2.0,
             Elem::Separator => 8.0,
         }
     }
@@ -313,14 +324,16 @@ impl Window {
         const ON: u32 = 0x8080_5020;
         const DIM: u32 = 0x8060_6060;
         let (w, h) = self.classic_size();
-        gu.frame(x, y, w, h);
+        if self.framed {
+            gu.frame(x, y, w, h);
+        }
         gu.text(&self.title, x + 16.0, y + 10.0, 0, [0x80; 4]);
         let mut ey = y + TOP;
         let mut hand = None;
         for (i, e) in self.elems.iter().enumerate() {
             let here = self.focus && i == self.at;
             match e {
-                Elem::Text { text, dim } => {
+                Elem::Text { text, dim, .. } => {
                     gu.text_fit(text, x + 20.0, ey, w - 40.0, if *dim { DIM } else { N });
                 }
                 Elem::Buttons { label, items, marked, .. } => {
@@ -375,6 +388,25 @@ impl Window {
                         gu.scroll_bar(x + w - 20.0, ey, LINE * *height as f32, rows.len(), *height, *top);
                     }
                 }
+                Elem::Gauge { label, value, text, kind, .. } => {
+                    // The Timers window's gauge: frame 38 and its fill 97, coloured by kind.
+                    let colour = match kind.as_str() {
+                        "mp" => [0x80, 0x50, 0x30, 0x80],
+                        "tp" => [0x30, 0x60, 0x80, 0x80],
+                        "cast" => [0x30, 0x80, 0x80, 0x80],
+                        "experience" => [0x80, 0x40, 0x80, 0x80],
+                        "recast" => [0x60, 0x60, 0x60, 0x80],
+                        _ => [0x30, 0x80, 0x30, 0x80],
+                    };
+                    let gx = x + w - 92.0;
+                    gu.text_fit(label, x + 20.0, ey, gx - x - 80.0, N);
+                    gu.shape_text(text, gx - 8.0, ey + 1.0, N, true);
+                    let f = value.clamp(0.0, 1.0);
+                    if f > 0.0 {
+                        gu.sprite_coloured("menu    windowps", 97, gx + 4.0, ey + 7.0, f, 1.0, colour, 8);
+                    }
+                    gu.sprite("menu    windowps", 38, gx, ey + 6.0, N);
+                }
                 Elem::Separator => {}
             }
             ey += Self::classic_h(e);
@@ -394,7 +426,7 @@ mod tests {
     fn win() -> Window {
         let mut w = Window::new("w");
         w.elems = vec![
-            Elem::Text { text: "Hello".into(), dim: false },
+            Elem::Text { id: String::new(), text: "Hello".into(), dim: false },
             Elem::Buttons { id: "go".into(), label: "Go".into(), items: vec!["A".into(), "B".into()], marked: None },
             Elem::Buttons { id: "pick".into(), label: "Pick".into(), items: vec!["X".into(), "Y".into()], marked: Some(0) },
             Elem::Slider { id: "s".into(), label: "S".into(), n: 3, at: 0, shown: "0".into() },
