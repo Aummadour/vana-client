@@ -473,6 +473,16 @@ function render.entity(id, look) end
 --- Clears every look the mod set.
 function render.clear() end
 
+--- A post-process pass over the world, drawn in the order set, under the screen fades and the 2D layer (nil removes it). The source is WGSL with `@fragment fn fs_main(in: VsOut) -> @location(0) vec4<f32>`; it has `scene` (the frame so far) and `samp`, `depth` (texture_depth_2d), `post.size`, `post.time` and `post.p[0..3]` (shader_params), and `in.uv`. A WGSL error is a log line, the pass then skipped.
+---@param id string 
+---@param wgsl string? 
+function render.shader(id, wgsl) end
+
+--- A pass's four parameter vectors (post.p): up to four {x, y, z, w}.
+---@param id string 
+---@param params number[][] 
+function render.shader_params(id, params) end
+
 --- The drawn eye's distance as a share of retail's (1 unless a mod sets it).
 ---@return number
 function render.camera_distance() end

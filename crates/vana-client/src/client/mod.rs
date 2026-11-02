@@ -6636,8 +6636,9 @@ pub struct App {
     synth_events: Vec<egui::Event>,
     /// The lobby mods before login (in the world, the World's host holds them).
     lobby_mods: lua::Host,
-    /// A mod's recording (client.record).
+    /// A mod's recording (client.record), and the mods' post-process passes (render.shader).
     recorder: Option<record::Recorder>,
+    post_fx: Option<crate::render::postfx::PostFx>,
     /// Frames per second, 0 = unlimited (config frame_limit), and the present mode must be picked again.
     frame_limit: u32,
     present_dirty: bool,
@@ -6885,6 +6886,7 @@ impl App {
             synth_events: Vec::new(),
             lobby_mods: Default::default(),
             recorder: None,
+            post_fx: None,
             frame_limit,
             present_dirty: false,
             window_dirty: false,
@@ -13940,6 +13942,15 @@ impl App {
                 // The Lua mods' world shapes, then layout mode's overlay over the finished scene.
                 r.render_world_shapes(&mut encoder, &scene_raw, &scene_depth);
                 r.render_lines(&mut encoder, &scene_raw);
+                // The mods' post-process passes over the scene, under the fades.
+                let want = w.lua.shaders();
+                if !want.is_empty() || self.post_fx.is_some() {
+                    let post = self.post_fx.get_or_insert_with(|| crate::render::postfx::PostFx::new(&gfx.gpu, scene_fmt));
+                    for (m, id, e) in post.sync(&gfx.gpu, &want) {
+                        w.lua.shader_error(&m, &id, &e);
+                    }
+                    post.draw(&gfx.gpu, &mut encoder, &scene_tex, &scene_raw, &scene_depth, w.started.elapsed().as_secs_f32(), &want);
+                }
                 // A zone change's held frame under the fade to black (the camera has moved on).
                 if let (Some(_), Some(fx)) = (w.zone_hold.filter(|h| h.captured), &self.screen_fx_zone) {
                     fx.draw_held(&gfx.gpu, &mut encoder, &scene_raw, 1.0);

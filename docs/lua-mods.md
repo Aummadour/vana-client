@@ -132,6 +132,10 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   - `client.record` / `stop_recording` / `recording` (`exec`): the window as drawn to an H.264 file through ffmpeg
     (a ring of readback buffers, never waited on; a frame due with none free repeats the last); checked live (4 s at
     30 fps: 120 frames, 1920 x 1080)
+  - `render.shader(id, wgsl)` / `shader_params`: post-process passes over the world under the fades and the 2D layer,
+    each a WGSL `fs_main` given the frame so far, its depth, size, time and four parameter vectors; a WGSL error is a
+    log line (its line numbers count the 15 header lines first) and the pass is skipped; checked live (a cel-shading
+    pass with depth outlines; an error reported)
   - `client.process` / `set_affinity` / `set_priority` (`process`): the cores every thread may run on and the
     scheduling priority; checked live on Linux (cores 0-3, low, back to normal).
   - Rules as switches too: `move_lock` (our abilities' and the weapon draw's move lock, scheduler op 0x2e), `all_maps`
@@ -519,7 +523,7 @@ Requires `actions` or `automation`.
 - **Per-entity overrides:** visibility and occlusion, alpha, tint, name, name colour, model size, look slots, race and
   face, effect bubbles.
 - **World:** music override or mute per context, weather shown, screenshots.
-- Shader-level changes (toon, cel shading) are a later shader-pack interface, not Lua.
+- Shader-level changes (toon, cel shading) are WGSL post-process passes a mod sets (`render.shader`).
 
 ### 4.12 `settings`, `storage`, `fs`, data formats
 - **Settings:** declared in `mod.toml`, drawn by us in both themes under Mods.

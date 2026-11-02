@@ -568,6 +568,7 @@ impl Host {
         }
         info.looks.retain(|_, l| l.0 != vm.manifest.id);
         info.item_tints.retain(|_, t| t.0 != vm.manifest.id);
+        info.shaders.retain(|s| s.0 != vm.manifest.id);
         drop(info);
         self.filters_dirty = true;
         lend_opt(&vm, w, |vm| vm.emit("unload", ()));
@@ -1284,6 +1285,18 @@ impl Host {
     }
 
     /// The entity looks mods set (render.entity), by server id.
+    /// The mods' post-process passes this frame.
+    pub(in crate::client) fn shaders(&self) -> Vec<crate::render::postfx::Want> {
+        self.info.borrow().shaders.clone()
+    }
+
+    /// A pass's WGSL error, for its mod's log line.
+    pub(in crate::client) fn shader_error(&self, mod_id: &str, id: &str, e: &str) {
+        if let Some(vm) = self.vms.iter().find(|v| v.manifest.id == mod_id) {
+            vm.st.borrow_mut().notices.push(format!("render.shader {id}: {e}"));
+        }
+    }
+
     /// A mod's colour for an item's name in the game's lists (shops, the auction house).
     pub(in crate::client) fn item_tint(&self, id: u16) -> Option<u32> {
         self.info.borrow().item_tints.get(&id).map(|t| t.1)

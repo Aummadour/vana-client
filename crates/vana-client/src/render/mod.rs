@@ -15,6 +15,7 @@ pub mod invwin;
 pub mod screenfx;
 pub mod movie;
 pub mod scale;
+pub mod postfx;
 pub mod gputime;
 pub mod cull;
 pub mod shadow;

@@ -55,15 +55,15 @@ Settled for every row:
 | Windower community capabilities | 13 | 12 | 0 | 1 |
 | Ashita v4 official add-ons | 81 | 79 | 0 | 2 |
 | Ashita v3 official add-ons | 13 | 13 | 0 | 0 |
-| Ashita v4 plugins | 10 | 9 | 0 | 1 |
+| Ashita v4 plugins | 10 | 10 | 0 | 0 |
 | Ashita v3 plugins | 27 | 27 | 0 | 0 |
 | Ashita community plugins | 37 | 36 | 1 | 0 |
 | Ashita v4 community add-ons | 147 | 144 | 1 | 2 |
 | Ashita v3 community add-ons | 22 | 22 | 0 | 0 |
 | Ashita add-ons rated from descriptions | 28 | 28 | 0 | 0 |
 | Windower, all | 250 | 248 | 1 | 1 |
-| Ashita, all | 365 | 358 | 2 | 5 |
-| **Total** | **615** | **606** | **3** | **6** |
+| Ashita, all | 365 | 359 | 2 | 4 |
+| **Total** | **615** | **607** | **3** | **5** |
 
 ## Open gaps
 
@@ -75,7 +75,6 @@ Ranked by the rows each one blocks (listed outside parentheses).
    found). Blocks trimspells.
 3. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it). Blocks
    fastswap.
-4. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
 
 Most wanted non-blocking gaps (rows that list them in parentheses):
 
@@ -513,7 +512,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | sandbox | Runs POL / FFXI without an install (registry, COM) | not needed natively | covered | - |
 | screenshot | Back-buffer screenshots, add-on UI optional | native Print Screen (with the UI hidden only); client.screenshot | covered | - |
 | thirdparty | External programs send commands, keys, text | net.request polling a local HTTP tool; commands.run; input.press; net.connect / listen / udp | covered | - |
-| toon | Cel shading with outlines | none | missing | shader packs |
+| toon | Cel shading with outlines | render.shader (a WGSL pass: posterize, depth outlines) / shader_params | covered | - |
 | winefix | Wine stutter fix | not needed: native client | covered | - |
 
 ### Ashita v3 plugins

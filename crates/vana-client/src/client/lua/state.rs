@@ -26,6 +26,9 @@ pub(super) struct FrameInfo {
     pub looks: std::collections::HashMap<u32, (String, super::render::Look)>,
     /// Item name colours mods set for the game's lists (ui.native.item_colour): item -> (mod, game tint).
     pub item_tints: std::collections::HashMap<u16, (String, u32)>,
+    /// Post-process passes mods set (render.shader), in order: mod, id, version, WGSL, parameters.
+    pub shaders: Vec<crate::render::postfx::Want>,
+    pub shader_ver: u64,
 }
 
 impl FrameInfo {

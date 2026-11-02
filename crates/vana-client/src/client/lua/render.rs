@@ -78,6 +78,46 @@ pub(super) fn install(lua: &Lua, g: &Table, mod_id: &str) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    let me = mod_id.to_string();
+    t.set(
+        "shader",
+        lua.create_function(move |lua, (id, src): (String, Option<String>)| {
+            let info = info(lua);
+            let mut f = info.borrow_mut();
+            let at = f.shaders.iter().position(|s| s.0 == me && s.1 == id);
+            match (src, at) {
+                (Some(src), at) => {
+                    f.shader_ver += 1;
+                    let params = at.map_or([[0.0; 4]; 4], |k| f.shaders[k].4);
+                    let pass = (me.clone(), id, f.shader_ver, std::sync::Arc::<str>::from(src), params);
+                    match at {
+                        Some(k) => f.shaders[k] = pass,
+                        None => f.shaders.push(pass),
+                    }
+                }
+                (None, Some(k)) => {
+                    f.shaders.remove(k);
+                }
+                (None, None) => {}
+            }
+            Ok(())
+        })?,
+    )?;
+    let me = mod_id.to_string();
+    t.set(
+        "shader_params",
+        lua.create_function(move |lua, (id, params): (String, Vec<Vec<f32>>)| {
+            let info = info(lua);
+            let mut f = info.borrow_mut();
+            let Some(s) = f.shaders.iter_mut().find(|s| s.0 == me && s.1 == id) else { return Err(mlua::Error::runtime(format!("no shader {id}"))) };
+            for (k, v) in params.iter().take(4).enumerate() {
+                for (j, x) in v.iter().take(4).enumerate() {
+                    s.4[k][j] = *x;
+                }
+            }
+            Ok(())
+        })?,
+    )?;
     t.set("camera_distance", lua.create_function(|lua, ()| Ok(world(lua)?.camst.dist))?)?;
     t.set(
         "set_camera_distance",
