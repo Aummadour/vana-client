@@ -50,7 +50,7 @@ impl Drop for Sock {
 }
 
 /// The channel the threads report on, made with the first socket.
-fn reports(lua: &Lua) -> Sender<Msg> {
+pub(super) fn reports(lua: &Lua) -> Sender<Msg> {
     let st = state(lua);
     let mut s = st.borrow_mut();
     if s.sock_tx.is_none() {
@@ -111,7 +111,7 @@ fn addr(host: &str, port: u16) -> mlua::Result<SocketAddr> {
     (host, port).to_socket_addrs().map_err(|e| mlua::Error::runtime(format!("{host}:{port}: {e}")))?.next().ok_or_else(|| mlua::Error::runtime(format!("{host}:{port}: no address")))
 }
 
-fn keep(lua: &Lua, id: u64, handlers: Table, kind: Kind) -> mlua::Result<()> {
+pub(super) fn keep(lua: &Lua, id: u64, handlers: Table, kind: Kind) -> mlua::Result<()> {
     let key = lua.create_registry_value(handlers)?;
     state(lua).borrow_mut().socks.push(Sock { id, handlers: Some(key), kind });
     Ok(())
@@ -295,20 +295,20 @@ pub(super) fn install(lua: &Lua, t: &Table) -> mlua::Result<()> {
             }
         })?,
     )?;
-    t.set(
-        "close",
-        lua.create_function(|lua, id: u64| {
-            let st = state(lua);
-            let gone: Vec<Sock> = {
-                let mut s = st.borrow_mut();
-                let (gone, kept) = std::mem::take(&mut s.socks).into_iter().partition(|x| x.id == id);
-                s.socks = kept;
-                gone
-            };
-            drop_all(lua, gone);
-            Ok(())
-        })?,
-    )?;
+    t.set("close", lua.create_function(|lua, id: u64| close(lua, id))?)?;
+    Ok(())
+}
+
+/// Closes a socket or device by id and frees its handlers.
+pub(super) fn close(lua: &Lua, id: u64) -> mlua::Result<()> {
+    let st = state(lua);
+    let gone: Vec<Sock> = {
+        let mut s = st.borrow_mut();
+        let (gone, kept) = std::mem::take(&mut s.socks).into_iter().partition(|x| x.id == id);
+        s.socks = kept;
+        gone
+    };
+    drop_all(lua, gone);
     Ok(())
 }
 

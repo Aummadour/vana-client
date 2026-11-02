@@ -126,6 +126,9 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   the cutscene speed 1..4, the actors' animation rate, the scene's background colour and ambient light, the minimap's
   zoom; set, read and released checked live, the ambient light and the minimap's zoom seen, the rest not all seen). Checked
   live but `client.focus` (not tried: it would take the desktop's focus); the place reads nil under Wayland.
+  - `devices.list` / `open` / `write` / `close` (`devices`): HID devices by their raw reports (G-keys, Stream Decks),
+    hidraw on Linux, the HID interfaces on Windows; checked live on Linux (the list with ids, interfaces and report
+    descriptors; a device opened and closed); Windows type-checked, not run
   - `client.process` / `set_affinity` / `set_priority` (`process`): the cores every thread may run on and the
     scheduling priority; checked live on Linux (cores 0-3, low, back to normal).
   - Rules as switches too: `move_lock` (our abilities' and the weapon draw's move lock, scheduler op 0x2e), `all_maps`
@@ -336,6 +339,7 @@ and revoke them there.
 | `clipboard` | read the clipboard's text (writing it needs nothing) | paste helpers, chat tools |
 | `ui.native` | hide HUD pieces, the whole interface, set game config values | XIUI, hideui, config tools |
 | `process` | CPU affinity and scheduling priority of the client | Affinity |
+| `devices` | HID devices by their raw reports | Binder, GBinder, Stream Deck tools |
 
 Never exposed to any mod, not even read-only: the password, the 2FA secret, `secret.key`, session keys and the
 Blowfish state. Outgoing chat, commands and packets are rate-limited per mod. There is no WoW-style taint or combat

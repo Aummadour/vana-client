@@ -217,6 +217,7 @@ json = {}
 mods = {}
 text = {}
 client = {}
+devices = {}
 lobby = {}
 settings = {}
 
@@ -1338,6 +1339,25 @@ function client.copy(text) end
 --- Reads the clipboard's text after this frame and hands it to the handler. Needs clipboard.
 ---@param handler fun(text: string) 
 function client.paste(handler) end
+
+--- The HID devices: {path, vendor, product, name, interface (the USB interface, when known), descriptor (the report descriptor's bytes, Linux)}. On Linux the hidraw nodes (opening one needs read and write access to it); on Windows the HID interfaces (the system holds keyboards and mice itself). Needs devices.
+---@return table[]
+function devices.list() end
+
+--- Opens a device by its path; handlers {open(id), data(id, report), close(id, error?)} run in later mod phases, one data call a report (the report id first where the device numbers them). Returns its id. Needs devices.
+---@param path string 
+---@param handlers table 
+---@return integer
+function devices.open(path, handlers) end
+
+--- Sends an output report (its report id first, 0 when the device has none; on Windows exactly the report's length). Needs devices.
+---@param id integer 
+---@param report string 
+function devices.write(id, report) end
+
+--- Closes a device.
+---@param id integer 
+function devices.close(id) end
 
 --- The client's process: pid, cores (how many), affinity (the cores it may run on, from 0; empty where unknown) and priority (idle, low, below_normal, normal, above_normal, high).
 ---@return {pid: integer, cores: integer, affinity: integer[], priority: string}

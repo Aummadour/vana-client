@@ -48,7 +48,7 @@ Settled for every row:
 | Set | Rows | Covered | Partly | Missing |
 | --- | --: | --: | --: | --: |
 | Windower official add-ons | 128 | 128 | 0 | 0 |
-| Windower plugins | 17 | 16 | 1 | 0 |
+| Windower plugins | 17 | 17 | 0 | 0 |
 | Windower deprecated plugins | 26 | 26 | 0 | 0 |
 | Windower features | 11 | 10 | 0 | 1 |
 | Windower community add-ons | 55 | 54 | 1 | 0 |
@@ -57,13 +57,13 @@ Settled for every row:
 | Ashita v3 official add-ons | 13 | 13 | 0 | 0 |
 | Ashita v4 plugins | 10 | 9 | 0 | 1 |
 | Ashita v3 plugins | 27 | 26 | 0 | 1 |
-| Ashita community plugins | 37 | 34 | 3 | 0 |
+| Ashita community plugins | 37 | 35 | 2 | 0 |
 | Ashita v4 community add-ons | 147 | 143 | 1 | 3 |
 | Ashita v3 community add-ons | 22 | 22 | 0 | 0 |
 | Ashita add-ons rated from descriptions | 28 | 28 | 0 | 0 |
-| Windower, all | 250 | 246 | 2 | 2 |
-| Ashita, all | 365 | 354 | 4 | 7 |
-| **Total** | **615** | **600** | **6** | **9** |
+| Windower, all | 250 | 247 | 1 | 2 |
+| Ashita, all | 365 | 355 | 3 | 7 |
+| **Total** | **615** | **602** | **4** | **9** |
 
 ## Open gaps
 
@@ -71,15 +71,14 @@ Ranked by the rows each one blocks (listed outside parentheses).
 
 1. **gamepad input (deferred)**, 6 rows: pad buttons and sticks as events and binds (deferred with gamepad support).
    Blocks Capability: gamepad input, cBind, Crossbar, tCrossBar, trigger, XIVCrossbar.
-2. **vendor input devices**, 2 rows: G-keys, Stream Deck and other HID devices directly. Blocks Binder, GBinder.
-3. **video capture**, 2 rows: recording the game window. Blocks DashCam, Video capture.
-4. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
-5. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
-6. **native list options**, 1 row: options for native lists (the spell list trimmed; what its shortcut list is was not
+2. **video capture**, 2 rows: recording the game window. Blocks DashCam, Video capture.
+3. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
+4. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
+5. **native list options**, 1 row: options for native lists (the spell list trimmed; what its shortcut list is was not
    found). Blocks trimspells.
-7. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it). Blocks
+6. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it). Blocks
    fastswap.
-8. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
+7. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
 
 Most wanted non-blocking gaps (rows that list them in parentheses):
 
@@ -257,7 +256,7 @@ Most wanted non-blocking gaps (rows that list them in parentheses):
 | Add-on | What it does | API used | Status | Missing |
 | --- | --- | --- | --- | --- |
 | AutoExec | Runs commands on events (login, job, time, chat, buffs, zone, weather, HP thresholds, no ammo, examined); wildcards, run once | `events.on` (login, job_change, time_change, chat_message, buff_gain / lose, zone_change, weather_change, hpp_change), `filters.chat`, `game.equipment`, `commands.run`; `emote` / `party_invite` / `examined` | covered | - |
-| Binder | G-keys, Stream Deck and similar devices fire aliases | `binds.set` / `input.on_key` for devices set to send keys; `input.on_mouse` back / forward | partly | vendor input devices: G-keys, Stream Deck; (gamepad input, deferred) |
+| Binder | G-keys, Stream Deck and similar devices fire aliases | `binds.set` / `input.on_key` for devices set to send keys; `input.on_mouse` back / forward; devices.list / open / write (raw HID reports) | covered | (gamepad input, deferred) |
 | ChatMon | Sound alerts on tells, name mentions, emotes, examines, invites | `chat_message`, `filters.chat` (system lines), `audio.play` / `play_se` | covered | - |
 | Config | Engine settings: aspect, animation rate, draw distance, footsteps, frame rate divisor, auto target | native Settings (frame limit, Draw Distance, 3D aspect); `ui.native.set_config` for game options; client.set_option(animation_rate) | covered | - |
 | DelayMeNot | Removes the macro palette's display delay | client.set_option('macro_palette_delay', false) | covered | - |
@@ -569,7 +568,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | FindAll | All characters' bags cached; instant bag load after zoning | game.items; fs under shared/; packets.inject_in replaying cached bag packets | covered | (packet layouts) |
 | FocuserHelper.dll | Enumerates and focuses game windows | ipc.send to each window; client.focus; `focus_change` | covered | - |
 | FrameFix | 60 fps with UI and motion timing corrected | native unlocked frame rate with timing kept | covered | - |
-| GBinder | Logitech G-keys run commands | binds.set (G-keys mapped to keys by the vendor tool) | partly | vendor input devices |
+| GBinder | Logitech G-keys run commands | binds.set (G-keys mapped to keys by the vendor tool); devices.list / open / write (raw HID reports) | covered | - |
 | gdifonttexture.dll | GDI+ text drawn to textures for add-ons | hud.text | covered | (font families) |
 | Guildwork | Launches a site sync helper | net.request to the site (as Windower's Guildwork plugin); client.run; net.connect / listen / udp | covered | - |
 | Lootwhore | As Lootwhore (v3 plugin) | as Lootwhore (v3 plugin) | covered | - |

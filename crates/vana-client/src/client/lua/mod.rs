@@ -4,6 +4,7 @@
 
 mod actions;
 mod api;
+mod devices;
 pub(super) mod audio;
 mod docs;
 mod draw;
@@ -1893,6 +1894,7 @@ fn permission_text(p: &str) -> (&'static str, &'static str) {
         "multibox" => ("Allow multibox", "Talks to your other game windows on this computer."),
         "ui.native" => ("Allow game windows", "Opens, hides and drives the game's own windows."),
         "process" => ("Allow process settings", "Sets which CPU cores the game runs on, and its priority."),
+        "devices" => ("Allow devices", "Talks to USB devices directly (G-keys, Stream Decks and the like)."),
         _ => ("Allow", ""),
     }
 }

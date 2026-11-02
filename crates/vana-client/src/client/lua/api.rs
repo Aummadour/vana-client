@@ -551,6 +551,7 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     super::audio::install(lua, &g, vm)?;
     super::draw::install(lua, &g, vm)?;
     super::net::install(lua, &g)?;
+    super::devices::install(lua, &g)?;
     let me = m.id.clone();
     let ipc = lua.create_table()?;
     ipc.set(
