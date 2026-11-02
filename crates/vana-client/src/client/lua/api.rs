@@ -281,6 +281,7 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
             Ok(())
         })?,
     )?;
+    super::native::install(lua, &ui, &m.id)?;
     g.set("ui", ui)?;
 
     // packets (docs/lua-mods.md 4.7): hooks both ways with Windower's chain, injection, the last of each id.

@@ -244,7 +244,7 @@ impl Modern {
         pointers(self, ctx, w);
         let layout = cfg.modern_places.entry(w.name.clone()).or_default();
         let mut changed = false;
-        let mut p = Panels { m: self, ctx, gu: Some(gu), layout, changed: &mut changed, chat_font: &mut cfg.modern_chat_font, battle_in_all: &mut cfg.modern_battle_in_all, condense: &mut cfg.modern_condense, folded: &mut cfg.modern_folded, scan_kinds: &mut cfg.modern_scan_kinds, this: HashMap::new(), retail: HashMap::new(), focus: focus_panel(w) };
+        let mut p = Panels { m: self, ctx, gu: Some(gu), layout, changed: &mut changed, chat_font: &mut cfg.modern_chat_font, battle_in_all: &mut cfg.modern_battle_in_all, condense: &mut cfg.modern_condense, folded: &mut cfg.modern_folded, scan_kinds: &mut cfg.modern_scan_kinds, this: HashMap::new(), retail: HashMap::new(), focus: focus_panel(w), hidden: w.lua.hidden_panels() };
         // The chat window first: what sits on it places by this frame's height.
         self.chat_edge.set(None);
         chat::panel(&mut p, w);
@@ -403,6 +403,8 @@ struct Panels<'a> {
     retail: HashMap<String, Place>,
     /// The panel with the keys (focus_panel): drawn in the focused frame.
     focus: Option<&'static str>,
+    /// Panels a Lua mod hid (ui.native.hide).
+    hidden: Vec<&'static str>,
 }
 
 /// The panel that takes the keys now, as the key dispatch (client/mod.rs) routes them: the prompt, the chat line, an
@@ -868,6 +870,9 @@ impl<'a> Panels<'a> {
     /// The panel itself: the pack's window frame behind its title row and contents, moved by a drag on its background
     /// unless placed beside another; a resizable one has the resize glyph in its corner. Returns its rect.
     fn show(&mut self, id: &str, o: Show, add: impl FnOnce(&mut Ui, Vec2)) -> Option<Rect> {
+        if self.hidden.contains(&id) {
+            return None;
+        }
         let (m, ctx) = (self.m, self.ctx);
         let screen = ctx.content_rect();
         let mut place = self.place(id);

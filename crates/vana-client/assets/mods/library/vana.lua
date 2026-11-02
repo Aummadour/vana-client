@@ -185,6 +185,7 @@ commands = {}
 filters = {}
 ui = {}
 hud = {}
+ui.native = {}
 packets = {}
 chat = {}
 input = {}
@@ -354,6 +355,42 @@ function hud.screen() end
 ---@param id string 
 ---@return {x: number, y: number, w: number, h: number}?
 function hud.bounds(id) end
+
+--- The game's windows open now, by name (menu, items, magic, ability, map, config, status, shop, trade, event, choice...).
+---@return string[]
+function ui.native.windows() end
+
+--- Whether any game window has the keys (a HUD may hide meanwhile).
+---@return boolean
+function ui.native.menu_open() end
+
+--- Whether the interface is hidden (the UI-hide key).
+---@return boolean
+function ui.native.interface_hidden() end
+
+--- Shows or hides the whole interface, as the UI-hide key does. Needs ui.native.
+---@param show boolean 
+function ui.native.interface(show) end
+
+--- Hides a HUD piece of the game in both UIs while the mod is loaded: party (party and alliance lists, their status icons), target, buffs (our status icons), compass (the modern location panel), minimap, cast (the cast bar), plates (name plates). Needs ui.native.
+---@param piece string 
+---@param hidden? boolean default true; false shows it again
+function ui.native.hide(piece, hidden) end
+
+--- Whether any mod hides a HUD piece.
+---@param piece string 
+---@return boolean
+function ui.native.hidden(piece) end
+
+--- A game config value by id (the Config window's settings).
+---@param id integer 
+---@return integer
+function ui.native.config(id) end
+
+--- Sets a game config value by id and applies it, as the Config window does (saved with the character's settings). Needs ui.native.
+---@param id integer 
+---@param value integer 
+function ui.native.set_config(id, value) end
 
 --- Hooks received packets (one id, or every one when nil) before the client reads them. The handler gets {id, data, original, injected, blocked, outgoing} (data and original are the whole sub-packet, header included) and returns nil to leave it, false to block it, or new bytes. Hooks chain across mods: a blocked packet still reaches later ones. Needs packets.read; changing or blocking needs packets.write.
 ---@param id integer? packet id
@@ -694,6 +731,9 @@ function actions.cancel(status) end
 --- Picks an option of the event menu showing (game.event().menu), as the cursor and Enter would.
 ---@param option integer from 1
 function actions.choose(option) end
+
+--- Moves the event's waiting text on, as Enter does (enternity, stepdialog).
+function actions.advance() end
 
 --- Talks to an NPC (or checks it), as Enter on it does.
 ---@param id integer server id

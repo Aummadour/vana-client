@@ -15,6 +15,8 @@ pub(super) struct FrameInfo {
     pub k: (f32, f32),
     /// The HUD elements drawn last frame in window pixels: (mod, element, x y w h).
     pub hud_rects: Vec<(String, String, [f32; 4])>,
+    /// Native HUD pieces hidden (ui.native.hide): piece -> the mods hiding it.
+    pub hidden: std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
 }
 
 impl FrameInfo {

@@ -50,6 +50,10 @@ Built (client/lua/, modern/modwin.rs), each checked live:
     icons in window pixels (negative from the right or bottom edge), drawn under the windows in the active UI's font
     and hidden with the UI; `hud.on` takes left / right clicks on an element from the game; `hud.screen` (size,
     pixels per UI unit), `hud.bounds`. Checked live in both UIs, clicks too
+- **Native windows** (`ui.native`): the game's open windows by name and whether one has the keys; the whole
+  interface hidden or shown; HUD pieces hidden in both UIs while the mod runs (party, target, buffs, compass /
+  location, minimap, cast bar, name plates; undone when it unloads); game config values read and set through the
+  Config window's apply (`ui.native` for changes); `actions.advance` moves event text on. Checked live in both UIs.
 - **Permissions:** each one a mod asks for is a row on its Extras page (ON / OFF, with what it allows on the help
   line), or `/lua grant` / `revoke`; kept in mod-data/grants.json. A mod loaded without them says where to allow them.
 - **Packets** (`packets.read` / `packets.write`):
@@ -93,7 +97,7 @@ Built (client/lua/, modern/modwin.rs), each checked live:
 - **Mods folder:** `mods/<id>/` (enabled through config `mods`); a test run uses `mods` beside its FFXI_CONFIG copy.
 
 Next (docs/lua-mods.md 6): packet layouts and decoded views, batch order (the rest of
-phase 4); the rest of phase 5 (trade, shops, BLU / PUP sets as actions; `ui.native`; `render`); the other Extras as
+phase 4); the rest of phase 5 (trade, shops, BLU / PUP sets as actions; native window drive and list rows; `render`); the other Extras as
 bundled mods; then world-space drawing, audio, ipc / net, and the coverage table.
 
 ## 1. The bar

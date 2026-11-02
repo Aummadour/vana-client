@@ -3015,7 +3015,9 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
     }
     gu.clear();
     gu.modern_skin(world.modern);
-    name_plates(gu, world, sw, sh, view_proj);
+    if !world.lua.hides("plates") {
+        name_plates(gu, world, sw, sh, view_proj);
+    }
     // The Lua mods' HUD elements, over the plates and under every window.
     lua::draw_hud(gu, world);
     if world.overlay.as_ref().is_some_and(|o| o.zone != world.pos_zone) {
@@ -3065,8 +3067,15 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
             }
         }
     }
-    if !world.modern {
+    if !world.modern && !world.lua.hides("minimap") {
         minimap::draw(gu, &mut world.minimap, world.minimap_frame.take());
+    }
+    // HUD pieces a Lua mod hid (ui.native.hide).
+    if world.lua.hides("party") {
+        (st.party_window, st.alliance) = (String::new(), [None, None]);
+    }
+    if world.lua.hides("target") {
+        st.target = None;
     }
     timers::draw(gu, &mut world.timers, sw);
     regime::draw(gu, &mut world.regime, sw);
@@ -3383,8 +3392,12 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
     }
     // The status icons are layer 0 (registry +0x29): every window draws over them.
     if !world.modern {
-        buffs::draw(gu, world, sw, sh);
-        buffs::draw_party(gu, world, sw, sh, region);
+        if !world.lua.hides("buffs") {
+            buffs::draw(gu, world, sw, sh);
+        }
+        if !world.lua.hides("party") {
+            buffs::draw_party(gu, world, sw, sh, region);
+        }
     }
     fishing::draw_gauge(gu, world, sw, sh);
     blockers.extend(moogle::draw(gu, world, sw, sh));
@@ -3494,7 +3507,9 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
     blockers.extend(bluset::draw(gu, world, sw, sh));
     blockers.extend(moncustom::draw(gu, world, sw, sh));
     if !world.modern {
-        magic::draw_cast_bar(gu, world, sw, sh);
+        if !world.lua.hides("cast") {
+            magic::draw_cast_bar(gu, world, sw, sh);
+        }
         magic::draw_event_timer(gu, world, sw, sh);
         objective::draw_countdown(gu, world, sw, sh);
         objective::draw_bars(gu, world);
@@ -11898,41 +11913,7 @@ impl App {
                     lines.extend(world.lua.debug_lines());
                     // What holds the keys now (intermittent stuck-input reports).
                     let w = &*world;
-                    let open: Vec<&str> = [
-                        ("menu", w.menu.is_some()),
-                        ("confirm", w.confirm.is_some()),
-                        ("items", w.win.is_some()),
-                        ("action", w.action_menu.is_some()),
-                        ("config", w.config.is_some()),
-                        ("settings", w.settings.is_some()),
-                        ("mod window", w.lua.focused()),
-                        ("map", w.map.is_some()),
-                        ("fulllog", w.full_log.is_some()),
-                        ("magic", w.magic.is_some()),
-                        ("ability", w.ability.is_some()),
-                        ("cats", w.cats.is_some()),
-                        ("moogle", w.moogle.is_some()),
-                        ("mogdoor", w.mogdoor.is_some()),
-                        ("shop", shop::active(w)),
-                        ("trade", trade::active(w)),
-                        ("post", post::active(w)),
-                        ("loot", treasure::active(w)),
-                        ("synth", synth::active(w)),
-                        ("search", w.search.is_some()),
-                        ("inspect", w.inspect.up()),
-                        ("prompt", w.prompt.is_some()),
-                        ("typing", w.typing),
-                        ("log_active", w.log_active),
-                        ("ko_open", w.ko_open),
-                        ("raise", w.ko_offer == 2),
-                        ("event", event::active(w)),
-                        ("choice", event::choice(w).is_some()),
-                        ("palette", w.palette.0 != 0),
-                    ]
-                    .into_iter()
-                    .filter(|(_, on)| *on)
-                    .map(|(n, _)| n)
-                    .collect();
+                    let open = open_windows(w);
                     lines.push(format!("open [{}]  log_focus {} (active {})  locked {}  party_cursor {}", open.join(" "), w.log_focus, w.log_active, w.locked, w.party_cursor.is_some()));
                     lines.push(self.input.debug_state());
                     egui::Area::new(egui::Id::unique("status")).anchor(egui::Align2::LEFT_TOP, [8.0, 56.0]).interactable(false).show(ctx, |ui| {
@@ -14162,6 +14143,51 @@ impl ApplicationHandler for App {
             _ => {}
         }
     }
+}
+
+/// The windows open now by name, for F12 and the mods (ui.native.windows).
+pub(super) fn open_windows(w: &World) -> Vec<&'static str> {
+    [
+        ("menu", w.menu.is_some()),
+        ("confirm", w.confirm.is_some()),
+        ("items", w.win.is_some()),
+        ("action", w.action_menu.is_some()),
+        ("config", w.config.is_some()),
+        ("settings", w.settings.is_some()),
+        ("mod window", w.lua.focused()),
+        ("map", w.map.is_some()),
+        ("fulllog", w.full_log.is_some()),
+        ("magic", w.magic.is_some()),
+        ("ability", w.ability.is_some()),
+        ("cats", w.cats.is_some()),
+        ("moogle", w.moogle.is_some()),
+        ("mogdoor", w.mogdoor.is_some()),
+        ("shop", shop::active(w)),
+        ("trade", trade::active(w)),
+        ("post", post::active(w)),
+        ("loot", treasure::active(w)),
+        ("synth", synth::active(w)),
+        ("search", w.search.is_some()),
+        ("inspect", w.inspect.up()),
+        ("prompt", w.prompt.is_some()),
+        ("typing", w.typing),
+        ("log_active", w.log_active),
+        ("ko_open", w.ko_open),
+        ("raise", w.ko_offer == 2),
+        ("event", event::active(w)),
+        ("choice", event::choice(w).is_some()),
+        ("palette", w.palette.0 != 0),
+        ("status", w.status.is_some()),
+        ("missions", w.missions.is_some()),
+        ("quests", w.quests.is_some()),
+        ("keyitems", w.keyitems.is_some()),
+        ("linkshell", w.linkshell.is_some()),
+        ("helpdesk", w.helpdesk.is_some()),
+    ]
+    .into_iter()
+    .filter(|(_, on)| *on)
+    .map(|(n, _)| n)
+    .collect()
 }
 
 /// The monitor a full-screen window goes on: the configured one by name, else the current one (Wayland often

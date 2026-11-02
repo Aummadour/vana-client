@@ -8,6 +8,7 @@ mod docs;
 mod hud;
 pub(super) mod input;
 mod manifest;
+mod native;
 mod runtime;
 mod state;
 mod vm;
@@ -30,6 +31,10 @@ pub(super) enum Op {
     Line { text: String, open: bool },
     /// Text for the clipboard.
     Copy(String),
+    /// The whole interface shown or hidden (the UI-hide key's state).
+    Interface(bool),
+    /// A game config value set, as the Config window does.
+    Config(u16, u32),
 }
 
 /// The mods of this session.
@@ -355,6 +360,9 @@ impl Host {
     fn unload(&mut self, w: &World, k: usize) {
         let vm = self.vms.remove(k);
         self.dir.borrow_mut().mods.retain(|m| m.id != vm.manifest.id);
+        for mods in self.info.borrow_mut().hidden.values_mut() {
+            mods.remove(&vm.manifest.id);
+        }
         self.filters_dirty = true;
         lend(&vm, w, |vm| vm.emit("unload", ()));
         save(&vm, w);
@@ -797,6 +805,13 @@ fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
         Op::Act(a) => actions::apply(w, gu, a),
         Op::Key(k) => w.lua.synth.push(k),
         Op::Copy(text) => w.copied = Some(text),
+        Op::Interface(show) => w.ui_hidden = !show,
+        Op::Config(id, v) => {
+            if w.game.set(id, v) {
+                super::cfgapply::apply(w, id);
+                w.game_save = true;
+            }
+        }
         Op::Line { text, open: true } => {
             (w.chat_input, w.chat_caret, w.chat_anchor) = (text, None, None);
             w.typing = true;
@@ -816,6 +831,16 @@ pub(super) fn draw_hud(gu: &mut super::game_ui::GameUi, w: &World) {
 }
 
 impl Host {
+    /// Whether a mod hid a native HUD piece (ui.native.hide).
+    pub(in crate::client) fn hides(&self, piece: &str) -> bool {
+        self.info.borrow().hidden.get(piece).is_some_and(|m| !m.is_empty())
+    }
+
+    /// The modern panels of the hidden pieces.
+    pub(in crate::client) fn hidden_panels(&self) -> Vec<&'static str> {
+        native::PIECES.iter().filter(|p| self.hides(p.0)).flat_map(|p| p.1.iter().copied()).collect()
+    }
+
     /// The window's size in pixels and the UI's units per pixel, for the HUD's places.
     pub(in crate::client) fn set_view(&self, window: [u32; 2], k: (f32, f32)) {
         let mut f = self.info.borrow_mut();
@@ -861,7 +886,15 @@ mod tests {
         api::install(&vm.lua, &vm, (serde_json::Value::Null, serde_json::Value::Null)).unwrap();
         let g = vm.lua.globals();
         for f in docs::FUNCS {
-            let v: Value = if f.ns.is_empty() { g.get(f.name).unwrap() } else { g.get::<Table>(f.ns).unwrap().get(f.name).unwrap() };
+            let v: Value = if f.ns.is_empty() {
+                g.get(f.name).unwrap()
+            } else {
+                let mut t: Table = g.clone();
+                for part in f.ns.split('.') {
+                    t = t.get::<Table>(part).unwrap();
+                }
+                t.get(f.name).unwrap()
+            };
             assert!(matches!(v, Value::Function(_)), "{}.{} is documented but not bound", f.ns, f.name);
         }
         // Every global table but Lua's own is a namespace of ours, documented or not.
@@ -870,6 +903,19 @@ mod tests {
         for ns in namespaces {
             let ns = ns.as_str();
             let t: Table = g.get(ns).unwrap();
+            // Sub-tables (ui.native) are namespaces of their own.
+            for pair in t.pairs::<String, Value>() {
+                let (name, v) = pair.unwrap();
+                if let Value::Table(sub) = v {
+                    let full = format!("{ns}.{name}");
+                    for p in sub.pairs::<String, Value>() {
+                        let (fname, fv) = p.unwrap();
+                        if matches!(fv, Value::Function(_)) {
+                            assert!(docs::FUNCS.iter().any(|f| f.ns == full && f.name == fname), "{full}.{fname} is bound but not documented");
+                        }
+                    }
+                }
+            }
             for pair in t.pairs::<String, Value>() {
                 let (name, v) = pair.unwrap();
                 if matches!(v, Value::Function(_)) {

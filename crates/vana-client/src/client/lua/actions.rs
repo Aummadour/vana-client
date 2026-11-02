@@ -27,6 +27,8 @@ pub(in crate::client) enum Action {
     Pass(u8),
     Cancel(u16),
     Choose(usize),
+    /// The event's waiting page goes on, as Enter does.
+    Advance,
     Talk(u32),
     Target(Option<u32>),
     Lock(bool),
@@ -146,6 +148,11 @@ pub(super) fn apply(w: &mut World, gu: Option<&GameUi>, a: Action) {
         Action::Cancel(id) => {
             if let Some(gu) = gu {
                 super::super::buffs::cancel(gu, w, id);
+            }
+        }
+        Action::Advance => {
+            if event::active(w) {
+                event::key(w, egui::Key::Enter);
             }
         }
         Action::Choose(k) => {
@@ -310,6 +317,7 @@ pub(super) fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
         })?,
     )?;
     t.set("talk", lua.create_function(|lua, id: u32| queue(lua, Action::Talk(id)))?)?;
+    t.set("advance", lua.create_function(|lua, ()| queue(lua, Action::Advance))?)?;
     t.set("scan", lua.create_function(|lua, ()| queue(lua, Action::Scan))?)?;
     t.set("track", lua.create_function(|lua, index: u16| queue(lua, Action::Track(index)))?)?;
     t.set("untrack", lua.create_function(|lua, ()| queue(lua, Action::Untrack))?)?;
