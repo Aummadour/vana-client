@@ -5,23 +5,43 @@ Research behind it, outside the repo: `~/ffxi/lab/research/lua/windower_survey.m
 
 ## State
 
-Phase 1 has started (client/lua/):
-- **Done:**
-  - a VM per mod (Lua 5.4, mlua 0.12), with the restricted library set, text-only `load`, and a 64 MB memory limit
-  - the 100 ms time budget per call (a runaway loop is stopped)
-  - coroutine handlers with `sleep`, `sleep_frames` and `wait_until`
+Built (client/lua/, modern/modwin.rs), each checked live:
+- **Runtime:**
+  - a VM per mod (Lua 5.4, mlua 0.12): 38 to 64 KB each, measured on F12
+  - restricted libraries, text-only `load`, a 64 MB memory limit
+  - a 100 ms budget per call (a runaway loop is stopped)
+  - coroutine handlers (`sleep`, `sleep_frames`, `wait_until`)
   - errors reported once with file:line; 20 in a minute suspend the mod
   - `require` from the mod's folder
-  - events: `load`, `unload`, `login`, `logout`, `zone_change`, `frame`
-  - `commands.register` (`//name`, `/name`), `commands.run`, `chat.add(text, mode)`, `print`, `log.*`
-  - `timer.after`, `timer.every`, `timer.cancel`, `clock`
-  - `game.player`, `game.zone`
-  - `storage.account` / `storage.character` (JSON files in `mod-data/<id>/`), `settings.get` (declared defaults; user
-    values from `/lua set`)
-  - `/lua list | load | unload | reload | run | set`
+  - `/lua list | load | unload | reload | run | set | settings`
+  - F12 lines per mod (time, peak, slow calls, memory, errors)
+  - LuaLS stubs (`vana-client lua-stubs`) from docs.rs, kept equal to the bindings by a test
+- **Events:**
+  - lifecycle: `load`, `unload`, `login`, `logout`, `zone_change`, `frame`
+  - Windower's change events from a per-frame diff: vitals, status, job, level, buffs, target, time, day, moon,
+    weather, party, items
+  - from packets: `chat_message`, `action` (0x028 decoded), `battle_message`
+  - `settings_changed`
+- **State:**
+  - `game.player`, `entity` / `entities` / `target` (ourselves included), `party`, `items`, `bag_size`, `equipment`,
+    `buffs`, `recasts`, `time`, `weather`, `key_items`
+  - `res.item`, `spell`, `ability`, `status`, `zone`, `title`, `key_item`, `job`
+- **Chat and commands:**
+  - `chat.add` (mode colours)
+  - `filters.chat` (keep, drop or rewrite every line) and `filters.typed` (typed lines before the parser)
+  - `commands.register` (`//name`, `/name`), `commands.run`
+- **Settings and storage:**
+  - declared settings (bool, enum, int, number) on an Extras page per mod, in both UIs; per-scope files
+  - `storage.account` / `storage.character`
+- **Windows:**
+  - `ui.window` / `update` / `open` / `show` / `close` / `on`
+  - elements: text, buttons and options, slider, scrolling list, gauge, separator
+  - keys and mouse in both UIs: the classic UI draws Config pages, the modern UI kit panels with saved places
+  - HUD windows (no focus, frameless, placed)
 - **Mods folder:** `mods/<id>/` (enabled through config `mods`); a test run uses `mods` beside its FFXI_CONFIG copy.
-- **Left in phase 1:** the Mods page (enable, permissions, settings), F12 accounting, and the registry-driven LuaLS
-  stubs.
+
+Next (docs/lua-mods.md 6): the Mods page's permissions; an Extra ported to a bundled mod; packets (phase 4);
+actions and automation (phase 5); then world-space drawing, audio, ipc / net, and the coverage table.
 
 ## 1. The bar
 

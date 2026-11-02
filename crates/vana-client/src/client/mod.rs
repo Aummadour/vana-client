@@ -11840,6 +11840,8 @@ impl App {
                     if !status.is_empty() {
                         lines.push(status.clone());
                     }
+                    // The Lua mods: time a frame (average, peak), memory, state (docs/lua-mods.md 3.4).
+                    lines.extend(world.lua.debug_lines());
                     // What holds the keys now (intermittent stuck-input reports).
                     let w = &*world;
                     let open: Vec<&str> = [
@@ -11849,6 +11851,7 @@ impl App {
                         ("action", w.action_menu.is_some()),
                         ("config", w.config.is_some()),
                         ("settings", w.settings.is_some()),
+                        ("mod window", w.lua.focused()),
                         ("map", w.map.is_some()),
                         ("fulllog", w.full_log.is_some()),
                         ("magic", w.magic.is_some()),

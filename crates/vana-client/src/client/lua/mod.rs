@@ -857,3 +857,17 @@ pub(super) fn pointer_classic(w: &mut World, gu: &super::game_ui::GameUi, p: (f3
     }
     false
 }
+
+impl Host {
+    /// F12's lines: each mod's time a frame (average and peak, ms), calls over the soft cap, memory, errors.
+    pub(super) fn debug_lines(&self) -> Vec<String> {
+        self.vms
+            .iter()
+            .map(|v| {
+                let st = v.st.borrow();
+                let state = v.suspended.as_deref().map_or(String::new(), |r| format!("  SUSPENDED ({r})"));
+                format!("lua {}  {:.2} ms avg  {:.1} peak  {} slow  {} KB  {} errors{state}", v.manifest.id, st.stats.avg, st.stats.peak, st.stats.slow, v.lua.used_memory() / 1024, st.errors.len())
+            })
+            .collect()
+    }
+}
