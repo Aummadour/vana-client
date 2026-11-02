@@ -1994,7 +1994,7 @@ pub(super) fn current(w: &World, regions: &[Region]) -> Option<Region> {
 
 fn owned(w: &World, region: &Region) -> bool {
     match region.need() {
-        Need::Item(id) => w.has_key_item(id),
+        Need::Item(id) => w.opts.all_maps || w.has_key_item(id),
         _ => true,
     }
 }

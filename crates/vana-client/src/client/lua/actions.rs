@@ -48,7 +48,38 @@ pub(in crate::client) enum Action {
     Walk(bool),
     Stop,
     Turn(f32),
+    /// A main menu row (page, child), as a pick there runs it; the nomad moogle menu.
+    Menu(u8, u16),
+    Moogle,
 }
+
+/// The main menu's rows by name: (name, page, child).
+pub(super) const MENUS: &[(&str, u8, u16)] = &[
+    ("status", 0, 1),
+    ("equipment", 0, 2),
+    ("magic", 0, 3),
+    ("items", 0, 4),
+    ("abilities", 0, 5),
+    ("party", 0, 6),
+    ("trade", 0, 7),
+    ("search", 0, 8),
+    ("linkshell", 0, 9),
+    ("synthesis", 0, 10),
+    ("region", 0, 11),
+    ("map", 0, 12),
+    ("missions", 1, 1),
+    ("quests", 1, 2),
+    ("key_items", 1, 3),
+    ("view_house", 1, 4),
+    ("bazaar", 1, 5),
+    ("macros", 1, 6),
+    ("config", 1, 7),
+    ("help_desk", 1, 8),
+    ("communication", 1, 9),
+    ("clock", 1, 10),
+    ("shut_down", 1, 11),
+    ("log_out", 1, 12),
+];
 
 pub(in crate::client) enum Piece {
     At(u8, u8),
@@ -157,6 +188,8 @@ pub(super) fn apply(w: &mut World, gu: Option<&GameUi>, a: Action) {
                 super::super::buffs::cancel(gu, w, id);
             }
         }
+        Action::Menu(page, id) => w.menu_click = Some((page, id)),
+        Action::Moogle => super::super::moogle::open(w, true),
         Action::Advance => {
             if event::active(w) {
                 event::key(w, egui::Key::Enter);
@@ -396,6 +429,19 @@ pub(super) fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
     t.set("mount", lua.create_function(|lua, name: String| queue(lua, Action::Line(format!("/mount \"{name}\""))))?)?;
     t.set("dismount", lua.create_function(|lua, ()| queue(lua, Action::Line("/dismount".into())))?)?;
     t.set("advance", lua.create_function(|lua, ()| queue(lua, Action::Advance))?)?;
+    t.set(
+        "open_menu",
+        lua.create_function(|lua, name: String| {
+            if name == "moogle" {
+                return queue(lua, Action::Moogle);
+            }
+            let Some(&(_, page, id)) = MENUS.iter().find(|m| m.0 == name) else {
+                let names: Vec<&str> = MENUS.iter().map(|m| m.0).chain(["moogle"]).collect();
+                return Err(mlua::Error::runtime(format!("no menu {name:?} ({})", names.join(", "))));
+            };
+            queue(lua, Action::Menu(page, id))
+        })?,
+    )?;
     // A macro of the current set: row "ctrl" | "alt", 1..10.
     let slot = |row: &str, n: usize| -> mlua::Result<usize> {
         let base = match row {

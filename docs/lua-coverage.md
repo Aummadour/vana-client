@@ -53,17 +53,17 @@ Settled for every row:
 | Windower features | 11 | 9 | 1 | 1 |
 | Windower community add-ons | 55 | 54 | 1 | 0 |
 | Windower community capabilities | 13 | 12 | 0 | 1 |
-| Ashita v4 official add-ons | 81 | 68 | 7 | 6 |
+| Ashita v4 official add-ons | 81 | 76 | 0 | 5 |
 | Ashita v3 official add-ons | 13 | 13 | 0 | 0 |
 | Ashita v4 plugins | 10 | 9 | 0 | 1 |
 | Ashita v3 plugins | 27 | 25 | 0 | 2 |
 | Ashita community plugins | 37 | 31 | 5 | 1 |
-| Ashita v4 community add-ons | 147 | 139 | 2 | 6 |
+| Ashita v4 community add-ons | 147 | 142 | 2 | 3 |
 | Ashita v3 community add-ons | 22 | 22 | 0 | 0 |
 | Ashita add-ons rated from descriptions | 28 | 28 | 0 | 0 |
 | Windower, all | 250 | 243 | 4 | 3 |
-| Ashita, all | 365 | 335 | 14 | 16 |
-| **Total** | **615** | **578** | **18** | **19** |
+| Ashita, all | 365 | 346 | 7 | 12 |
+| **Total** | **615** | **589** | **11** | **15** |
 
 ## Open gaps
 
@@ -71,33 +71,24 @@ Ranked by the rows each one blocks (listed outside parentheses).
 
 1. **gamepad input (deferred)**, 6 rows: pad buttons and sticks as events and binds (deferred with gamepad support).
    Blocks Capability: gamepad input, cBind, Crossbar, tCrossBar, trigger, XIVCrossbar.
-2. **action lock patches**, 2 rows: removing the job-ability and engage movement locks. Blocks ButterFeet, nolock.
-3. **IME text input**, 2 rows: Japanese IME composition in the chat line. Blocks ime (Ashita v4), IME (Windower plugin).
-4. **map unlock switch**, 2 rows: every map without its key item. Blocks allmaps, cartographer.
-5. **Mog House / AH anywhere rule**, 2 rows: opening the Mog House menu or the AH outside their places. Blocks ahgo,
-   nomad.
-6. **native list options**, 2 rows: options for native lists (AH row colours, the spell list trimmed). Blocks ahcolors,
+2. **IME text input**, 2 rows: Japanese IME composition in the chat line. Blocks ime (Ashita v4), IME (Windower plugin).
+3. **native list options**, 2 rows: options for native lists (AH row colours, the spell list trimmed). Blocks ahcolors,
    trimspells.
-7. **process control**, 2 rows: CPU affinity and similar process settings. Blocks Affinity (Ashita v3 plugin), affinity
+4. **process control**, 2 rows: CPU affinity and similar process settings. Blocks Affinity (Ashita v3 plugin), affinity
    (Ashita v4).
-8. **vendor input devices**, 2 rows: G-keys, Stream Deck and other HID devices directly. Blocks Binder, GBinder.
-9. **video capture**, 2 rows: recording the game window. Blocks DashCam, Video capture.
-10. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
-11. **commands-while-dead rule**, 1 row: commands allowed while dead. Blocks paranormal.
-12. **compass monster dots switch**, 1 row: enemy dots on the compass for every job. Blocks mapdot.
-13. **drag and drop**, 1 row: dragging between elements in `ui.window` (a canvas takes clicks only). Blocks boussole.
-14. **engine settings from Lua**, 1 row: wireframe from Lua. Blocks Render knobs.
-15. **entity occlusion switch**, 1 row: drawing entities the client culls or occludes. Blocks truesight.
-16. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
-17. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it).
+5. **vendor input devices**, 2 rows: G-keys, Stream Deck and other HID devices directly. Blocks Binder, GBinder.
+6. **video capture**, 2 rows: recording the game window. Blocks DashCam, Video capture.
+7. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
+8. **drag and drop**, 1 row: dragging between elements in `ui.window` (a canvas takes clicks only). Blocks boussole.
+9. **engine settings from Lua**, 1 row: wireframe from Lua. Blocks Render knobs.
+10. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
+11. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it).
     Blocks fastswap.
-18. **network send timing**, 1 row: changing when the client sends its packets. Blocks PacketFlow.
-19. **open game menus by name**, 1 row: opening the magic, ability and other client menus by name. Blocks openmenus.
-20. **per-entity collision switch**, 1 row: walking through moving players. Blocks casper.
-21. **raw DAT reads**, 1 row: DAT file ids and bytes by model or file id. Blocks DatSeeker.
-22. **res names in Japanese**, 1 row: names in the Japanese tables. Blocks translate.
-23. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
-24. **zone collision mesh**, 1 row: the zone's collision mesh. Blocks Novo.
+12. **network send timing**, 1 row: changing when the client sends its packets. Blocks PacketFlow.
+13. **raw DAT reads**, 1 row: DAT file ids and bytes by model or file id. Blocks DatSeeker.
+14. **res names in Japanese**, 1 row: names in the Japanese tables. Blocks translate.
+15. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
+16. **zone collision mesh**, 1 row: the zone's collision mesh. Blocks Novo.
 
 Most wanted non-blocking gaps (rows that list them in parentheses):
 
@@ -427,8 +418,8 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | activemon | Image showing whether this game window has focus | hud.icon (game icons only); client.focus; `focus_change`; hud.image | covered | - |
 | affinity | Sets the process CPU affinity | none | missing | process control |
 | ahcolors | Recolours AH list rows (learned / learnable / unlearnable) | none | missing | native list options |
-| ahgo | Opens the AH anywhere (fake s2c 0x04C); moving with it open | packets.inject_in(0x04C) opens our AH | partly | Mog House / AH anywhere rule |
-| allmaps | Every map in /map without the key items | packets.on_in(0x055) can fake the map key items (they then show in Key Items too) | partly | map unlock switch |
+| ahgo | Opens the AH anywhere (fake s2c 0x04C); moving with it open | packets.inject_in(0x04C) opens our AH; client.set_option('menu_reach', false) | covered | - |
+| allmaps | Every map in /map without the key items | packets.on_in(0x055) can fake the map key items (they then show in Key Items too); client.set_option('all_maps', true) | covered | - |
 | aspect | 3D aspect matches the window | native: the projection keeps the window's aspect | covered | - |
 | autojoin | Answers party invites automatically | packets.on_in(0x0DC); actions.join / decline | covered | (packet layouts) |
 | autologin | Logs into a chosen character slot | mod.toml `lobby`; lobby.state / sign_in / play; `lobby_screen`; storage.seal / unseal | covered | - |
@@ -436,8 +427,8 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | blucheck | Learned BLU spells in a tabbed window | game.spells; res.spell; ui.window (list / buttons, tabs); net.open_url | covered | - |
 | blumon | Announces newly learned BLU spells | event `battle_message`; res.spell; chat.add | covered | - |
 | blusets | Saves / loads BLU spell sets by command | game.job_data; actions.blue_set / blue_remove; fs | covered | - |
-| cartographer | Every map in the map menus for other zones | packets.on_in(0x055) can fake the map key items (they then show in Key Items too) | partly | map unlock switch |
-| casper | Walk through other players | native: idle players never block, moving ones hold 0.5 s | partly | per-entity collision switch |
+| cartographer | Every map in the map menus for other zones | packets.on_in(0x055) can fake the map key items (they then show in Key Items too); client.set_option('all_maps', true) | covered | - |
+| casper | Walk through other players | native: idle players never block, moving ones hold 0.5 s; client.set_option('player_collision', false) | covered | - |
 | cfhblock | Blocks call for help | packets.on_out(0x01A) returning false | covered | (packet layouts) |
 | chamcham | Tints models by entity type; colour editor | render.entity tint; game.entities; ui.window (colour) | covered | - |
 | changecall | Swaps the call id in typed and received lines | filters.typed; filters.chat | covered | - |
@@ -477,16 +468,16 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | logincmd | Per-character script at login | event `login`; fs.read; commands.run | covered | - |
 | logs | Chat log to files | filters.chat (lines buffered); text.plain; timer.every + fs.append | covered | - |
 | macrofix | No macro bar delay on Ctrl / Alt | client.set_option('macro_palette_delay', false) | covered | - |
-| mapdot | Enemy dots on the compass for every job | a radar: game.entities + hud.rect | partly | compass monster dots switch |
+| mapdot | Enemy dots on the compass for every job | a radar: game.entities + hud.rect; client.set_option('compass_monsters', true) | covered | - |
 | minimapmon | Hides the minimap when standing still | native minimap; ui.native.hide('minimap'); game.player().pos | covered | - |
 | mipmap | Undoes a later mipmap change in the client | not needed: the renderer builds the mips | covered | - |
 | move | Window position, size, border | client.window / set_window (position, size, border) | covered | - |
 | namecolors | Edits the name colour table | render.entity name_colour (per entity, by kind / party); ui.window (colour) | covered | - |
 | nokb | No knockback on us | packets.on_in(0x028) edit | covered | (packet layouts) |
-| nomad | Mog House menu in any zone | packets.inject_in(0x02E) opens our moogle menu | partly | Mog House / AH anywhere rule |
+| nomad | Mog House menu in any zone | packets.inject_in(0x02E) opens our moogle menu; client.set_option('menu_reach', false); actions.open_menu('moogle') | covered | - |
 | noname | Hides our name | render.entity(our id, {name = ''}) (inferred: an empty plate) | covered | - |
 | onevent | Commands on chat triggers | filters.chat / event `chat_message`; commands.run | covered | - |
-| paranormal | Commands while dead | none | missing | commands-while-dead rule |
+| paranormal | Commands while dead | client.set_option('dead_commands', true) | covered | - |
 | peekaboo | Shows every entity the client knows | packets.on_in(0x00D, 0x00E) edit | covered | (packet layouts) |
 | petinfo | Pet HP / MP / TP and its target | game.info().pet_index; game.entity; packets.on_in(0x068); hud.bar or ui gauges | covered | (packet layouts) |
 | quicksets | No delay between equip sets | client.set_option('equipset_delay', false) | covered | - |
@@ -502,7 +493,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | tokens | More tokens in typed text (`<hp>`, `<job>`...) | filters.typed with state cached from events (filters cannot read state) | covered | - |
 | tparty | Party TP and target HP% | native party TP; game.party / target; hud.text | covered | (font families) |
 | trimspells | Shortcut spell list trimmed to known spells | none | missing | native list options |
-| truesight | No entity occlusion; invisible players half-transparent | packets.on_in flag rewrite of 0x00D / 0x037 and render.entity alpha (as revisible) | partly | entity occlusion switch |
+| truesight | No entity occlusion; invisible players half-transparent | packets.on_in flag rewrite of 0x00D / 0x037 and render.entity alpha (as revisible); client.set_option('occlusion', false) | covered | - |
 | watchdog | Wide Scan tracking of any entity by command | game.npc_names; actions.track | covered | - |
 
 ### Ashita v3 official add-ons
@@ -638,7 +629,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | bluspells | Builds blue magic sets visually | game.job_data; res.spell; actions.blue_set; ui.window | covered | - |
 | boussole | Replacement map with markers and tracked mobs | game.entities / party; packets; draw.to_screen; hud.*; ui.window (input, columns, tabs, section, choice, colour, tips, canvas); fs; ui.prompt / menu; client.paste; game.map / map_pos; hud.map | partly | drag and drop |
 | boxhelper | Hints for brown treasure casket numbers | filters.chat; packets.on_in(0x034); ui.window (columns) | covered | (packet layouts) |
-| ButterFeet | Removes the job-ability movement wait (ja0wait patch) | none | missing | action lock patches |
+| ButterFeet | Removes the job-ability movement wait (ja0wait patch) | client.set_option('move_lock', false) | covered | - |
 | calculator | In-game calculator | ui.window (buttons, text) | covered | - |
 | captain | Packet capture and analysis suite | packets.on_in / on_out; fs; game.*; ui.window (input, tabs, tips); binds.set; res.mob_skill; net.connect / listen / udp | covered | (SQLite; packet layouts) |
 | castdelay | Holds casts, items and ranged until standing still | packets.on_out (block, re-inject); game.player (pos) | covered | (packet layouts) |
@@ -697,12 +688,12 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | nextauto | Swing timer as an arc or a bar | event `action`; game.equipment; res.item (delay); hud.bar; ui.window (canvas, colour) | covered | (arc primitive) |
 | ninhelper | Ninja helper (shadows, tools) | game.buffs / items / recasts; actions.cast; ui.window (tips) | covered | - |
 | nocombat | Keeps the zone music in battle | packets.on_in(0x00A) | covered | (packet layouts) |
-| nolock | Removes the engage animation lock | none | missing | action lock patches |
+| nolock | Removes the engage animation lock | client.set_option('move_lock', false) | covered | - |
 | nomnom | Eats food when it wears off | game.buffs / items; actions.use_item; ui.window (choice, tips) | covered | - |
 | nomorecrap | Queues usable items and command blocks | commands.run; actions.use_item; timer; game.items; ui.window (input, columns, tabs, tips); ui.prompt / menu | covered | - |
 | NoMount | Blocks the mount music | packets.on_in(0x00A, 0x05F) | covered | (packet layouts) |
 | omen | Omen objectives tracker | packets.on_in(0x00A, 0x027, 0x02A, 0x036); hud.text | covered | (dialogue text by id; packet layouts) |
-| openmenus | Opens the magic and ability menus by command | none | missing | open game menus by name |
+| openmenus | Opens the magic and ability menus by command | actions.open_menu | covered | - |
 | Oseem | Automatic augmenting with Oseem | packets.on_in(0x032, 0x034, 0x05C) / inject_out(0x05B); game.items; ui.window (tabs, choice) | covered | (packet layouts) |
 | partybuffs | Party buffs beside the native party list | native party status icons; game.party (buffs); hud.icon | covered | (native window bounds; font families) |
 | PetMe | Detailed pet information | game.info().pet_index; game.entity; packets.on_in(0x068); game.recasts; ui.native.windows; hud.*; ui.window (colour, tips) | covered | (packet layouts) |

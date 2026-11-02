@@ -117,6 +117,14 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   the cutscene speed 1..4, the actors' animation rate, the scene's background colour and ambient light, the minimap's
   zoom; set, read and released checked live, the ambient light and the minimap's zoom seen, the rest not all seen). Checked
   live but `client.focus` (not tried: it would take the desktop's focus); the place reads nil under Wayland.
+  - Rules as switches too: `move_lock` (our abilities' and the weapon draw's move lock, scheduler op 0x2e), `all_maps`
+    (every map without its key item), `dead_commands`, `compass_monsters` (monster dots for every job),
+    `player_collision`, `occlusion` (characters behind scenery), `menu_reach` (the AH and the nomad moogle menu
+    closing 6 away). A value set shows in `client.option` from the next frame. Checked live: Berserk held the walk
+    with `move_lock` on (4.2 yalms in 1.5 s) and not with it off (7.5), and `all_maps` gave the Port Jeuno map without
+    its key item; the rest not tried live.
+  - `actions.open_menu(name)`: a main menu row by name (status, items, magic, map, config ... log_out), run as a pick
+    there; `moogle` the nomad moogle menu. Checked live with status.
 - **Permissions:** each one a mod asks for is a row on its Extras page (ON / OFF, with what it allows on the help
   line), or `/lua grant` / `revoke`; kept in mod-data/grants.json. A mod loaded without them says where to allow them.
 - **Packets** (`packets.read` / `packets.write`):

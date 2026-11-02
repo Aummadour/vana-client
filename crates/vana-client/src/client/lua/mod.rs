@@ -81,7 +81,13 @@ pub(in crate::client) struct WinReq {
 }
 
 /// The behaviour switches (client.set_option) by name; false for an unknown name or value.
-pub(super) const OPTIONS: [&str; 9] = ["macro_palette_delay", "ah_result_delay", "equipset_delay", "log_slide", "cutscene_speed", "animation_rate", "clear_colour", "ambient", "minimap_span"];
+pub(super) const OPTIONS: [&str; 16] = [
+    "macro_palette_delay", "ah_result_delay", "equipset_delay", "log_slide", "cutscene_speed", "animation_rate", "clear_colour", "ambient", "minimap_span",
+    "move_lock", "all_maps", "dead_commands", "compass_monsters", "player_collision", "occlusion", "menu_reach",
+];
+
+/// The switches retail has off.
+const OFF: [&str; 3] = ["all_maps", "dead_commands", "compass_monsters"];
 
 /// An {r, g, b} (0..255) as gamma-space floats; false / nil: none.
 fn rgb_of(v: &serde_json::Value) -> Option<Option<[f32; 3]>> {
@@ -102,6 +108,13 @@ fn set_option(w: &mut World, name: &str, v: &serde_json::Value) -> bool {
         ("macro_palette_delay", Some(b)) => w.opts.macro_delay = b,
         ("ah_result_delay", Some(b)) => w.opts.ah_delay = b,
         ("equipset_delay", Some(b)) => w.opts.equipset_delay = b,
+        ("move_lock", Some(b)) => w.opts.move_lock = b,
+        ("all_maps", Some(b)) => w.opts.all_maps = b,
+        ("dead_commands", Some(b)) => w.opts.dead_commands = b,
+        ("compass_monsters", Some(b)) => w.opts.radar_mobs = b,
+        ("player_collision", Some(b)) => w.opts.player_bump = b,
+        ("occlusion", Some(b)) => w.opts.occlusion = b,
+        ("menu_reach", Some(b)) => w.opts.menu_reach = b,
         ("log_slide", Some(b)) => (w.log.anim.instant, w.log2.anim.instant, w.modern_log.anim.instant) = (!b, !b, !b),
         ("cutscene_speed", _) => match v.as_f64() {
             Some(k) => w.opts.cutscene_speed = (k as f32).clamp(1.0, 4.0),
@@ -135,6 +148,13 @@ pub(super) fn option(w: &World, name: &str) -> Option<serde_json::Value> {
         "macro_palette_delay" => json!(w.opts.macro_delay),
         "ah_result_delay" => json!(w.opts.ah_delay),
         "equipset_delay" => json!(w.opts.equipset_delay),
+        "move_lock" => json!(w.opts.move_lock),
+        "all_maps" => json!(w.opts.all_maps),
+        "dead_commands" => json!(w.opts.dead_commands),
+        "compass_monsters" => json!(w.opts.radar_mobs),
+        "player_collision" => json!(w.opts.player_bump),
+        "occlusion" => json!(w.opts.occlusion),
+        "menu_reach" => json!(w.opts.menu_reach),
         "log_slide" => json!(!w.log.anim.instant),
         "cutscene_speed" => json!(w.opts.cutscene_speed),
         "animation_rate" => json!(w.opts.anim_rate),
@@ -154,6 +174,7 @@ fn release_options(w: &mut World) {
         let default = match n.as_str() {
             "cutscene_speed" | "animation_rate" => serde_json::json!(1.0),
             "clear_colour" | "ambient" => serde_json::Value::Null,
+            n if OFF.contains(&n) => serde_json::json!(false),
             _ => serde_json::json!(true),
         };
         set_option(w, &n, &default);

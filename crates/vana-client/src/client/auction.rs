@@ -733,7 +733,7 @@ pub fn update(w: &mut World, dt: f32) {
     }
     let Some(mut a) = w.auction.take() else { return };
     let d = w.pos - a.origin;
-    if d.x * d.x + d.z * d.z > 36.0 || super::event::active(w) {
+    if (w.opts.menu_reach && d.x * d.x + d.z * d.z > 36.0) || super::event::active(w) {
         w.auction = Some(a);
         close(w);
         return;

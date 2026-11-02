@@ -977,6 +977,10 @@ function actions.choose(option) end
 --- Moves the event's waiting text on, as Enter does (enternity, stepdialog).
 function actions.advance() end
 
+--- Opens a game window as its main menu row does (refused as there when the row is off): status, equipment, magic, items, abilities, party, trade, search, linkshell, synthesis, region, map (the moogle in a Mog House), missions, quests, key_items, view_house, bazaar, macros, config, help_desk, communication, clock, shut_down, log_out; or moogle (the nomad moogle menu, as a nomad moogle opens it).
+---@param name string 
+function actions.open_menu(name) end
+
 --- Hands items (and gil) to an NPC within reach, as the trade window's Trade does: items {{slot = inventory slot, count = n}, ...}, at most 8 entries with the gil. Not worn or linkshell items. A refusal is an error.
 ---@param npc integer server id
 ---@param items? table 
@@ -1284,12 +1288,12 @@ function client.copy(text) end
 ---@param handler fun(text: string) 
 function client.paste(handler) end
 
---- A behaviour switch's value (see set_option).
+--- A behaviour switch's value (see set_option); a value set shows from the next frame.
 ---@param name string 
 ---@return boolean|number|table
 function client.option(name) end
 
---- Sets a behaviour switch while the mod is loaded (retail's back when it unloads): macro_palette_delay (false: the Ctrl / Alt palette opens at once, not at the next whole second), ah_result_delay (false: a bid's result prints at once), equipset_delay (false: no 0.9 s wait between equip sets), log_slide (false: new log lines show at once), cutscene_speed (1..4: events play that much faster), animation_rate (0.25..4: the actors' animation speed), clear_colour and ambient ({r, g, b} 0..255 in place of the zone's background colour and ambient light; false gives the zone's back), minimap_span (the minimap's zoom, map pixels across, 48..512; kept as the minimap's own wheel keeps it).
+--- Sets a behaviour switch while the mod is loaded (retail's back when it unloads): macro_palette_delay (false: the Ctrl / Alt palette opens at once, not at the next whole second), ah_result_delay (false: a bid's result prints at once), equipset_delay (false: no 0.9 s wait between equip sets), log_slide (false: new log lines show at once), cutscene_speed (1..4: events play that much faster), animation_rate (0.25..4: the actors' animation speed), clear_colour and ambient ({r, g, b} 0..255 in place of the zone's background colour and ambient light; false gives the zone's back), minimap_span (the minimap's zoom, map pixels across, 48..512; kept as the minimap's own wheel keeps it); rules: move_lock (false: our abilities' and the weapon draw's move lock is lifted), all_maps (true: every map without its key item), dead_commands (true: text commands while K.O.), compass_monsters (true: monster dots on the compass for every job), player_collision (false: moving players never hold a step), occlusion (false: characters behind scenery still draw and target), menu_reach (false: the auction house and the nomad moogle menu stay open as we move away).
 ---@param name string 
 ---@param value boolean|number|table 
 function client.set_option(name, value) end

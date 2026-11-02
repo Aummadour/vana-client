@@ -348,11 +348,36 @@ struct Opts {
     anim_rate: f32,
     clear: Option<[f32; 3]>,
     ambient: Option<[f32; 3]>,
+    /// Rules a mod may lift: our actions' move lock (scheduler op 0x2e), maps needing their key items, the dead
+    /// state's command refusal, monster dots only for the seeing jobs, moving players holding a step, the occlusion
+    /// test, the AH and nomad moogle menus closing 6 away.
+    move_lock: bool,
+    all_maps: bool,
+    dead_commands: bool,
+    radar_mobs: bool,
+    player_bump: bool,
+    occlusion: bool,
+    menu_reach: bool,
 }
 
 impl Default for Opts {
     fn default() -> Self {
-        Self { macro_delay: true, ah_delay: true, equipset_delay: true, cutscene_speed: 1.0, anim_rate: 1.0, clear: None, ambient: None }
+        Self {
+            macro_delay: true,
+            ah_delay: true,
+            equipset_delay: true,
+            cutscene_speed: 1.0,
+            anim_rate: 1.0,
+            clear: None,
+            ambient: None,
+            move_lock: true,
+            all_maps: false,
+            dead_commands: false,
+            radar_mobs: false,
+            player_bump: true,
+            occlusion: true,
+            menu_reach: true,
+        }
     }
 }
 
@@ -10218,7 +10243,7 @@ impl App {
             self.stand_sent = false;
         }
         // Scheduler op 0x2e: the effect of our own action holds the walk input (FUN_100a5ec0 skips FUN_100a6240).
-        let move_locked = world.effects.rooted.contains(&world.my_id);
+        let move_locked = world.opts.move_lock && world.effects.rooted.contains(&world.my_id);
         if resting || move_locked {
             (ax, ay) = (0.0, 0.0);
         }
@@ -13646,7 +13671,7 @@ impl App {
                         && let Some((rect, z)) = box_on_screen(cview, cproj, model, &box_corners(b))
                     {
                         visible.insert(*id);
-                        if w.entities.get(id).is_some_and(|e| e.no_occlusion) {
+                        if !w.opts.occlusion || w.entities.get(id).is_some_and(|e| e.no_occlusion) {
                             r.occl.results.remove(id);
                         } else if *id != w.my_id {
                             r.occl.query(*id, rect, z);

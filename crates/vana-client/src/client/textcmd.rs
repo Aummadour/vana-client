@@ -559,7 +559,7 @@ fn state_gate(w: &mut World, flags: u16) -> bool {
     }
     let s = w.my_motion.status;
     let busy = busy(w);
-    let state = if w.dead() { 0x20 } else { 0 } | if matches!(s, 5 | 0x55) { 0x40 } else { 0 } | if busy { 0x80 } else { 0 };
+    let state = if w.dead() && !w.opts.dead_commands { 0x20 } else { 0 } | if matches!(s, 5 | 0x55) { 0x40 } else { 0 } | if busy { 0x80 } else { 0 };
     // Any disallowed state refuses; the line goes by the states held, first match.
     if state & !flags != 0 {
         if state & 0x20 != 0 {
