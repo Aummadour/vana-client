@@ -288,6 +288,109 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
             Ok(())
         })?,
     )?;
+    client.set(
+        "paste",
+        lua.create_function(|lua, handler: Function| {
+            super::api::need(lua, "clipboard")?;
+            let key = lua.create_registry_value(handler)?;
+            let st = state(lua);
+            let mut s = st.borrow_mut();
+            s.paste_handlers.push(key);
+            s.ops.push(super::Op::Paste);
+            Ok(())
+        })?,
+    )?;
+    client.set(
+        "window",
+        lua.create_function(|lua, ()| {
+            let f = lua.app_data_ref::<Rc<RefCell<super::state::FrameInfo>>>().map(|f| f.clone()).unwrap_or_default();
+            let f = f.borrow();
+            let t = lua.create_table()?;
+            if let Some((x, y)) = f.win_pos {
+                (t.set("x", x)?, t.set("y", y)?);
+            }
+            (t.set("w", f.window[0] as i64)?, t.set("h", f.window[1] as i64)?, t.set("focused", f.focused)?);
+            Ok(t)
+        })?,
+    )?;
+    client.set(
+        "set_window",
+        lua.create_function(|lua, t: Table| {
+            super::api::need(lua, "multibox")?;
+            let pos = match (t.get::<Option<i32>>("x")?, t.get::<Option<i32>>("y")?) {
+                (Some(x), Some(y)) => Some((x, y)),
+                _ => None,
+            };
+            let size = match (t.get::<Option<u32>>("w")?, t.get::<Option<u32>>("h")?) {
+                (Some(w), Some(h)) => Some((w.max(320), h.max(240))),
+                _ => None,
+            };
+            state(lua).borrow_mut().ops.push(super::Op::Window(super::WinReq { pos, size, focus: false }));
+            Ok(())
+        })?,
+    )?;
+    client.set(
+        "focus",
+        lua.create_function(|lua, ()| {
+            super::api::need(lua, "multibox")?;
+            state(lua).borrow_mut().ops.push(super::Op::Window(super::WinReq { pos: None, size: None, focus: true }));
+            Ok(())
+        })?,
+    )?;
+    client.set(
+        "screenshot",
+        lua.create_function(|lua, name: Option<String>| {
+            let name = match name {
+                Some(n) => {
+                    let p = Path::new(&n);
+                    if p.is_absolute() || p.components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
+                        return Err(mlua::Error::runtime(format!("{n:?}: a name under the screenshots folder")));
+                    }
+                    if p.extension().is_none_or(|e| !e.eq_ignore_ascii_case("png")) { format!("{n}.png") } else { n }
+                }
+                None => jiff::Zoned::now().strftime("mod%y%m%d%H%M%S.png").to_string(),
+            };
+            state(lua).borrow_mut().ops.push(super::Op::Shot(name.clone()));
+            Ok(name)
+        })?,
+    )?;
+    client.set(
+        "run",
+        lua.create_function(|lua, (program, args, handler): (String, Option<Vec<String>>, Option<Function>)| {
+            super::api::need(lua, "exec")?;
+            let mut cmd = std::process::Command::new(&program);
+            cmd.args(args.unwrap_or_default()).stdin(std::process::Stdio::null());
+            let Some(handler) = handler else {
+                cmd.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+                let child = cmd.spawn().map_err(|e| mlua::Error::runtime(format!("{program}: {e}")))?;
+                return Ok(child.id());
+            };
+            cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+            let child = cmd.spawn().map_err(|e| mlua::Error::runtime(format!("{program}: {e}")))?;
+            let pid = child.id();
+            let st = state(lua);
+            let id = super::api::next_id(&st);
+            let key = lua.create_registry_value(handler)?;
+            let tx = {
+                let mut s = st.borrow_mut();
+                s.net_pending.push((id, key));
+                if s.net_rx.is_none() {
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    (s.net_rx, s.net_tx) = (Some(rx), Some(tx));
+                }
+                s.net_tx.clone().expect("made above")
+            };
+            // The answer arrives as an HTTP one does: {status (the exit code), body (stdout), headers {stderr}}.
+            std::thread::Builder::new()
+                .name("lua-run".into())
+                .spawn(move || {
+                    let r = child.wait_with_output().map_err(|e| e.to_string()).map(|o| (o.status.code().unwrap_or(-1).clamp(0, 65535) as u16, o.stdout, vec![("stderr".to_string(), String::from_utf8_lossy(&o.stderr).into_owned())]));
+                    let _ = tx.send((id, r));
+                })
+                .map_err(|e| mlua::Error::runtime(format!("client.run: {e}")))?;
+            Ok(pid)
+        })?,
+    )?;
     g.set("client", client)?;
     Ok(())
 }

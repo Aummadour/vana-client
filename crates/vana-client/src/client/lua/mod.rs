@@ -48,6 +48,20 @@ pub(super) enum Op {
     Ipc(String, Option<String>, String),
     /// A mod takes the music (a track or silence) or gives it back (None).
     Music(String, Option<audio::Music>),
+    /// The game window moved, sized or given the focus.
+    Window(WinReq),
+    /// A screenshot under the screenshots folder.
+    Shot(String),
+    /// The clipboard read for client.paste.
+    Paste,
+}
+
+/// What a mod asked of the game window.
+#[derive(Clone, Copy, Debug, Default)]
+pub(in crate::client) struct WinReq {
+    pub pos: Option<(i32, i32)>,
+    pub size: Option<(u32, u32)>,
+    pub focus: bool,
 }
 
 /// The mods of this session.
@@ -84,6 +98,11 @@ pub struct Host {
     pub(in crate::client) sounds: Vec<audio::Sound>,
     /// The bus to the other clients, open while a mod holds multibox.
     ipc: Option<ipc::Bus>,
+    /// Requests for the app after the frame: the window, a screenshot, a clipboard read; and the text read.
+    pub(in crate::client) win_reqs: Vec<WinReq>,
+    pub(in crate::client) shot: Option<String>,
+    pub(in crate::client) paste_wanted: bool,
+    pub(in crate::client) pasted: Option<String>,
     /// The music a mod holds (the mod, what), and whether the app must act on a change.
     pub(in crate::client) music: Option<(String, audio::Music)>,
     pub(in crate::client) music_dirty: bool,
@@ -699,6 +718,7 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
         }
         let events = std::mem::take(&mut host.events);
         let ui_events = std::mem::take(&mut host.ui_events);
+        let pasted = host.pasted.take();
         // The bus to the other clients, and what they sent (to the same mod, when it holds multibox).
         if host.ipc.is_none() && host.vms.iter().any(|v| v.st.borrow().granted.iter().any(|g| g == "multibox")) {
             host.ipc = ipc::Bus::open();
@@ -753,6 +773,15 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
                 }
                 net::poll(vm);
                 sock::poll(vm);
+                if let Some(text) = &pasted {
+                    let keys = std::mem::take(&mut vm.st.borrow_mut().paste_handlers);
+                    for k in keys {
+                        if let Ok(f) = vm.lua.registry_value::<mlua::Function>(&k) {
+                            vm.call(f, text.as_str());
+                        }
+                        let _ = vm.lua.remove_registry_value(k);
+                    }
+                }
                 vm.timers();
                 vm.wake();
                 if vm.has_handler("frame") {
@@ -853,6 +882,9 @@ fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
         Op::Act(a) => actions::apply(w, gu, a),
         Op::Key(k) => w.lua.synth.push(k),
         Op::Copy(text) => w.copied = Some(text),
+        Op::Window(r) => w.lua.win_reqs.push(r),
+        Op::Shot(name) => w.lua.shot = Some(name),
+        Op::Paste => w.lua.paste_wanted = true,
         Op::Interface(show) => w.ui_hidden = !show,
         Op::CameraDistance(k) => super::camera::set_distance(w, k),
         Op::Sound(s) => w.lua.sounds.push(s),
@@ -916,6 +948,18 @@ impl Host {
     /// The modern panels of the hidden pieces.
     pub(in crate::client) fn hidden_panels(&self) -> Vec<&'static str> {
         native::PIECES.iter().filter(|p| self.hides(p.0)).flat_map(|p| p.1.iter().copied()).collect()
+    }
+
+    /// The window's place on the desktop and its focus; a change of focus raises focus_change.
+    pub(in crate::client) fn set_window_state(&mut self, pos: Option<(i32, i32)>, focused: bool) {
+        let was = {
+            let mut f = self.info.borrow_mut();
+            f.win_pos = pos;
+            std::mem::replace(&mut f.focused, focused)
+        };
+        if was != focused && self.started {
+            self.raise("focus_change", vec![serde_json::json!(focused)]);
+        }
     }
 
     /// The window's size in pixels and the UI's units per pixel, for the HUD's places.
@@ -1469,6 +1513,7 @@ fn permission_text(p: &str) -> (&'static str, &'static str) {
         "files.shared" => ("Allow shared files", "Reads and writes files outside its own folder, in the shared mod data."),
         "net" => ("Allow network", "Connects to the internet (web requests, sockets)."),
         "exec" => ("Allow running programs", "Starts programs on this computer."),
+        "clipboard" => ("Allow reading the clipboard", "Reads the text you copied."),
         "multibox" => ("Allow multibox", "Talks to your other game windows on this computer."),
         "ui.native" => ("Allow game windows", "Opens, hides and drives the game's own windows."),
         _ => ("Allow", ""),

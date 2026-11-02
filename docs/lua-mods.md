@@ -79,6 +79,11 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   Sockets for companion programs (`net`): `net.connect` / `listen` (TCP out and in, 127.0.0.1 unless asked),
   `net.udp`, `net.send`, `net.close`; reading on threads, handlers (open, data, accept, close) in later mod phases.
   Checked live (a listener with an echo, UDP both ways, a refused connection).
+- **The game window and the system:** `client.window` (place, size, focus) and the `focus_change` event;
+  `client.set_window` (move, size; through the Settings' sizing path) and `client.focus` (`multibox`);
+  `client.screenshot` (under the screenshots folder, subfolders allowed); `client.paste` (`clipboard`) and
+  `client.copy`; `client.run` (a program without a shell, its exit code and output to a handler; `exec`). Checked
+  live but `client.focus` (not tried: it would take the desktop's focus); the place reads nil under Wayland.
 - **Permissions:** each one a mod asks for is a row on its Extras page (ON / OFF, with what it allows on the help
   line), or `/lua grant` / `revoke`; kept in mod-data/grants.json. A mod loaded without them says where to allow them.
 - **Packets** (`packets.read` / `packets.write`):
@@ -264,7 +269,8 @@ and revoke them there.
 | `files.shared` | read and write outside the mod's folder, in a shared data area | Logger, findAll, organizer |
 | `net` | HTTP(S), UDP and TCP, open URLs | Pricer, CurePlease, Guildwork-style tools |
 | `exec` | run programs | Rich Presence helpers, update |
-| `multibox` | the local bus between clients, window focus | send, switch_focus, FastFollow |
+| `multibox` | the local bus between clients, window focus, moving and sizing the game window | send, switch_focus, FastFollow, WinControl |
+| `clipboard` | read the clipboard's text (writing it needs nothing) | paste helpers, chat tools |
 
 Never exposed to any mod, not even read-only: the password, the 2FA secret, `secret.key`, session keys and the
 Blowfish state. Outgoing chat, commands and packets are rate-limited per mod. There is no WoW-style taint or combat

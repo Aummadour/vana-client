@@ -12712,6 +12712,12 @@ impl App {
                 }
             }
         }
+        // A Lua mod's screenshot (client.screenshot), under the screenshots folder.
+        if let Phase::World(w) = &mut self.phase
+            && let Some(n) = w.lua.shot.take()
+        {
+            w.shot_request = Some(self.cfg.ffxi_dir().join("screenshots").join(n));
+        }
         // A Print Screen shot from the game (key function 0x55).
         let mut game_shot = false;
         if script_shot.is_none()
@@ -12743,6 +12749,28 @@ impl App {
         {
             log::info!("clipboard: copied {} chars", t.chars().count());
             platform.commands.push(egui::OutputCommand::CopyText(t));
+        }
+        // Lua mods' requests: the window moved, sized or focused, the clipboard read; the window's place and focus.
+        let mut mod_size = None;
+        if let Phase::World(w) = &mut self.phase {
+            for r in std::mem::take(&mut w.lua.win_reqs) {
+                if let Some((x, y)) = r.pos {
+                    gfx.window.set_outer_position(winit::dpi::PhysicalPosition::new(x, y));
+                }
+                mod_size = r.size.or(mod_size);
+                if r.focus {
+                    gfx.window.focus_window();
+                }
+            }
+            if std::mem::take(&mut w.lua.paste_wanted) {
+                w.lua.pasted = Some(gfx.egui_state.clipboard_text().unwrap_or_default());
+            }
+            let pos = gfx.window.outer_position().ok().map(|p| (p.x, p.y));
+            w.lua.set_window_state(pos, gfx.window.has_focus());
+        }
+        // A size asked for between frames, as the Settings' sizes are (request_size).
+        if let Some((cw, ch)) = mod_size {
+            self.size_pin.set(Some((winit::dpi::PhysicalSize::new(cw, ch), 0)));
         }
         // The chat menu's Paste: the clipboard read here, given to the next frame as a paste.
         if let Phase::World(w) = &mut self.phase

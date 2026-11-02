@@ -115,6 +115,8 @@ pub(super) struct ModState {
     pub net_pending: Vec<(u64, RegistryKey)>,
     pub net_rx: Option<std::sync::mpsc::Receiver<super::net::Answer>>,
     pub net_tx: Option<std::sync::mpsc::Sender<super::net::Answer>>,
+    /// client.paste's handlers, waiting for the clipboard.
+    pub paste_handlers: Vec<RegistryKey>,
     /// Open sockets and their threads' reports.
     pub socks: Vec<super::sock::Sock>,
     pub sock_rx: Option<std::sync::mpsc::Receiver<super::sock::Msg>>,

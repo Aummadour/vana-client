@@ -13,6 +13,9 @@ pub(super) struct FrameInfo {
     /// The window in pixels, and UI units per pixel (the classic layout's stretch).
     pub window: [f32; 2],
     pub k: (f32, f32),
+    /// The window's place on the desktop and whether it has the keyboard.
+    pub win_pos: Option<(i32, i32)>,
+    pub focused: bool,
     /// The HUD elements drawn last frame in window pixels: (mod, element, x y w h).
     pub hud_rects: Vec<(String, String, [f32; 4])>,
     /// Native HUD pieces hidden (ui.native.hide): piece -> the mods hiding it.

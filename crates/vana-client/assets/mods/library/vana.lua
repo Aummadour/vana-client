@@ -8,6 +8,7 @@
 ---| "logout" # The character is leaving the world.
 ---| "zone_change" # A new zone has loaded.
 ---| "settings_changed" # The user changed one of the mod's settings (its Extras page, or /lua set).
+---| "focus_change" # The game window gained or lost the keyboard focus.
 ---| "frame" # Every frame (prefer timers and events: this one costs time every frame).
 ---| "hp_change" # Our HP changed.
 ---| "mp_change" # Our MP changed.
@@ -1137,6 +1138,33 @@ function text.plain(text) end
 ---@param text string 
 function client.copy(text) end
 
+--- Reads the clipboard's text after this frame and hands it to the handler. Needs clipboard.
+---@param handler fun(text: string) 
+function client.paste(handler) end
+
+--- The game window: {x, y (its place on the desktop, when the system tells it), w, h (pixels), focused}.
+---@return {x: integer?, y: integer?, w: integer, h: integer, focused: boolean}
+function client.window() end
+
+--- Moves ({x, y}) and / or sizes ({w, h}) the game window. Needs multibox.
+---@param place {x: integer?, y: integer?, w: integer?, h: integer?} 
+function client.set_window(place) end
+
+--- Asks for the keyboard focus for this game window (switching between clients). Needs multibox.
+function client.focus() end
+
+--- Saves a screenshot of the next frame as drawn, under the game's screenshots folder (subfolders allowed; .png added); returns the name used.
+---@param name? string 
+---@return string
+function client.screenshot(name) end
+
+--- Starts a program with its arguments (no shell). With a handler, it gets {status (exit code), body (stdout), headers = {stderr}} when the program ends, or {error}. Returns the process id. Needs exec.
+---@param program string 
+---@param args? string[] 
+---@param handler? fun(result: table) 
+---@return integer
+function client.run(program, args, handler) end
+
 --- Writes storage.account and storage.character now (they are also written at logout and unload).
 function storage.save() end
 
@@ -1152,6 +1180,7 @@ function settings.get(key) end
 --   logout(): The character is leaving the world.
 --   zone_change(zone: integer, previous: integer?): A new zone has loaded.
 --   settings_changed(key: string, value: any): The user changed one of the mod's settings (its Extras page, or /lua set).
+--   focus_change(focused: boolean): The game window gained or lost the keyboard focus.
 --   frame(dt: number): Every frame (prefer timers and events: this one costs time every frame).
 --   hp_change(hp: integer, previous: integer): Our HP changed.
 --   mp_change(mp: integer, previous: integer): Our MP changed.
