@@ -10,6 +10,8 @@ pub(super) enum Kind {
     Rect { w: f32, h: f32, colour: [u8; 4] },
     Bar { w: f32, h: f32, value: f32, colour: Option<[u8; 4]>, kind: String },
     Icon { item: bool, id: u16, size: f32 },
+    /// A PNG from the mod's folder: its texture key, pixels (w, h, RGBA), drawn size and tint.
+    Image { key: String, img: std::sync::Arc<(u32, u32, Vec<u8>)>, w: f32, h: f32, tint: [u8; 4] },
 }
 
 #[derive(Clone)]
@@ -100,6 +102,17 @@ fn apply(e: &mut Elem, t: &Table) -> mlua::Result<()> {
                 *kind = v;
             }
         }
+        Kind::Image { w, h, tint, .. } => {
+            if let Some(v) = t.get::<Option<f32>>("w")? {
+                *w = v;
+            }
+            if let Some(v) = t.get::<Option<f32>>("h")? {
+                *h = v;
+            }
+            if let Some(v) = colour(t.get("colour")?)? {
+                *tint = v;
+            }
+        }
         Kind::Icon { item, id, size } => {
             if let Some(v) = t.get::<Option<String>>("icon")? {
                 *item = v == "item";
@@ -127,8 +140,45 @@ fn put(lua: &Lua, id: String, kind: Kind, spec: Table) -> mlua::Result<()> {
     Ok(())
 }
 
-pub(super) fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
+/// A PNG's pixels as RGBA.
+fn decode_png(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
+    let mut d = png::Decoder::new(std::io::Cursor::new(bytes));
+    d.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut r = d.read_info().map_err(|e| e.to_string())?;
+    let mut buf = vec![0; r.output_buffer_size().unwrap_or(0)];
+    let info = r.next_frame(&mut buf).map_err(|e| e.to_string())?;
+    let (w, h) = (info.width, info.height);
+    let n = (w * h) as usize;
+    let rgba = match info.color_type {
+        png::ColorType::Rgba => buf[..n * 4].to_vec(),
+        png::ColorType::Rgb => buf.chunks(3).take(n).flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
+        png::ColorType::GrayscaleAlpha => buf.chunks(2).take(n).flat_map(|p| [p[0], p[0], p[0], p[1]]).collect(),
+        png::ColorType::Grayscale => buf.iter().take(n).flat_map(|&p| [p, p, p, 255]).collect(),
+        other => return Err(format!("colour type {other:?}")),
+    };
+    Ok((w, h, rgba))
+}
+
+pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<()> {
     let t = lua.create_table()?;
+    let (src, mod_id) = (vm.src.clone(), vm.manifest.id.clone());
+    t.set(
+        "image",
+        lua.create_function(move |lua, (id, spec): (String, Table)| {
+            let path: String = spec.get("path")?;
+            if path.contains("..") || path.starts_with('/') || path.contains(':') {
+                return Err(mlua::Error::runtime(format!("{path:?}: outside the mod's folder")));
+            }
+            let bytes = match &src {
+                super::vm::Source::Dir(d) => std::fs::read(d.join(&path)).map_err(|e| mlua::Error::runtime(format!("{path}: {e}")))?,
+                super::vm::Source::Bundled(_) => return Err(mlua::Error::runtime("bundled mods carry no image files")),
+            };
+            let img = decode_png(&bytes).map_err(|e| mlua::Error::runtime(format!("{path}: {e} (a PNG)")))?;
+            let (iw, ih) = (img.0 as f32, img.1 as f32);
+            let key = format!("lua image {mod_id}/{path}");
+            put(lua, id, Kind::Image { key, img: std::sync::Arc::new(img), w: iw, h: ih, tint: [255; 4] }, spec)
+        })?,
+    )?;
     t.set("text", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Text { text: String::new(), size: 1.0, colour: None, bg: None, align: 0, pad: 4.0 }, spec))?)?;
     t.set("rect", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Rect { w: 100.0, h: 20.0, colour: [0, 0, 0, 160] }, spec))?)?;
     t.set("bar", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Bar { w: 120.0, h: 8.0, value: 0.0, colour: None, kind: "hp".into() }, spec))?)?;
@@ -286,6 +336,14 @@ pub(super) fn draw(gu: &mut super::super::game_ui::GameUi, w: &World) {
                     gu.rect(x + 1.0, y + 1.0, (bw - 2.0).max(0.0) * value, (bh - 2.0).max(0.0), rgba(colour.unwrap_or_else(|| bar_colour(kind))));
                 }
                 [x, y, bw, bh]
+            }
+            Kind::Image { key, img, w: iw, h: ih, tint } => {
+                if !gu.has_image(key) {
+                    gu.image(key, img.0, img.1, img.2.clone());
+                }
+                let (iw, ih) = (iw * k.0, ih * k.1);
+                gu.image_rect(key, x, y, iw, ih, tint.map(|c| c as f32 / 255.0));
+                [x, y, iw, ih]
             }
             Kind::Icon { item, id, size } => {
                 let s = size * k.0;

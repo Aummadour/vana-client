@@ -406,7 +406,7 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     super::actions::install(lua, &g)?;
     super::input::install(lua, &g)?;
     super::runtime::install(lua, &g, vm)?;
-    super::hud::install(lua, &g)?;
+    super::hud::install(lua, &g, vm)?;
     super::render::install(lua, &g, &m.id)?;
     super::audio::install(lua, &g, vm)?;
     super::draw::install(lua, &g)?;

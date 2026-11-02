@@ -331,6 +331,11 @@ function hud.rect(id, spec) end
 ---@param spec table 
 function hud.bar(id, spec) end
 
+--- Creates or replaces an image from a PNG in the mod's folder: x, y, path, w and h (window pixels; default the image's size), colour (a tint).
+---@param id string 
+---@param spec table 
+function hud.image(id, spec) end
+
 --- Creates or replaces an icon: x, y, icon (status or item), id, size.
 ---@param id string 
 ---@param spec table 
