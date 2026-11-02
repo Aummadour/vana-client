@@ -1,4 +1,4 @@
-//! Chocobo racing (spec ~/ffxi/lab/research/chocobo_racing_spec.md): the toteboard "menu    chocobor" and the race
+//! Chocobo racing (MODLOG "Chocobo racing"): the toteboard "menu    chocobor" and the race
 //! card "menu    racecard" (event op 0xb4 0xf..0x12), their c2s 0x09B requests and s2c 0x073 / 0x074 answers, and
 //! the race store of s2c 0x069 that event op 0xbf reads.
 

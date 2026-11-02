@@ -1,4 +1,4 @@
-//! Mog House layout mode (spec ~/ffxi/lab/research/layout_mode_spec.md): the cell grid (FUN_101cecf0 and kin), moving,
+//! Mog House layout mode (MODLOG "Mog House layout mode" parts 1..4): the cell grid (FUN_101cecf0 and kin), moving,
 //! turning and placing pieces, the selection arrows, the layout camera and the c2s 0x0FA / 0x0FB bodies; the mode
 //! itself (FUN_101d3380 mode 1, FUN_101d4d90).
 
@@ -1510,7 +1510,7 @@ mod tests {
         Piece { c: 1, slot, furn: Furn { flags, model: 1, size, height }, x, level: 0, z, rot: 0 }
     }
 
-    /// Spec 7.8: the 1F walkway, a desk's surface, a pot on it and across two tables, freeing, a taken wall slot.
+    /// The 1F walkway, a desk's surface, a pot on it and across two tables, freeing, a taken wall slot.
     #[test]
     fn grid() {
         let g = Grid::new(0);
@@ -1542,7 +1542,7 @@ mod tests {
         assert!(!g.fits(&piece(1, [1, 1], 60, 6, 3, 0)));
     }
 
-    /// Spec 7.8: a bed pushed into the right wall, a stackable pot over the desk and off it.
+    /// A bed pushed into the right wall, a stackable pot over the desk and off it.
     #[test]
     fn moves() {
         let g = Grid::new(0);
@@ -1563,7 +1563,7 @@ mod tests {
         assert_eq!((pot.x, pot.level), (3, 0));
     }
 
-    /// Spec 7.8: a bed turned at (2, 2); wall slots on 1F and 2F.
+    /// A bed turned at (2, 2); wall slots on 1F and 2F.
     #[test]
     fn rotate_and_walls() {
         let g = Grid::new(1);
@@ -1611,7 +1611,7 @@ mod tests {
         assert_eq!(remap(0, 0, Vec3::new(0.0, -4.5, -4.0), look), 0);
     }
 
-    /// Spec 7.8: pieces at (0, 0) current, (2, 0.5), (0.5, 2), (-3, 0); a pot at the table's centre; view 2 swaps.
+    /// Pieces at (0, 0) current, (2, 0.5), (0.5, 2), (-3, 0); a pot at the table's centre; view 2 swaps.
     #[test]
     fn picks() {
         let c = |id, x, z, level| Cand { id, pos: Vec3::new(x, 0.0, z), level, wall: false, rot: 0, size: (1, 1), has_tops: false };

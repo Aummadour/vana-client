@@ -1,4 +1,4 @@
-//! Bump maps for scenery (config 0017; research stored_settings_spec.md section 3): the Bp chunks (type 0x5d) of file
+//! Bump maps for scenery (config 0017; MODLOG "Config tool 0017"): the Bp chunks (type 0x5d) of file
 //! 39831 + zone (83991 + zone from 600; FUN_10171f00), each made a normal map (FUN_1001d270).
 
 /// One bump map: the name's bytes 8..15 (matched against a model texture's, FUN_10039f80) and its normal map, RGBA.

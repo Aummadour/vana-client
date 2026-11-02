@@ -1,6 +1,7 @@
-//! Mog House gardening (gardening_spec.md): /garden's Safe choice (myroom mode 2, bankmenu), the pot list (mode 3) with
-//! the camera on the pot, the plnt windows by stage, the seed and crystal lists with their prompts, c2s 0x0FC..0x0FF;
-//! in a room without furniture the moogle goes over to the Mog House instead (FUN_101d55d0 / FUN_101d5410).
+//! Mog House gardening (MODLOG "Mog House gardening"): /garden's Safe choice (myroom mode 2, bankmenu), the pot list
+//! (mode 3) with the camera on the pot, the plnt windows by stage, the seed and crystal lists with their prompts, c2s
+//! 0x0FC..0x0FF; in a room without furniture the moogle goes over to the Mog House instead (FUN_101d55d0 /
+//! FUN_101d5410).
 
 use super::World;
 use super::game_ui::GameUi;

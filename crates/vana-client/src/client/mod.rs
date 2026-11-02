@@ -5371,7 +5371,7 @@ fn box_index(status: u8) -> usize {
 
 /// FUN_100cbde0's plain frame: T . RotY(yaw); with op 0xd8's x / z (FUN_100843b0) D3DX Scale . RotZ(z) . RotY(yaw)
 /// . RotX(x), i.e. z about the model's Z and x about the world X after the yaw, both positive
-/// (ground_tilt_spec.md 6).
+/// (MODLOG "Ground tilt").
 fn plain_frame(pos: Vec3, forward: Vec3, t: [f32; 2]) -> glam::Mat4 {
     let m = actor_matrix(pos, forward);
     if t == [0.0; 2] {
@@ -10292,8 +10292,9 @@ impl App {
             };
             f.typing = text_field_open(w);
             f.keyboard = w.game.get(0x42);
-            // A window has the keys: arrows go to it, not to the camera (keys_spec "window" state). The log counts only
-            // while focused: Escape or another window unfocuses it and leaves the 0x78 state at 1.
+            // A window has the keys: arrows go to it, not to the camera (the window-active state, MODLOG "Input
+            // layer"). The log counts only while focused: Escape or another window unfocuses it and leaves the 0x78
+            // state at 1.
             f.window = world_window_open(w) || w.palette.0 != 0 || w.log_active || w.log_focus == 2 || event::choice(w).is_some() || event::input(w).is_some();
             f.assigning = w.config.as_ref().and_then(|c| c.stack.last()).is_some_and(|t| t.name == "k1assign" || t.name == "k2assign");
         }
@@ -13354,8 +13355,9 @@ impl App {
                         let bones = if a.bones.is_empty() { &a.rest } else { &a.bones };
                         a.anchor_at[k] = ch.skeleton.points.get(a.anchors[k] as usize).filter(|_| a.anchors[k] != 2).and_then(|&(b, off)| bones.get(b as usize).map(|x| model.transform_point3(x.at(off))));
                     }
-                    // FUN_100cd040 (camera_collision_spec.md 2.2): the eye near posed point 12 fades the actor (not the
-                    // player in first person, who fades on its own). A CPU pose only when the rest pose is close.
+                    // FUN_100cd040 (MODLOG "The near-camera character fade"): the eye near posed point 12 fades
+                    // the actor (not the player in first person, who fades on its own). A CPU pose only when the
+                    // rest pose is close.
                     let cam_fade = if *id == w.my_id && w.camst.first {
                         1.0
                     } else {
@@ -14334,8 +14336,8 @@ mod tests {
         assert!((player_yaw(std::f32::consts::PI) + std::f32::consts::FRAC_PI_2).abs() < 1e-5);
     }
 
-    /// camera_collision_spec.md 2.2: 0 within 0.2, linear to 0.5, nothing with the eye more than 0.5 above the point
-    /// (y down), no lower limit below it.
+    /// MODLOG "The near-camera character fade": 0 within 0.2, linear to 0.5, nothing with the eye more than 0.5
+    /// above the point (y down), no lower limit below it.
     #[test]
     fn near_camera_fade_cylinder() {
         let p = Vec3::new(0.0, -1.5, 0.0);

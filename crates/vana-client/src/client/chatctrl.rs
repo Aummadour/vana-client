@@ -1,4 +1,4 @@
-//! "menu    chatctrl" (handler 0x1057818c, vtable 0x10336420; spec ~/ffxi/lab/research/chatctrl_spec.md): the chat mode
+//! "menu    chatctrl" (handler 0x1057818c, vtable 0x10336420; MODLOG "Chat mode window"): the chat mode
 //! window the action menu's Right on Chat / Tell opens. Seven rows (Say, Tell, Party, Linkshell, Linkshell 2, Unity,
 //! Shout); Enter sets the mode (FUN_101ad670), opens the chat line empty and closes; subwindo shows the range (mode 0).
 

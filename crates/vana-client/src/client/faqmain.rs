@@ -1,4 +1,4 @@
-//! Help Desk's GM call (spec ~/ffxi/lab/research/social_rows_spec.md H3 / H4): "menu    faqmain" walking the
+//! Help Desk's GM call (MODLOG "Help Desk: the GM call questionnaire"): "menu    faqmain" walking the
 //! questionnaire of DAT 5813 (Shift-JIS text: nodes, slots, DISP conditions, links) through its select, question and
 //! leaf pages (FUN_102185d0 / FUN_10218ac0 / FUN_102194a0), the question's text field, and the report c2s 0x0D3
 //! (Return on a question or leaf page: type 1; Execute: type 2 with the queue line, or 3 / 1), c2s 0x0D4 on open and

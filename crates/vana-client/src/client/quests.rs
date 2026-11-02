@@ -1,4 +1,4 @@
-//! The social page's Quests row (/quest, 0x4d; quest_mission_spec section 6): "menu    quest00" (Current, Completed,
+//! The social page's Quests row (/quest, 0x4d; MODLOG "Quests"): "menu    quest00" (Current, Completed,
 //! the Records of Eminence rows and panel) and "menu    quest01" (one area's quests, over quest00).
 
 use super::World;

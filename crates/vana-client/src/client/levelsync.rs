@@ -1,6 +1,6 @@
-//! "menu    levelsyn" (party menu Level Sync; spec ~/ffxi/lab/research/party_menu_spec.md 3): a second results window
-//! (DAT_106643b4, vtable 0x1033af48: open FUN_10204880, close FUN_102048f0, rows FUN_10204940, Enter FUN_10204af0)
-//! over the party's group list, to pick whom to synchronise levels with.
+//! "menu    levelsyn" (party menu Level Sync; MODLOG "Party menu: Member List, Level Sync"): a second results window
+//! (DAT_106643b4, vtable 0x1033af48: open FUN_10204880, close FUN_102048f0, rows FUN_10204940, Enter FUN_10204af0) over
+//! the party's group list, to pick whom to synchronise levels with.
 
 use super::World;
 use super::game_ui::GameUi;

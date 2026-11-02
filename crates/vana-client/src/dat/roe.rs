@@ -1,5 +1,5 @@
-//! Records of Eminence records in the item record store (FUN_1015b9e0; roe_lists_spec.md 1): objectives 0xe000 + n
-//! (FUN_1015cb60) and the Objective List's category tree 0xf200.. (FUN_1015cf20, root 0xf200).
+//! Records of Eminence records in the item record store (FUN_1015b9e0; MODLOG "Records of Eminence lists"):
+//! objectives 0xe000 + n (FUN_1015cb60) and the Objective List's category tree 0xf200.. (FUN_1015cf20, root 0xf200).
 
 use super::items::{Field, Items, Lang, string_table};
 

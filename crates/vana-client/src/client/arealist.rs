@@ -1,4 +1,4 @@
-//! "menu    arealist" (DAT_106644c0; arealist_spec section 1): the area picker of searchma's Area, Monstrosity and
+//! "menu    arealist" (DAT_106644c0; MODLOG "Search: arealist"): the area picker of searchma's Area, Monstrosity and
 //! Unity rows and scsibori's Area / Unity. The list base (FUN_101f67c0) with 5 rows, no scroll bar and the generic
 //! window sounds; regions fold out to their zones; registry group 0, so searchma stays drawn beside it.
 

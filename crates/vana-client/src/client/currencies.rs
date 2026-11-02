@@ -1,5 +1,5 @@
-//! statcom2 rows 6 / 10, Currencies and Currencies 2 (FUN_1022a620 mode 1 / 2; spec
-//! ~/ffxi/lab/research/status_rows_spec.md 3): "menu    evitem" listing the fields of s2c 0x113 / 0x118, asked for
+//! statcom2 rows 6 / 10, Currencies and Currencies 2 (FUN_1022a620 mode 1 / 2; MODLOG
+//! "Currencies and Currencies 2"): "menu    evitem" listing the fields of s2c 0x113 / 0x118, asked for
 //! with c2s 0x10F / 0x115 until one comes.
 
 use super::World;

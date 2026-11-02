@@ -1,5 +1,5 @@
-//! Training regimes (an Extra, not retail: retail has no tracker; the user's wish, 2026-10-28; spec
-//! ~/ffxi/lab/research/training_regime_spec.md). The Fields / Grounds of Valor page in force and its kills, in a window
+//! Training regimes (an Extra, not retail: retail has no tracker; the user's wish, 2026-10-28; MODLOG
+//! "Training regime window"). The Fields / Grounds of Valor page in force and its kills, in a window
 //! docked with the Timers that slides in and out. Learnt passively, nothing is sent for it: the Field Manual / Grounds
 //! Tome event's own traffic (its start's num[7], the page answer s2c 0x05C, our end option, the 0x02A confirmation, the
 //! Review answer), the kill credits (0x029 558), completion (559) and repeats (643); the labels from the zone

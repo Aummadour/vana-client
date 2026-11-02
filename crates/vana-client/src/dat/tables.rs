@@ -434,7 +434,7 @@ impl Tables {
     }
 }
 
-/// A conquest map marker (cnqframe's 0x20-byte entries, menu_rows2_spec R3) with its 8-byte record.
+/// A conquest map marker (cnqframe's 0x20-byte entries, MODLOG "Region Info") with its 8-byte record.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CnqMarker {
     /// +0: 1 selected, 4 blink, 8 no label, 0x10 not centred, 0x20 hidden unless selected, 0x40 label by place code,
@@ -538,7 +538,7 @@ mod tests {
         assert_eq!(t.mode_tables[6] - t.mode_tables[1], 0x1800);
     }
 
-    /// The /search word lists, regions and zone flags (search_spec.md 2.2, 3.6).
+    /// The /search word lists, regions and zone flags (MODLOG "Search: the /search grammar").
     #[test]
     fn search_words() {
         let Ok(dll) = std::fs::read(crate::config::Config::load().ffxi_dir().join("FFXiMain.dll")) else { return };
@@ -562,7 +562,7 @@ mod tests {
         assert_eq!(capped, [5, 112, 118]);
     }
 
-    /// cnqframe's markers (menu_rows2_spec R3, cnqentries.txt): counts, first records, a zone, a label place.
+    /// cnqframe's markers (MODLOG "Region Info"): counts, first records, a zone, a label place.
     #[test]
     fn conquest_markers() {
         let Ok(dll) = std::fs::read(crate::config::Config::load().ffxi_dir().join("FFXiMain.dll")) else { return };

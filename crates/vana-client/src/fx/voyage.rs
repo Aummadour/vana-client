@@ -1,4 +1,4 @@
-//! A ship voyage's path (spec ~/ffxi/lab/research/ship_voyage_spec.md 1.5): the zone's type-6 chunk `c00N`, two
+//! A ship voyage's path (MODLOG "Ship voyages"): the zone's type-6 chunk `c00N`, two
 //! CMoSplines over its keys' points A and B (FUN_10055780), and the voyage matrix V, the rigid inverse of the ship's
 //! pose on it (FUN_10055160, FUN_10183370): A(u) carried to the origin, the heading A -> B onto +Z.
 
@@ -76,7 +76,7 @@ mod tests {
         crate::dat::zone::load_scene(&keys, &index.read(file).ok()?).ok()
     }
 
-    /// Spec 6: the world MZB's placements carry the flag, the ship's do not; the grid is the ship's; a town has none.
+    /// The world MZB's placements carry the flag, the ship's do not; the grid is the ship's; a town has none.
     #[test]
     fn world_slots() {
         for (file, world, ship) in [(320, 1670, 203), (101, 2970, 82), (326, 2423, 108)] {
@@ -100,7 +100,7 @@ mod tests {
         assert_eq!(v.path.as_ref().map(|p| p.keys), Some(18));
     }
 
-    /// Spec 6 sun_voyage: day fraction 0.25, eye (0, -2, -10), V of 320 c000 forward at t 0.5.
+    /// The sun: day fraction 0.25, eye (0, -2, -10), V of 320 c000 forward at t 0.5.
     #[test]
     fn sun_turns() {
         let Some(p) = path(320, b"c000") else { return };
@@ -110,7 +110,7 @@ mod tests {
         assert!(close(super::super::sky_point(true, 0.25, eye, Mat4::IDENTITY), Vec3::new(1000.0, -2.0, -10.0), 0.01));
     }
 
-    /// Spec section 3: zone 1's four paths (keys, chord totals).
+    /// Zone 1's four paths (keys, chord totals; MODLOG "Ship voyages").
     #[test]
     fn paths_101() {
         let Some(p0) = path(101, b"c000") else { return };
@@ -123,7 +123,7 @@ mod tests {
         }
     }
 
-    /// Spec section 3's poses of the Selbina ship (file 320 c000) and others.
+    /// Poses of the Selbina ship (file 320 c000) and others, from the decompile's formula.
     #[test]
     fn poses() {
         let Some(p) = path(320, b"c000") else { return };

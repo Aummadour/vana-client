@@ -1,6 +1,5 @@
 //! Effect generators (chunk 0x05, "Generater") and the resources they name: keyframes (0x19), D3m meshes (0x1f),
-//! with names resolved by folder scope as FUN_10071310 does. Spec with addresses:
-//! ~/ffxi/lab/research/effects/generators.md (sections 1-3, D.5).
+//! with names resolved by folder scope as FUN_10071310 does. Layouts with addresses: MODLOG "Effect generators".
 
 use super::chunks;
 use anyhow::{Result, bail};
@@ -145,7 +144,7 @@ fn matches(n: &Node, kind: u8, name: [u8; 4]) -> bool {
 pub struct Op {
     pub code: u8,
     pub slot: u8,
-    /// All its dwords, word0 included (so operand k is `words[k]`, as the spec numbers them).
+    /// All its dwords, word0 included (so operand k is `words[k]`, MODLOG's `[k]`).
     pub words: Vec<u32>,
 }
 
@@ -184,7 +183,7 @@ pub struct Generator {
     /// The tree node it came from (its folder scope for name lookups).
     pub node: usize,
     /// Data 0x00: attach mode `(byte2 & 1) << 4 | (byte0 & 0xf)`, caster / target points and the actor-size
-    /// scale sources (section 5).
+    /// scale sources (FUN_10052eb0).
     pub attach: u32,
     /// Data 0x10 / 0x14: blend factors for the actor-size scales A / B (0 = 1.0).
     pub blend: [f32; 2],
@@ -400,7 +399,7 @@ mod tests {
         crate::dat::DatIndex::open(&crate::config::Config::load().ffxi_dir()).ok()?.read(id).ok()
     }
 
-    /// Zone 232 (DAT 332) effe/sea sea1 (spec E.1): world, auto-start, one persistent element; op 1 names 'sea1',
+    /// Zone 232 (DAT 332) effe/sea sea1: world, auto-start, one persistent element; op 1 names 'sea1',
     /// which is no D3m but the MMB in the same folder; op 0x63 binds keyframe 'seen'.
     #[test]
     fn port_san_doria_sea() {
@@ -441,7 +440,7 @@ mod tests {
         }
     }
 
-    /// Spell file 2944 (fai0, spec D.6): 8 generators; g003 draws D3m fa04 (format 6, one texture, a quad); g005
+    /// Spell file 2944 (fai0): 8 generators; g003 draws D3m fa04 (format 6, one texture, a quad); g005
     /// names hi17, which is not in the file (it resolves from DAT 0).
     #[test]
     fn fire_effect_file() {

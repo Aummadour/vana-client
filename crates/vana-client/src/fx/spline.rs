@@ -1,5 +1,5 @@
-//! Effect paths (splines.md): a Vtx point list (chunk 0x3e) as the CMoSpline FUN_10062600 builds over it, a
-//! cubic Hermite curve with Bessel tangents and chord-length knots, open, N >= 2.
+//! Effect paths (MODLOG "Effect spline paths"): a Vtx point list (chunk 0x3e) as the CMoSpline FUN_10062600
+//! builds over it, a cubic Hermite curve with Bessel tangents and chord-length knots, open, N >= 2.
 
 use glam::Vec3;
 
@@ -103,7 +103,7 @@ mod tests {
         Some(points(lib.data(n)))
     }
 
-    /// splines.md 6.1 / 6.2: DAT 202 'lin2' (12 points) and DAT 265 'a7  ' (3 points).
+    /// MODLOG "Effect spline paths": DAT 202 'lin2' (12 points) and DAT 265 'a7  ' (3 points).
     #[test]
     fn worked_paths() {
         let Some(q) = vtx(202, b"lin2") else { return };

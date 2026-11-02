@@ -607,7 +607,7 @@ impl Region {
         [(dx * c + dz * s) / self.scale[0].abs(), dy / self.scale[1].abs(), (-dx * s + dz * c) / self.scale[2].abs()]
     }
 
-    /// A lift shaft ('@', collision_actors_spec 2.1).
+    /// A lift shaft ('@'; MODLOG "Actor collision and lifts").
     pub fn is_lift(&self) -> bool {
         self.name.starts_with('@')
     }

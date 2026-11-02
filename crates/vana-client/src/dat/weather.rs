@@ -204,8 +204,9 @@ impl ZoneWeather {
 }
 
 impl Env {
-    /// FUN_1017fee0 / FUN_1017fef0 + FUN_1017ff00 (area_light.md): c = actor sun + ambient, c2 = actor moon +
-    /// ambient, bytes / 255; c2 when flags bit 0 is clear (FUN_10181af0) and it is the brighter (a tie keeps c).
+    /// FUN_1017fee0 / FUN_1017fef0 + FUN_1017ff00 (MODLOG "Effect area-light tint"): c = actor sun + ambient, c2 =
+    /// actor moon + ambient, bytes / 255; c2 when flags bit 0 is clear (FUN_10181af0) and it is the brighter (a tie
+    /// keeps c).
     pub fn area_light(&self) -> Vec3 {
         let c = rgb(self.actor.sun) + rgb(self.actor.ambient);
         let c2 = rgb(self.actor.moon) + rgb(self.actor.ambient);
@@ -510,7 +511,7 @@ mod tests {
         assert!(a.iter().zip(b).all(|(x, y)| (*x as i32 - y as i32).abs() <= 1), "{a:?} {b:?}");
     }
 
-    /// area_light.md worked numbers: zone 232 street, fine: 12:00 sun + ambient, 00:00 moon + ambient.
+    /// MODLOG "Effect area-light tint": zone 232 street, fine: 12:00 sun + ambient, 00:00 moon + ambient.
     #[test]
     fn port_sandoria_area_light() {
         let cfg = crate::config::Config::load();
@@ -531,7 +532,7 @@ mod tests {
         let objs = &scene.collision.unwrap().objects;
         // 159 ev01 records in table [5]; 76 of them are reached from the collision grid.
         assert_eq!(objs.iter().filter(|o| o.area == u32::from_le_bytes(*b"ev01")).count(), 76);
-        // point_lights.md 1.3: collision objects name lamps by MZB list ref, e.g. (pl18, pl19).
+        // MODLOG "Point lights on scenery": collision objects name lamps by MZB list ref, e.g. (pl18, pl19).
         let pl18 = u32::from_le_bytes(*b"pl18");
         assert!(objs.iter().any(|o| o.lights[..2] == [pl18, u32::from_le_bytes(*b"pl19")]));
     }

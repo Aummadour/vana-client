@@ -1779,9 +1779,9 @@ impl MapList {
     }
 
     /// The list window (16, 208, stacked on the log: registry flag 0x1000) with 5 rows (FUN_101f6a60 with maplist's
-    /// cells, arealist_spec 1.4 / 4): rows from (+3, +4) 16 apart; names in the game font at y + 2; numbers "[n]" (type
-    /// 9) in the shape font right-aligned at the column's end - 2, y + 4; small texts "(s)" (type 0x21) in the shape
-    /// font at y + 2; the windowps 75 cursor bar at (+0, +4), nothing recoloured.
+    /// cells; MODLOG "Search: arealist"): rows from (+3, +4) 16 apart; names in the game font at y + 2; numbers "[n]"
+    /// (type 9) in the shape font right-aligned at the column's end - 2, y + 4; small texts "(s)" (type 0x21) in the
+    /// shape font at y + 2; the windowps 75 cursor bar at (+0, +4), nothing recoloured.
     fn draw(&self, gu: &mut GameUi, sw: f32, sh: f32) {
         const WHITE: u32 = 0x8080_8080;
         let sel = (!self.rows.is_empty()).then(|| (self.cursor - self.scroll + 1) as u16);

@@ -1,4 +1,4 @@
-//! statcom2 row 7, Merit Points (spec ~/ffxi/lab/research/status_rows_spec.md 1): merit1 (Categories / Mode Switch)
+//! statcom2 row 7, Merit Points (MODLOG "Merit Points and Job Points"): merit1 (Categories / Mode Switch)
 //! with levmerit in place of level, merit2 (EXP / Limit Points), meritcat (the categories, then a category's merits)
 //! with meritinf and bluehelp, merit3 (Raise / Lower) asking through sortyn and merityn.
 

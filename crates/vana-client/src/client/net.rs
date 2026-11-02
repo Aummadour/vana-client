@@ -59,7 +59,7 @@ pub struct EntityUpdate {
     /// its end, start + u16 @0x3c.
     pub lift: Option<(u32, u32, u32)>,
     /// SubKind 4 (a ship, the same block): the ship id @0x34 and the sequence's start @0x38 (Vana'diel-epoch seconds);
-    /// u16 @0x3c is not used (ship_actors_spec 1.1).
+    /// u16 @0x3c is not used (MODLOG "Ship actors").
     pub ship: Option<(u32, u32)>,
     /// 0x00E with mask 0x04 (0x1009adbb): u8 @0x22 bit 0 sets actor +0x130 bit 20 and clears +0x128 bit 3,
     /// else +0x128 bit 3 = u8 @0x2B bit 0x20. Either hides the target gauge; bit 3 also the name plate.
@@ -104,7 +104,7 @@ pub struct EntityUpdate {
     pub gate: Option<u8>,
 }
 
-/// Riding (mount_model_spec.md 1.2): ChocoboIndex, the mount id (0 none) and CustomProperties (a personal or Noble
+/// Riding (MODLOG "Riding"): ChocoboIndex, the mount id (0 none) and CustomProperties (a personal or Noble
 /// chocobo's look).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Ride {
@@ -133,7 +133,7 @@ pub struct Marks {
     pub lfg_master: bool,
     /// Flags1 u32 @0x20 bit 31 (actor +0x128 bit 9): the player has a bazaar.
     pub bazaar: bool,
-    /// The name plate's icon flags (nameplate_icons_spec.md 6): Flags1 b14 away, b16 PlayOnline, b17 linkshell, b18
+    /// The name plate's icon flags (MODLOG "Name plate icons"): Flags1 b14 away, b16 PlayOnline, b17 linkshell, b18
     /// link dead; Flags2 @0x24..0x26 the linkshell colour, b28 GmIconFlag; Flags3 b23 New Adventurer, b24 mentor.
     pub away: bool,
     pub pol: bool,
@@ -147,7 +147,7 @@ pub struct Marks {
     pub silent: bool,
 }
 
-/// Our own plate's fields from 0x037 (nameplate_icons_spec.md 6): Flags0 u32 @0x28, Flags1 @0x2c, the linkshell colour
+/// Our own plate's fields from 0x037 (MODLOG "Name plate icons"): Flags0 u32 @0x28, Flags1 @0x2c, the linkshell colour
 /// @0x31..0x33, Flags2 @0x34, Flags3 @0x38 (Ballista info @0x39), Monstrosity u16 @0x54, job master @0x58 bit 7, the
 /// ranks @0x5a.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -517,8 +517,9 @@ pub enum NetEvent {
     /// s2c 0x0F9 RES {UniqueNo @4, ActIndex @8, u16 type @0xA}: 1 raise offered, 2 tractor (handler 0x100a2540 reads
     /// only the type).
     ResOffer { kind: u16 },
-    /// s2c 0x026: a mannequin look record (mannequin_spec 1.1): +0 is_used, +1 container, +2 slot, +4 u16 the pose-8
-    /// item, +6 race / hair (unused), +8..+0x17 head, body, hands, legs, feet, main, sub, range (slot nibbles).
+    /// s2c 0x026: a mannequin look record (MODLOG "Mog House mannequins"): +0 is_used, +1 container, +2 slot, +4 u16
+    /// the pose-8 item, +6 race / hair (unused), +8..+0x17 head, body, hands, legs, feet, main, sub, range (slot
+    /// nibbles).
     MannequinLook { rec: [u8; 24] },
     /// s2c 0x110 (Sparks u24 @4, Deeds u16 @8, Plaudits u16 @0xa, 8 bytes @0xc: LSB's Unity Shared day and Leader
     /// week), 0x111 (64 objective records @4), 0x112 (Data[128] @4, Offset u16 @0x84): Records of Eminence.
@@ -552,7 +553,7 @@ pub enum NetEvent {
     BlackEdit { id: u32, name: String, mode: u8 },
     /// s2c 0x0E1 GROUP_CHECKID (LAB_100ea7f0): GroupID @4, the answer to c2s 0x078.
     GroupId(u32),
-    /// s2c 0x113 (mode 1) / 0x118 (mode 2): the currencies, the whole packet (status_rows_spec.md appendix A).
+    /// s2c 0x113 (mode 1) / 0x118 (mode 2): the currencies, the whole packet (MODLOG "Currencies and Currencies 2").
     Currencies { mode: u8, data: Vec<u8> },
     /// s2c 0x116 EQUIPSET_VALID: the 16 slot entries at @4 (client/equipsets.rs).
     EquipSetValid([[u8; 4]; 16]),
@@ -1098,7 +1099,7 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
                     0x00D => tx.send(NetEvent::Entity(entity(&p, EntityKind::Player)))?,
                     0x037 => {
                         let status = p.u8(0x30);
-                        // u32 @0x34 >> 3: the pet's ActIndex (effect_filter.md).
+                        // u32 @0x34 >> 3: the pet's ActIndex (MODLOG "Effects filter").
                         // FUN_1009d0f0: icon i = hi << 8 | lo, none when lo 0xff with hi 0.
                         let icons = std::array::from_fn(|i| {
                             let (lo, hi) = (p.u8(4 + i) as u16, (p.u8(0x4C + i / 4) as u16 >> (2 * (i % 4))) & 3);
@@ -1638,7 +1639,7 @@ mod tests {
         assert_eq!(entity(&p, EntityKind::Npc).lift, Some((7, 100, 100)));
     }
 
-    /// 0x00A's voyage fields (spec 6): start, start + length, flags3 bit 26 reverse, flags4 bits 19..20 the route;
+    /// 0x00A's voyage fields: start, start + length, flags3 bit 26 reverse, flags4 bits 19..20 the route;
     /// no start, no voyage; LSB's flags4 0x0100 is route 0.
     #[test]
     fn ship_data_parse() {

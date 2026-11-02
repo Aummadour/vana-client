@@ -1,6 +1,6 @@
 //! PlayOnline's chat service (ci000.pol.com:51240, an IRC dialect): the RSA key agreement that gives the session its
 //! cipher, the PlayOnline ID and password proof, and the profile host. Addresses polcore 73b1864b;
-//! research/pol_chat_spec.md.
+//! MODLOG "PlayOnline sign-in".
 
 use super::cipher::PolBlowfish;
 use anyhow::{Context, Result, anyhow, bail};

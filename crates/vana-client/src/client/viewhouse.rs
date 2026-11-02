@@ -1,4 +1,4 @@
-//! Main menu social row 4 View House (FUN_1014e7b0 case 4; spec ~/ffxi/lab/research/social_rows_spec.md part V):
+//! Main menu social row 4 View House (FUN_1014e7b0 case 4; MODLOG "View House"):
 //! "menu    mogcont" (vtable 0x10336588, open FUN_1014eaf0, messages FUN_1014ec40), whose rows open the storage views
 //! through FUN_101dae10 / FUN_101daf70 with nomad 0, anywhere.
 

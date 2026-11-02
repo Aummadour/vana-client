@@ -1,4 +1,4 @@
-//! The social page's Missions row (FUN_1014e7b0 case 5 child 1; quest_mission_spec section 5): "menu    missionm" (the
+//! The social page's Missions row (FUN_1014e7b0 case 5 child 1; MODLOG "Missions"): "menu    missionm" (the
 //! seven categories, over the social menu: group 0x81 suspends it) and "menu    miss00" (one log: the current mission,
 //! the completed ones, a description), which leaves missionm drawn beside it unfocused.
 

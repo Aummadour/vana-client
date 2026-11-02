@@ -834,7 +834,8 @@ pub(super) fn job_cell(gu: &mut super::game_ui::GameUi, r: &Record, x: f32, y: f
     digits(gu, rank, pen, y + 3.0, 6.0, false, G);
 }
 
-/// scresult (FUN_101f6a60 with FUN_1020c060 / FUN_1020a740 rows, scresult_draw_spec) and scoption over it.
+/// scresult (FUN_101f6a60 with FUN_1020c060 / FUN_1020a740 rows; MODLOG "Search: /search and the results window")
+/// and scoption over it.
 pub fn draw(gu: &mut super::game_ui::GameUi, w: &World, sw: f32, sh: f32) -> Vec<[f32; 4]> {
     const G: u32 = 0x8080_8080;
     let Some(res) = &w.search else { return Vec::new() };
@@ -989,7 +990,7 @@ mod tests {
         crate::dat::tables::search_words(&dll).ok()
     }
 
-    /// search_spec.md 2.2 examples, checked against FUN_10104f00 / FUN_10105640.
+    /// The grammar examples (MODLOG "Search: the /search grammar"), checked against FUN_10104f00 / FUN_10105640.
     #[test]
     fn grammar() {
         let Some(w) = words() else { return };

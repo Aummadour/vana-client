@@ -1,5 +1,5 @@
-//! Ground tilt (spec ~/ffxi/lab/research/ground_tilt_spec.md): models of leg mode 1 / 2, and every dead actor, draw
-//! along the ground under them (FUN_100d54c0) instead of the plain Euler rotation.
+//! Ground tilt (MODLOG "Ground tilt"): models of leg mode 1 / 2, and every dead actor, draw along the ground under them
+//! (FUN_100d54c0) instead of the plain Euler rotation.
 
 use glam::{Mat3, Quat, Vec3};
 
@@ -94,7 +94,7 @@ mod tests {
 
     const SQUARE: [f32; 6] = [-2.0, 0.0, 1.0, -1.0, 1.0, -1.0];
 
-    /// ground_tilt_spec.md 5.2 test vectors: flat ground keeps the plain frame; 20 degrees eases 0, 3.711, 6.744,
+    /// Test vectors (MODLOG "Ground tilt"): flat ground keeps the plain frame; 20 degrees eases 0, 3.711, 6.744,
     /// 9.218 ...; 60 degrees clamps at 30; the tiger's long box across a slope stays upright, facing uphill pitches.
     #[test]
     fn steps() {

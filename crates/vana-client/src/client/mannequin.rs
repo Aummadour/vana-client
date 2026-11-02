@@ -1,4 +1,4 @@
-//! Dressing a mannequin: layout mode 4 (spec ~/ffxi/lab/research/mannequin_spec.md 5). "menu    inspect" in mannequin
+//! Dressing a mannequin: layout mode 4 (MODLOG "Mog House mannequins, part 2"). "menu    inspect" in mannequin
 //! mode (FUN_10134670: the 4 x 4 grid, child 17 "Remove all") with the Storage list "menu    inventor" at (200, 48);
 //! c2s 0x03B equips, unequips and strips. The mannequin is lifted and turns (FUN_101ce6a0) under its own camera
 //! (FUN_101d4760).

@@ -1,6 +1,6 @@
 //! The game camera (FUN_1001ee60 [FUN_1001e030]): one eye and look point (camera object +0x44 / +0x50) for the free,
 //! locked and first-person views. The free branch runs in whole 1/60 s ticks and is drawn between the last two tick
-//! states. Specs: MODLOG "Free camera", ~/ffxi/lab/research/camera_collision_spec.md (the collision).
+//! states. MODLOG "Free camera", "Camera collision as retail" (the collision).
 
 use super::ground::Ground;
 use super::target::LockCam;
@@ -686,8 +686,8 @@ mod tests {
     }
 
     /// Far eyes are reeled in to 6 along their line, near ones pushed out to 3; between, the eye stays.
-    /// File 3445 gob_/vib1 (factor 0.0003, inside near): the first frames of fx_shake_spec.md 2.8, x and speed after
-    /// each 2-tick step.
+    /// File 3445 gob_/vib1 (factor 0.0003, inside near): the first frames of the worked table in MODLOG "Camera shake
+    /// and rumble", x and speed after each 2-tick step.
     #[test]
     fn shake_follows_retail_frames() {
         let mut sh = Shake::default();

@@ -1,4 +1,4 @@
-//! Blue magic data (blue_magic_spec.md 2, 3): file 90's 6-byte entries {idx, set points, description + 1, family,
+//! Blue magic data (MODLOG "Blue magic sets"): file 90's 6-byte entries {idx, set points, description + 1, family,
 //! level, magical / physical} for spells 0x200 + idx, the descriptions (d_msg in language slot 0x1a, entry idx - 1),
 //! and the points and slots by level.
 

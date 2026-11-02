@@ -1,4 +1,4 @@
-//! The auction house (spec ~/ffxi/lab/research/auction_spec.md): s2c 0x04C / c2s 0x04E, the command menus auc1 ..
+//! The auction house (MODLOG "Auction house"): s2c 0x04C / c2s 0x04E, the command menus auc1 ..
 //! aucitem, auc3 and auc4 at (384, 48), the list "menu    auclist" (bid and sales modes) and the price history
 //! "menu    auchisto" at (16, 48), bids, listings and Sales Status. The item lists and histories come from the search
 //! server (net/search.rs ah_*).

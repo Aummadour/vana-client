@@ -1,4 +1,4 @@
-//! Monstrosity Customization (main menu row 2 as a monster; monstrosity_custom_spec.md): mp_stat mode 1 and level
+//! Monstrosity Customization (main menu row 2 as a monster; MODLOG "Monstrosity, part 10"): mp_stat mode 1 and level
 //! mode 2, mp_cstm (the instinct slots), mp_mncst (Species, Faculties, Naming), the generic list mp_invnt over three
 //! sources (species, instincts, names), mp_mnnm, mp_mntp2 (Refine by Type), mp_kncst (Refine by Cost), the cost panel
 //! in level's place; the pending buffer committed as c2s 0x102 at most once a second, only in the Feretory.
@@ -752,7 +752,7 @@ pub fn info_source(w: &World) -> Option<u16> {
     }
 }
 
-/// The help and title bars (section 1): each focused window's help line in slot 1, "Customization" or "Refine by Type".
+/// The help and title bars: each focused window's help line in slot 1, "Customization" or "Refine by Type".
 pub fn bars(gu: &GameUi, w: &World, bars: &mut super::hudtop::BarText) {
     let Some(s) = &w.moncustom else { return };
     let help = |id: usize| gu.menu_msg(id, "");

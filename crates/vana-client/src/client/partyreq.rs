@@ -1,5 +1,5 @@
-//! Party join requests (party_request_spec.md): s2c 0x11D into the request history (DAT_10662690, USER pec.dat), the
-//! blacklist it is checked against (s2c 0x041), and the history's users: View Request, /recruitlist, the Request
+//! Party join requests (MODLOG "Party requests"): s2c 0x11D into the request history (DAT_10662690, USER pec.dat),
+//! the blacklist it is checked against (s2c 0x041), and the history's users: View Request, /recruitlist, the Request
 //! toggle's reset prompt.
 
 use super::World;

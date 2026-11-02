@@ -1,4 +1,4 @@
-//! Bumping into characters (FUN_100a8770, collision_chars_spec): the local player's step into the nearest eligible
+//! Bumping into characters (FUN_100a8770, MODLOG "Character bump"): the local player's step into the nearest eligible
 //! character it overlaps is held for 30 ticks, then passes through while it still overlaps; a frame without contact
 //! (letting go, backing off) clears it. No slide, no push. Other players count only while active (FUN_100a57f0).
 

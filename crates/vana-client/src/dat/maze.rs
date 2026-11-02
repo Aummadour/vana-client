@@ -1,5 +1,5 @@
-//! Moblin Maze Mongers' Maze Tabula (mmm_maze_spec.md §2): the rune shapes, their cells on the 5 x 5 grid, and the
-//! tabula extdata's bit stream (FUN_101fd290 decodes, FUN_101fd600 encodes).
+//! Moblin Maze Mongers' Maze Tabula (MODLOG "Moblin Maze Mongers"): the rune shapes, their cells on the 5 x 5 grid, and
+//! the tabula extdata's bit stream (FUN_101fd290 decodes, FUN_101fd600 encodes).
 
 /// Table 0x103850a8: width and height in cells, and the 4 x 4 masks of rotations 0..3 (bit 15 the top left, rows of 4
 /// bits from the top); rotation 1 is a quarter turn clockwise of 0. Shapes: domino, corner, line 3, T, square, L, J, S,
@@ -155,7 +155,7 @@ mod tests {
         }
     }
 
-    /// The spec's vector (tabula.py enc 1 106:3:0:0 109:0:3:1 21:0:0:1) both ways.
+    /// The test vector of MODLOG "Moblin Maze Mongers" (voucher 01; runes 21, 106, 109) both ways.
     #[test]
     fn vector() {
         let ext: [u8; 24] = [0x01, 0x80, 0x00, 0x90, 0x15, 0xd4, 0xb4, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x10, 0x01, 0, 0, 0, 0, 0];

@@ -1,5 +1,5 @@
-//! The chat line's history (FSTEXTINPUT DAT_10662d40 +0x7ed8; spec ~/ffxi/lab/research/input_history_spec.md): slot
-//! 0 is the line being typed, then the 9 last sent lines newest first. Up older, Down newer, no wrap, no sound.
+//! The chat line's history (FSTEXTINPUT DAT_10662d40 +0x7ed8; MODLOG "Chat line history"): slot 0 is the line being
+//! typed, then the 9 last sent lines newest first. Up older, Down newer, no wrap, no sound.
 
 /// Sent lines kept (+0x614 at most 9).
 const KEEP: usize = 9;

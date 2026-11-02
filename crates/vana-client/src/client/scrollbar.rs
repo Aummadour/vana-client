@@ -1,4 +1,4 @@
-//! The mouse on a list's scroll bar and the wheel (scroll_bar_spec 2): only the focused list's bar takes them.
+//! The mouse on a list's scroll bar and the wheel (MODLOG "List scroll bars"): only the focused bar takes them.
 //! FUN_102347f0 hit-tests the bar, FUN_10234930 sends list messages on the press and the key repeat, FUN_10234a20
 //! drags the thumb, FUN_10125360 turns each wheel notch into 0x16 / 0x17 for the focus window.
 

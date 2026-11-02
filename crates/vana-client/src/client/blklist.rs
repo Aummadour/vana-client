@@ -1,4 +1,4 @@
-//! The block list (spec ~/ffxi/lab/research/blklist_spec.md): "menu    blklist", the session's blacklist one name a row
+//! The block list (MODLOG "The block list window"): "menu    blklist", the session's blacklist one name a row
 //! (FUN_101def10, from /blacklist with under 3 words), and "menu    blkmain", its one Delete button (FUN_101defc0).
 
 use super::World;

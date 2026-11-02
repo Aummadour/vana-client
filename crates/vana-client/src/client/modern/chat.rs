@@ -11,7 +11,7 @@ use egui::text::{LayoutJob, TextFormat};
 use egui::{Color32, FontId, Id, Order, Rect, Sense, Ui, Vec2, pos2, vec2};
 use std::sync::OnceLock;
 
-/// The tabs: retail's full log's (FUN_10138700 / FUN_101299f0; scratch chatfilters/SPEC.md): every line, then each
+/// The tabs: retail's full log's (FUN_10138700 / FUN_101299f0; MODLOG "The full log's tabs"): every line, then each
 /// channel's chat modes, our own echo with the others' (Shout with Yell, Party with the trusts').
 pub const TABS: [(&str, &[u8]); 11] = [
     ("All", &[]),

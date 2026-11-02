@@ -1,4 +1,4 @@
-//! The Geomancer Indi aura (spec ~/ffxi/lab/research/fx_indi_aura_spec.md): a second actor of a PC (kind 0x25 +
+//! The Geomancer Indi aura (MODLOG "Geomancer Indi aura"): a second actor of a PC (kind 0x25 +
 //! element) whose model file 52211 + element is a self-contained effect; the client creates, places, scales and
 //! deletes it (FUN_1008f740's block, FUN_1009ad20, FUN_100c59b0).
 

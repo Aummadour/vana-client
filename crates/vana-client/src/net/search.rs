@@ -333,7 +333,7 @@ pub fn condition(c: &Cond) -> (u8, Vec<u8>) {
     }
     let mut out = vec![b.bytes.len() as u8];
     out.extend(b.bytes);
-    // After the block: u16 n and n 16-byte names (search_spec 1.5).
+    // After the block: u16 n and n 16-byte names (MODLOG "Search: the search server client").
     if c.flags & REQUEST != 0 {
         let names = &c.requests[..c.requests.len().min(64)];
         out.extend((names.len() as u16).to_le_bytes());
@@ -528,7 +528,7 @@ pub fn query(addr: (Ipv4Addr, u16), cond: &Cond) -> Result<Reply> {
     }
 }
 
-/// An auction house reply (auction_spec 2.2): the item list (0x95) or a price history (0x85).
+/// An auction house reply (MODLOG "Auction house"): the item list (0x95) or a price history (0x85).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct AhReply {
     /// 0x95 @0x0e: every item of the category.
@@ -713,7 +713,7 @@ mod tests {
         assert!(r.iter().all(|r| r.as_ref().is_ok_and(|r| !r.items.is_empty())));
     }
 
-    /// auction_spec 2.1 / 2.2: the payloads, and a canned list and history packet decoded.
+    /// MODLOG "Auction house": the payloads, and a canned list and history packet decoded.
     #[test]
     fn auction_payloads() {
         let p = ah_list_payload(2, 4, &[(2, 0x7), (4, 0x15)]);

@@ -1,4 +1,4 @@
-//! The effect generator system (FFXiMain's CMoGenerator / CMoElem; spec ~/ffxi/lab/research/effects/). The CPU
+//! The effect generator system (FFXiMain's CMoGenerator / CMoElem; MODLOG "Effect generators"). The CPU
 //! runs generators and builds elements (emit.rs); the GPU runs each element's update stream every frame and
 //! draws it (render/effects.rs). Sort keys and expire requests come back from the GPU a frame late.
 

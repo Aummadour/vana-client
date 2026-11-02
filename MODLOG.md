@@ -1795,10 +1795,10 @@ with ~/ffxi/lab/combat/q.sh. Inferred items are marked *(inf)*.
 - Implemented: all except M/J/W/B (no magic or ability windows yet). Movement keys are not taken while Ctrl or Alt is held (flag 0x80).
 - Chat: c2s 0x0B5 {Kind, 0, Str} with kind 0 say, 1 shout, 4 party, 5 linkshell, 0x1a yell, 0x1b linkshell 2, 0x21 unity; c2s 0x0B6 tell {2 bytes 0, name[15], text}. s2c 0x017 kind 3 is a tell. The log's punctuation ("(Name)", "<Name>", "Name>>") is inferred.
 
-### Input layer (client/input.rs; full spec ~/ffxi/lab/research/keys_spec.md)
+### Input layer (client/input.rs)
 - Tables read from FFXiMain at start: bindings 0x103619f0 (0xb4 ids x 3 u16), context masks 0x103612e8, compact records
   0x103623c8 (42, until zero bits), k1 rows 0x1036e0a8 (28 rows of record indices, 0xff ends), k2 rows 0x1036e190 (28 x 5
-  ids, 0xffff ends). Pad callback bits per id are code, so they are a table in input.rs (kspec dump.txt).
+  ids, 0xffff ends). Pad callback bits per id are code, so they are a table in input.rs.
 - Key state FUN_10005520 (object FUN_10005210): a key going down gets held | press | repeat (bits 4 | 2 | 1) and counter 0;
   held, the frame bits clear (& 0xf4) and the counter adds ftol(FUN_10014000()) (whole ticks, at least 1); past input
   +0x94 = 16 it sets repeat and drops to 16 - 2.0 (_DAT_1031e800). Up: 0, or release (8) after a hold. Retail's frame was 2
@@ -1827,6 +1827,70 @@ with ~/ffxi/lab/combat/q.sh. Inferred items are marked *(inf)*.
   the compact records (+0x252 D 0xff / A 0, +0x253 W 0 / S 0xff, +0x250 L 0xff / J 0, +0x251 I 0 / K 0xff; the later
   record wins). Typing: numpad movement only with NumLock off, arrows never; in a window or outside the field the arrows
   need Shift (FUN_1011f7b0 / FUN_1011f910).
+
+From the research notes:
+- Addresses: 2019 FFXiMain.
+- Key test modes (FUN_1011f850): 0 press-or-repeat, 1 press edge, 2 press-or-repeat and consume, 3 press edge and
+  consume, 4 held, 5 never matches a key (the mouse releases 0x8b / 0x8c / 0x96). Mode 1 does not consume: two ids on
+  one key both see a press (Num* = 0x44 and 0x30). Pad callbacks 0x10361e28 and axis callbacks 0x10361450, two per id.
+- Typing = FUN_101adbd0 (input +0xf108 is 4 / 5): ids with mask 0xffff / 0x0001 / 0x0040 are dead while typing, ids
+  with 0x003e work. The Keymap's gate DAT_103612e4 is 0 only while Key Assignment (k1assign / k2assign) is open, not
+  in text-entry windows.
+- A hit on 0x8b / 0x8c / 0x96 sets "last device = mouse" (FUN_10122370(1)), any other hit "keyboard" (0), except 0x76
+  / 0x77 / 0x89 / 0x8a.
+- Contexts DAT_10362678 (FUN_1011fba0): 0xffff the field; 0x42 Mog House layout and some item windows; 0x26 the map
+  (FUN_101e6510); 0x3e a family of item / delivery windows (FUN_101eb6f0 ... *(inf: which)*), restored on close. Mask
+  bit 0x01 = the default context only, 0x40 = layout mode only.
+- Compact keyboard (config 0x42: 0 Full, 1 Compact 1, 2 Compact 2; default 2): FUN_1011fbc0 runs only with type 1 / 2
+  (FUN_101afe20), not while typing, in game state 0x40 or with k1assign / k2assign open. Records of 0x10 bytes {key,
+  modifier rule, state mask, u64 bits} are virtual pad buttons: rule 0 any (not with Ctrl / Alt on a k2 key), 1 Ctrl,
+  2 Alt, 4 Shift alone, 8 no modifier, 7 always; state 4 always, 6 the field (no window), 5 a window active.
+- Default compact records: W / S / A / D the left stick (0x800000 / 0x1000000 / 0x400000 / 0x200000) -> movement; I /
+  K / J / L the right stick (0x80000 / 0x100000 / 0x40000 / 0x20000) in the field or with Shift in a window -> camera,
+  else the d-pad (0x40 / 0x80 / 0x20 / 0x10) -> 0x2b..0x2e, 0x00..0x03, 0x31..0x34; Y 1 -> 0x0e 0x0d 0x8f 0x91 0x93; N
+  8 -> 0x0f 0x90 0x92 0x94 0x95 0x9c; V 0x4000 -> 0x10 0x7d 0xa7; R 0x100 -> 0x1c 0x12 0x15 0x1f; H 0x400 -> 0x44 /
+  0x30 0x7e 0xa6; F 4 -> 0x11 0x22 0x78; Z 0x20000000 -> 0x45; rule 7: - 2 -> 0x18 0x19 0x25 0x35 0x8d, , / .
+  0x10000000 / 0x8000000 -> 0x50 0xa5 / 0x4f 0xa4, [ 0x40000000 -> 0x55, ] 0x10000 -> 0x56 0x26 0x2f. Q / E
+  (0x80000000 / bit 32) are read by no callback *(inf: unused)*. k1 rows 8..11 and 14..17 (Move Camera, Menu / Target
+  Cursor) are unassigned by default.
+- k1 = Key Assignment "Movement" (config 0x4a..0x69); k2 = "Commands" (0x6a..0x89), slot 0 of these ids with flag
+  0x10: Attack 0x3b, Items 0x39, Magic 0x41, Abilities 0x7f, Weapon Skills 0x80, Pet 0x9f, Confirm 0x0e 0x42 0x8f 0x91
+  0x93, Cancel 0x0f 0x90 0x92 0x94 0x95, Main Menu 0x18, Select Window 0x78 0x11, Hide 0x56, Screenshot 0x55, Walk
+  0x45, Zoom In 0x4f 0xa4, Zoom Out 0x50 0xa5, Ranged 0x81, Call For Help 0x82, Equipment 0x36, Change View 0x40 0x10,
+  Heal 0x3d, Check 0x3f, /say 0x3c, /party 0x3a, /tell 0x38, /linkshell 0x3e, Reply 0x37, /unity 0xad, /linkshell2
+  0xae. k2 refuses digits and numpad keys; German / French override some defaults.
+- Not key functions: Space (WM_CHAR, FUN_101ab630) opens the chat line in the field; '/' (VK 0xBF, FUN_101aa930 ->
+  FUN_101ac1a0) opens it holding "/" (numpad / is 0x45); with keyboard type 0 any letter, digit or OEM key opens it
+  and is typed (FUN_101ac1b0); Shift+Num6 / Num4 drive axis 5 in the lobby only.
+- Game modes: field = *DAT_10444110 == 0x60; event hold = FUN_10085990(0); sub-target prompt = DAT_10565d34 +0x59 /
+  +0xc4; UI hidden = menu manager +0xb4 == 1 (FUN_10159d30 / FUN_101573f0); window active = FUN_101584c0.
+- Ids by default key ([C|A] = Ctrl or Alt + key):
+  - Movement and camera: axes 4 / 5 (Num4 / 6, Num8 / 2 raw; compact A / D, W / S), axes 6 / 7 (arrows raw; compact J
+    / L, I / K); 0x10 Num5 / V [C|A] first person; 0x1c Num7 autorun; 0x45 Num/ / Z [C|A] walk; 0x4f / 0x50 PageUp /
+    PageDown, Num9 / Num3, . / , [C|A] zoom; 0x51 Home recentre; 0x9c LShift held, face-camera strafe (type 2); 0xa9 /
+    0xaa Q / E turn (type 2); 0xa4 / 0xa5 the zoom axis (map zoom); 0x35 LShift, a list's Shift selection
+    (FUN_10188060, FUN_101a70d0) *(inf)*; 0x83 the lobby free camera *(inf: debug)*; 0xa0..0xa3 fallback move axes,
+    never bound.
+  - Targeting (table 0x10366088, FUN_10151d20 -> FUN_10151ee0 -> FUN_10151f20): 0x91 Enter / NumEnter / Y [C|A]; 0x92
+    Esc / N [C|A]; 0x84 / 0x97 Tab, Num0 and with Shift; 0x46 F1, 0x47..0x4b F2..F6, 0x4c F7, 0x4d F8, 0xab Ctrl+F8,
+    0xac Alt+F8, 0x4e F9, 0x52 F10, 0x53 / 0x54 F11 / F12; 0xb0..0xb3 Ctrl|Alt + arrows, the sub-target cursor;
+    0x27..0x2a the pad d-pad only; 0x8b / 0x8c (mode 5) mouse left / right release.
+  - Windows: 0x93 / 0x94 confirm / cancel (context 0x3e); 0x2b..0x2e the cursor, with repeat; 0x18 Num- / - [C|A];
+    0x11 next tab and 0x78 the focus cycle (Num+ / F [C|A]); 0x95 Esc unfocuses the log; 0xa8 the page modifier; 0xaf
+    the full log's Ctrl / Alt; 0x14 (Pause in context 0x02), 0x1e, 0x1f, 0x22, 0x24..0x26, 0x2f, 0x85, 0x86 pad /
+    compact only (window messages 0x12, 0x11, 0x15, 0xc, 0xe, 0xf, 0x10, 0x13, 0xb, 0xa).
+  - UI and the rest: 0x56 Scroll Lock / ] [C|A] hide UI, 0x0f Esc shows it again; 0x55 Print Screen / [ [C|A]
+    screenshot; 0x13 Pause, the log-out prompt; 0x44 then 0x30 on Num* (heal, lock-on); 0x76 / 0x77 Ctrl / Alt held,
+    the palettes; 0x6c..0x75 Ctrl+0..9, 0x62..0x6b Alt+0..9, 0x58..0x61 Shift+Ctrl|Alt+0..9 (macro sets); 0x89 / 0x8a
+    pad palette toggles; 0x0e fishing (Enter / Y); 0x0f events and fishing; 0x8b 0x8c 0x96 the mouse buttons; 0x9b
+    Shift+Ctrl+Alt+D and 0xa6 D, lobby hooks *(inf: debug)*; 0x00..0x03 arrows in list windows (Up with Esc held a
+    debug toggle FUN_10077000 *(inf)*).
+  - Layout (context 0x42) and map (0x26): 0x31..0x34 arrows; 0x8d / 0x8e rotate (Num- / none); 0x8f / 0x90 place /
+    cancel; 0xa7 Num5 / V the layout camera; 0x7d Num5 / V centre on the marker; 0x7e Num* centre on us; 0x9a LAlt
+    double scroll speed; 0x79 0x7a 0x9d 0x9e the map scroll axes.
+  - No user found: 0x08..0x0d, 0x12, 0x15..0x17, 0x19..0x1b, 0x1d, 0x20, 0x21, 0x23, 0x40 (Ctrl|Alt+V), 0x42 / 0x43
+    (Ctrl|Alt+Y / Enter), 0x57, 0x7b, 0x87, 0x88 (Num/), 0x98 (Shift+Ctrl+Alt+R), 0x99 (Shift+Ctrl+Alt+B). Num. (DIK
+    0x53 / 0xd3) is bound nowhere.
 
 ### Movement keys (FUN_100a48d0; client mod.rs update_movement)
 - Speed FUN_100a5f60: |v| > 0.9 full, 0.05..0.9 a third, below nothing; walk (player +0xfa) caps at a third. Speed
@@ -1969,9 +2033,50 @@ dancer, 2D layer; `--step 0..7 --nation --name --help-time --bench N`). Inferred
 
 ## HUD, targeting, lock-on, movement, GPU-side rendering (2026-10-21)
 
-Decompile: ~/ffxi/lab/creatorwork/ghidra/all.c / all.asm. Research notes with addresses: scratchpad hud_research.md (items
-1..7) plus sub-agent reports summarised here. Inferred items are marked *(inf)*. Live checks on lnxtest01 / Lnxtest
+Decompile: the 2019 build. The research notes and sub-agent reports are summarised here, their other facts just
+below. Inferred items are marked *(inf)*. Live checks on lnxtest01 / Lnxtest
 (zones 230 and 101); screenshots in scratchpad hud/h4_*.png.
+
+From the research notes:
+- Key tests (FUN_1011ff30): 0 unless DAT_103612e8[id] & DAT_10362678 (the input context, FUN_1011fba0: 0x3e in the
+  field, 0x42 / 0x26 / 0xffff elsewhere); binding flag 0x40 fails while the chat input types (input +0xf108 4 / 5,
+  FUN_101adbd0), 0x80 while Ctrl or Alt is held. Numpad * also binds 0x7e (context 0x04: a recentre, *(inf: the
+  map)*).
+- /heal (FUN_1007adb0) also needs FUN_101c2550(0x60, 0) (mask bits 0x20 | 0x40, not decoded); with FUN_100f9220() &
+  0x80000 it first clears DAT_10444110+0x18 bit 3 and calls FUN_100f9370(0x80000) *(inf: stops auto-run / follow)*.
+- The chat input (DAT_1061d7e8, vtable 0x1032c3e0): +0xf108 3 idle, 4 / 5 typing, 2 closing. With config 0x42 == 0,
+  FUN_101ac1b0 lets letters, digits and the OEM keys 0xBF, 0xC1..0xDA, 0xE0, 0xE1 open the input and type; 1 / 2 keep
+  them for movement. Space (WM_CHAR) in the field with the input idle opens it without typing. Key function 0x24 is
+  the gamepad's open-chat button (pad callback FUN_1011dd30, no key binding).
+- Events: the message window's init FUN_10132230 clears window +0x84 when not cancellable (meaning not traced). s2c
+  0x052 mode 2 (mode >> 8 == the event id) sets DAT_10472b80 = id, DAT_10470528 = 1; FUN_10094ea0 then aborts like
+  Escape (SE 0003, 0x05B 0x40000000) once the event has loaded, whatever the cancel flag. LSB sends it only for events
+  started with canSkip, on a hostile hit, after 0x053 msg 117 "Event skipped.".
+- Lock-on (the target object DAT_10565d34): +0x5c bits 0..1 the mode (0 off, 1 lock, 2 a big-target lock: DAT_10444494
+  = 5.0 adds the target's size x 5 to near / far and widens the cone x 1.5; no caller passes 2), bits 2..3 the saved
+  mode (FUN_10152770 restores it), +0x51 auto-lock (config 7). Callbacks DAT_10565d38[k] (FUN_10152b50): 0 lock
+  (player vtable +0x334(0), the target's look height DAT_10444490 by its vtable +0x3f8), 1 unlock, 4 mode 2. Actor
+  +0xf9 = 1 free / 0 locked (vtable +0x330 / +0x334); +0xfa is toggled by key 0x45 (Numpad /, Ctrl / Alt + Z) *(inf:
+  first person)*; +0xfb skips the manual rotation. Locking needs a target, not dead (status 2 / 3), +0x22 == 0, a
+  target that is not us.
+- The 0x058 handler (LAB_1009e570) takes an actor with +0x120 bit 9 and kind +0xee 0 / 2 / 6 / 7, or 1 with bit 13; it
+  locks when the target has bit 13 or both our and its +0x1fb are in 8..9 (Belligerency), with +0x51. Unlocks: a
+  target change (FUN_10151280 -> FUN_10153040), an invalid target (FUN_10151bb0), death (FUN_10151100), +0x22.
+- Look heights (vtable +0x3f8): skeleton actors (FUN_100d4420) the bone at +0xbc unless 0x80, else bone 7; kind 2 / 7
+  with +0x878 1 or 2 bone 5 x 0.8; other actors (FUN_100a9500) bone 5. The free look-at: pos.y - 0.6 h (h the bbox
+  height, capped 2.5 with +0x14c set *(inf: mounted)*), or the vtable +0xc4 bone. The locked camera adds the player's
+  size x 1.5 and widens the cone x 1.5 in FUN_10096560's state (DAT_10472c48 == 0x17, unknown) for actor kinds 2 / 7.
+  The manual pitch is eye.y += ticks x y x 0.106667.
+- Target point (FUN_10153470): a ground-target slot (+0x22) uses its point +0x10..+0x18 with y - 0.5; else vtable
+  +0x27c = FUN_100ce680 (attach point byte +0x8a6, y += +0x8c0, vtable +0x280 projects and fails at w < 0); a failed
+  projection gives (0, 0) and the arrow skips x == 0. The two 0x28-byte target slots (current, and the saved one
+  during <st>): +0 index, +4 id, +7 kind (4 none), +8 record, +0xc actor, +0x10..+0x18 free point, +0x1c 1.0, +0x20
+  valid, +0x21 fixed actor, +0x22 ground point, +0x24 checksum; +0xc4 the <st> callback, +0x52 a target saved.
+- Name plates: with DAT_10443fe4+9 == 0 the target's colour loses its low byte (XOR AL,AL; *(inf: white turns
+  yellow)*); +0x88 bit 0x400 draws a plate at scale 1.0 (set with 0x200, unknown, on an in-range <st> pick while
+  config 7 == 0).
+- Inferred, open: the tick unit of DAT_10443fe4+0x28 (60 Hz), who sets lock mode 2, the +0xee kinds and +0x120 bits 9
+  / 13, FUN_10096560, config 0x91 as "camera locked behind" (from the help text order).
 
 ### Keys
 - Numpad * (DIK 0x37): key functions 0x44 and 0x30 read the same press (FUN_1011ff30 mode 1 does not clear it).
@@ -2124,7 +2229,7 @@ Decompile: ~/ffxi/lab/creatorwork/ghidra/all.c / all.asm. Research notes with ad
 
 ## Cutscene fixes after the 0x1f7 validation, lobby fades, HUD party / target, no egui fallback (2026-10-21)
 
-From the validation report (scratchpad cutscene_validation.md) and the decompile (all.c / all.asm). Inferred items
+From a validation of event 0x1f7 against the decompile (all.c / all.asm; more of it at the end). Inferred items
 are marked *(inf)*. Live checks on lnxtest01: the new character Lnxcsfix (Hume M WAR, San d'Oria) played 0x1f7 once
 (scratchpad csfix/run2/*.png); NPC talks on Lnxtest (csfix/talk3_*.png); lobby shots csfix/lobby1, lobby2.
 
@@ -2285,9 +2390,45 @@ are marked *(inf)*. Live checks on lnxtest01: the new character Lnxcsfix (Hume M
 - After the VM-speed fix 0x1f7 has not been played live again (the one test character has seen it); its timing is
   the headless VM's (unit tests opening_actors, sandoria_opening).
 
+From the research notes:
+- FUN_100ad000 runs each frame from the main per-frame function 0x10094ea0 (DAT_1046ddf9 = its result; the VMs run while
+  it is set). Its wait FUN_100ad460: FUN_100ad740 resolves block ids (0x7ffffff0 us, 0x7fffffc1.. party / alliance),
+  FUN_100bb290 tests the binding; a request (FUN_100ad230) marks the bitmap (FUN_100ad880) and resets the 0x78-tick
+  timeout DAT_10475ce8. With Mode & 0x100 clear it also waits while a visible actor's model (+0x70 -> +0x11c,
+  FUN_10081c30) is busy or the actor's state machine is in state 7. Then FUN_1008d6a0 builds the VMs (FUN_100bb300);
+  each bound actor's +4 is copied to +0x24 and FUN_100baf30 starts its body from it.
+- Bind also clears +0x12c bit 16 and sets +0x170 from +0x16c, or 0; FUN_100ad2c0 clears +0x1f8 / +0x1fa at the event's
+  start. Unbind is FUN_100bb750.
+- Bit 18 makes an actor untargetable (0x800000) only while +0x13b bit 0 is clear. Server 0x00E positions keep updating
+  +4 / +0x24 during the event (0x1009a14b..0x1009a222) unless op 0xac holds the actor (+0x13b bit 0).
+- Op 0x38 (FUN_100b44e0): DAT_1046df04 = val@1 | 0x2000, ORed with the event Mode DAT_1046d210; the hidden actors'
+  models are dropped (FUN_10094150 -> FUN_10091150). 0x1f7 runs `38 #19` at its start (every unbound NPC and other
+  player hidden) and `38 #3` at 0x3c74 (ambient NPCs back, players still hidden). Bit 0x01's put-back is FUN_10091c10.
+- Mouth: FUN_100c14d0 calls FUN_10086710 once a 0x2b line shows; FUN_100867a0 plays only on actors with +0x128 bit
+  0x20000 (default 0x20001), the face motion named by model +0x164 (default 'mou4', else 'mou6') through FUN_100cc0a0.
+  0x23 and unbind (FUN_10086760) stop it with the 8-tick blend. Retail neither turns the speaker nor plays a body talk
+  motion for 0x2b; the scripts' 0x66 'tlk0' does that.
+- 0x46: every sub advances 2 and does nothing while the player has no model; sub 1 calls FUN_10217e90 *(inf: hides a HUD
+  window)*.
+- 0x5b / 0x66 play and advance in the same call when the file is cached (ours take at least 2 frames).
+- Motion scheduler op 0x28 (32732 'tlk1'): FUN_100c6b70 + FUN_100cb8e0, a 10-tick blend into a chosen motion *(inf: back
+  to the stance)*.
+- The schedulers of 0x1f7 (#130 -> 30834 s0xx, #200 -> 30904 fades, #208 -> 30912 v0xx / s004) use only ops 0x01 (a
+  no-op: the default case at 0x10057019), 0x04 camera, 0x0f fade, 0x10 crossfade and 0x00 end; every 0x45 passes speed
+  #0 (1.0). Loading is synchronous (FUN_10072200); stop (FUN_10055f40) only kills the task; wait (FUN_10061f20) holds
+  while the file loads or the task exists.
+- Camera path placement (mode word @0x00, FUN_1003b900 / FUN_1003afd0): world space (mode 0) for all 104 paths of 30834
+  and 132 of 30912; the only relative ones are 30904's c00i..c0bc.
+- Read as matching ours: 0x1c's timer armed and decremented in the same call (dt >= 1); 0x6f 16 ticks (17 frames); 0x21
+  sets daca = def8 = 1, yields, then 1 -> FUN_100bb240 -> 2 -> 0 and FUN_100acf20 in the same frame; 0x24 advances 7
+  without yielding; retail's 0x25 cleanup also closes the map; FUN_100ac970 sets window state 2 after 0x24 / 0x25, so a
+  0x23 right after a choice would cancel; 0x2f's bit 0x80000 skips FUN_100bae70 in FUN_1008d280; 0x5e / 0x6b also stop
+  the event motion (FUN_10086660) and set +0x1a0 / +0x7c8 / +0x7d8; `7f 34 n` is a timed page of n x 60 ticks (7f 38 raw
+  ticks) counted by FUN_10122ca0, keys ignored (FUN_10122c80), closed without a key by FUN_10122e90.
+
 ## Top bar fade, menu titles, target gauge, map window, log focus, lock-on release, loading indicator (2026-10-21)
 
-Decompile: all.c / all.asm (FFXiMain). Research notes: scratchpad topbar_rules.md plus sub-agent reports summarised
+Decompile: all.c / all.asm (FFXiMain). Research notes and sub-agent reports summarised
 here. Inferred items are marked *(inf)*. Offscreen: `topbar-shot` (new; bars at a fade state, main menu, party row,
 target window, `--map ZONE,X,Z[,owned]`, `--downloading N`). Shots in scratchpad topbar/ (t_*.png offscreen,
 live1_* / live2_* on lnxtest01 / Lnxtest in zone 230).
@@ -2310,6 +2451,23 @@ live1_* / live2_* on lnxtest01 / Lnxtest in zone 230).
   netstat content left (live1_5, as images/31.png). At the script's "world" phase the bars were already down:
   that phase starts after the zone fade-in, which outlasts the 30 ticks.
 
+From the research notes:
+- Active also while titlewin's "HN" mode (+0x448, a PlayOnline handle *(inf)*) is on or titlehan is open (its handler
+  DAT_10565a4c +8, FUN_1014a4f0). Empty (FUN_102179a0) = +0x64 == 0 and (the shown slot +0x70 > 3, no text +0x48, or
+  text width +0x50 == 0): a non-zero +0x64 (an animated busy icon mid-bar, set by FUN_102174d0 with bit 0x40 from
+  FUN_1013fc40 / FUN_10141b70 / FUN_101cf8e0; not decoded) counts as active, the corner icons +0x68 / +0x6c
+  (FUN_10085be0) do not.
+- The rule runs in the window manager's update (manager 0x105dc2e0, timer +0x78) only while the value at DAT_10444110 is
+  0x60; 0x70 is set by FUN_100897b0 ('zmrq') and FUN_1009d500 case 8, cases 5 / 9 set 0x60 back *(inf: zoning)*; the
+  fades freeze there. The HUD setup is FUN_1015e3f0 (from FUN_10010080; also FUN_10156f70 from FUN_10091f70).
+- Part 0 (FUN_10114f00): +0x44 state, +0x48 count, +0x0c alpha factor; state 0's factor is 0.58 when part +0x4c is set
+  *(inf: dimmed)*. The frame sprites: netstat windowps 3 (with the "Network" caption, so it fades), titlewin 7,
+  helpwind 4. The handler's draw (vt +0x10) runs when entry +0x6a != 0 and the type != 0xe, whatever the fade; "Help"
+  (sprite 361) at (x1 - 0x50, y0). While rem4line (DAT_105657b8) +0x48 is set only that window and windows with flags
+  & 0x40 draw.
+- No event, chat-input or cutscene case: in a cutscene the bars go because the bar is empty *(inf: no event text writes
+  helpwind or titlewin; not checked site by site)*; whether netstat's content hides in cutscenes is not traced.
+
 ### Text slots and menu titles (FUN_10217230 class, FUN_102178e0; FUN_10115380 / FUN_101152c0 / FUN_10115320)
 - Group 0xd (file 55652) loaded beside group 0xe. Item strings: first = group 0xe id (help), second = group 0xd id
   (title), "-1" none; an empty item string falls back to the window header's (element 0).
@@ -2324,6 +2482,19 @@ live1_* / live2_* on lnxtest01 / Lnxtest in zone 230).
   window + raw (x, y) = (0, 0) (FUN_101167b0), and sprite 16's own cell bounds start at (19, -3).
 - Live: "Map" / "View map of current area." on the menu's Map item (live1_3, as images/27.png); "Commands" and
   the chat command's help with the action menu (live1_6).
+
+From the research notes:
+- Slot 1: help = the item's +0x4c override, else +0x40, else the header's part0 +0x3c / +0x28 (FUN_101152c0); title =
+  +0x50, else +0x44, else part0 +0x40 / +0x2c (FUN_10115320); a focus loss (FUN_10117240) clears it. Slot 2 has about
+  60 writers, e.g. the map base FUN_101e6ca0 on every draw (this +0xb4 to helpwind, +0xb8 to titlewin; -1 clears, 0
+  leaves alone). Slot 3 is the notice ticker DAT_105657e4 (group 0x1a). Item strings resolve as atoi ->
+  thunk_FUN_1014c660(0xe / 0xd, id); group 0xe is file 55651.
+- menuwind items (help 0xe / title 0xd): 1 321 / 81 "Status", 2 322 / 20 "Equipment", 3 323 / 76 "Magic List", 4 324 /
+  2 "Items", 5 325 / 68 "Abilities", 6 326 / 19 "Party", 7 327 / 10 "Trade", 8 328 / 0 "Search", 9 329 / 71
+  "Linkshell", 10 816 / 170 "Synthesis", 11 331 / 1 "Region Info", 12 40 / 8 "Map".
+- The compass's grid text is FUN_102165b0 -> FUN_101ee6e0 through FUN_101ee5d0, "(?-?)" with no map; the map's "(G-9)"
+  (FUN_101f1a60) is drawn only when mapframe +0x100 != 6, the region index +0xf8 >= 0, titlewin is open and the player
+  marker +0x98 exists.
 
 ### Target window gauge, HP colour, name plates (FUN_10149900 asm 0x10149976; 0x1009adbb; FUN_10082ec0)
 - No entity-kind check: the gauge is hidden by actor +0x128 bit 3 or +0x130 bit 20. 0x00E with mask 0x04:
@@ -2527,8 +2698,8 @@ FUN_100a3560 (vtable 0x10322970 slot 0x20). Other actors (vt+0x304 false) only t
 
 ## Select Character screen: camera, name list, info panel, Options, prompts, zone names (2026-10-21)
 
-Decompile: all.c / all.asm (FFXiMain), constants read from the unpacked DLL. Research notes: scratchpad select_screen.md
-(with corrections below). Inferred items are marked *(inf)*. Offscreen: `select-shot` (now drives client/select.rs:
+Decompile: all.c / all.asm (FFXiMain), constants read from the unpacked DLL. Research notes: facts at
+the end of this entry. Inferred items are marked *(inf)*. Offscreen: `select-shot` (now drives client/select.rs:
 `--chars N --slot K --hold F --frames F --close --ui list|options|slots|login|delete|reset|settings|ok|rename --delete
 --rename K --unusable K --zone Z`). Shots in scratchpad select/ (s*.png offscreen, L*/M*.png live on lnxtest01).
 
@@ -2546,7 +2717,7 @@ Decompile: all.c / all.asm (FFXiMain), constants read from the unpacked DLL. Res
   eye mid = close ? (old.far + new.far + oldHead + newHead) / 2 : centre + (0,-2,0);
   eye end = (point valid ? new.near : new.far) + newHead;
   target mid = centre + 0.8 (X - centre), X = close ? (current target + new.feet + newHead) / 2 : feet of slot
-  min(old, new) + |d| / 2 (the 0.8 pull applies to both cases: the research note missed it for neighbours);
+  min(old, new) + |d| / 2 (the 0.8 pull applies to both cases);
   target end = new.feet + newHead. Curves P0 = 2 cur - mid, P1 = mid, P2 = 2 end - mid (uniform quadratic B-spline).
 - Step: c = L * -1/75 (0x10331e10 is negative), a = L/2 - |P0P1|, b = |P0P1| + 2 a t; t += (sqrt(b^2 - 4ac) - b) / 2a,
   or -c / b when |a| < 0.01; clamp 1. Constant arc speed L/75 a frame over the modelled arc L/2: 38 frames (1.27 s).
@@ -2641,11 +2812,36 @@ Decompile: all.c / all.asm (FFXiMain), constants read from the unpacked DLL. Res
 - chswin's file details line; other languages' count lines; DAT_10623ac4 (keep the cursor on reopening). Since done:
   the creator confirm ("Creator: the Register prompt and the name check").
 
+From the research notes:
+- The list object DAT_10623af0 (vtable 0x1032a318, 0xb98 bytes); slot i's entry E(i) = +0x34 + 0xac i: +0x00 area name,
+  +0x10 character name, +0x20 world name, +0x30 handle, +0x34 used, +0x40 race (1-based), +0x44 job, +0x54 face, +0x58
+  level, +0x5c must rename, +0x60 cannot use, +0x64 look (8 x u16), +0x74 actor, +0x78 feet, +0x88 near eye, +0x98 far
+  eye, +0xa8 the head-point latch. Camera state: +0xaf8 / +0xb00 the curve parameters (double), +0xb08 ring centre,
+  +0xb18 target, +0xb28 eye, target curve +0xb38 / +0xb48 / +0xb58, eye curve +0xb68 / +0xb78 / +0xb88. The camera
+  (DAT_10443fe4 + 0x50): eye +0x44 (FUN_1001d930), target +0x50 (FUN_1001d950; stored only when not on the eye).
+- Scene FUN_10238580 (select 1, delete FUN_10230a10 0): zone 133 (FUN_10184380(0x85)), weather "suny" (FUN_101804d0), no
+  scheduler or camera file. The ring centre (0, 0, 0) is dropped onto the ground (FUN_1017a390(x, y - 1, z, 100)); slot
+  i at angle (i + 1) pi/8 (0x3ec90fda), radius 4, dropped the same way; yaw = -atan2(-z, -x) (facing the centre); near
+  eye = feet - rotY(yaw) (-4, 0, 0) x 0.35 (1.4 in front), far eye = feet + 2 (near - feet). Actors (FUN_100a9cd0) at
+  the feet, the model from E+0x64 / +0x40 / +0x54 (FUN_100aa1f0), the default idle; no idle variation, orbit or sway.
+- Point 7 (rest pose, offset from its bone) by skeleton: Hume M 7072 (0.165, -1.322, 0) bone 50; Elvaan F 16600 (0.145,
+  -1.415, 0) bone 55; Taru 19776 (0.129, -0.481, 0) bone 5; Galka 26352 (-0.004, -1.701, 0) bone 38 (point 2, the plate:
+  -2.0 / -2.4 / -1.3 / -2.6). It is the upper chest (3 neck, 5 / 6 head). With focal 350 (the camera ctor; the lobby
+  does not change it *(inf)*) fov_y is 57.5 degrees, about ±0.77 around the chest: Hume M 0.55..2.09, Galka 0.93..2.47,
+  Taru the whole body. Point 7 is in world space, so it carries the actor's size scale (FUN_1002b5c0); there is no other
+  per-race code.
+- FUN_10238250's 0.05 argument is unused; L = |P0P1| + |P1P2|; constants 1/75 (0x10331e10), 0.5, 4.0.
+- Login: Yes -> FUN_100d8e50, tried up to 5 times, then error 0x75 (FFXI-3117); success fades out and returns 1. Escape:
+  cursor -1, fade out, return -1.
+- Delete (FUN_10230a10): ptc6yesn type 4 (No highlighted), then ptc9dele (FUN_10233c00, cursor default 2), then the
+  delete and message 0x83.
+- Help: rename step lobyhelp 0x18 = group 0x1b id 4; delete 0x12 = group 8 0x6a. Our "Connecting to the server..." busy
+  line has no retail source found *(not traced)*.
+
 ## Config: the option store, the in-game Config menu, lobby Config, Config-tool settings, background resolution, target flash (2026-10-21)
 
-Decompile: all.c / all.asm (FFXiMain) and the US "FINAL FANTASY XI Config" tool (v5.0, decompiled headless). Research
-notes with every child, position, help id and address: scratchpad config_research.md (summary) and config/research_a1.md,
-research_a2.md, research_c.md; the target flash in scratchpad target_flash.md. Inferred items are marked *(inf)*.
+Decompile: all.c / all.asm (FFXiMain) and the US "FINAL FANTASY XI Config" tool (v5.0, decompiled headless).
+Inferred items are marked *(inf)*.
 Offscreen: `topbar-shot --config configwi:1,conf2win:3 [--cfgset 0x07=1,...]` (also `lobycwin:5`, `settings:TAB:ROW`, list
 pages `name:cursor:scroll`); shots in scratchpad config/c_*.png, live ones in config/L*.png, W*.png, X*.png.
 
@@ -2807,6 +3003,37 @@ pages `name:cursor:scroll`); shots in scratchpad config/c_*.png, live ones in co
   (scratchpad config/flash/flash_cmp.png: the peak is clearly brighter at night). Not checked live: the map server was
   down when the live run was due.
 
+From the research notes:
+- FUN_100c94a0 is called by the skeleton actor draw FUN_100c9da0 (0x100c9eb1) just before the mesh draw FUN_1002a8c0;
+  FUN_100c9da0 is reached through FUN_100c9d20 at vtable slot 0x288 of 0x10322540, 0x10325d70 and 0x10326218, so every
+  skeleton actor (PCs, NPCs, monsters) *(inf: which class is which not mapped)*.
+- The ambient is DAT_104448c0 (RS 0x8b), filled at the top by FUN_101849c0 -> FUN_10181de0, or 0x80707070 in a special
+  environment branch (0x100c98d1); FUN_10029590 sets it (0x100295e6); the mesh draw FUN_1002cdf0 sets RS 0x8b again
+  per material block (tag 1), each byte times the material factor and clamped, so the next actor starts fresh. The
+  flash leaves its alpha byte 0. The fog colour (RS 0x22) comes from FUN_10184a00 -> FUN_10182100 and is written at
+  0x100c9c9b with FOGSTART / FOGEND, which do not change. The model colour (+0x660), its alpha, vertex colours and
+  texture stages are untouched.
+- State: +0x840 bit 2 the latch, bits 25..26 pulses left, +0x844 f32 ticks left in the pulse (40.0), +0x88 bit 9 the
+  forced flash (set with 0x400). The constructor clears them (0x100c4206..0x100c4283: +0x840 &= 0xf9f7ff03, +0x844 =
+  0, +0x88 &= ~0x600). Ticks per frame FUN_10014000 (DAT_10443fe4+0x28, at least 1). The count decrement is at
+  0x100c9c54. Constants: 20.0 @0x1031eb50, 40.0 @0x103261b0, 0.05 @0x1031f250, 220.0 @0x103261ac, clamps 0.0 / 255.0.
+- A pulse is 41 frames at 60 fps (t 40..0, reset at -1), 21 at 30 fps; the whole flash about 2 s. It is strongest
+  where the zone's actor ambient is low (night, dungeons) and almost invisible near 0.86 *(inf: why "some monsters do
+  it")*; the fog dip shows only on fogged, distant targets.
+- The subject: FUN_10151430 returns the target (DAT_10565d34 +0xc while +0x20) unless the target struct's +0x21 is 1,
+  which FUN_10152d90 sets only for the placeholder entity with UniqueNo 0x01000000. The fallback DAT_10475550 is the
+  player's target reference (FUN_1007fe00 / FUN_1007ff10), updated by FUN_101527f0 (0x1015288b) whenever a target is
+  set and the player actor exists; the locked camera (FUN_1001e030), locked movement (FUN_100a6210) and "/target %d"
+  (FUN_100a8510) read it too *(inf: normally the same actor)*. Kind, claim and battle status are never checked;
+  lock-on (DAT_10565d34 +0x5c) is not read, so locking on neither restarts nor extends the flash. It starts on a
+  selection, a server-set target (s2c 0x058) and the auto-retarget after a kill.
+- The forced-flash setters, every frame: the sub-target cursor (FUN_10149900 from 0x10149c40: the sub-target actor
+  while the range tint FUN_10149d00 is not the red 0xe0d04040); FUN_101f92e0 (from FUN_101f9140, modes 0 / 1 / 2:
+  another cursor's actor, gated on DAT_10565d34 +0x59 and the same not-red test); FUN_1008dc40: every actor within a
+  radius (FUN_100995f0) and dy^2 <= 64 of a point from entity +0xcc / +0xd0, while DAT_104cd388 != 0 and entity +0x134
+  >> 20 & 0xf == 2 *(inf: an area-of-effect preview)*. Config 0x99 bit 7 (FUN_1018c810(7)) gates only these three; its
+  default is 0. The plain target's three pulses have no option.
+
 ### Login errors
 - A lobby or login error used to return to a black login screen: the world entry's fade-out stayed at 0. Now the
   fade restarts and the error shows in retail's OK window (menu ok, FUN_102319a0) with "Error code: FFXI-%04d" and the
@@ -2868,6 +3095,15 @@ pages `name:cursor:scroll`); shots in scratchpad config/c_*.png, live ones in co
 - The Wayland window workarounds (fullscreen re-request after mapping, the full-screen hop to change monitor, delayed size requests) are harmless elsewhere. On Windows and macOS, set_outer_position can move the window between monitors directly.
 - Windows can be cross-compiled from Linux (cargo-xwin or x86_64-pc-windows-gnu); macOS needs a Mac to build. Both need a real test machine for audio, full screen and the GPU.
 - Rename the crate ("vana-client") before shipping other platforms.
+
+From the research notes:
+- Key Assignment's ids: k1assign (Movement) 0x4a..0x69, k2assign (Commands) 0x6a..0x89.
+- lobycwin is 366 x 248 at (100, 100); every value it sets is kind 6.
+- textcol3's RGB editor is the only Config window with OK / Cancel.
+- The Config tool's names for some registry values: 0019 map compression, 0035 sound in the background, 0036 font
+  quality, 0040 graphics stabilization; 0034 0 full screen, 1 windowed, 2 borderless at the window size, 3 borderless
+  at the desktop size.
+- No in-game way to change the window size or mode, and no frame-rate setting.
 
 
 ## Lock-on on engage, walking hitches: GPU mips, budgeted uploads, shared models (2026-10-21)
@@ -2964,8 +3200,8 @@ was loaded or created in it (client/perf.rs note / timed). Baseline (old code + 
 
 ## Effect generators: zone, weather, sprites (fx/, render/effects.rs, effects.wgsl) (2026-10-22)
 
-Specs with addresses: ~/ffxi/lab/research/effects/ (generators.md, triggers.md, zone_effects.md, model_draw.md,
-d3a_particles.md). Summary of what the client does, and where it departs from them:
+Facts with addresses: the research notes copied at the end of this entry.
+Summary of what the client does, and where it departs from them:
 - **Libraries** (fx/lib.rs): a DAT as a folder tree; generators, keyframes, D3m / MMB meshes and D3a sprites by
   scope (FUN_10071310: the folder subtree, enclosing folders, then DAT 0). A D3m that is not found falls back to an
   MMB of the same name (FUN_100485c0). Textures: FUN_1003a0d0 (16-byte name from the first IMG of the resource
@@ -2994,13 +3230,174 @@ d3a_particles.md). Summary of what the client does, and where it departs from th
   draw-distance cull, no zone-0xed MMB offset; weather density (config 0x3b) is taken as 1.0; the covered (roof)
   flag is not computed; orientation modes with bit 0 (camera basis) use the plain angles; ops not handled yet are
   logged once at debug level (point lists, paths, ground snap, sounds, point lights, distortion, rings, lens flares,
-  class-specific ops). Scheduler-started effects (battle, spells) come next (triggers.md).
+  class-specific ops). Scheduler-started effects (battle, spells) come next ("Effect schedulers").
 - Checks: `zone-shot 232 --effects N --weather fine` (sea layers, entrance shadows, cloud domes, sun, tower and
   wall lamps); live in zone 101 (cloudy dome).
 
+From the research notes:
+- Chunk kinds (name table 0x10349110): 1 folder, 5 Generater, 7 Scheduler, 0x19 KeyFrame, 0x1f D3m, 0x20 D3s, 0x21
+  D3a, 0x22 DistProg, 0x23 VuLineProg, 0x24 RingProg, 0x25 D3b, 0x2e Mmb, 0x39 Lfd, 0x3d Sep, 0x3e Vtx, 0x47
+  PointLightProg, 0x4a Sph, 0x57 NullProg, 0x5a DisgregaterProg, 0x5c DamValueProg; emission op 1's kind byte uses the
+  same numbers. Resource header: +0x08 next sibling, +0x14 its handle, +0x18 u16 ref count (15 bits), +0x1a flags (bit
+  2 clone, bit 3 inited), +0x20 4cc, +0x24 type:7 | size16 << 7, +0x28 parent, +0x3c first child. The loader inits in
+  three passes (FUN_10072ab0: textures and sounds, geometry, the rest), so a generator's FUN_10046d30 runs after its
+  file's meshes and textures; FUN_10047270 then links its names.
+- Generator chunk (FUN_10046c80: data 0x00..0x0f -> +0x34, 0x10 / 0x14 -> +0x70 / +0x74, 0x1c -> +0x98, data 0x50.. ->
+  +0xc0.., i.e. object = data + 0x70 from 0x50): 0x00 attach word (mode `(byte2 & 1) << 4 | byte0 & 0xf`; caster point
+  `bit 18 << 6 | bits 4..9`, target point bits 10..15; bits 20..23 the actor-size source of scale A (1-4 caster, 5-8
+  target; & 3: 0 the larger size uniform, bit 1 y, bit 0 x / z), byte 3's low nibble the same for scale B); 0x10 /
+  0x14 f32 blend of A / B (0 = 1.0; s = (size - 1) x blend + 1); 0x1c the op 0x7b record cache; 0x58 elapsed; 0x5c
+  countdown; 0x60 f32 life in ticks (0 endless); 0x64 / 0x66 i16 random / base interval (next = rand % [0x64] + 1 +
+  [0x66]); 0x68 flags (bits 0..8 extra elements per emission, 0x200 op 0x11 seen, 0x400 single element, 0x800 running,
+  0x1000 auto-start, 0x20000000 one (batched) element per emission); 0x70..0x7c the four stream offsets from the chunk
+  start (generator update, emission, element update, element end); 0x80 small values (0x100, 0x211, 0x40a), no reader
+  found. Op word everywhere `op | len_dwords << 8 | slot << 13`; op 0 ends a stream.
+- Init FUN_10046d30: a name `~N` (resource not a sound) sets +0xde = ((N - '0') & 0xfb) | 0x80; under a `weat` folder
+  (or one with a negative type word, inf) +0xde |= 0x83 and no auto-start; a `dryw` tag |= 0xc3, `dust` |= 0x20. +0xde
+  0x80 = weather-dependent (not updated or drawn while the density is 0), bit 0 count x density x 0.3, bit 1 countdown
+  step x density (FUN_10002b40: 1.0 while DAT_104754ed, else config 0x3b x 0.01; the event op that sets DAT_104754ed,
+  0x100b8fcf, is not identified). Zone tweaks set +0xdf (zone file 0xde35: bit 0, a height test in FUN_100440d0;
+  0x147b7.. with names 0b10..0b32 / pb41: bit 1, read in FUN_10045950), meaning inferred.
+- Link FUN_10047270: emission keyframe binds (ops 0x21..0x2f, 0x33..0x39, 0x50..0x52, 0x59..0x66, 0x68, 0x69,
+  0x6c..0x70, 0x74..0x78, 0x7c, 0x7d, 0x80..0x85, 0x8b..0x8d, 0x93, 0x95..0x97) resolve a KeyFrame `[1] <- (0x19,
+  [2])`; child generators `[1] <- (5, [2])` for 0x3c / 0x44 / 0x53 / 0x6a; Vtx for 0x4e / 0x4f / 0x54 (they also set
+  gen +0xa0, the path the generator rides); TexInfo for 0x55; Sph for 0x6b; element update 0x47 TexInfo, 0x65 a
+  scheduler; end stream op 1 a generator, op 2 a scheduler. Generator update op 0x04 is linked only for clones
+  (FUN_10052710), so an unresolved one on a non-clone blocks emission (countdown 32767). Op 0x5d appears in a few zone
+  generators' update streams but FUN_10048740 has no case for it.
+- KeyFrame (0x19): (f32 t, f32 v) pairs from data 0, t rising over 0..1, the walk stops at t >= 1. FUN_10053550 linear
+  (x clamped; equal t gives k1), FUN_100537f0 quadratic ease (f < 0.5: g = 2f^2, v = k1 g + k0 (1 - g); else g = 2(1 -
+  f)^2, v = k0 g + k1 (1 - g); x not clamped); `op[3] & 0xf` 0 linear, else eased.
+- Generator update FUN_10048740 (jump table 0x10049864, ops 4..0x17), x = 1 - (life - elapsed) / life: 0x04 rate v =
+  key(x) elements a second (interval min(60 / v, 0x7fff), count v / 60; v <= 0: countdown 32767); 0x17 the same at the
+  day fraction; 0x05..0x09, 0x0b..0x0d, 0x12..0x14 write keyed values into emission ops (0x08 +4, 0x1f +4 / +8 and its
+  angles fmod(key, 2) x pi at +0x18 / +0x1c, op 1's position, op 0x02); 0x0e..0x10 spin the attach matrix by keyed
+  angles at t = elapsed / (op-1 life + life); 0x0a distance gate (far [1], 0 = the scene draw distance; near [2]; [3]
+  & 1 soft-stops); 0x11 follow (k = ((op[1] >> 2) & 0xff) / 255, bit 0 translation, bit 1 rotation); 0x15 view-box
+  gate (diag([3..5]) at op 1's position, 8 corners clipped plus an occlusion query). dt is clamped to 10 ticks; a life
+  budget stops catch-up emissions.
+- Emission FUN_1004d920 (jump table 0x100514c0, ops 1..0x9e): op 1 = {flags @4 -> elem +0x10c, handle @8 (0 abort, 1
+  none), 4cc @0xc, position @0x14..0x1c, slot count u8 @0x20, kind i8 @0x21, life i16 @0x22 + rand % i16 @0x24, u8
+  @0x28 -> +0x179 (1: the mesh came from an MMB)}. Slots follow the class (elem + i16 +0x176) and are shared with the
+  element update stream by slot index. Class by kind (0xb / 0xc -> 0x1f, 0xe -> 0x21, 0x1d -> 0x25): D3m (flag
+  0x200000 glow, 0x100000 CMoDistModelElem, 0x1000000 CMoD3mSpecularElem), D3a (gen 0x20000000 CMoVuAnmElem, flag
+  0x200000 CMoD3aLightmapElem, else CMoD3aElem), DistProg (CMoVuDist batched, else CMoDist), VuLineProg, RingProg
+  (0x100000 CMoDistRingElem), D3b (0x100000 CMoDistMorphElem), Lfd, Sep (CYySoundElem), PointLightProg, NullProg,
+  DisgregaterProg, DamValueProg; any other kind (Mmb) the CMoElem base. Op-1 flag 0x800000 snapshots the emitter frame
+  into a 0x60-byte block (+0x108); 0x4000000 takes the position in view space. Random helpers (MT19937 FUN_1006ae70):
+  FUN_1006afd0 U[0, x), FUN_1006b020 U[-x, x), FUN_1006afb0 rand % n.
+- Element (CMoElem, FUN_10043a50, 0x194): +0x54 position, +0x60 local matrix, +0xa0 world x view, +0xe0 Euler, +0xec
+  scale, +0xf8 colour B, G, R, A (0x80 = 1.0), +0xfc / +0x100 generator handles, +0x104 resource, +0x108 frame
+  snapshot, +0x10c flags, +0x110 / +0x114 life / max (0 endless), +0x118 / +0x11c frame countdown / period, +0x120 /
+  +0x124 UV offsets, +0x128 depth bias, +0x12c sort key, +0x134 alpha factor, +0x138 per-frame fade (1 at each
+  update), +0x13c view z, +0x164 child clone, +0x16c blend mode (low byte; high byte a parameter; 0x48 default),
+  +0x170 frame, +0x176 class size, +0x179 MMB path, +0x17a hidden, +0x17b UV scroll bits, +0x187 dirty, +0x188 view
+  position.
+- Flags (+0x10c): 0x1 billboard, 0x2 scale after rotation, 0x4 camera-relative (rotation-only view), 0x8 with 0x4
+  already in view space, 0x1c0 orientation (1 face the motion, 2 yaw only, 3 face the eye), 0x200 Rx·Ry·Rz, 0x1000 z
+  write, 0x6000 view matrix (b90 / d10 / d50 / c10), 0x10000 lighting, 0x20000 parent translation + an offset in
+  camera axes, 0x40000 visibility test, 0x400000 key = bias only, 0x800000 frame snapshot, 0x2000000 no fog, 0x4000000
+  view-space spawn, 0x8000000 key = bias - z + 400, 0x10000000 vertex alpha only, 0x20000000 held at life 0.
+- Per frame FUN_10044c00: life -= dt; below 1 the end stream runs (FUN_1004d770: 1 burst a child, 2 a scheduler, 4
+  release, 5 restart, 6 chain), then the element goes unless flag 0x20000000; the update stream FUN_100499d0 (jump
+  table 0x1004d08c, ops 1..0x6e; op 0x0e must come before the life-keyed ops); FUN_100440d0 the view position and key;
+  nothing drawn when +0x138 is 0 or below 0.01.
+- Transforms (row vectors; FUN_10043f00 / FUN_10043e00 / FUN_100440d0 / FUN_10044f00): L = diag(s ⊙ k)·R (R =
+  Rz·Ry·Rx, or Rx·Ry·Rz with 0x200; scale after rotation with 0x2; k = gen +0x84 when gen byte +0x37 & 0xf); world w =
+  (p ⊙ gen +0x78)·P (P = +0x108, else the generator's +0xa4); view e = w·V; 0x20000: P's translation·V + p (y negated
+  for billboards); 0x4: p·rot(V); 0x4 + 0x8: p (z at least 0.6 with +0xdf bit 0). Draw M = [L·rot(P) | w]·V;
+  billboards L·Rx(pi) with row 4 = e and a near clamp at |z| 0.2 (closer ones scale by 0.2 / z, which mirrors x, as
+  coded); orientation modes post-multiply Rz(pitch)·Ry(-yaw).
+- View matrices (FUN_100691d0): V = LookAtRH; b90 = V without translation; d50 = V with rows 1 / 3 replaced by unit X
+  / Z; d10 = V with row 2 = (0, 1, 0) and the y parts of rows 1 / 3 zeroed (world +Y to view +Y, det < 0: a vertical
+  mirror as coded; flag 0x2000 in 11 zone generators, e.g. zone 164 'hi12'; not checked on screen); c10 = d10·d50;
+  inverses at +0xbd0 / +0xc50 / +0xc90 / +0xcd0.
+- Sort key: bias - e.z (0x400000: bias; 0x8000000: + 400; with 0x4 + 0x8 and |bias| > 0.03: (1 - bias) - e.z). CMoOT
+  (DAT_10469360): 512 buckets over 0..512, drawn from the top bucket down.
+- Draw state (FUN_10045230 / FUN_10045950): TFACTOR = the colour with A x (+0x138 x +0x134) only below 1 (no
+  brightening). Blend by mode: 0x00 ONE / ZERO; 0x03, 0x44 SRCALPHA / INVSRCALPHA; 0x48 SRCALPHA / ONE with fog colour
+  0; 0x49 SRCALPHA / ONE (D3m: DESTCOLOR / SRCALPHA); 0x46 / 0x47 ZERO / INVSRCALPHA; 0x41..0x43, 0x62 reverse
+  subtract (a screen-invert fallback without the cap); 0x64 alpha blend and 0x68 additive with A = min(2 x high byte,
+  255); other modes keep the previous element's. Alpha test ends ALWAYS; z LESSEQUAL; cull none; ZBIAS DAT_10616f78
+  (15); fog = the scenery fog of the generator's environment (FUN_10184a00).
+- Projection bias (FUN_10045230): when +0x128 != 0 and neither 0x400000 nor 0x8000000, at view depth z <= 32 near and
+  far move by f = (1 - z / 32)^3 x 0.03 x bias (positive pushes back). The screen-space billboard (0x1, 0x4 + 0x8)
+  takes a fixed fovy 2 atan(192 / 350).
+- MMB elements (FUN_1003fde0 -> FUN_1017c840): FUN_1017c520 returns the scene's mesh node by the MMB's 16-byte name,
+  so +0x104 holds the node, not a handle; MMB type 2 builds no VB. Per submesh: untextured rgb = sat(2·D·F), a =
+  sat(4·Da·Fa); textured rgb = sat(sat(T·F)·D·4), a = sat(sat(2·Ta·Fa)·Da·4); with the alpha flag (mode 0x64 or flag
+  0x10000000) rgb = sat(sat(T·D)·F·4), a = sat(4·Da·Fa). The MMB's blending bits are not read. Culled against the
+  scenery draw distance (FUN_1017b170; the planes inferred). Zone 0xed: MMBs named in the list at 0x1036ac18 ("awan"
+  "brac" "col1" "sh_u" "sim" ...) get a node offset y -0.8, added to the draw matrix's row 4 (view space).
+- D3m (FUN_1003f3e0): no texture groups rgb = sat(2·D·F), a = sat(4·Da·Fa) (mode 0x44: sat(2·Da·Fa), Fa = 0xff above
+  0x7e); groups rgb = sat(sat(2·D·T)·2·F), a = sat(sat(2·Da·Ta)·4·Fa) (flag 0x10000000: sat(Da·4·Fa)); mode 0x49:
+  F's rgb white, DESTCOLOR / SRCALPHA (dst x (1 + a)); the untextured tail as no groups. Layout (FUN_1003f0a0, data
+  offsets): u16 @0 format k (bits 0..3; bits 4..15 become the radius at init), u8 @4 texture count n, u8 @5 m, u16
+  @6 triangles T; for k 5..7 per-texture triangle counts (u16) at 8 and the 16-byte texture names after them (at 8 +
+  ((n + m) & 3 ? ((n + m) & ~3) x 2 + 6 : (n + m) x 2); k 7 with n 0 at 8; other k at 0x10), then T x 3 vertices of
+  36 bytes (pos, normal, BGRA, uv; other k from 0x50); colours doubled at init when DAT_105ec9cc +0x54; k 5 / 6 with
+  n 0 become 7 when the first triangles fail a finite check.
+- Lighting (flag 0x10000): lights 0 / 1 of the generator's environment, material diffuse 1, ambient 0.7, power 50;
+  parented non-MMB elements transform the light directions by Ry(3pi/2)·P^-1 as coded (not confirmed with a lit
+  effect).
+- Zone side: sun / moon generators (modes 0xe / 0xf) sit at W +0xb4 / +0xd4 = eye - direction x 1000 / 900 with the
+  rotation of DAT_105ec978 (FUN_1003afd0); mode 0x14 takes DAT_105ec978 whole, 0x15 its rotation. FUN_10183780 starts
+  the weather tag folder's 0x1000 generators with gen +0x64 = the weather object; while covered it skips transient
+  ones with op-1 flags 4 / 0x4000000 (persistent ones: 0x4000000 only). Update op 0x50 multiplies +0x138 by the owning
+  weather's weight +0x1c; when the crossfade ends the old set is killed (FUN_10183b90). Sky keys (stars 50000, clouds
+  30000 / 40000, sun 20000) clamp into the top bucket and draw first; the sea (-100) last.
+- Not traced: data 0x80; DAT_10443fe4 +0x28 (ticks a frame); the purposes of the view matrices; the draws of
+  CMoVuDist, CMoVuLineProgElem (its +0x48 is empty), PointLight, DamValue and Skeleton; render priority 0xc against
+  the opaque scene; the d10 / d50 / c10 translation leaking into bit-2 elements; MIPFILTER, COLORVERTEX and the
+  material sources (inherited, not set here); FUN_1000bf60's alternate double draw; bit 31 of a folder's +0x24
+  (treated as `weat`).
+
+From the research notes (D3a sprites, texture lookup, batched particles; 2019 FFXiMain):
+- D3a chunk 0x21 (factory FUN_100702c0, vtable 0x10321590, init FUN_1003d870 in link pass 2 after the IMG chunks;
+  object = data + 0x30). Header: i16 0x00 h0 (UVs divided by the texture size at init when h0 >= 1 and byte 0x07 is
+  0) *(inf: texture count)*; i16 0x02 frame count F; u8 0x04 layout (0 sprite frames, else the lens-flare layout of
+  CMoLfdElem, no vertex buffer); u8 0x05 F again; u8 0x07 1 = UVs normalised (all effect files), 0 = texels (zone
+  `moon`, `hi52`); 0x08..0x17 the IMG name (16 bytes). After init obj+0x38 holds the texture entry, +0x3c the vertex
+  buffer, +0x44 the frame table {u16 count, u16 start}.
+- Frames from data 0x18: {u8, u8, u8 q quads, u8} then q x 6 vertices of 24 bytes (f32 x3, u32 BGRA colour, f32 u,
+  v); next frame at +4 + q x 0x90; q = 1 in every file seen. A quad is two triangles v0 v1 v2 / v3 v4 v5 with v3 = v2,
+  v4 = v1. Texel UVs are divided by the loaded texture's size, so an HD pack that resizes such a texture changes them.
+- CMoD3aElem draw (FUN_1003dcf0 -> FUN_1003dad0): the frame wraps at draw time only (`frame >= F` -> 0, stored);
+  one texture per D3a; count x 2 triangles from the frame's start, WORLD = elem+0xa0, VIEW = identity.
+- Texture stages (FUN_1003db60): stage 0 colour = diffuse x texture x 2, alpha the same (flag 28: diffuse alpha
+  only); stage 1 colour = x TFACTOR x 2, alpha = x TFACTOR x 4; then TFACTOR = DAT_104692cc, lighting, fog and z
+  writes off (D3a sprites are never fogged and never write z). Mode '@' (0x40): alpha = TFACTOR alpha only, and the
+  blend keeps the previous draw's *(never in the data)*. So `out.rgb = sat(2 sat(2 vtx tex) tf)`, `out.a = sat(4
+  sat(2 vtx.a tex.a) tf.a)`. Blend survey of 1389 D3a generators: 0x48 x1235, 0x44 x140, 0x42 x11, 0x41 x2, 0x46 x1.
+- Texture names (FUN_10074570 -> FUN_1003a0d0): the IMG chunks of the resource's folder subtree in file order,
+  compared on all 16 bytes; once one IMG is found the walk only continues to the end of that IMG's folder. Fallback:
+  the global texture list, entries from `syst/effe` (flag 0x100) or the current zone (+0x34), compared on name bytes
+  8..15 only, the most recent first *(inf)*. Not found: SetTexture(NULL) *(inf: D3D reads (1,1,1,1))*. Every texture
+  reference sampled resolved on the main path.
+- Batched particles (generator flag 0x20000000; D3a -> CMoVuAnmElem, DistProg -> CMoVuDist): the emission stream
+  runs once per interval and the low 9 bits of gen+0xd8 become the particle count. Block P (elem+0x194, +0x198 for
+  CMoVuDist), written by op 0x56: +0 point list (op 0x4e / 0x4f), +4 t, +8 speed (op 0x08), +0xc spawn half-size R
+  (op 0x06 / 0x07), +0x10 seed, +0x14 point index (-1 random), +0x18 d = k - 1 (k from update op 0x2c), +0x1c base
+  velocity (op 0x02), +0x28 gravity (update op 0x03), +0x34 box scale (op 0x07), +0x40 particles (N x 0x24), +0x44 N,
+  +0x46 density flag (gen+0xde bit 0). Op 0x07 still offsets the element position in batched mode; update op 0x03 is
+  skipped; op 0x2c is `S *= rec[1]^dt` (__CIpow) on a slot that is 0.
+- Creation (FUN_10063060): N + 1 particles, each pos0 = (r3 R sx, r2 R sy, r1 R sz) with r uniform in (-1, 1) (a box),
+  dir = normalize(r3, r2, r1), vel = dir x speed + base; never respawned.
+- Placement (FUN_10062cd0): n = N below 20, else `D x N x 0.5` with the density flag (D = config 0x3b / 100); n = 0
+  draws nothing and does not advance t. `p = pos0 + vel t + t^2/2 (gravity + d dir) (+ a list point)`, then
+  `p x inverse(view rotation)` (times the parent rotation) + the element's view position; t += dt after a draw.
+  The inverse is as coded *(its look under camera pitch not compared with retail)*.
+- Quads (FUN_1003e2f0): 6 strip vertices per particle (v0 v0 v1 v2 v3 v3) from the frame's first quad, raw UVs (not
+  normalised, unlike CMoD3aElem); drawn as a TRIANGLESTRIP of 4n - 2 triangles from vertex 1, so only the first
+  floor((2n + 1) / 3) particles show *(as coded; not confirmed against rain density)*. No per-particle colour, size
+  or frame. Example: La Theine rain (DAT 202 `f_la/weat/rain/~1ra`) N = 300, n = 150 at full density, 100 drawn.
+- Frame animation: emission op 0x1d sets the period to life / F; update op 0x0d counts it down and may skip several
+  frames in one update; the wrap happens at draw time. Open: the warp path of FUN_10074750 (elem+0x148, no writer
+  found), math +0x6c (flag bit 9), CMoDisintegrateProgElem's use of P, CMoD3aLightmapElem's glow.
+
 ## Effect schedulers: melee sparks, casting, spells (fx/sched.rs, fx/tasks.rs) (2026-10-22)
 
-From triggers.md. Every 0x028 action goes to `Effects::on_action` besides combat.rs (which keeps the motions,
+Every 0x028 action goes to `Effects::on_action` besides combat.rs (which keeps the motions,
 reactions and battle messages):
 - Categories 1 / 2: the cmd_arg scheduler ("atk0") from the attacker's motion files newest first, then its model
   files (FUN_100cc440), else DAT 0; actor1 = attacker, actor2 = first target; op 0x24 runs the swing combat.rs
@@ -3033,7 +3430,7 @@ reactions and battle messages):
   hit2 g020..g023), `cure_cast` (ner2 circle, stwh, shwh sparkle, tgt0); `fx-shot 232 --category 1` and
   `--category 4 --anim 144` (Fire: flare, ring, burst).
 - Melee timing (combat.rs): battle messages at the swing hit (dada) + 4 ticks, the damage reaction at + 5 (atpr
-  wait 4 before op 0x2b; dam0 op 0x01 wait 1), as triggers.md 2.2 has it; it used to be both at the hit.
+  wait 4 before op 0x2b; dam0 op 0x01 wait 1), as the schedulers time it (below); it used to be both at the hit.
 - Weapon skills on PC skeletons (FUN_100d0570): tables at 0x10353be4..0x10353cb8 by race code 0..8 (read from
   the DLL): kind 3 anim < 0x100 file 33227.. + anim, its second file (body info byte 9 > 0; 0x...c30 table when
   it is 1, else c32), anim >= 0x100 61451.. + anim - 0x100, kind 14 58041.., kind 15 88035... The files go on
@@ -3044,9 +3441,73 @@ reactions and battle messages):
   transient weather emitters with op-1 flags 4 / 0x4000000; new weather sets skip them while covered
   (client/ground.rs `covered`, fx `set_covered`).
 
+From the research notes:
+- Scheduler chunk (type 7, FUN_10055a20 / FUN_10055aa0): data u32 @0x10 / @0x14 / @0x18 are offsets from the chunk
+  start (its 16-byte header included): list A (seen holding only 0x69 / 0x6a / 0x00; inf: an on-start list), the op
+  stream (at data + @0x14 - 0x10), list C; @0x1c is recomputed as the max of (start tick + i16 @6). Normal schedulers
+  have @0x10 = 0x40, @0x14 = 0x50; the conditional ones in DAT 0 (`dam0`, `crtl`, `atpr`, `daml`) 0x30 / 0x3c, so
+  reading the stream at data + @0x10 starts 4 bytes early there. A scheduler starts at load when list C holds op 0x01
+  or the stream op 0x52, and the stream has no op 0xa2 (FUN_10055ea0 / FUN_10055ed0). Op = {u8 code, u8 length (low 5
+  bits, dwords), u16 @2, i16 wait @4, i16 duration @6, operands @8}.
+- Task (CMoSchedularTask, 0x14a bytes, FUN_10055d30, tag 0x4d730000, list DAT_1046a810 +0xd50): +0xc / +0x10 actor1 /
+  2, +0x80 resource, +0x84 parent to resume, +0x88 current op, +0x8c first op, +0x90 the action, +0x98 countdown,
+  +0x9c speed, +0xa0 early end, +0x145 finished. After its end op a task waits for its scheduler-owned children
+  (FUN_10056c70). Children (FUN_10055c00) inherit the action, +0x144 and, when the parent has +0x142, the speed.
+  FUN_10055f00 kills every task of a resource, FUN_10055f40 those of a pair.
+- Action object (FUN_10185670, 0x10 bytes): +3 current record, +4 scheduler 4cc ("main"), +0xc holder (FUN_101860b0:
+  +0xc category, +0x10 cmd_arg, +0x14 info, +0x18 res_sum, +0x1c record count, +0x1e target count, +0x20 records of
+  0x34, +0x24 printed flags [64]). FUN_10185ea0 = the current result, FUN_10185df0 steps the record.
+- Variables (op 0x6b push, FUN_10061950): 4 rand(10) - 5; 0x11..0x20 task registers (task +0x38 + idx x 8); 0x21
+  category; 0x22..0x25 cmd_arg, info, res_sum, count; 0x27 count (short); 0x28 miss (0 hit, 1 miss, 2 guard, 3 parry,
+  4 block); 0x29 kind; 0x2a animation; 0x2b info (bit 1 critical); 0x2c scale; 0x2d / 0x2e value / message; 0x2f..0x32
+  proc kind / info / value / message; 0x33..0x36 react kind / info / value / message (spikes 1..10, counter 63); 0x38
+  the action's actor is a PC; 0x39 actor1's id >> 24 == 1; 0x3a actor1 vtable +0xa4 & 3; 0x3b actor +0x840 bit 6 (dual
+  wield and an off-hand 'b' swing, FUN_100d4600); 0x3c entity +0x124 >> 8 (& 0xf if that nibble is 8, else & 3;
+  meaning not traced); 0x3d / 0x3e entity flag tests (+300 bits 13 / 22, not traced); else 0.
+- Stack machine (op 0x6b, sub u16 @8): 0x1c push (u16 @10: 1 int, 2 f32, 3 variable; value @0xc); 0xb !=, 0xc ==, 0xd
+  <=, 0xf > (var op const; FUN_10068180 returns const < var), 0xe / 0x10 the other two orders (inf); 0x11 AND, 0x12
+  OR, 5..8 arithmetic (inf), 9 shl, 10 shr, 0x14..0x18 store to a register. Ops 0x64 / 0x65 pop: true clones the task
+  into the following 0x69..0x6a block (the original skips it, and the else block after a 0x67); false skips the block
+  and clones into the else block. Clones end at their block's end: branches run as parallel tasks from the same tick.
+- Melee timing (T = the swing's `dada`; speed 1.0, x 0.7 with several targets): `atpr` (op 01 wait 1) by proc kind
+  (var 0x2f): `wapr` (op 0x20 20 ticks, op 0x71 1: the added-effect line at T+21) and the spark at T+1: 1 hit3, 2
+  hit5, 3 hit9, 4 hit8, 5 hit4, 6 hi10, 7 hit6, 8 hit7, 9 hi15, 10 hi16, 11 hi17, 12 hi18, 13 hi19, 14 hi20, 15 hi22,
+  16 hi21, 17 hi23, 18 hi24, 19 hi23, 20 rifu, 21 hi26, 22 hi30, 23 hi31; `crtl` (info & 2) hi14 for a PC actor, else
+  hi29, at T+5; op 2b the line at T+4; `dam0` at T+5: `damg` (off-hand `damh` with `chih`, ranged `ldam` with `lhit`)
+  on the target: `chit` back on the attacker, `sdam`, op 21 (the reaction), `vdam` 2 ticks later. `chit` decides the
+  spark and sound: PC (7072) op 57 `se h` / `ef h` from the main weapon part file (Hume M: `ef h` = hit1, `se h` =
+  `shit`); monsters op 0a `shit` + hit2.
+- Hit sparks (DAT 0 effe): hit1 = g012, g010, g011, then g013 (wait 10); hit2 = op 16 (a doll at the target), g021,
+  g020 (+1), g023 (+1), g022 (+10), op 18 (+20); hi14 = g14s, g140, g143, g141, g144, g142 (+10); hi29 = g29s, g294,
+  g295, g293, g292, g291, g290, g296 (+10), g297 (+30); proc sparks tint the target (op 0x2a, e.g. hit3 to 0x805d90b9
+  over 20, back to 0x80808080 at +60); sb00 = op 20 (80), op 15, gs00, op 0a 5045, gs02 (+15), hit3 (+40), op 71
+  (+55).
+- Casting (PC 7072): `cawh` = hwmg, op 05 mw0? (93), ner2; `cabk` hwmg, mb0?, ner1; `casm` ms0? + ner4; `canj` mn0? +
+  sei5; `caso` op 76 + ner5; `cabl` ma0? + neao; `cage` op 76; monster 1300 `cawh` = ner2 + `cast`. ner2 = gn2s, gn20
+  (1800), gn21 (after a 1800 wait, 1800): 30 s. The finish runs `stwh` (op 5f ner2, op 1e gn2s, op 2d gn21 / gn20),
+  then the file's op 3c `sh??` runs `st??` and the release sparkle (`shwh` = hwmg, stwh, eis4, sswh, op 3b wash; eis4
+  = op 56, ge4s, ge42, ge40 (+10), ge43 (+20), ge41). An interrupt (`spwh`): op 5f ner2, op 28 (blend 20), op 1e gn2s,
+  op 2d gn21 / gn20; the caster's +0xa0 keeps the old 4cc, so the next start runs `st??` and does not store the new
+  one. Items `cait` = op 2e, hwmg, mi0?, mi1?; ranged `calg` = op 76 (lcNN) + hwso, `shlg` = hwso, op 77 (lsNN:
+  `ldad`), op 3b wash.
+- Categories 3..6, 0xb, 0xd..0xf are dropped when the caster is us, DAT_10475440 != 0 and (DAT_1046df04 |
+  DAT_1046d210) & 0x1000 is clear (those globals not traced). 'ca' starts also call FUN_10221520 (cat 8) /
+  FUN_10219060 (cat 10) for our UI.
+- Worked examples (the tests' data): Hume fists on an orc: battle file 9672 `atk0` -> `ati0` (op 05 at0? 98 ticks; t34
+  `skaz` se 6028; t40 dada) -> dam0 t45 -> the orc's (1300) `damg` -> `chit` in 7072 -> part file 8392 `shit` se 6029
+  and `ef h` -> DAT 0 hit1, g010..g013 at t45; the orc's `sdam` se 6009; `ati0` ends at 98, the parent resumes at 88
+  (+0xa0 = 10). The orc back: orc `ati0` dada t36, its `chit` se 6063 at the orc, hit2 on a doll at the Hume. Cure
+  (file 2801): `cawh` starts ner2; the finish runs stwh, then main: t0 op 3c `shwh` (eis4 on the caster), t2 op 53 /
+  op 0b `0303` (se 3037), t3 op 31, t4 `tgt0` per target (kr11, prn1 +10, prn0 +15, kr12 +26, kr10 +49, gr00 +119,
+  kr30 +120, mdam +200), t7 op 32. Fire (2944): op 23 (doll), g006, gs00, g000, g005 + g001 (t10), op 2a 0x800080ff
+  over 30, op 3d one of two op 25 reactions, g004 + mdam (t50), op 2a back (t120). Weapon skill Combo (16) for a Hume
+  M: 33243 `main`: a20?, eis1 (+10), op 0b 8089 (+20), a22?, g006 + op 25 + g000 (+40), a02?, g004 + op 25 (+57),
+  a52?, op 25 + g005 (+80), mdam (+100), proc.
+- Not traced: scheduler op 0x56 (an actor drive task); op 0x6f / 0x70 details; what the 0x100a7440 end callback drops.
+
 ## Effect sound (fx/sound.rs, audio voice handles) (2026-10-22)
 
-From ~/ffxi/lab/research/effects/footsteps_sound.md (sections 2, 3):
+From the research notes:
 - Sound elements (kind 0x3d, CYySoundElem): SeSep data @8 = se id, @0xc bit 31 = loop. Emission ops 0x4c (near
   op+8, far op+4, volume 127; a persistent sound generator stops emitting; world generators height mode 1), 0x6b
   (the source rides the nearest point of an Sph capsule chain: points from block u32 @0x10 + 0x10 at 0x20 bytes
@@ -3056,7 +3517,7 @@ From ~/ffxi/lab/research/effects/footsteps_sound.md (sections 2, 3):
   life (FUN_10035cd0).
 - Scheduler ops 0x0a (actor1), 0x0b (actor2), 0x53 (*(inf)* actor2; retail: the action target nearest the
   player): a snapshot of the actor position, far f32 @0x14, near f32 @0x18, flag 0x100 = height as is (corrects
-  triggers.md, which had the fields swapped and the sound following the actor). 'shit' / 'skaz' digit variants
+  an earlier reading, which had the fields swapped and the sound following the actor). 'shit' / 'skaz' digit variants
   are not done.
 - FUN_10035e50 per frame (manager FUN_10035410): listener = the camera eye; far 0 -> 30, near 0 -> 3; height x3
   (mode 0); linear volume between near and far, beyond far stop (or volume 1 with keep); behind the camera (view
@@ -3068,9 +3529,50 @@ From ~/ffxi/lab/research/effects/footsteps_sound.md (sections 2, 3):
 - Not done: footsteps (FUN_100d2970 needs the posed foot points 8 / 9 / 0xa / 0xb every frame; our poses are on
   the GPU), the race death voice op 0x78, the one-at-a-time se ids 2239 / 2063.
 
+From the research notes:
+- SeSep chunk (resource type 0x3d): "SeSep  " @0 (5 bytes compared, FUN_1023b920); u8 @7 (0, 0x14, 0x1e, 0x28 seen)
+  and u32 @0x10 (2, 3, 4, 6) are not read by the PC paths; @0xc low 31 bits a length *(inf)*; the bytes from @0x14 are
+  never read on PC (command 2 passes only the id) *(inf: PS2 sequence data)*. Survey: 207264 SeSeps, 3412 with bit 31.
+  A resource that is not "SeSep" plays as an embedded SeWave (command 1).
+- CYySoundElem (vtable 0x1031f7a0, ctor FUN_10035bd0, filled by FUN_100362b0 / FUN_10036200): +0x54 position (through
+  the attach matrix when its generator has one), +0xfc owner generator (0 for scheduler sounds), +0x104 SeSep, +0x194
+  next in the list DAT_10450fc0, +0x198 Sph (op 0x6b), +0x19c flag and +0x1a0 the snapshot position, +0x1b0 near,
+  +0x1b4 far, +0x1b8 pan scale, +0x1bc / +0x1be volume sent / volume 0..127, +0x1c0 / +0x1d0 pan sent / pan input (64,
+  0, 0, 0), +0x1e0 voice handle (0 not started, < 0 refused), +0x1e4 grace (3.0, -1 a pass), +0x1e8 keep, +0x1e9
+  height mode.
+- Persistent (vt+0x40 = FUN_10035950): a valid owner generator with flag 0x400 or element life (op1 +0x22) 0, or SeSep
+  @0xc < 0. Scheduler sounds (no owner) are not stopped when their element dies: the voice plays out; the destructor's
+  fade (command 5, ftol(+0x114) = the element's max life) is only for generator-owned elements with a live voice.
+- One-shots: FUN_10036180(SeSep, pos, near, far, scale, pan input, level) runs FUN_10035e50 once and plays (no element,
+  never updated); FUN_100360e0(pan, level) the same without a position (menus: pan 0x40). Footsteps pass pan input 0:
+  centred, but hard left within 0.1 of the listener, where FUN_10035e50 leaves the pan input as it is (retail quirk).
+- FUN_10035e50 also: pan scale 0 -> 512, else x 512; within 0.1 the volume comes back unchanged; the listener is
+  cam+0x60, the eye as of the last view build (FUN_10020d40 copies +0x44), while the footstep 30-unit gate uses the
+  live eye +0x44; the callers then multiply by DAT_1034656c (effects factor = config x event fade, FUN_10035230) and
+  truncate. The creator's foley call (0x102486cf) is positional with near 3, far 20, pan scale 512 x 512 (centred).
+- Starting (FUN_10036130 -> FUN_10037510): 0 when sound is off or the frame's list DAT_1044fc20 already holds 12 other
+  SeSeps (the same one may start again; cleared at the end of the manager pass); -1 when the sound thread's busy
+  voices >= DAT_1044417c (12, set in FUN_10016b00 *(inf: a config value)*); then "SeSep" -> command 2 (id, handle, pan &
+  0x7f, vol & 0x7f), pan = ftol(vec[0]). The thread's voice stealing (FUN_1023fb90) is unreachable while the client
+  refuses at 12 busy voices *(inf)*.
+- Sound thread commands (table 0x1037c560): 0 stop now (FUN_10240010), 1 play a SeWave, 2 play an id (FUN_10240470), 3
+  pan (FUN_10240740: voice+0x80 = pan << 12, ramp over ticks x 50 / 60, 0 immediate), 4 level (FUN_102404c0: T[vol] <<
+  12, T = 0x1037c338), 5 fade out and stop (FUN_102405f0).
+- Scheduler sound ops in files 0..12000 (op / flags / far / near): 0a/0/0/0 x 21634, 0b/0/0/0 x 1625, 0b/0/20/3 x
+  1567, 0a/0/60/0 x 1473, 0b/0/15/3 x 1316, 0b/0/60/0 x 967, 53/0/60/0 x 826; flag 0x100 about 80 times. Op 0x78 uses
+  FUN_10036200 (near @0xc, far @8, the position copied once).
+- Worked examples (tests cure_volume, harbour_loop): Cure (file 2801 'main') op 0x53 '0303', far 59.99998, near 0 ->
+  3; SeSep '0303' = se 3037, one-shot; a target 12 out and 1.5 up: distance 12.816, volume 105, behind the camera 68;
+  in front at view x 5, z -11: pan 83. Zone 232 effe/soun/se00 (a world generator, flags 0x1000, life 0): op 01
+  resource '2009' (se 2009, @0xc 0x80000088: persistent), op 6b Sph 'se-s' (9 points at y 0, r 9.6: the harbour edge),
+  op 4c far 30, near 3, height mode 1; with the eye at (10, -6, 20) the nearest point (on segment 2-3) is 14.04 away,
+  minus 9.6 = 4.44: volume 120; past 30 the voice stops and starts again back in range.
+- Open: FUN_10054fb0 (the capsule's nearest point) needs a clean asm read; FUN_100528e0's effect on the generator's
+  +0xa8 object, and whether a soft stop (op 0x2d) ends persistent sound elements.
+
 ## Lens flares (CMoLfdElem; render/flare.wgsl, vs_flare / vs_glare) (2026-10-22)
 
-From ~/ffxi/lab/research/effects/classes2.md section 1:
+From the decompile (more at the end of this entry):
 - Kind 0x39 takes a D3a in the flare layout (byte 4 != 0): groups {u8, u8, quads, u8, f32 t, 12 bytes} then the
   quads' vertices; drawn instead of the common draw (FUN_10053920), last (sort key -10000).
 - Visibility FUN_1006b350 / FUN_1006b580 / FUN_1006b900, as a compute pass on this frame's scene depth: the
@@ -3088,9 +3590,35 @@ From ~/ffxi/lab/research/effects/classes2.md section 1:
   whole view after the effects. Op 0x4b's two floats have no reader.
 - Check: `zone-shot 102 --weather fine --hour 9 --eye 0,-5,0 --target 60,-50,10 --effects 30` (lf02).
 
+From the research notes:
+- CMoLfdElem: ctor FUN_10052080, vtable 0x103203a8, size 0x1a0; vt +0x2c (FUN_10053920) replaces the common draw, so
+  none of FUN_10045950's states apply; it is ordered by the CMoOT like any element. Kind 0x39 becomes type 0x21 at
+  link time. elem+0x17f..+0x186 hold the query state (i16 slot, i16 hold, the readback surface).
+- Op 0x4b: +0x194 / +0x198 the two floats (lf02 50 / 0.1, moon kas1 300 / 0; no reader), +0x19c the glare tint
+  (file RGBA -> BGRA).
+- Op 1 flags seen 0xc40001 / 0xc00001: bit 18 the visibility test FUN_10044ae0 (skipped for weather generators,
+  gen+0xde < 0); bit 22 the sort key +0x128 = -10000 (op 0x30), clamped into bucket 0: drawn after every other
+  effect; bit 23 a parent-matrix copy at spawn, refreshed each frame by gen-update op 0x11 0x3fd (translation follows,
+  rotation not). Element-update op 0x50 multiplies +0x138 by the weather blend. Attach mode 0xe sun, 0xf moon.
+- far = camera +0x2e0 = 65535.0 (set once at 0x1001470f). Retail's direction is eye-relative but goes through the
+  whole view matrix (an error of |eye| / 65535 rad); ours is a pure direction through rot(V). With no parent matrix
+  or no camera, d = elem+0x54 raw.
+- The test draws into DAT_10444438 (scene-sized, the screen filters' target) with the main depth buffer; the scene
+  target is device+0x194 (inferred: so the test only touches a scratch copy). Open: whether that holds in every mode
+  (a filter making DAT_10444438 the scene target would let the test overwrite scene pixels). The flare tests depth
+  0.99999988; the other callers (ops 0x15 / 0x53 FUN_1004d680, actor tests at 0x100aae11 / 0x100ca5e8 / 0x100caf7a)
+  pass a real z. FUN_1006b900 sums bit 7 of the blue byte at even rows and columns, >> 5.
+- Glare: FUN_10014280 adds R, G, B (saturating) into camera +0x324..+0x326; each frame FUN_10018890 resets +0x324 =
+  +0x328 (default 0x80000000) and adds the brightness setting (DAT_1034500c > 0x80 adds value - 0x80 per channel);
+  element-update op 0x60 (screen flashes) feeds it too. FUN_100125c0 (called at 0x1001178c, after the scene; before
+  the UI inferred) draws it when rgb != 0: a = min(255, 2 A), one viewport quad, SRCALPHA / ONE, so dst += rgb / 255.
+- Data: zone 290 weat/fine/lf02 (attach 0x0e, 18 groups / 19 quads, texture lf02 512x1024; groups with zero x extent
+  are disabled). Zone 202 weat/{fine,suny}/moon/kas1: op 1 0x2c400c1, kind 0x39 molf (2 groups at t 0, A 0x48 /
+  0x30), scale 20, the colour from the moon-phase ops 0x4e / 0x4f, fade key k000.
+
 ## D3b morph elements (CMoD3bElem; fx/lib.rs Morph, vs_morph) (2026-10-22)
 
-From classes2.md section 4: chunk 0x25 (byte 2 bit 7 alpha test, low 7 bits signed = K keys; V @4, N @6, index
+Chunk 0x25 (byte 2 bit 7 alpha test, low 7 bits signed = K keys; V @4, N @6, index
 table @8 (+ byte 3 << 16), T @0xa, corner colours @0xc, corner UVs @0xe (+0x10000 when not past the colours),
 texture name @0x10, K blocks of V positions and N packed normals from 0x20; position then normal indices). Weights
 +0x194.. from update ops 0x1e..0x22 (life t, or the day fraction with parameter bit 4, repeated (param >> 5) &
@@ -3104,9 +3632,25 @@ crossfade), the texture warp (elem+0x140..0x148), the distortion-morph variant.
   lerp from the previous entry in the day first minute. Emission ops 0x4e / 0x4f add a point of a Vtx list (u32
   count, vec4 points from +0x10; random / by emission count). zone-shot takes --moon PHASE.
 
+From the research notes:
+- Factory vtable 0x10321564 (+0x1c FUN_10070e50 copies the chunk to obj+0x20, so data offset d = obj offset d + 0x30;
+  +0x20 init FUN_1003e5e0 = texture lookup). Data 0x00: u16 1 in every file, not read. K: 2 in the data, weights
+  for up to 5. Kind 0x1d also gives a D3b. File order: keys, colours, UVs, position indices (3T u16), normal indices.
+  Packed normal: x = sext10(n & 0x3ff) / 512, y = sext10(n >> 10) / 512, z = sext10(n >> 20) / 512.
+- Element: ctor FUN_1003ed30, size 0x1c0; weights +0x194..+0x1a4, the previous +0x1a8..+0x1b8 (copied after each
+  draw), +0x1bc the morph buffer (stride 0x24: position, normal). Sum below FLT_MIN: the previous frame's largest
+  gets 1.0.
+- Draw FUN_1003ed70 -> FUN_1003e600: skipped for weather generators (gen+0xde < 0) when FUN_10002b40() == 0.
+  Texture FUN_10074750(holder obj+0x40, stage 0, elem+0x140, +0x144, +0x148): a plain SetTexture when +0x148 == 0,
+  else a sine-warped copy rendered into DAT_1046a828 (the writer of +0x140..+0x148 not traced). UV scroll (+0x17b &
+  3): texture matrix _31 = +0x120, _32 = +0x124, TTFF COUNT2. FVF 0x152, so op-1 flag 16 lights it.
+- Example: zone 202 f_la/mode/hato (pigeons): kind 0x1d, D3b hato (K 2, V 30, N 93, T 31), ops 0x33 / 0x34 bind
+  pt01 / pt02 to slots 9 / 6 with repeat 200; update 0x1e / 0x1f -> w0 / w1: the two key meshes crossfade 200+ times
+  over the life (inferred: wing flaps).
+
 ## Footsteps (FUN_100d2970; client/footsteps.rs, render/points.rs) (2026-10-22)
 
-From ~/ffxi/lab/research/effects/footsteps_sound.md section 1.
+From the research notes.
 - Actor bytes from the 0x45 info chunk bytes 0..2 (Character.cib; first file wins, the feet part file overwrites
   1 and 2): leg mode +0x878 (2 = also points 0xb / 0xa, 3 = steps standing too), footstep kind +0x879 (<= 0: none),
   shoe +0x87a. Hume M feet 8136 = (0xff, 1, 1); orc 1300 = (0, 9, 0).
@@ -3119,7 +3663,7 @@ From ~/ffxi/lab/research/effects/footsteps_sound.md section 1.
 - Sound: name '0', '0'+surface, kind char ('0'+k, 'a'+k-10 from 10), '1'+shoe; looked for in the zone's 'fses'
   ('fser' in rain / squl / bolt when not covered) subtree (FUN_10071510), else DAT 0 'foot' (se 12). Played at the
   actor, pan input 0 (always centred), level 101 walking (ratio < 0.5) or 127. Test port_sandoria_step: fses/0112
-  = se 101001 at 95 (run) / 76 (walk) for the 1.5 worked example.
+  = se 101001 at 95 (run) / 76 (walk) for the worked example below.
 - Motion gate (inferred): retail tests the base motion against the idle 'idl?' (+0x7d8 != +0x7c8) and a few
   flags (scheduler op 0xbc's counter, a landing); here moving = movement ratio > 1e-4, or leg mode 3.
 - Live (zone 101, Lnxtest running 4 s): 11 steps "0212" (grass, kind 1, shoe 1), about 2.75 a second.
@@ -3152,6 +3696,48 @@ From ~/ffxi/lab/research/effects/footsteps_sound.md section 1.
   0x1009a5d2, 0x1009c228), 0x037 from u32 @0x38 bit 2 (0x1009d591); LSB's SilenceFlag, set while GM-hidden or under
   Sneak. Dust and footprints still happen. Ours: Marks.silent, footsteps::steps. Seen live: Silent Oil on Lnxcsfix.
 
+From the research notes:
+- FUN_100d2970 is the 2019 name; the current one is FUN_100d4bc0, called from the actor update FUN_100c63d0 (asm
+  0x100c7671). It returns at once, keeping the stored heights, when actor+0x8ac bit 0 is set (invisible, vt+0x260 =
+  FUN_100a2e40) or the entity's +0x128 bit 0 is clear *(inf: shown / active; 1 at creation, set by the event op
+  FUN_100b56b0)*, and beyond 30 of the eye (full 3-D, unweighted).
+- Stored heights: +0x7e8 (point 9), +0x7ec (8), +0x7f0 (0xb), +0x7f4 (0xa), 0 at creation, written at the end of
+  every pass past the camera gate. The last contact tested (order 9, 8, 0xb, 0xa) gives +0x63c.
+- Riders: the point's y += h x k, h = vt+0x110 if >= 0, else +0x75c, else +0x754; k = -1.3 for status 5 / 0x55, -0.5
+  when vt+0x36c == 0 and FUN_10082c40(), both only when FUN_1002b7a0(index, 0) == 0; else 0 (FUN_1002b7a0 and vt+0x36c
+  not decoded).
+- The culled-pass skip (not done): in range with actor+0xb2 non-zero (not drawn), +0x840 bits 20..21 = 2; a pass with
+  that field non-zero decrements it and makes no step: none while culled and for 2 passes after.
+- The footstep-effects option DAT_10444158 (default 1, set by FUN_10002be0; DAT_10456a70 in 30261006_0) gates the
+  wade loop, the dust, the footprints and 'fvib'; off, the i900 clone is killed.
+- The alt name (not done): zone flag zone+0x1cf (DAT_106175ac) and surface 3 -> byte 1 = '2' *(inf: a zone whose
+  surface 3 borrows surface 2's sounds; the flag and the weather getter FUN_10181090 not read)*. 'fser' needs the
+  weather tag 'rain', 'squl' or 'bolt' and +0x17c == 0 (cover: the floor hit's collision object flags @0xa4 bit 2,
+  FUN_10162120 -> FUN_100a94b0).
+- The folder: when +0x804 is not the wanted 4cc and the zone resource zone+0x1ac is set, FUN_100712e0(type 1, 4cc) in
+  the zone's scope (the zone DAT, then DAT 0, which has no fses); none -> no step; found -> +0x800 / +0x804, caches
+  +0x7fc (sound) and +0x80c / +0x810 (dust) cleared. 263 of the zone DATs 100 + z (z < 256) have fses; the others get
+  no footsteps. Zone 232's fses holds SeSeps "0111".."0ar2" (surfaces 0, 1, 2, 5..9, 'a'); names with 'a' in byte 1
+  cannot be formed (surface 10 gives ':').
+- The motion gate as retail has it (ours above is inferred): a step needs actor+0x8ab != 0 (a counter held up by
+  scheduler op 0xbc, FUN_10060cc0 / FUN_10060c80 *(inf: for the scheduler's remaining time, FUN_1005d5e0)*), leg mode
+  3, +0x7d8 != +0x7c8 (the base motion 4cc against the idle 'idl?'; +0x7d8 from FUN_100c6b70 / scheduler op 0x28,
+  +0x7c8 from op 0x8c / FUN_10088be0), entity+0x128 bit 1, or actor+0x8b6 (set in FUN_100c4390 when FUN_10082fe0() and
+  +0x8bc < 0, which then becomes 32.0 *(inf: a landing)*; a step clears it).
+- The sound plays only with sound on (DAT_10450fbd): FUN_10036180(SeSep, actor+0x5fc, near 0, far 0, scale 0, pan 0,
+  level ftol(101.6) = 101 walking, else 127).
+- Footprint scale s = max(vt+0x98, vt+0x9c) into gen+0x84 / +0x88 / +0x8c; the template is cached at actor+0x818.
+- 'fvib' (not done): actor+0x814 = a clone of the type-5 'fvib' from the actor's files (made at model load,
+  FUN_100cd1d0 / FUN_10084000), restarted as one burst on every step *(inf: a heavy-step effect)*.
+- The floor hit: H+0 = collision +0x34148 (the face's four bit-15s), H+4 the water height, H+8..+0x10 = -normal, H+0x18
+  cover; the actor floor update (FUN_100a3560 for the player) calls vt+0x20c(normal), vt+0x214 (+0x174), vt+0x21c
+  (+0x178) and FUN_100a94b0 (+0x17c). Moving platforms (FUN_1017a660 -> FUN_1016f800) set the surface from
+  platform+0xec.
+- Worked example (test port_sandoria_step): zone 232, Hume M feet 8136 (kind 1, shoe 1), clear weather, running on
+  surface 1: "0112" -> fses/0112 = se 101001 ("0111" = 100001), level 127; 8 out and 1.8 up: distance sqrt(64 +
+  5.4^2) = 9.652, volume ftol((1 - 6.652 / 27) x 127) = 95, pan 64; walking: level 101 -> 76. Dust: "0100" is missing
+  from 232's fefs (none); walking, "w100" bursts once. An orc (1300: 0, 9, 0) on surface 1: "0191".
+
 ### Keyframe sampling in the update stream (FUN_100499d0, jump table 0x1004d08c = op - 1) (2026-10-22)
 - FUN_10053520 / FUN_10053740 (linear / eased, by S[s+1] & 0xf) sample with the **first key's value (+0x34)
   replaced by the third argument** for the call; FUN_10053550 / FUN_100537f0 do not. FUN_1004d530(R, x) =
@@ -3169,27 +3755,41 @@ From ~/ffxi/lab/research/effects/footsteps_sound.md section 1.
 
 ## Distortion / heat haze (CMoDist, kind 0x22; render/effects.rs, vs_dist) (2026-10-22)
 
-From classes2.md section 2.1. Emission op 0x32 (vtable +0x34 = FUN_10051dc0) sets +0x194 = op+8 (element word
+Emission op 0x32 (vtable +0x34 = FUN_10051dc0) sets +0x194 = op+8 (element word
 DIST_OFF); update op 0x24 sets it to key(t) (first value S[s+2]; 0 without a keyframe). Draw (FUN_100418b0): the
 cross (0,0,0), (-1,0,0), (0,-1,0), (1,0,0), (0,1,0) through +0xa0 (our draw matrix A); a fan whose view translation
 is shifted by (off, off) (x right, y up) samples the scene where the unshifted points project; centre = element
 colour with alpha x fade, tips 0x00808080; colour = texture x diffuse x 2, alpha = diffuse x 0x80 x 4; SRCALPHA /
 INVSRCALPHA, z test, z write by flag 12, no fog. The effect pass is split at each distortion element and the colour
 target copied first (retail copies the diamond's screen box into a 256x256 texture; here the whole target at full
-size, the 256 cap being a 2002 limit). DAT 214 (zone 114, Eastern Altepa; classes2.md calls it "zone 214")
+size, the 256 cap being a 2002 limit). DAT 214 (zone 114, Eastern Altepa)
 `f_ri/weat/heat/dis1`: 21 live elements at 13:00 heat, alpha 0x09..0x1d, off 0.02 (checked with the shift x25: the
 background ghosts up and right). Not done: CMoVuDist (batched), DistModel / DistRing / DistMorph (op-1 flag
 0x100000 on kinds 0x1f / 0x24 / 0x25).
 
+From the research notes:
+- CMoDist: ctor FUN_10051d90, vtable 0x10320108, size 0x198. Drawn inside the common draw (blend mode, fog, WORLD =
+  +0xa0, VIEW = I, z write by flag bit 12, alpha test effectively off).
+- Retail's copy: the bounding box dX x dY of p1..p4; kx = dX >= 256 ? 255 / dX : 1 (ky likewise); the region under
+  the diamond goes 1:1 (shrunk to 255 when larger) into the top-left of a 256x256 target (DAT_10469250 + 4, with a
+  depth buffer +0xc, FUN_10043430), ADDRESS MIRROR, TFACTOR 0x80808080; the fan samples it at (X_i, Y_i) / 255. Alpha =
+  diffuse a x TFACTOR x 4 = diffuse a x 2.008.
+- DAT 214 weat/dryw/dis1 and weat/heat/dis1: world generator, flags 0x1000, interval 4 (heat 2); op 1 flags 0x5
+  (billboard, camera-relative), pos (0, 0, -2), 0x24 slots, life 60; scale (12, 7, 5) (heat 13, 8, 5); alpha keyed by
+  kdis (op 0x2d slot 2, update op 0x1b); op 0x32 off 0.02; op 0x63 ktds day fade (update op 0x3f). Each element is a
+  24 x 14 view-unit diamond.
+- The variants (DistModel, DistRing, DistMorph) copy through FUN_10041ec0: the whole scene downscaled to 256x256 and
+  flipped; vertex UVs u = (sx + 0.5) / W, v = (H - 0.5 - sy) / H.
+
 ## Effect area-light tint (emission 0x8f / 0x90, update 0x69) (2026-10-22)
 
-From ~/ffxi/lab/research/effects/area_light.md. The env: 0x8f = FUN_101819a0(caster vtable +0x188) = the area the
+The env: 0x8f = FUN_101819a0(caster vtable +0x188) = the area the
 caster stands in (actor+0x5e4, from the floor collision object's u32 +0xb0; placements carry it at MZB +0x4c; keys
 in `<zone>/<id>/<tag>/HHMM`), else the zone; 0x90 and 0x69 = DAT_106175ac, the zone. Of its current 0x2f payload:
 c = (actor sun + actor ambient) / 255 (FUN_1017fee0 + FUN_1017ff00), c2 = (actor moon + ambient) / 255
 (FUN_1017fef0); c2 when flags bit 0 is clear (FUN_10181af0) and dot(c2, c2) > dot(c, c). R, G, B *= c, ftol, 0 if
 negative, & 0xff (wraps above 255); alpha untouched. Update op 0x69 (every frame): R, G, B = the slot's bytes 2 /
-1 / 0 x the zone c (no nearest-light rule; generators.md was wrong). Here: Env::area_light, Lighting.area, Frame
+1 / 0 x the zone c (no nearest-light rule; an earlier reading had one). Here: Env::area_light, Lighting.area, Frame
 area_light, the update Params `area`. Test port_sandoria_area_light: 232 fine 12:00 (1.6196, 1.6235, 1.5451),
 00:00 (0.9255, 0.9333, 1.1412). Area environments (later the same day): ZoneWeather.areas from `<zone>/<id>/<tag>` and `<zone>/<id>/weat/<tag>`,
 collision Object.area (+0xb0), Ground::area (the floor face under the actor), per-frame tints by area
@@ -3199,9 +3799,63 @@ override (entity+0x208), the 120-frame refresh (looked up when asked), the `subl
 0x84, the weather crossfade of area envs. Byte 0x0c of the payload is red (MODLOG's earlier "B,G,R"
 note on the env colours is wrong; weather.rs rgb() reads R, G, B).
 
+From the research notes:
+- Addresses: 2019 FFXiMain.
+- Environment: ctor FUN_10180380(root, id) (0x1ac bytes, vtable 0x1032b100, fields FUN_10180030): +8 id; +0x14 the
+  zone root's child folder named id, else the root; linked at the tail of the chain DAT_106175ac -> +4 (FUN_101818f0);
+  it takes the previous member's weather (FUN_101804d0) *(inf: arguments garbled in the decompile)*, else +0x18 =
+  &DAT_10617500. id 'subl' -> XiZone +0x1c4. XiZone (DAT_106175ac, 0x1dc bytes, FUN_10184110 / ctor FUN_10184150) is
+  an environment with id 0 and the zone root: +0x1b4 zone number, +0x1c4 the subl environment, +0x1c8 clock override.
+  FUN_101819a0(id): the first environment with +8 == id, else the zone.
+- Area environments are made at zone load (FUN_1017fce0 -> FUN_1017fd10 -> FUN_1017fc40), one per distinct non-zero id
+  FUN_1017fb60 collects from the MZB placement records (holders scene +0x60 and +0xd8, stride 0x78); FUN_1017fc90
+  stores each placement's environment at runtime +0xe0. FUN_1017fb60 keeps a placement's id only when the dword at
+  record +0x34 is 0 or starts with '_'. Runtime records (FUN_10172530): runtime +0x3c + 4k = file +0x10 + 4k, so file
+  +0x4c -> runtime +0xdc.
+- Collision object +0xb0 goes to coll+0x34158 on a floor hit (FUN_10162590 at 0x10162c2d, also 0x101633bd /
+  0x101642b8) and out as ground info +0x34 (FUN_10162120). Zone 232: placements and collision objects `ev01` x 159
+  (auction house, shops, doors), `ev02` x 5 (`bar_inbox`, `magic_inbox`, ...), the rest 0; zone 101 has no area ids.
+- Actor area id: vtable +0x188 = FUN_100a2da0 (actor +0x5e4), +0x184 the setter FUN_100a2d90, in all eight
+  CXiCollisionActor-derived vtables. Written only by FUN_100a3560 (slot 0x20; CXiSkeletonActor's update FUN_100c4390
+  calls it) after a successful floor probe (FUN_1017a5d0) and every 120 frames (+0x5f0 > 0x78): ground info
+  (FUN_1017ab60 / FUN_1017aba0); unless entity +0x13c bit 12, id = ground +0x34, replaced by entity +0x208 when that
+  is non-zero (FUN_10081ba0). No hit keeps the old id.
+- entity +0x208: event op 0xae sub 7 (FUN_100b9790, store at 0x100b9a8b) = u32 at op+6; sub 8 clears it; zeroed at
+  entity init (FUN_10088c40).
+- FUN_10181170(env, P) (from FUN_101810a0, which sets env+0x18 = P): +0x64 sun, +0x74 moon ((0, 0, 0, 1) when P[0] &
+  1), +0x84 ambient, then fog / bg sun / bg moon / bg ambient / bg fog at +0x94 / +0xe4 / +0xf4 / +0x104 / +0x114,
+  bytes x 1/255 (DAT_1031ed04), w = 1. With P[0] & 1 the moon bytes are signed directions (to +0x24 / +0xa4).
+- Zones 0xb6 / 0x84 (XiZone +0x1b4) *(inf: Walk of Echoes / Abyssea - La Theine)*: FUN_10181af0 is true when P[0] & 1
+  is clear, else only for the subl environment. There, with P[0] & 1 and a subl environment, FUN_10181170 on the zone
+  copies into subl: +0x104 bg ambient, +0x84 actor ambient, the fogs (+0x114 / +0x94) and fog floats, +0xf4 =
+  P[0x2c..] (bg sun), +0x74 = P[0x0c..] (the actor sun as its "moon"), directions +0xc4 / +0x44; and +0x64 =
+  P[0x0c..], +0x24 its direction. So subl picks between the subl sun and the zone's light.
+- Per frame XiZone FUN_10184840 -> FUN_10180480 recurses the chain: FUN_101805e0 (directions), FUN_10183dc0 (weather
+  list +0x10), FUN_101810a0(weather+0x20) -> FUN_10181170. Weather folder (FUN_10183780): a `weat` folder under
+  env+0x14 if any, then the tag (fallback `suny`, then `weat`). Weather changes reach every area (FUN_101804d0
+  recurses +4).
+- Crossfade (FUN_10183dc0): with an older weather at +8, w = (dur - rem) / dur (+0x18, +0x14) and P = old + ftol((new
+  - old) w) per byte (FUN_10182470) *(inf: +0x14 counts down to 0)*. Time keys: colour bytes prev + ftol((next - prev)
+  t) (FUN_10182730, truncation); Env::lerp rounds, at most 1/255 off.
+- Op 0x8f (0x1004e452..0x1004e796): the caster FUN_1003a890(gen+0x30) (binding +0xc through the entity table
+  FUN_1007fe60; kind 0x4000000 at binding +0x1c a raw pointer); no caster or environment skips. Dot compare via math
+  vtable +0x38 (DAT_1046a64c, FUN_1006c520); op 0x69 compares lengths (vt+0x94, FUN_1006c5d0); a tie keeps c. sat0:
+  FILD, FMUL, < 0 -> 0, else ftol & 0xff (0xff x 1.62 -> 157). Op 0x90 at 0x1004e5f0, skipped when DAT_106175ac is
+  null.
+- Op 0x69 (0x10049a78..0x10049c1e, jump table 0x1004d08c entry 0x68): S = the slot ((op >> 13) & 0x3f dwords into the
+  slot area at elem + i16 elem+0x176), a B,G,R,A dword: R from byte 2, G byte 1, B byte 0; alpha (+0xfb) untouched.
+  The slot holds the base colour saved at emission (op 0x91) *(inf: the pairing)*.
+- More worked values (float32, keys at 1200 / 0000): 232 `weat/suny` 12:00 c (1.5490, 1.5608, 1.5412), 00:00 c2
+  (0.7216, 0.7529, 0.9412); 232 `ev02` (flags 1) 12:00 (0.5255, 0.5961, 0.6000), 00:00 (0.4549, 0.5608, 0.5882); 101
+  `weat/fine` 12:00 c (1.4745, 1.4863, 1.4431), 00:00 c2 (0.8000, 0.8196, 1.1176). 232 fine at 15:00 (t = 0.6,
+  truncating lerp): c = (1.4706, 1.3647, 1.2471).
+- Open: the crossfade's +0x14 countdown and the weather argument of FUN_10180380; where gen+0xc4 (the area id of the
+  fog lookup, copied by the generator copy at 0x1005258c) is first set; which effects use 0x8f / 0x90 / 0x69 and with
+  which base colours (how often the wrap shows).
+
 ## Effect spline paths (Vtx 0x3e, CMoSpline; fx/spline.rs, update op 0x34) (2026-10-22)
 
-From ~/ffxi/lab/research/effects/splines.md. Vtx data: u32 N, from +0x10 N vec4 points (w = 1). FUN_10062c80 builds
+Vtx data: u32 N, from +0x10 N vec4 points (w = 1). FUN_10062c80 builds
 a CMoSpline once per Vtx (FUN_10062bd0 / FUN_10062600; closed and uniform branches dead): cubic Hermite, Bessel
 tangents, chord-length knots: c_k = max(|Q_k+1 - Q_k|, 0.01), c_-1 = c_0, c_N-1 = c_N-2, phantoms 2Q_0 - Q_1 and
 2Q_N-1 - Q_N-2; a = c_k-1 / (c_k-1 + c_k), b = c_k / (c_k + c_k+1); m_k = ((1-a)^2/a)(Q_k - Q_k-1) + a(Q_k+1 - Q_k),
@@ -3209,15 +3863,43 @@ m_k+1 = (1-b)(Q_k+1 - Q_k) + (b^2/(1-b))(Q_k+2 - Q_k+1); segment = first with u 
 last at t = 1. Emission 0x54 ([2] KeyFrame 4cc, [3] sampler, [5] Vtx 4cc): S[s] keyframe, S[s+1] sampler, S[s+7]
 path, S[s+3..5] = p(0), pos += p(0). Update 0x34: u = t, or key(t) without override and fmod 1 above 1; pos +=
 p(u) - S[s+3..5]; S[s+3..5] = p(u). Here the segments go to the GPU (update binding 8, `paths`, header + 4 vec4 a
-segment; the slot holds first vec4 + 1). Test worked_paths: DAT 202 'lin2' and DAT 265 'a7' match the spec's
-numbers. zone-shot `--start NAME` starts a zone generator: 102 `--start hat2` pigeons fly along 'lin2'.
-Corrections: S[0] is the keyframe (spec C.4 said spline); gen+0xa0 = op[1] of 0x54 is the KeyFrame; op 0x15's
+segment; the slot holds first vec4 + 1). Test worked_paths: DAT 202 'lin2' and DAT 265 'a7' match the worked
+numbers (below). zone-shot `--start NAME` starts a zone generator: 102 `--start hat2` pigeons fly along 'lin2'.
+Corrections: S[0] is the keyframe, not the spline; gen+0xa0 = op[1] of 0x54 is the KeyFrame; op 0x15's
 corners are its own op[1] (always 0: the unit cube). f_la/mode/hato is started by its five op-0x52 schedulers
 (section "Self-starting schedulers"). Not done: scheduler ops 0x26 / 0x27 (CMoPathDriveActorTask), CMoPathObject.
 
+From the research notes:
+- Resource: factory FUN_100702c0 case 0x3e, vtable 0x103213cc; init FUN_10070e50 copies the chunk to obj+0x20 (data
+  offset d = obj+0x30+d); +0x20 FUN_10062ca0 clears the cache pointer. Data +0x04 the runtime CMoSpline cache, +0x08
+  the runtime use count (op 0x54 adds 1; FUN_10062b70 takes 1 and deletes the cache at 0), +0x0c unused; no per-point
+  tension, bias or time. Point accessor FUN_10062ba0 = list + ((i % N) + 1) x 16 (IDIV: a negative i gives a negative
+  remainder); FUN_10062bc0 = point 0.
+- CMoSpline (0x28 bytes, vtable 0x10320ef8): +4 n, +8 total chord, +0xc / +0x10 / +0x14 the x / y / z arrays (n + 2,
+  phantoms at 0 and n + 1), +0x18 segment lengths (n + 1), +0x1c one 4x4 basis matrix per segment, +0x24 closed,
+  +0x25 uniform. Every caller of FUN_10062500 passes closed 0, uniform 0. The cache is shared by every element on the
+  same Vtx. Evaluation FUN_100628e0: w = (t^3, t^2, t, 1) x M_j, p = sum w_i P[j + i]; a negative u extrapolates in
+  segment 0; N = 1 reads M[-1] (invalid data). The closed form above matches the matrix form within 2e-4 (retail
+  computes in x87 with f32 stores; the SSE / 3DNow math classes, vtables 0x10321038 / 0x10321108, are assumed the
+  same).
+- Op 0x54's sampler (op+0xc, low nibble: 0 linear FUN_10053550, else eased FUN_100537f0); S[s+2] and S[s+6] unused.
+  Survey (files 0..120000): 674 op-0x54 generators, N 2..51 (mostly 7), every one with update op 0x34 and expire op
+  0x04; 27 name a KeyFrame (21 'k004' with Vtx 'line' in the hm_0 battle-effect DATs 33245..37899, 6 'f1pm' /
+  'f2pm'); the sampler is 0 in all.
+- Expire op 0x04 (FUN_1004d770) releases the use count. Elements removed without the expire stream leave the cache
+  built (inferred: harmless).
+- Generator-update op 0x15: the view-box translation is op 0x01's position plus point 0 of the Vtx at gen+0xa0 (the
+  last of ops 0x4e / 0x4f / 0x54 sets it; for 0x54 it is op[1], the KeyFrame handle, 0 in data); the spline is not
+  evaluated. Batched particles (FUN_10062cd0) take point this[5] (< 0: rand % N).
+- Worked: DAT 202 hat2 'lin2' (N 12, C 622.3758): p(0.25) = (137.8889, -6.2966, 313.4352), p(0.5) = (70.5023,
+  -4.3057, 178.0302), p(0.75) = (-27.9632, -9.8760, 111.9538); a pigeon (life 7500 ticks) reaches u 0.5 after 62.5 s.
+  DAT 265 g006 'a7  ' (N 3, chords 3.2362, 3.6146): p(0.25) = (-492.9381, -170.8691, -233.2339), p(0.5) =
+  (-494.5517, -170.8691, -233.7639). Keyframed: DAT 33291 hm_0/0441/g0b2 ('k004' (0, 0) (0.519217, 0.08) (1.0,
+  1.24), Vtx 'line', N 13): at life 1 the key gives 1.24 -> fmod 0.24 -> (-0.3678, -0.3302, 0).
+
 ## Effects filter (config 0x92; FUN_100ac4b0 / FUN_100ac560, fx/tasks.rs effects_allowed) (2026-10-22)
 
-From ~/ffxi/lab/research/effects/effect_filter.md. Scheduler op 0x02 for an action task (task+0x90), off the
+Scheduler op 0x02 for an action task (task+0x90), off the
 unattached-persistent path, asks FUN_100ac4b0(caster, target, cfg 0x92) with dolls as their owners; no means no
 clone (running ones stay). Bit 0 ("All effects during battle") limits the filter to the player's status 1 or 3
 (DAT_1046e0f8[DAT_10473572] +0x16c); table 0x10324fb4 rows: bit b = 1..16 hides when caster class & (1 << ((b-1)/4))
@@ -3238,9 +3920,42 @@ filter_rows.
   only). Ours: fx::filter_class, Entity.master, FxActors.party; test filter_classes. Not seen live. The Indi aura:
   its own section once done.
 
+From the research notes:
+- Addresses: 2019 FFXiMain.
+- FUN_1018c7d0(0x92) returns 0xffffffff while the config store is not up (DAT_1061d174 == 0). It is called with 0x92
+  only at 0x1004b12e (op 0x5f), 0x10058b17 (scheduler op 0x02) and 0x1008ff30 (the Indi aura), besides the Config page
+  (load FUN_10190de0, which returns 0x12 rows; store FUN_10190e00) and the registration FUN_1018e330(0x92, 0, 4, 0, 0,
+  -1, 0, 0) at 0x1018dc05 *(inf: default 0)*.
+- Table 0x10324fb4: 12-byte rows {u32 bit, u32 caster mask, u32 target mask}, rows 0..16 (loop end 0x10325084); row 16
+  is bit 17 with both masks 0 (never matches). The row after it (0x10325080) is unrelated data. Every caster mask is a
+  low nibble and every target mask a high one, so testing both against one combined class word is exact.
+- Config "Effects" (fxfilter): 18 rows, row r toggles bit r, label group 0xb message 148 + r; a set bit is drawn
+  checked (sprite 88) and means hide. Message 0xa6 "Special actions started on/by others" belongs to another page
+  *(not traced)*.
+- Op 0x02 (FUN_10057000, asm 0x10058b09..0x10058b46): act = FUN_1005d560(task) = task+0x90; caster / target =
+  FUN_100617c0 / FUN_10061820 (the handle pair at task+0x34, FUN_1003a890 / FUN_1003a8c0), a CXiDollActor (type
+  0x10324740) replaced by its owner (doll +0xc4). The fast-forward copy FUN_100565f0 has no filter call, so a
+  late-started scheduler's catch-up does not consult it.
+- The bit 17 event hold, FUN_10085990(0): an event (DAT_10475440), player +0x128 bit 15, player +0x12c bit 13, or
+  FUN_10093f10(0xff).
+- Class 8 also takes a null actor, an actor with no entity, NPCs that are not monster-flagged and other people's pets.
+  The player's pet is entity +0x1f6 (0x00D u16 @0x3C, cleared with mask @0x0a bit 5; 0x037 u32 @0x34 >> 3).
+- Party roster (FUN_100e5dd0(mode) / FUN_100e5ec0): base DAT_104cd388; member records of 0x70 bytes at +0x57d0 + list
+  x 0x8c4, 20 slots, order table +0x952c + list x 100, presence +0x9540 + (slot + list x 0x19) x 4; member +0x02
+  name[16], +0x14 server id, +0x34 flags. FUN_100e5dd0 stores the mode (+0x97f8), resets the cursor (+0x97f4 = 1) and
+  returns the first record refreshed with our data (name +0x365f0, id +0x365dc): the roster starts with us. Mode 0:
+  list 0, members with ((our flags +0x97f0) ^ member +0x34) & 3 == 0 (the same party number: our party); mode 5: list
+  0 unfiltered (the alliance); mode 1: list 1. Flags (FUN_100e62e0): & 3 party number, & 4 party leader, & 8 alliance
+  leader, as 0x0DD's member flags *(inf: that 0x0DD / 0x0C8 fill it)*.
+- Entity +0x1cc, rebuilt from scratch by FUN_1008cb80: 0x400 when +0x1fb is 2..99; 0x200 us; 0x01 a PC (id high byte
+  0), else 0x02 an NPC or 0x10 a monster (+0x120 bit 13); 0x100 from +0x12c bit 13; 0x1000 from +0x12c bit 22, or
+  0x800 when FUN_101c29d0(); +0xee 3 / 5 / 4 -> 0x20 / 0x80 / 0x40; 0x04 in the mode-0 roster (party), 0x08 in the
+  mode-5 roster (alliance). This corrects "Talk" ("bit 2 NPC, 0x10 pet-like"): 0x02 is an NPC, 0x04 a party member,
+  0x10 a monster.
+
 ## Point lights on scenery (CMoPointLightProgElem -> the light table -> zone.wgsl) (2026-10-22)
 
-From classes2.md section 3 and ~/ffxi/lab/research/effects/point_lights.md.
+From the decompile (more at the end of this entry).
 - MZB (FUN_10172530): version byte 3 > 0x11 and u32 @0x18: a light list of 256 records x 0x4c, key at +0; a
   placement record (100 bytes, version >= 0x12) has 4 refs at +0x54..+0x60, 1-based into that list (runtime
   +0xe4..+0xf0). Here Placement.lights holds the keys; ZoneGeometry gives each key a slot of a 256-entry table
@@ -3276,6 +3991,67 @@ From classes2.md section 3 and ~/ffxi/lab/research/effects/point_lights.md.
 - Not done: the bump-map vertex-shader path (config 0017),
   the slot leak for refs to 'c' / unknown keys, the windowed-mode gamma boost (FUN_1000b290), the two-area-light
   scenery mode, unnormalised normals of scaled placements.
+
+From the research notes:
+- Light table DAT_105ecae8: 256 x 0x70 {+0 key, +4 u16 refcount, +6 u16 index, +8 a D3DLIGHT8: Type +8, Diffuse +0xc,
+  Specular +0x1c, Ambient +0x2c, Position +0x3c, Direction +0x48, Range +0x54, Falloff +0x58, Att0 / Att1 / Att2
+  +0x5c / +0x60 / +0x64, Theta +0x68, Phi +0x6c}. FUN_101715f0 clears every entry to Type 3 (directional), Diffuse 0,
+  Direction (0, 1, 0): an entry whose effect never ran is a black directional light with Type != 0. FUN_10171830
+  finds or allocates by key (refcount + 1); DAT_10616f80 maps list index -> entry index (byte).
+- Element: ctor FUN_10055340, vtable 0x103205c8, size 0x1b4; +0x198 owner (gen+0xc4), +0x1ac light slot (-1), +0x1b0
+  registered, +0x1b1 the 'c' flag (never read). FUN_10171720 sets Diffuse a 0.5 and Theta = I; FUN_10171640 Diffuse a
+  0. Zone 232 pl01: op 0x16 (0xb2, 0x80, 0x30), op 0x58 (4, 8, 0, 0), key pttm on update 0x49: I 3.5 from 18:00 to
+  05:12, off 06:24..16:36; pl27..pl31 are constant (op 0x58 (4, 3, 0, 0)).
+- Runtime placement (0x16c bytes, holder +0x28, count +0x24): file +0x54..+0x60 -> +0xe4..+0xf0 (confirmed); +0x40
+  world, +0x80 inverse world, +0xc8..+0xd0 squared LOD distances, +0xd4 mirrored, +0xdc area id, +0xe
+  NORMALIZENORMALS (set only for es_anmo near one point in zone 0xd5).
+- Collision objects: at load FUN_10161130 / FUN_10160dc0 remap each non-zero light byte to b = DAT_10616f80[b - 1] +
+  1 and set +0xa4 bit 28 + k. A floor hit copies them to coll+0x3415c..; FUN_10162120 hands them out as ground info
+  +0x20..+0x23; FUN_1017aba0 makes pointers at +0x24..+0x30. Zone 232: 151 of 562 collision objects carry them.
+- 'c' keys: DATs 114, 133, 136, 288, 331 (zone 231: c1f1..c2f4, c_s1..c_s8, cys1..3, c_1f, c_b1), 333, 337,
+  342..346; named by placements (dead on the main path) and collision objects (they light characters standing
+  there). No 'lgb' key in DATs 100..400 (newer ranges not scanned). FUN_1017d580 enables the entry keyed 'l_01' when
+  DAT_1061dc74.
+- D3D light slots (FUN_101710b0): one area light (zone+0x394a4 == 0): sun 0, points 1..4 (zone+0x394b0..); two: sun
+  0, second 1, points 2..5. +0x394a4 = 1 unless +0x3949c is 1 or 2: with bump mapping on scenery has one area light
+  (FUN_10184980), without it two (FUN_10181b50: the bg sun and bg moon colours, directions env+0xa4 / env+0xc4; the
+  moon light at the light scale for all hours, inferred).
+- The slot leak (FUN_10175ac0): a slot is set only when its ref differs from the cached zone+0x39100 + 4k (reset per
+  MZB holder): ref 0 -> disabled; a valid entry with Type != 0 and no 'c' -> SetLight and enabled; anything else ->
+  nothing, so the slot keeps the previous placement's light.
+- FUN_1000b370 refuses a POINT with Range < 0 or Att2 < 0 and a DIRECTIONAL with direction 0. FUN_1000b290, only in
+  windowed mode (DAT_10444164 = config 0034 != 0) and when all three diffuse parts are < 0.8, multiplies them by 2.3 x
+  gammaRamp[i] / 65535 (FUN_10016350; 3.5096e-5 at 0x1031ecfc), clamped to 1.
+- Fixed function: RS_AMBIENT bytes = trunc(ambient x 128) (FUN_10181de0), about x 0.502. With NORMALIZENORMALS off,
+  a scaled placement's N.L scales with its normal length.
+- Draw mode per LOD mesh +0x1c (table 0x10176f0c): 0 / 1 FVF 0x152; 2 the declaration zone+0x39454 (FUN_101723a0,
+  position frames); 3 a bump mesh: the shaders when zone+0x3949c == 1, else FVF 0x152 with pixel shader 0. FUN_10168eb0
+  makes a type-1 mesh type 3 when zone+0x39498 (shader support) and every piece's texture is in the zone bump DAT
+  (39831 + zone); the piece keeps the bump texture at +0xbc and a 0x30-stride vertex buffer at +0xb4.
+  zone+0x3949c == 2 (FUN_10176f20) is unreachable: nothing writes 2. Zone 0xb6 forces 0.
+- The bump path (FUN_10171360): config 0017 (DAT_104442d8) and VS / PS 1.1 caps (device +0x909 / +0x90a).
+  Declaration: v0 position, v3 normal, v5 colour, v7 uv, v15 tangent (48 bytes). Shader text assembled at run time
+  (FUN_10170270 / FUN_10170420): vertex shaders for 0..4 lights (line tables 0x1036af98, 0x1036afe8, 0x1036b070,
+  0x1036b108, 0x1036b1b0; handles zone+0x39480 + 4n), pixel shader 0x1036b264 (zone+0x39494).
+  - VS: B = N x T; the sun vector in tangent space packed 0.5 v + 0.5 into oD1; oT2 = sun x vc; oT3 = vc x (ambient
+    x 0.5 + sum_k C_k I_k max(N.(P_k - V), 0) / d^3, 0 where d^2 > R^2), N the vertex normal, object space. PS:
+    rgb = sat(2 x tex x (sat(Nmap . L) x t2 + t3)), alpha = sat(4 x vc.a x tex.a); texcoord clamps t2 / t3 to 0..1.
+  - Constants: c0..c3 transposed world-view-projection (inferred); c4 = -(sun Direction x inverse world); c5 0; c6 sun
+    diffuse (after FUN_1000b290); c7 bg ambient x 0.5; c8 0.5; c9 (1 / (fog end - start), 0, fog end, 0); c10 1;
+    c11..c14 light positions x inverse world (obj+0x80); c15..c17 Diffuse r / g / b x I per lane (0x105f3af0 /
+    b00 / b10); c18 Range^2 (0x105f3b20). Only enabled lights are packed, in slot order; n picks the shader. A
+    placement with an area environment (obj+0xe0 != 0) uploads c5..c9 from it.
+  - Unlike fixed function: ambient + lamps are clamped before the sun is added; distances are in object space (a
+    placement scaled by s sees I s^2 / d^2 and range R s); the sun uses the normal map.
+- Actors: FUN_100a3560 snapshots after a sweep / floor hit and every 0x79th update (actor +0x5f0 > 0x78, when the
+  floor ray hits), not on a moving platform; vt +0x228 (FUN_100a9540) copies the lights into actor +0x3f0 + 0x68 k, so
+  a lamp switching on is seen at the next probe. Slot 0 (+0x388) is the environment's directional light. In
+  FUN_100c94a0 directional lights ease toward their source by min(1, frame x 0.4) (snap on the first draw), weight
+  0.001; DAT_104778f8 = the strongest light's slot (FUN_10033080's light direction); DAT_104448c0 = the actor ambient,
+  or 0x80707070 under an event light override.
+- FUN_10029590 enables 2 lights (DAT_104449a0[0..1]); per material FUN_100216a0 / FUN_1002cdf0 set them again with
+  Diffuse x the material factor f and emissive max(f - 1.5, 0) (inferred: inside FUN_10029590's window).
+- Not traced: c0..c3 and the order of the obj+0x80 inverse (decompile only).
 
 ## Effect fixes from the San d'Oria gate lamps; per-pixel point lights and soft alpha (ours) (2026-10-22)
 
@@ -4090,7 +4866,7 @@ Dropped for emote 0x61+, a caster / target not in the actor table, or a caster o
   0x7f08 / 0x7f88 its level (DAT_10485640 / 41 = s2c 0x061 @0x0C / @0x0D; 0x7f08 is 1 for a VM not the player's);
   0x7f0a / 0x7f8a the server id (+0x78). Ours: Host::race / server_id cached per tick, player_word from 0x061.
   0x7f0b / 0x7f8b (+0x124 bit 25, 475 sites) not decoded. `event-run --race N` sets the player's race offline.
-- Event VM audit 2026-10-23: scratchpad evgaps/STATUS.md re-ranks REPORT.md's items (11 done, 1 approximate, 6
+- Event VM audit 2026-10-23: a re-ranking of the 2026-10-22 comparison's items (11 done, 1 approximate, 6
   partial, 4 missing) and the special values above.
 - Op 0x90 (FUN_100b3540): the event actor hidden as op 0x22 1 (+0x120 bit 17). Op 0xb5 sub 0 (FUN_100b10f0): the
   event actor's name = str@2 (24 bytes into +0x7c) unless it has an alternate name (+0x210); ours sets the entity name.
@@ -4148,6 +4924,24 @@ Dropped for emote 0x61+, a caster / target not in the actor table, or a caster o
   - +0xe0, the head-look speed: FUN_100d5b10 steps the look weight (K+0xbc) by 0.04 or +0xe0 x 0.01 x 0.04
     (0x10329a18 / 0x1032a85c).
   - Ours: Actor::turn_pct / look_pct, turn_rate() for entities and event poses, Look::step's rate.
+
+From the research notes:
+- The audit (2026-10-22/23) compared all 218 XiEvents opcode pages (0x00..0xd9) plus 0xda (current build only) with
+  dat/event_ops.rs, event_vm.rs and client/event.rs; disagreements were settled by the decompile (dispatcher
+  FUN_100bc280; site counts from event-dump over zones 0..298, 6.6M ops). XiEvents is wrong, by the decompile, on 0x13,
+  0x28 / 0x29, 0x38, 0x3a / 0x3b, 0x4a, 0x59 sub 4, 0x99, 0xa1, 0xa2, 0xae sub 8, 0xc4, 0x9d and 0xb7 sub 3. The items
+  it ranked (R1..R21) are done since (the event op entries below), except op 0xb3; R19's flags have no visible effect
+  for us.
+- Constants: _DAT_1032a22c 0.001, _DAT_10329a18 0.01, _DAT_1032a378 0.1, _DAT_10329d2c 6.283, _DAT_10330250 1/4096.
+- Op 0xb3 (75 sites in 7 zones; not done): a mini-game, FUN_100a3310 types 1 / 10..13 with the window DAT_10664444;
+  every sub yields. Its actors (zones 104, 109, 119, 243, 244, 248, 249) are not spawned by LSB.
+- Retail details the audit noted: 0x80 waits only for bound character actors (+0x120 bit 7) and skips model types
+  (+0xee) 3 / 4 / 5; the door status ops skip their write while actor +0x120 bit 2 is set (op 0xab sub 3); 0x5c sub 0xb0
+  (4 bytes) stores the playing music in var@2 and sub 0xb1 is 2 bytes (no data uses either).
+- Flags with no visible effect for us: 0x94 (FUN_100b9cb0, 14,752 sites) actor@2 +0x12c bit 17, read by FUN_100cbde0 to
+  animate every frame (no 4-frame skip); 0x81 (FUN_100b8fb0) model +0x8b4 = u8@1 (reader 0x100c759f); 0x7c
+  (FUN_100b8a80) +0x128 bit 17, enabling FUN_10087e80 (every 0x8e ticks, +0x14e times, FUN_100ce0e0 on skeleton actors);
+  0x86 actor@2 +0x12c bit 3.
 
 ## Event input window: op 0x71 and "menu    passinpu" (2026-10-23)
 
@@ -5058,7 +5852,7 @@ Full spec: scratchpad iuse/SPEC.md of that session (sort windows, manual sort, t
   5502) switches maps when the key under the player changes, at the same zoom, the player kept where they were in the
   box. It switched only on a zone change before. The menu Map window keeps the page it opened on.
 
-## Chat log fixes, first batch (2026-10-23; audit ~/ffxi/lab/research/chat_audit/REPORT.md)
+## Chat log fixes, first batch (2026-10-23)
 
 - Talk (FUN_1007bf30): mounted (FUN_101cbe50 / FUN_101cbe60) refuses with group 7 0x4b before anything else; out of
   range (6.0, _DAT_1032cf50) prints system message 9 "Target out of range." (FUN_100a1ab0, file 7031). It printed
@@ -5069,6 +5863,14 @@ Full spec: scratchpad iuse/SPEC.md of that session (sort windows, manual sort, t
 - MsgShift (inferred): ids outside the matched segments take the nearest segment's delta (a gap of up to 8 just
   before one takes the next one's). Every zone's table is delta 0 for this install, and 263 LSB ids in 147 zones
   were dropped (zone 101: 141 "Nothing happens...", 6409, 6417 "Obtained: <item>.", 6420 now show).
+
+From the research notes:
+- The audit listed every client-side printer call, the text command table 0x10356e30 and the refusal table 0x103763b0.
+  The MsgShift losses by LSB message: ITEM_CANNOT_BE_OBTAINED 144, NOTHING_HAPPENS 32, ITEM_OBTAINED 23, GIL_OBTAINED
+  23, KEYITEM_OBTAINED 22, and others (263 ids in 147 zones).
+- /linkshell's 7031 0x25 applies to the chat kinds 5 / 0x1b / 0x1e (FUN_100e3400); the packet is not sent and the echo
+  still prints. That the invisible refusal (our +0x128 bit 6, 7031 0xac) means invisibility is inferred.
+- /equip refusals: group 7 0x8e (FUN_1007b390), 0x8b / 0x98 / 0x99 (FUN_101327d0).
 
 ## Treasure pool lines: s2c 0x0D2 / 0x0D3 (2026-10-23)
 
@@ -5107,7 +5909,7 @@ Full spec: scratchpad iuse/SPEC.md of that session (sort windows, manual sort, t
 - Positional sounds in DAT 200 (effe/aose insects, effe/aotr birds, mode/ligh/taki bonfires) are generators and
   already played; none sits on the stream.
 
-## s2c 0x017 chat lines and our echoes (2026-10-23; full spec ~/ffxi/lab/research/chat_audit/c017_SPEC.md)
+## s2c 0x017 chat lines and our echoes (2026-10-23)
 
 - Handler LAB_100e37a0 (registered all.c 167487, no C body) -> printer FUN_100d9b20 (all.c 161041) -> FUN_10127c00
   with the kind's mode. Layout: Kind @4, Attr @5 (bit 0 GM: "[GM]", skips block list and spam filter; bit 3 a
@@ -5127,7 +5929,46 @@ Full spec: scratchpad iuse/SPEC.md of that session (sort windows, manual sort, t
   u16 @0x10), the echoes' rank icon, the profanity mask, the line cut at a control byte, Shift-JIS text (we decode
   UTF-8), c2s 0x0B5 / 0x0B6 at 150 bytes (ours 127).
 
-## s2c 0x027 / 0x043, zone text colours, 0x009 keys (2026-10-23; spec ~/ffxi/lab/research/chat_audit/c027_SPEC.md)
+From the research notes:
+- The printed name is 7F FC + name + 7F FB (FUN_100da580, strings 0x10331808 / 0x1033180c); the pair draws nothing
+  *(inf: it lets the log find the name)*. The block-list check skips kind 0x19 and GM lines.
+- Spam filter (not done): kinds 1, 0x1a, 0x22, 0x23 only (byte table 0x100e3d7c by kind - 1), not for GM lines.
+  FUN_100da5e0(name, text) reads config 0xce (1 hide, 2 replace, 0 off) and tests the text with FUN_101bceb0: 1 drops
+  the line; 2 replaces the text with group 9 0x159, and the filtered formats put the icon 0xEF 0x4D before the name:
+  "%s%c%c%s : %s" (shout, printed through FUN_100d9e50), "%s%c%c%s[%s]: %s" (yell), "%s%c%c%c%c%s(%c) : %s" (assist
+  with a rank icon, else "%s%c%c%s(%c) : %s").
+- Printer FUN_100d9b20: prints only in game states 0x60 / 0x70 (the value at DAT_10456a28) and returns 1 either way.
+  Mode byte 1 is a flag byte: 0x80 the Attr GM bit, 0x40 for the NS and system kinds, 0x20 when a 0x22 / 0x23 line holds
+  0xEF 0x2f..0x4c *(inf: read by the log; not traced)*. Kinds 6 / 7: FUN_10127c00 drops modes 200..201 while
+  FUN_101d29c0(mask) is true (the mask is lost in the decompile). Kinds 9..0xb are consumed with nothing printed; 0x1e
+  (linkshell 3) has no case in FUN_100d9b20: mode 0x79, flag 0x40.
+- Profanity mask (not done): FUN_101ba200 -> FUN_101ba350 masks words in place from vulgar2.dic ("Vulgar", object
+  DAT_10662db8, FUN_101ba390) while that object's mode (+4) is 0 *(inf: the profanity option)*; on the kinds with a
+  speaker (0, 1, 3, 4, 5, 8, 0x1a, 0x1b, 0x21, 0x22, 0x23) from the line's first ':' or ' ', on the NS kinds 0xd..0x10
+  and 0x1c the whole line, others not.
+- The line cut (not done): for every kind but 0x22 / 0x23, FUN_1018fc40 cuts the formatted line at the first byte
+  FUN_1018fa20 rates 2 or 3: 0x1E, 0x1F, 0xEF, any other byte below 0x20 but 0, '\n' and '\r', and 0x7F not followed
+  by 0xFB / 0xFC; 0xFD auto-translate blocks stay. Lines with an icon (filtered shout / yell, assist) sanitise only
+  the name and the text.
+- Mode -> colour id (config): 1 / 9 0x54 (0x1b), 2 / 10 0x55 (0x1c), 3 / 0xb 0x6c (0x9b), 4 / 0xc 0x56 (0x1d), 5 /
+  0xd 0x57 (0x1e), 6 / 0xe 0x58 (0x1f), 7 / 0xf 0x59 (0x20), 0xd3 / 0xd4 0x6d (0xb0), 0xd5 / 0xd6 0x6e (0xb3), 0xdb /
+  0xdc 0x70 (0xcb), 0xdd / 0xde 0x71 (0xcc), 0x79 0x6a (0x31), 0xc8 / 0xc9 0x51 (palette only).
+- Echoes use our name (G+0x3c3a4) and the typed text (not the converted send buffer), printed with
+  FUN_10127c00(line, {mode, 0, 0}, 0, 1, 0) only when FUN_100e3400 returns 1; an empty converted text sends and echoes
+  nothing. Command 0xe (no name in the table, FUN_10079000) sends kind 0x18 and echoes "%s : %s" in mode 1.
+  /linkshell and /linkshell2 send kind 0x18 in PvP (which skips the linkshell check) and echo without the "[n]".
+- The echoes' rank icon (not done): only when our mentor rank (G+0x40deb, s2c 0x01B @0x65) and mastery rank
+  (G+0x40dec, @0x66) are both non-zero and FUN_100e47c0(8) (s2c 0x0B4 byte 7 bit 1, MentorFlg): "%c%c%s(J) : %s" /
+  "(E)" with 0xEF R, R = mentor x 10 + mastery + 0x24 kept in 0x2f..0x4c, else 0x2f; an echo has no GM part.
+- c2s 0x0B5 (FUN_100e3400): kind @4, 0 @5, text @6, at most 150 bytes. Kinds 5 / 0x1b / 0x1e with no such linkshell
+  (FUN_100e9730(0, 0, 0, n) != 1) print system 0x25 and return 1 without sending (the echo still prints).
+- The tell (FUN_100785a0): more than 2 arguments; a bad name (FUN_10077c30) prints group 9 0x65; c2s 0x0B6
+  (FUN_100e3570): byte 4 = 3, byte 5 = 0, name @6 (< 16 bytes), text @0x15 (<= 150); a non-Japanese client
+  capitalises the name's first letter (a..z) in place, and the echo shows that name; after the echo FUN_1018d6e0 adds
+  it to the sent-tell list. Incoming kinds 3 and 0x15 feed the tell history FUN_100e3e10 (FUN_1018dba0, 8 x 16 bytes,
+  most recent first).
+
+## s2c 0x027 / 0x043, zone text colours, 0x009 keys (2026-10-23)
 
 - Current handlers (FUN_10094190, all.c 114176..114187): 0x036 100a0ef0, 0x043 100a1070, 0x02A 100a12a0, 0x027
   100a1dc0, 0x053 100a2000; 0x009 LAB_100fbd40 (FUN_100f9b20, all.c 183449). Older MODLOG addresses for these are
@@ -5147,7 +5988,32 @@ Full spec: scratchpad iuse/SPEC.md of that session (sort windows, manual sort, t
   work Para0..3, string slots 2 / 3. /random: 88 "Dice roll! X rolls N!". Not done: the block list (Attr 0x10),
   SysMesFilterLevel (s2c 0x0B4 ConfData byte 1 bits 3..4 against table 0x1035b950), the Mode key.
 
-## The server message: c2s 0x04B / s2c 0x04D, /servmes (2026-10-23; spec ~/ffxi/lab/research/chat_audit/servmes_SPEC.md)
+From the research notes:
+- 0x027 (handler 0x100a1dc0): with bit 15 clear the line needs ActIndex < 0x901, an entity there and its id ==
+  UniqueNo != 0, else it is dropped. DAT_104804cc (the talking actor) = 0, so no talk motion (inf); the line goes
+  through FUN_100ad660 with no name (+0xc10 empty), so `{speaker}` (code 0x09) and 7f 93 get nothing. The String1
+  prefix is replaced (when String2 is set or Flags & 1) by the speaker's name: an NPC / mob id (& 0xff000000) by
+  FUN_100a1d50 (entity by id, else the zone NPC list DAT_10487e60, else ""); a PC id by String2, else FUN_100a1770
+  (the roster, then the entities); cut at 31 characters. Slots 1..3 and work[5] are left stale (use empty / 0).
+- 0x043 (0x100a1070): bit 15 clear sets DAT_104804cc = ActIndex and prints with the speaker (FUN_100ad5e0); bit 15 set
+  prints with no prefix, the object's name being the entity's at ActIndex, else sName, else none. String slots 0..1
+  are saved and restored around it.
+- The event lock: DAT_1047fb40 = the event's Mode (G +0x40d94, set at the event start), DAT_104808fc set by event ops
+  (FUN_100b6180); both 0 outside events; the same test in 0x036 / 0x043 / 0x027.
+- Queue entry FUN_100c3060 +0x47 (p5): 0 prints to the log (FUN_10127c00); non-zero puts the text in DAT_10489108 with
+  DAT_104898f8 = 1, read by the event op at thunk_FUN_100b25f0 as a choice window's text (inf). 0x009's Mode key feeds
+  p5; LSB never sends it.
+- 0x009's block list: Attr 0x10 drops a line whose UniqueNo FUN_100e0b20 finds on the list (G = DAT_104dfd98, the list
+  at G +0x1a6a0; while it is not loaded (G +0x1a698 != 1) it asks c2s 0x03C and shows the line); FUN_100a1a00 drops
+  MesNo 0x59, 0x5a, 0x64..0x67 when the actor's name (not ours) is on the list (FUN_100e0a50). The builder
+  FUN_100a1ab0 returns at once while DAT_104859e4 != 0.
+- SysMesFilterLevel (FUN_100a19b0): MesNo < 0x146 is dropped when table 0x1035b950[MesNo] (signed) < (G +0x2cfd9 >> 3)
+  & 3 (SAVE_CONF, from s2c 0x0B4 @4, sent back by c2s 0x0DB). Entries other than 3: 7, 8, 35, 118..121 -> 2; 89, 264
+  -> 0; 90, 91 -> 1. Level 0 drops nothing.
+- LSB's 0x009 with four Para values sizes the packet (0x10 + strlen / 2) & 0xfe, shorter than its text, so the tail is
+  cut on the wire; with a character and any other message id it sends no Data.
+
+## The server message: c2s 0x04B / s2c 0x04D, /servmes (2026-10-23)
 
 - FUN_100955d0 (all.c 114627) runs "/servmes" once per lobby login, on the first zone (DAT_10487e90 per zone, and
   *(0x1048fe10 + 0x10), set on the lobby -> game step, cleared by a zone change or logout), from the zone set-up
@@ -5165,6 +6031,42 @@ Full spec: scratchpad iuse/SPEC.md of that session (sort windows, manual sort, t
 - Ours: the request also waits for the message tables; real time for the timeouts (retail counts ticks, at least
   one a frame).
 
+From the research notes:
+- The transfer is a generic "fragments" task (vtable 0x1032d6d4, 0xf0 bytes, one at a time in DAT_10487f08). Its
+  other user is kind 2, the fishing ranking (FUN_100a3310 from the event op FUN_100bbaf0; not done): chunk 0xb4, a
+  0x28-byte header at +0x18 and data at +0x40, status-only replies Commands 10..13 -> FUN_100a2d20.
+- DAT_10487e90 is cleared only by the zone-load reset FUN_10093720 (every 0x00A load). `*(0x1048fe10 + 0x10)` is set
+  in top-level state 5 (lobby -> game, FUN_10011a00) and cleared in states 0xb (logout to the lobby), 0xc (zone
+  change), 0xd (title): "first zone since the lobby" is our name for it (inferred). If the login event zones before it
+  ends, no message.
+- /servmes 0x10356d40 and /smes 0x10356d58 (id 0x107, flags 0x61: 0x20 dead ok, 0x40 mounted ok, no 0x80 so refused
+  with 7 0x43 in an event). FUN_10080340 returns success whatever happens.
+- Language FUN_100a30e0: config language L (DAT_10456a28 + 8; with +0x18 bit 7, 2 / 3 become 1): 0 -> 1, 1 -> 2,
+  2 -> 3, 3 -> 4, else 1. LSB answers an empty message to anything but 2.
+- Task (ctor FUN_100a2790): +0x34 idle ticks, +0x38 starts left (2), +0x3c timeout 450, +0x40 sends per slot (2),
+  +0x44 resend after 3 s, +0x48 the block (DAT_104808b0), +0x50 / +0x54 done / fail callbacks, +0x58 state (1 first,
+  2 the rest, 0xe finished), +0x5c timestamp, +0x60 size_total, +0x64 chunk, +0x68 assembled, +0x6c requested, +0x70 4
+  slots x 0x20. Per frame FUN_100a2840; resends FUN_100a2a20 (whole seconds, `now - sent > 3`); a slot out of sends
+  adds 450 to idle, which forces the restart / fail branch next frame.
+- Data reply FUN_100a2dd0: header FUN_100a2c30 (ts > 0, size_total >= 0, Command == state, kind, language), range
+  FUN_100a2c70 (assembled <= offset <= requested, all within the 0x400 buffer), slot FUN_100a2be0 (same Command and
+  offset). So a message over 0x400 bytes (NUL included) shows nothing; a stray or duplicate reply or a changed
+  timestamp fails the whole transfer; an empty message (size_total 0) prints the header only; Result @5 is not
+  checked. Done FUN_100a29b0, fail FUN_100a29f0 (callback LAB_100a3130 prints nothing).
+- Header FUN_100a31d0: the name is the world-list record `DAT_104df770 + 0x13840 + world * 0x8c` (FUN_100efcc0; the
+  name at +0 inferred). Printed with FUN_10127c00(.., {200, 0, 0}, 0, 1, 0): param 5 = 1 expands auto-translate
+  phrases.
+- Lines FUN_100a3240: a segment also ends at 0x7ff bytes; a Shift-JIS lead byte with no room for its trail byte is
+  cut. Each segment keeps its terminating byte; what the log does with it is not traced (ours strips it, inferred).
+  "a\r\nb" gives "a\r", "\n", "b": the lone "\n" is probably an empty line (inferred).
+- Mode 200 is colour id 0x51 of table 0x1036e888 and is not timestamped by FUN_101273c0. FUN_10127c00 drops modes
+  200..201 while DAT_1066318c & 8; the only setter in this build is FUN_101d2260(0x1000, 0) (inferred: a debug
+  switch, never set).
+- LSB's offset dedupe: a retail resend of the same offset gets no answer, nor does a restart at offset 0 when 0 was
+  the last served, so the transfer fails; a multi-chunk transfer that dies keeps its last offset stored, and a later
+  request for that same offset is ignored until another offset is asked. LSB sends data_size = min(236, size_total -
+  offset), ignoring the asked size; size_total counts the NUL.
+
 ## The log opens full at login (2026-10-23)
 
 - Log window 1 (logwindo, name getter FUN_101618a0 in 30261006): its setters for the max lines, min lines and
@@ -5173,7 +6075,7 @@ Full spec: scratchpad iuse/SPEC.md of that session (sort windows, manual sort, t
   shrinks from there (user-confirmed on retail). Per line FUN_10162560 adds one period (capped); Escape
   FUN_101624b0 takes one off.
 
-## Auto-translate: the dictionary and the phrases in the log (2026-10-23; spec ~/ffxi/lab/research/autotranslate_spec.md)
+## Auto-translate: the dictionary and the phrases in the log (2026-10-23)
 
 - Dictionary: language slot 0x18 (English file 55665, ROM/168/25.DAT), loader FUN_101bb7a0: groups of a 0x4c-byte
   header (kind 2, language 2 for English, group id, 0, title[32] "【Greetings】", completion[32], u32 count, u32
@@ -5188,6 +6090,65 @@ Full spec: scratchpad iuse/SPEC.md of that session (sort windows, manual sort, t
   in push_chat_mode.
 - Not done: input (Tab completion, menu fep, the category list), the item / key item groups built at run time, the
   coloured form in the line being typed, kind 6.
+
+From the research notes:
+- Slot 0x18 by language (FUN_1025b580(0x18), tables FUN_1025b510; group language byte in brackets): ja 55545
+  (ROM/168/24.DAT, 1, every entry with a kana reading), en 55665 (ROM/168/25.DAT, 2), de 55785 (ROM/176/96.DAT, 3), fr
+  56205 (ROM/178/35.DAT, 4, with unaccented forms). ja has the same 42 groups / 2685 ids. A fifth name kind, `@M`
+  (region names, group 0x13), is never used by the English file (237 @A, 311 @C, 22 @J, 713 @Y).
+- Loader FUN_101bb7a0 keeps a group when its language byte is the dictionary's (D+4 = client language + 1) or its kind
+  is 1, at most 0x41 groups. Group object 0x1f0 bytes (vtable 0x10337b4c), load method FUN_101baac0: the group is
+  itself word 0 (text = title, key = completion, a 6-byte `FD id FD` copy at +0x2c); words array +0x18 (count +0x1c),
+  so phrase id N is words[N] (FUN_101bae40 indexes directly); sorted array +0x20 (count +0x28) by key:
+  case-insensitive in English (FUN_10325d40, a strnicmp *(inf)*), strncmp in Japanese, FUN_101c88a0 (accent folding
+  *(inf)*) in German / French. Entries of kinds 7..0x12 never have the second string.
+- Word record (FUN_101bc740, 0x18 bytes, vtable 0x10337ba0): +4 text, +8 its length, +0xc key, +0x10 its length, +0x14
+  the 4-byte id. FUN_101bc520 builds the global sorted list (dictionary +0xc, count +0x14) of every group's words,
+  titles included, minus empty words and 6-byte words starting 0xFD.
+- The two built-in groups (not done here), rebuilt by FUN_101bb740 whenever the root category list opens (Tab with an
+  empty word and no category, FUN_101bba90), then the global list:
+  - Items (FUN_101bb2b0): header kind 7, group / id bytes 0, title / key group 0xb 0x91 "〔Items〕" / 0x92 "items".
+    Entries from the 200-slot item record cache DAT_10601468 (0x294 bytes a record, name +0x1b4, lock byte +0x1b3;
+    FUN_101bb130 counts, FUN_101bb1a0 writes), skipping empty slots, names starting '.', and ids 0x7400..0xfffe
+    (FUN_101bb100). The cache holds the item records last looked up (bags, equipment, shops) *(inf: what fills it;
+    round robin by DAT_10621814)*. Ids avoid 00 bytes: `07 LL hi lo`; id 0 `08 LL FF FF`; hi 0 `09 LL FF lo`; lo 0 `0A
+    LL hi FF` (LL the language byte).
+  - Key items (FUN_101bb680): header kind 0x13, title / key 0x93 "〔Key Items〕" / 0x94 "key items". Entries from the
+    key item table (FUN_101549e0 count, FUN_101549f0(i) id, FUN_10154550(i) name) that FUN_1022aff0(i) accepts *(inf:
+    owned)*, stopping at the first id 0x181..0x183 *(inf: why)*, at most 0xfe (FUN_101bb430, FUN_101bb4b0); kinds 0x13
+    / 0x14 (id 0) / 0x15 (hi 0 -> FF) / 0x16 (lo 0 -> FF).
+  - The category list (no word, or no match) is every group's title in load order: the 42 file groups, then Items and
+    Key Items *(inf: the order of the two)*.
+- Blocks: detection is only byte == 0xFD (FUN_101ad1b0); the closing FD is not checked and a block is always 6 bytes
+  (FUN_1018fa80). FUN_101acf60 normalises kinds 7..0x12 to 7 and >= 0x13 to 0x13; any kind <= 5 is a phrase. Kind 6
+  (not done): `FD 06 .. .. .. nn <nn bytes> ..`, consumed as nn + 7; its contents may hold blocks and are expanded
+  recursively, without braces at its level (FUN_101ac5e0). The input code never makes one *(inf: from servers /
+  scripts)*.
+- Resolver FUN_101bc100: with no dictionary loaded the text is the Japanese literal at 0x1037c9cc ("dictionary not
+  loaded"); an item with no record (FUN_1015bc40) or a text that does not fit gives -1, and the line ends there.
+- Expander FUN_101ac990(out, cap, src, len, braces, colour): the block's language byte is replaced by the client's
+  (*(E+0x3c)+4) before resolving; that is the whole "translation". Param 7 wraps the text in 7F 69 .. 7F 64 (inside
+  the braces when both are set).
+- Callers with braces: the log add FUN_10127c00 when its param 5 is 1 (every chat line, the tell echo ">> %s : %s",
+  most system chat); FUN_100d9b20 (s2c 0x017, and 0x0CA, the bazaar / inspect message *(inf: LSB's name)*);
+  FUN_101dd780 (linkshell message lines, chat mode 0xcc, 40 bytes a row, each row expanded alone *(inf: s2c 0x0CC)*);
+  FUN_101ddcb0 (41-byte texts in the same module *(inf: the linkshell message window)*); FUN_101a5af0 (the macro
+  editor's lines); FUN_100da5e0 (a copy of incoming chat handed to FUN_101bceb0 when config 0xce is 1 / 2; purpose
+  unknown). Colour without braces: FUN_101b5470 (the line being typed). Neither: the candidate list (FUN_101b4910),
+  the shared one-line entry popup (FUN_101c5be0 / 5e50 / 5ec0 / 5f30), a text command argument (FUN_10076ff0 case
+  0x1f, so `/ma <Cure phrase> <t>` works), the macro runner's `/wait` check (FUN_101a2480: strstr "<wait" on the raw
+  line first), the outgoing line (FUN_101ad4b0).
+- No 0xFD handling was found on the event message path: NPC text has no phrases *(inf: absence)*.
+- Macros: mcr*.dat lines are raw bytes and may hold blocks; the runner sends them raw (FUN_10080dc0 -> FUN_101ad4b0).
+  The editor shows them with braces and edits them in the popup FUN_101c5be0 (kind 9, max 60, titles 8; FUN_101a54f0)
+  *(inf: Tab completion works there; its open flags not traced)*.
+- Packets carry the blocks as typed: c2s 0x0B5 (FUN_100e3400) `+4 kind, +5, +6 text`; 0x0B6 (FUN_100e3570) `+6 name (<
+  16; a lower-case first letter is upper-cased when DAT_104e0af4+4 > 1), +0x15 text`; at most 150 bytes, NUL
+  terminated. LL is the sender's language (2 English). Examples: "Nice to meet you." `FD 02 02 01 01 FD`; item 0x1010
+  `FD 07 02 10 10 FD`; item 0x1000 `FD 0A 02 10 FF FD`; item 0x0050 `FD 09 02 FF 50 FD`; key item 0x0045 `FD 15 02 FF
+  45 FD`.
+- Open: which window FUN_101ddcb0 is and the s2c 0x0CC chain to FUN_101dd780; FUN_101bceb0 (config 0xce); what
+  FUN_1022aff0 tests and why ids 0x181..0x183 end the key item scan; the French / Japanese second key in FUN_101ba830.
 
 ## Auto-translate input: Tab completion and menu fep (2026-10-23)
 
@@ -5206,6 +6167,43 @@ Full spec: scratchpad iuse/SPEC.md of that session (sort windows, manual sort, t
 - Not done: the cursor inside the line (ours edits at the end), the item / key item groups (the 200-record item
   cache), the line history (Up / Down), macros' editor.
 
+From the research notes:
+- The text input object FSTEXTINPUT (DAT_10662d40, vtable 0x10337a98), T: dictionary D = T+4 (FUN_101bafc0 /
+  FUN_101bb7a0; D+4 = language + 1); edit buffer E (FUN_101abb40, E+0x3c = D): E+0x6c4 raw bytes (Shift-JIS and
+  blocks), E+0x888 raw length, E+0xa58 caret (byte offset), E+0x88c the expanded copy (no braces or colour), E+0xa50
+  its length, E+0xa54 the max (default 0x78; the chat line opens with vt+0x28(4, 0, 5, 0x78, 0, 0, 0, 10), e.g.
+  FUN_101b5760); E+0xc2c a pending block, E+0xc70 / +0xc74 its raw / expanded lengths; E+0 "category chosen", E+1..4
+  that category; navigation stacks E+0x38 / +0x70 / +0xa4 (12 each).
+- T+0xf0ec is the client language (object at T+0xf0e8, FUN_101b4570): 0 (Japanese) takes the IME composition path,
+  English / German / French the direct path. T+0x8c81 list open, T+0x8c84 selection, T+0xec28 candidate count (cap
+  0x3fc = 1020), candidates at T+0x8c88 + 0x18 i (word records), T+0xec2c the 4-byte category filter (0 none),
+  T+0xf11c completion enabled (input states 2 / 3 / 4; state 5 only for input kind 0; FUN_101b5850).
+- Keys reach FUN_101b5d10 as Windows VK codes from DIK through table 0x1037c3e8 (FUN_101aff00); its third argument is
+  a modifier flag (Shift *(inf)*). Enter / NumLock: empty -> callback(0, "") and close, else callback(0, raw buffer)
+  (FUN_101b6e40); Esc: callback(1 / 2) and close. Typing on the direct path (FUN_101b6810) does not re-filter an open
+  list, and Space is never inserted while it is open (FUN_101b6810 returns -1). FUN_101abc50 turns Shift-JIS 0x8140
+  into a space.
+- The word being completed ends at the last space or after a `7F xx` code (FUN_101b7c20; FUN_101ad0d0 deletes it).
+  Enter on a phrase (FUN_101b6c00 -> FUN_101acc30) puts `FD id FD` in at the caret, which moves past it
+  (FUN_101acfb0); one that would break a limit closes the list with nothing put in. Back from a category: query(NULL)
+  clears the filter and restores the last root word (DAT_10662d58, 64 bytes) and selection (DAT_10662d54).
+- Query FUN_101bba90(word, len, filter) stores the word (D+0x30, length D+0x1f4) and filter (D+0x1f8); FUN_101bbc60
+  binary-searches the global list (no filter) or the group's sorted list for the run of keys starting with the word.
+  FUN_101bbe60 skips texts starting with ' ' and texts already listed (FUN_101bc900), at most cap - 1; a filter group
+  that is not found gives one word "エラー" (0x1037c9b4), no dictionary "メモリーエラー" (0x1037c9bc).
+- FUN_1018d7f0 then adds names of 1..15 characters (FUN_10325d40 compare, duplicates skipped by FUN_1018db10): the
+  tell history (DAT_1066268c, 16-byte entries at +0x8c, count +0x88; FUN_1018d6e0 adds a name when a tell is sent),
+  the name FUN_101598b0 returns (+0x214, or +0x7c when +0x210 is 0; *(inf: the reply target)*) and the 18 party /
+  alliance names (FUN_10202c90(i)). At the root, when the word changed, the remembered index is restored if in range,
+  else 0.
+- Candidates show their text expanded without braces (FUN_101b38a0 vt+0x18 -> FUN_101b56d0 -> FUN_101b4910): titles as
+  "【Greetings】", "〔Items〕".
+- menu fep (class vtable 0x103368f0, layout FUN_1018f3a0): at most 0x8c wide in Japanese; the header "%d/%d" or "0/0"
+  (0x10357fbc / 0x10377cb8) by FUN_101c9780 and ▲ (SJIS 0x81A3) in 0x80808080; rows "%s\x06%s", the part after 0x06
+  (IME notes) in 0x80404040; the cursor FUN_10118db0(0, sel % 7 + 2); a click (FUN_1018f080 case 9) selects the row.
+  Opened / refreshed by FUN_1015e350("menu    fep", 0, 0), closed by FUN_1015e910; frame and position from the menu
+  DAT layout.
+
 ## Effect sound op 0x6b: the Sph name is at op+4 (2026-10-23)
 
 - FUN_10048220 (link pass, all.c 53240): `case 0x6b: if (op[2] == 0) op[2] = *FUN_10072290(.., 0x4a, op[1])`: the
@@ -5216,7 +6214,7 @@ Full spec: scratchpad iuse/SPEC.md of that session (sort windows, manual sort, t
   2028 on kaw3 (the stream by the gate), far 40, looping; the waterfall steps sta / stb se 2003 have no 0x6b. A
   name missing from its file (DAT 170 'seal') leaves the sound at the generator.
 
-## The log window's animation, as retail steps it (2026-10-23; spec ~/ffxi/lab/research/logwin_anim_spec.md)
+## The log window's animation, as retail steps it (2026-10-23)
 
 - FUN_101626e0 (all.c 277148) each frame, ints in whole ticks (stock retail 30 fps: 2 a frame, FUN_10014cf0 whole, at
   most 20): fill; open -= t to min x T unless kept; slide -= t x speed (speed from the last frame); vis = ceil(open
@@ -5231,6 +6229,31 @@ Full spec: scratchpad iuse/SPEC.md of that session (sort windows, manual sort, t
   close together) and float counters by real time; now logwin.rs runs FUN_101626e0 in frames of 2 ticks with the
   fraction carried. While typing retail moves the offset up 16 px as well as the clip (y1 and off), leaving a
   row empty above the chat line (confirmed on a retail screenshot, 2026-10-23); ours does the same.
+
+From the research notes:
+- Log window 1 = DAT_1062193c (vtable 0x10335410, "menu    logwindo", base ctor FUN_10161ed0), window 2 = DAT_10621940
+  (0x103354d0). Fields: +0x18 the 100-line ring (newest +0x14, oldest +0x16; FUN_101292e0 walks older); +0x1c / +0x20
+  two message children whose rows (<= 4) push the clip top down 16 each and take lines off; +0x24..+0x2a the layout
+  rect (logwindo 134 high); +0x2c the displayed line; +0x2e the offset; +0x30 lines to draw; +0x31 visible lines;
+  +0x32 text width (the frame + 14); +0x34 open ticks; +0x38 a counter only ever 0 (so the height step's p3 is 0);
+  +0x3c slide; +0x40..+0x46 the clip; +0x48 speed (1.0 / 20.0); +0x4c an event input line open; +0x4e / +0x50 max /
+  min lines (8 / 0); +0x54 ticks a line T (config 0x11 x 60; < 1 -> 20).
+- The frame tick: the limiter (FUN_10011a00) spins until the measured ticks reach the divisor DAT_104568fc+0x30 (2
+  from FUN_10010700; FUN_1008a0e0 sets 2 or 4); +0x28 = ftol(the average of the last 4 x 0.25), at least the divisor,
+  20 above 20 (0x10329ce4 0.25, 0x10329ce0 20.0); FUN_10014cf0 returns max(+0x28, 1.0): always whole.
+- Keep: flag 0x1000 windows, the message children, and typing (FUN_1011ba40 only, not +0x4c) while open <= 2 T (asm
+  0x1016280f..0x10162833). Escape (key 0x95, FUN_10123a70(0x3b, 0x95, 1, -1)) -> FUN_101624b0 (skipped when
+  FUN_1015dce0, or with the keep unless +0x59): open -= T, at least min x T, rounded up to a period; slide = max(slide
+  - 20, 0).
+- Height step FUN_10162cc0(cur, target, p3): |d| <= 16 -> ((10 - p3) x sign x 16) / 60 (int: 2), else 8 x sign; it
+  snaps when closer than a step. The rect keeps its bottom (y = window +0x40 - h) and width text + 14 (FUN_1011a5a0).
+  With no lines the target is 6.
+- The offset ((slide % 20) << 4) / 20 for slide % 20 = 0..19: 0 0 1 2 3 4 4 5 6 7 8 8 9 10 11 12 12 13 14 15 px. One
+  new line at 30 fps: 14 12 11 9 8 6 4 3 1 0 over 10 frames; a backlog of 5 or more falls 40 a frame, one line a frame
+  (30 lines a second).
+- The frame fade: element 0 (FUN_10118220 on +0x08) goes to state 2 (fade out, count 20) when vis == 0 from 3 / 0, to
+  state 3 (fade in) when vis > 0 from 2 / 1; FUN_10119550 counts down by t, alpha 1 / 0 / count x 0.05 / 1 - count x
+  0.05 (0x1032a3e0); hidden frames are not drawn (FUN_101144b0). Init (FUN_10162d60): slide 0, displayed = newest.
 
 ## The world scene blends in gamma space (2026-10-23)
 
@@ -5271,7 +6294,7 @@ Full spec: scratchpad iuse/SPEC.md of that session (sort windows, manual sort, t
 
 ## NPC shops: buy and sell (2026-10-23)
 
-Full trace in `~/ffxi/lab/research/shop_spec.md`; ours in client/shop.rs.
+Ours in client/shop.rs; more of the trace at the end of this entry.
 
 - s2c 0x03E (ShopListNum @4) opens "menu    shopmain" (Buy / Sell, stacked on the log) unless a 0x20000 window is
   open: then group 7 0x45 and nothing (UI LAB_10210ca0). The store zeroes the 80-slot stock table (LAB_100f8c20).
@@ -5291,9 +6314,44 @@ Full trace in `~/ffxi/lab/research/shop_spec.md`; ours in client/shop.rs.
 - Left: the yellow can-equip tint on buy rows (Skill / job lock), guild shops (0x082..0x086), the Up wrap at the
   list's top (not checked against FUN_101f67c0).
 
+From the research notes:
+- Objects (constructor FUN_10210310, destructor FUN_10210580): DAT_10664508 the list (vtable 0x1033bba0, registry
+  0x10373f08, flags 0x00030002); DAT_1066450c shopmain (vtable 0x1033bb58, registry 0x10373f34, flags 0x00021002);
+  DAT_10664510 / DAT_10664514 shopbuy / shopsell (comyn's yes / no class FUN_10210da0, vtable 0x1033bc30; flags 2);
+  DAT_10664518 the buy source (vtable 0x1033bb28); DAT_1066451c the sell source (vtable 0x1033bafc; the price map at
+  +0x14); the stock table at G+0x464c (80 x 0x38).
+- 0x03E's refusal (LAB_10210ca0) also comes when DAT_1057876c + 0x59 is set (a target-select prompt is up, inf) or
+  DAT_1057876c + 0xc4 != 0 (unknown). Opening: shopmain +0x14..+0x1c = our position, +0x24 = +0x25 = 0; buy source
+  +0x12 = ShopListNum (low byte); FUN_1021c7a0(0, 1) on DAT_10666e2c *(inf: the inventory view set for the sell
+  list)*. 0x03C (LAB_10210c70): a second complete list without a 0x03E sets shopmain +0x25 and closes the shop the
+  next frame. An entry exists while its price is non-zero (FUN_100f8a80).
+- c2s 0x083 (FUN_100f8970, 0x10 bytes): u32 quantity @4, u16 ShopNo 0 @8, u16 ShopIndex @0xa, u8 0 @0xc (LSB rejects
+  anything else). c2s 0x084 (FUN_100f89d0): u32 quantity @4, u16 the slot's item @8, u8 slot @0xa. c2s 0x085
+  (FUN_100f8a40): u16 SellFlag 1 @4; its FUN_100fc3c0(0x85, 0, 0) key 0 puts it under the per-id send interval (the
+  0x083 / 0x084 builders pass the index as key) *(inf)*.
+- s2c 0x03D: u32 price @4, u8 slot @8, u8 Type @9, u32 count @0xc. The price map: 0x1e8 bytes, 81 u16 ids at +0 and 81
+  i32 prices at +0xa4 (empty = id 0 / price -1), filled at the first empty entry, looked up by the first match; it
+  lives until shopmain closes, so switching Buy / Sell keeps it. LSB never sends Type 1: after a sale it sends 0x009
+  MsgStd::Sell (0xe8), so one item reads "You sell 1 ..." where retail prints 0xe9.
+- LSB's order on talking: (an s2c 0x036 line) -> 0x03E -> 0x03C x ceil(n / 19) -> 0x052 (the talk release, no event
+  started), which must not close the shop. Some NPCs open a shop from onEventFinish (the Curio Vendor Moogle).
+- Layouts (39542): shopmain (16, 256) 112 x 40, framesus 20, children windowps 149 "Buy" / 150 "Sell", no help; shop
+  (16, 48) 256 x 190, framesus 82 (10 icon slots at (3, 5 + 18k)), cursor anc_shop (a hand and a 248 px bar); money
+  (16, 240) 112 x 56, framesus 11; shopbuy / shopsell (16, 256) 112 x 40: child 1 windowps 149 / 150 (help 0xe 0x1d0
+  "Purchase this merchandise?" / 0x1d2 "Sell this merchandise?"), child 2 windowps 67 "Cancel" with help 0xe 0x1a5
+  "Cancel search." (sic; 0x1d1 "Cancel purchase." is unused).
+- Bars: the list's title slot 2 group 0xd 0xc "Shop"; help slot 2 0xe 0x2f "Purchase merchandise." (buy) / 0x30 "Sell
+  merchandise." (sell), set at open and every frame, cleared on close. Columns DAT_10385b7c = {0, 0x12, 0xb4, [3],
+  [4]}: Japanese [3] = 0xf0; other languages [3] = 0x102 and the window 18 px wider (FUN_1020f6c0): 274 in English.
+- Sell tint (FUN_1020ff40): grey for ids 0x201..0x203 (linkshell items), lock flag 0x19 (a bazaar price), equipped,
+  NoSale 0x1000; orange the busy row.
+- Open / inferred: DAT_1057876c + 0xc4; the focus going back to shopmain; the sell list's order = the inventory view
+  order (view set 1); the English width 274 (from the decompile; to check against retail shots); the meanings of the
+  tint helpers FUN_1022b680 / FUN_1022b570 / FUN_10223360 / FUN_102092b0; the Escape / close sound not traced.
+
 ## Shops: the can-wear name colour and the list's paging (2026-10-23)
 
-Notes: `~/ffxi/lab/research/shop_spec2.md`.
+More from the research notes at the end of this entry.
 
 - Buy rows of gear (record level non-zero): green when an item of that id is worn (FUN_10131fa0: containers 0, 8,
   10..16), else yellow 0x80909040 when FUN_10132050 passes: s2c 0x119 seen; slot, race, job and level fields present
@@ -5311,6 +6369,23 @@ Notes: `~/ffxi/lab/research/shop_spec2.md`.
   0x044 attachments), the requirement column (keytops3 192 + rank, windowps 212 + job; craft ranks from s2c 0x062,
   not parsed) and its grey rule, the sell list's settled flag (s2c 0x01D).
 
+From the research notes:
+- Item pointer slots (builders by id range, table 0x10372150): +0x14d0 level, +0x14d4 slots, +0x14d8 races (null for
+  automaton items), +0x14dc jobs, +0x14e0 superior level (armour / weapons only; compared as a byte), +0x14b4 type,
+  +0x14c8 name, +0x1554 u8 teach kind and +0x1558 u16 its argument (general / usable items only). Our `extra` offsets
+  are the 2019 build's: + 0x800 = the current slot.
+- Can learn (FUN_1022b7d0): when the spell's job-point mask (+0x5c) has the main job's bit: main level >= 99 and job
+  points >= level[main] (u16 at DAT_10485830 + 8 + 6 x main, s2c 0x063 sub 5; inf: the spent points); else main level
+  >= level[main] or sub level >= level[sub] (u16 levels at +0xe + 2 x job; 0xffff never). Spells match by name over
+  all 1024 records, skipping id 0 and blue magic (record +2 == 6); the test ignores the 0x119 gate.
+- Dice: FUN_10223360 tests bit arg + 0x200 of the 0x0AC bitmap (player +0x2cde8) only while +0x2cf49 (0x0AC seen) and
+  +0x2cf4a are set; +0x2cf4a is set only by FUN_100e6080, from FUN_100997b0 after s2c 0x063 sub 4.
+- Attachments (FUN_102092b0): index < 0x100, 0x119 seen, main PUP -> table 0, else sub PUP -> table 1;
+  FUN_100fcc50(table, 0x1202, index): the s2c 0x044 copy at player +0x40c44 + 0x9c x table must have job byte 0x12;
+  then bit index at copy +0x34 (0x044 @0x38 UnlockedAttachments).
+- The requirement column: x = row x + 0x102 (English), width 0x69 (+8 when +0xd == 1), so the cell spans window +
+  0x105 .. + 0x16e.
+
 ## Windows in WinBoat: software GPU and Helios (2026-10-23)
 
 - Without GPU passthrough the VM has only WARP ("Microsoft Basic Render Driver", Dx12, Cpu): unplayably slow even with
@@ -5327,7 +6402,7 @@ Notes: `~/ffxi/lab/research/shop_spec2.md`.
 
 ## Guild shops (2026-10-23)
 
-Full trace in `~/ffxi/lab/research/guild_shop_spec.md`; ours in client/shop.rs (the NPC shop's windows reused).
+Ours in client/shop.rs (the NPC shop's windows reused); more of the trace at the end of this entry.
 
 - s2c 0x086 {Stat @4, Time @8}: both guild tables' counts go to 0 first (store LAB_100eae80, even when refused).
   Stat 0 opens "menu    guildsho" (shopmain's layout) unless a 0x20000 window is open (guildsho itself included):
@@ -5350,6 +6425,41 @@ Full trace in `~/ffxi/lab/research/guild_shop_spec.md`; ours in client/shop.rs (
 - Live (Lnxcsfix): Kueh Igunahmori (Southern San d'Oria, 3..18): all four views; bought 2 Distilled Water, sold 1
   through "Select from your inventory." (gil 4840 -> 4825). Doggomehr (Northern San d'Oria, 8..23) closed: "The shop
   is closed." / "This shop's hours are 8 to 23."
+
+From the research notes:
+- Objects: DAT_106636ac guildsho (FUN_101ed450, vtable 0x10339fa0, registry 0x10373fb8, flags 0x00021002; +0x14..+0x1c
+  our position at open); DAT_106636b0 the buy source (vtable 0x10339f70); DAT_106636b4 the wanted source (0x10339f44);
+  DAT_106636b8 the sell inventory source (0x10339f18; +0x12 the item filter, 0 = all); the list and shopbuy / shopsell
+  are the NPC shop's.
+- Store: G+0x19de4, 2 tables x 0x408 (FUN_100eaeb0(k); k 0 buy, 1 sell): +0 u8 state (0 never, 3 loading, 1 complete),
+  +1 u8 count, +4 entries of 8 bytes (room for 128, no bound check), +0x404 u32 the time (seconds) of the last 0x40
+  packet. FUN_100eb1b0(k) count (-1 unless state 1); FUN_100eb0b0 the request (refused within 5 s); sends go out only
+  while the table is in state 1 (FUN_100eb1e0).
+- c2s 0x0AA / 0x0AC (FUN_100eb230 / FUN_100eb270, 8 bytes): u16 item @4, u8 slot @6 (0 for a buy), u8 quantity @7.
+  0x0AB / 0x0AD: FUN_100eb100 / FUN_100eb130, header only; key 0, so the per-id send interval applies *(inf)*.
+- s2c 0x086 with no hour bit set leaves the close hour an uninitialised local (a retail bug). Stat 2 prints only when
+  Time & 0x7fffffff < 8 (group 0x10 0..7: Firesday .. Darksday). Any other Stat: close, no line. Talking again with
+  the window open prints 0x45, but the counts are already cleared, so an open list empties and the next Buy / Sell
+  asks again.
+- guildsho: input FUN_101ed730, per frame FUN_101ed6d0 (the 6.0 rule; no "second list" rule, that is 0x03C's only).
+  Its layout is shopmain's but for DAT head byte 13 (02 vs 00; meaning unknown).
+- Cell kinds (FUN_101f4bb0): 0x15 a half-size icon by id (FUN_1015bd70); 0x16 an icon from a pointer to an id-led
+  struct (FUN_1015bdb0); 0x17 FUN_101f7120; 0x19 an item name by id drawn by list vfunc 0x68 in (width - 8) *(inf:
+  fitted)*.
+- Functions: buy rows FUN_101ec920, tint FUN_101ec800, item info FUN_101ecb10, Enter FUN_101ecba0, quantity
+  LAB_101ecc70 (DAT_106636a4), confirm LAB_101eccc0; wanted rows FUN_101ecd10, Enter FUN_101ecf60, open FUN_101ed590
+  (the cursor back on the busy row), Escape FUN_101ed5b0; inventory rows FUN_101ed150, tint FUN_101ed090 (a set filter
+  leaves other ids out), Enter FUN_101ed300 (max = the slot's count, not capped by Max - Count or the stack), quantity
+  LAB_101ed390 (DAT_106636a8), confirm LAB_101ed3e0, Escape FUN_101ed430 (back to the wanted source; the list stays).
+  Result lines: LAB_101ec660 (0x082), LAB_101ec750 (0x084).
+- LSB (facts): Time = the bits open..close-1, bit 31 clear; GUILD_SHOP_HOLIDAYS is false, so Stat 2 never comes; a
+  list of <= 30 items is one packet with Stat 0x80 only (no reset, no 5 s timer: harmless, 0x086 cleared the count);
+  0x0AA refusals come as {0, 0, -1}, which prints 0x9b where retail would print 0x81; a partial buy never prints 0x83
+  (Trade is always positive); sell refusals {0, 0, -4} print 0x9b (retail 0x82 when full); a partial sale has Trade -1
+  ("You sell a/an ..." plus 0x84, whatever the count); at the close hour LSB sends Stat 1 with bit 31.
+- Open / inferred: the cursor reset when the list switches source and the focus back to guildsho; whether kind 0x19
+  squeezes or clips long names; retail's Trade refusal codes other than 0xfb / 0xfd; whether retail ever sends Stat 2
+  or bit 31 with Stat 0 (the client ignores bit 31 there).
 
 ## Shops: the requirement column (2026-10-24)
 
@@ -5411,7 +6521,7 @@ Full trace in `~/ffxi/lab/research/guild_shop_spec.md`; ours in client/shop.rs (
 
 ## NPC trade: the hand-over window (2026-10-24)
 
-Spec `~/ffxi/lab/research/trade_spec.md`; ours client/trade.rs.
+Ours client/trade.rs.
 - "menu    handover" (FUN_10139840; the delivery layout: slots 1..8, 9 OK, 10 Cancel, 11 gil) with the inventory picker
   at x 200 and money, title group 0xd 10 "Trade". Reached from the main menu's child 7 and the action menu's command
   0x14 (shown by the Talk rule: an NPC target). A monster target: 7031 0x1c; no target: 7031 0x1d; FUN_101cc0d0(0x43);
@@ -5426,9 +6536,26 @@ Spec `~/ffxi/lab/research/trade_spec.md`; ours client/trade.rs.
 - Not done: player-to-player trade (0x032..0x034 / 0x021..0x025, "menu    trade" + "menu    gift"), mouse in the
   hand-over, the target prompt when Trade is chosen with no target (FUN_10159440, group 0xe 0x2d).
 
+From the research notes:
+- Entry points end in FUN_1013fe70 -> FUN_1013fd30: main menu child 7 and the action menu's FUN_1012b880 cases 0x12 /
+  0x13 (ours 0x13 player, 0x14 NPC). No /trade command and no key function exist.
+- handover: DAT_105781f0, class FUN_10139840 (vtable 0x10333cb0), registry 0x10372c4c flags 0x00010202. On an NPC:
+  FUN_101cc0d0(0x43); its bit 0x40 is the costume refusal, group 7 0xb1 (FUN_101cc040, not traced). A PC on the
+  blacklist (FUN_100e0a50 *(inf)*) gets group 7 0xb3. Range FUN_10152490(e, mode): 0 = the squared 3D distance of the
+  models (+0xa0 -> +0x34..+0x3c) <= 36; 1 = FUN_10084100(a, b, 36.0) *(inf: the same rule, another metric)*.
+- Entries +0x14 + 4k {u16 ItemNo, u8 inventory slot, u8 count}, gil +0x3c; the cursor-child table 0x10371d60 (children
+  1..8 -> slots 1..8, 11 -> 0 gil); the cursor shape FUN_101c8c30(7) on child 11, 0xb elsewhere *(inf: the numctrl vs
+  slot cursor)*. Packing: gil first when > 0, then the filled slots 1..8; sent with key 0. The picker lists bag 0 only
+  *(inf)*. The event hook (vfunc 16 FUN_10139a00, flags & 0x838) closes it *(inf: an event start, zoning, K.O.)*; the
+  close hook closes money, the picker, itemctrl and moneyctr and clears the title.
+- LSB on 0x036: blocked in an event; invisible -> s2c 0x053 172; silently dropped: ItemNum not 1..9, a wrong id /
+  index, distance > 6.0, a Mog House visit, a content-disabled NPC, a mob not in Normal status, zero or excess counts,
+  empty or duplicate slots, a busy item. Items the script does not confirm are released at once (no packet). LSB
+  refuses neither equipped nor Ex items; the client greys equipped ones.
+
 ## Player trade (2026-10-24)
 
-Spec `~/ffxi/lab/research/trade_spec.md` section 3; ours client/trade.rs (P2p, World.p2p).
+Ours client/trade.rs (P2p, World.p2p).
 - Trade on a player (main menu child 7, action menu 0x13 on a player target): c2s 0x032 {UniqueNo, ActIndex} and
   group 10 0x14 "You offer to trade with %s." (mode 0x79); again within 60 s: comyn group 0xc 0x2d "Cancel trade
   transaction?" (Yes: 0x033 Cancel); after 60 s or out of reach a silent cancel; 7031 9 out of reach; nothing within
@@ -5445,9 +6572,40 @@ Spec `~/ffxi/lab/research/trade_spec.md` section 3; ours client/trade.rs (P2p, W
 - Not tested live (it needs a second account and window); unit tests cover the offer rule and the reset. Not done:
   the costume / blacklist checks, the Ex-by-augment and equipped-linkshell greys, mouse.
 
+From the research notes:
+- c2s (offsets with the header): 0x032 {UniqueNo u32 @4, ActIndex u16 @8}; 0x033 {Kind u32 @4, TradeCounter u16 @8 =
+  the last 0x023's (S+0x19518)}: 0 Start (key 0), 1 Cancel (1), 2 Make (3), 3 MakeCancell (2); 0x034 {ItemNum u32 @4
+  (0 clears), ItemNo u16 @8 (gil 0xffff), ItemIndex u8 @0xa, TradeIndex u8 @0xb}; an inventory slot already in another
+  trade slot -> group 9 0x80 "Already placed in trade slot." (mode 9) and nothing sent.
+- s2c: 0x021 {UniqueNo, ActIndex}; 0x022 {UniqueNo @4, Kind u32 @8, ActIndex @0xc}: 0 Start, 1 Cancell, 2 Make, 3
+  MakeCancell, 4 ErrEtc, 5 ErrNoSearchYou, 6 ErrNowReq, 7 ErrYouTrade, 8 ErrLogout, 9 End (1 and the errors clear our
+  list S+0x194c0); 0x023 {ItemNum u32 @4, TradeCounter @8 (LSB 0), ItemNo @0xa, ItemFreeSpaceNum @0xc (no reader),
+  TradeIndex @0xd, Attr[24] @0xe the extdata}, kept at S+0x19308 + idx x 0x2c; 0x025 {ItemNum @4, ItemNo @8,
+  TradeIndex @0xa, ItemIndex @0xb}. LSB's empty slot is ItemNo 0xffff with ItemNum 0 (retail's not known; the client
+  draws 0 and 0xffff as empty).
+- Objects: the trade object DAT_10578484 (FUN_10151040, vtable 0x10335060); "menu    trade" registry 0x10372a3c flags
+  0x00030002; "menu    gift" DAT_105781e8 flags 0x00010002; the picker source DAT_10578488. State +0xc0: 0 idle, 1
+  request pending, 3 trading, 4 our OK, 5 cancelled (closes next frame), 6 close; +0xc4 the partner's (4 OK); the
+  partner +0x6c / +0x70 / +0x7c, the pending requester +0x74 / +0x78 / +0x9c, times +0x20 request, +0x24 prompt, +0x28
+  cancel (FUN_100dc130 *(inf: seconds)*). An incoming 0x021 counts only while idle or pending; a Start is refused
+  (0x033 Cancel) also while FUN_10160740(8) holds *(inf: the UI locked)*.
+- Draws: our name at (+4, +5), orange 0x80804020 in state 4; the gift's gil at the top right *(inf: x + w - 14, y +
+  8)*; title slot 2 group 0xd 2 (reads "Items"; to verify live). The key codes 1 / 2 / 8 and the edge flag +0x5a are
+  inferred.
+- Picker greys (FUN_10150e60): extdata Ex (FUN_101cb960 / FUN_101cba20 & 2, augment tables *(inf)*), equipped items,
+  item flag 0x4000, the linkshell in LS slot 1 / 2; Rare is not greyed. The action menu shows 0x13 unless our +0x1d0
+  bit 0x400 (FUN_101cc350(0, 0)) *(inf: a costume or a non-human form)* or the target is an NPC.
+- LSB: 0x032 is refused (0x022 ErrYouTrade to us) in prison, while either side trades, or with a fresh (< 60 s)
+  unanswered invite on the target; blockaid: s2c 0x053 225 to us, 226 to them, then 7; Monstrosity: ErrEtc or 0x009
+  28; a repeated request is ignored. Start needs 6.0 range and the same Mog House. A failed commit (free slots, gil
+  overflow, a Rare already held, range) sends 0x009 107 and Cancell to both. 0x034: a pearl without its linkshell
+  equipped -> 0x009 108; Ex, a wrong id, an excess count, a Rare the partner holds, one slot staged twice -> an empty
+  echo; staged items get 0x01F LockFlg NoSelect. Zoning aborts (Cancell to the partner); LSB has no distance watch.
+- "menu    trddummy" (106 x 14, keytops3 0) sits in another table and neither path uses it *(not traced)*.
+
 ## Message formatter (FA 40 codes) and /clock (2026-10-24)
 
-Spec `~/ffxi/lab/research/msgfmt_spec.md`; ours dat/msgfmt.rs.
+Ours dat/msgfmt.rs; more detail at the end of this entry.
 - FUN_10153150 / FUN_10153180 -> FUN_10153a40 -> FUN_10153310 over group 8 / 10 strings: Shift-JIS pairs copied,
   `FA 40 <code>` interpreted: 0x82 choice (index arg, u14 count, end, offset table from after the code), 0x83 signed
   compare, 0x84..0x8a jumps (always / eq / !eq / gt / lt / ge / le, signed byte), 0x8b decimal, 0x8c string arg
@@ -5468,9 +6626,63 @@ Spec `~/ffxi/lab/research/msgfmt_spec.md`; ours dat/msgfmt.rs.
 - Not done: event text codes 7f ab / 7f ac (dates through these builders), /playtime (g10 0x2e / 0x2f), the other
   callers (party join, merit prompts, auction house, level sync, /sea counts).
 
+From the research notes:
+- Files (English): group 0 = 63, group 8 = 48, group 10 = 50. FUN_10153100 reads DAT_10578548[group]; only slots 0, 8
+  and 10 are filled (FUN_10152ff0 in FUN_10153af0 / FUN_10153b30 / FUN_10153c10). At most 16 string arguments.
+- XISTRING table: entry i is 12 bytes at 0x38 + 12i: u32 offset, u16 length, i16 argc (+6), u32 0. FUN_101530c0: a
+  header i16 @0x0a below 2 is an older layout (4-byte entries, i16 offsets); every current file is 2.
+- Interpreter edge cases (FUN_10153310): FUN_10153130 takes lead 0xFA with any valid trail; every string uses FA 40.
+  0x81: id = s[p] & 0x7f, its second byte ignored, args by group 0's argc for that id. 0x82: the offsets count from
+  after the code; an index outside 0..cnt goes to end. 0x8d: end is per call (no nested choices). Unknown codes are
+  skipped, printing nothing; a malformed argument reads nothing and leaves the value. Numbers (FUN_10153230): decimal,
+  no width, pad or sign (a negative int prints one wrong character; never in practice). A piece that does not fit is
+  dropped (return -1, callers ignore it).
+- 0x8e in English (*(DAT_10456a28 + 8) == 1): item = FUN_1015bd40(obj) (name cache DAT_10621808); count 1: "a " / "an
+  " (FUN_102589b0: first character in "aieuoAIUEO") + the vt+8 name unless noart; count != 1: vt+0x10 (vt+8 / vt+0x10
+  = the singular / plural log names, inferred). Japanese vt+4; German / French their grammar engines (FUN_10259480 /
+  FUN_1025afd0).
+- Codes used in the English data: 82 83 84 85 86 89 8b 8c 8d 8e; 81 87 88 8a nowhere. Group 0 (7 strings, reachable
+  only by 0x81): "%d hour(s)", "minute(s)", "second(s)", "day(s)", his / her / their, a 2-digit pad, the month
+  abbreviation.
+- Group 10 date / time rows (i1.. the ints, str = strs[0]): 0x3a "Earth: %s"; 0x3b i1, str i2 ("2026, Oct. 23"); 0x3c
+  str i2, i1 ("Oct. 23, 2026"); 0x3d i2 str, i1 ("23 Oct., 2026"); 0x3e i1:pad2(i3):pad2(i4) (24 h, i2 unused;
+  "19:45:12"); 0x3f 12 h with am / pm ("7:45:12pm", (0, 12, 5, 9) -> "12:05:09am"); 0x40 pad2(i1):pad2(i3); 0x41 12 h
+  H:MM am / pm; 0x42 the /clock line 1; 0x43 / 0x44 / 0x45 the Vana'diel date Y/M/D, M/D/Y, D/M/Y; 0x46 = 0x47 the
+  Vana'diel time i1:pad2(i2); 0x48 / 0x49 / 0x4a long-date blanks; 0x4b / 0x4c "--:--:--" / "--/--/--"; 0x4d / 0x4e /
+  0x4f the short Earth date (i1 = year % 100); 0x60 = 0x61 the month abbreviations by choice (0 "dummy", 1..12 "Jan."
+  .. "Dec.", "May" without a dot). pad2(x) compares x with 10 and prints "0" first when x < 10.
+- Format keys (DAT_10456a28 + 0x18): bits 1..2 the date key (config 0x95: (v << 1) & 6), bit 0 the 12-hour key (0x96:
+  v & 1); the only writer is the config callback LAB_101aa650; init clears bits 0..6 (FUN_10015760). Both are kind 2
+  (PlayOnline-wide, keys "LPOL1WDY" / "LPOL1WSC"); where retail gets them is not traced (without PlayOnline they stay
+  0). A date key of 3 has no row: FUN_101c8fd0 prints blank literals (0x1037d4c8 / 0x1037d4d4 / 0x1037d4bc);
+  FUN_101c92b0 would read a NULL row (a retail crash; ours prints the blanks).
+- FUN_101c8fd0: FUN_101c8d10 = MSVC localtime (DST) after folding times past 0x7fe8177f back by 28-year steps
+  (0x34aadc80 s), adding 28 n to the year; unix 0: blanks. hour12 = hour % 12, 0 -> 12. flags 4 picks row 0x61 for the
+  month. FUN_101c92b0 with raw == 0 turns an Earth time into Vana'diel seconds (t += FUN_101039e0() - time(), clamped
+  at 0).
+- Example (keys 0 / 0): Earth 2026-10-23 19:45:12 CDT (unix 1792802712, Vana'diel t 782991912) prints "Vana'diel:
+  1515/5/1, Firesday, 3:50" / "Waxing Crescent (19%)" / "Earth: 2026, Oct. 23 19:45:12"; with 0x95 = 1 and 0x96 = 1
+  "5/1/1515" and "Oct. 23, 2026 7:45:12pm"; with 0x95 = 2 "1/5/1515" and "23 Oct., 2026 19:45:12". Moon percent
+  checks: d 0 -> 10, 3 -> 2, 4 -> 0, 46 -> 100, 47 -> 98, 83 -> 12.
+- /clock's toggle: argc (DAT_1047d490) 1 -> FUN_1021ee40 (flip), 2 with "on" / "off" (exact) -> FUN_1021ee50(1 / 0),
+  else no change; the lines print in every case. The compass clock object DAT_10666e84 (FUN_1021eeb0; +0x2e = 1 at
+  creation; its draw FUN_102201f0 skips the time text, the weekday orb (table 0x10385ee8) and the weather badges
+  (0x10385ef8) when it is 0) is made by FUN_102217a0 at each world set-up (FUN_10010d20) and freed by FUN_100108b0:
+  not saved *(inf: once per entry into the game, not per zone)*.
+- Callers (31: 9 x FUN_10153150, 22 x FUN_10153180): /playtime FUN_1007cab0 (g10 0x2e / 0x2f), /clock FUN_1007cba0,
+  party join requests FUN_1007d9c0 / FUN_100a23a0 (0x76..0x78), the event text expander FUN_100c1650 (7f ab n Earth =
+  FUN_101c8fd0(work[n] + 1009810800, 1); 7f ac n Vana'diel = FUN_101c92b0(work[n], 1, 1)), the merit / job point /
+  alter ego point prompts FUN_10149ad0 / FUN_1014b580 / FUN_1014c0f0 (0x50 / 0x51, 0x74, 0x7b), the auction prompts
+  FUN_101d73a0 / FUN_101d7490 / FUN_101d9330 (0x1c..0x1f), the linkshell removal FUN_101e6620 (0x36), the invites
+  FUN_10203a30 (0x03 / 0x04), level sync FUN_10204af0 / FUN_10204e50 (0x71 / 0x72), the /sea counts FUN_1020a9d0 (0x05
+  / 0x06 / 0x35), linking a character to a handle FUN_1023f560 (g8 0x4e). FUN_101c8fd0 also serves the item info
+  FUN_1013d790, the auction history FUN_101d9000, list cells FUN_101f4bb0 (types 3 / 4 / 0x47; type 5 Vana'diel),
+  msglist FUN_102007c0, the lobby FUN_1023c560, the log FUN_10128ce0 and FUN_10080350 (unidentified).
+- Not traced: FUN_10080350's message source and FUN_10128ce0's flags; FUN_101f4bb0's lists with date cells.
+
 ## Engaged state: the battle set, the gauge window, the lock-on cone (2026-10-24)
 
-Spec `~/ffxi/lab/research/combat_mode_spec.md` (30261006 addresses).
+30261006 addresses.
 - No separate battle mode: the window manager update (FUN_1015ef60) watches our applied status; turning 1 outside an
   event runs FUN_1015f3e0(0x20): the sub-target prompt is cancelled, every window without the battle keep bit (B bit 2
   in the registry) closes (main menu, item / magic / ability lists, config, shops, ...), then the flag-0x400 windows
@@ -5515,9 +6727,46 @@ Spec `~/ffxi/lab/research/combat_mode_spec.md` (30261006 addresses).
 - Live: Lnxcsfix on Wild Rabbits in East Ronfaure: the battle menu, gauge and "Battle Mode" bar on engage, Escape kept
   the menu, Down moved it, Magic / Abilities opened over it, all closed at the kill.
 
+From the research notes:
+- FUN_1015f3e0 walks the registry's 370 rows by two words, A (the flags u32 @0x24) and B (the u32 @0x28: state byte,
+  layer, group; bit 2 = kept in battle). 0x20 (enter): FUN_10157620 leaves sub-target mode; every open window with B
+  bit 2 clear, or with A 0x400000, closes (FUN_1015e910); every A 0x400 window opens focused (FUN_1015e350(name, 1,
+  1)), A 0x4000000 only in Monstrosity (FUN_10097d50), A 0x8000000 only outside it; then FUN_101594f0 clears a
+  pending sub-target prompt (its +0xc8 callback called with (0, 0)). 0x40 (leave): every A 0x800 window closes, the
+  same gates. Event start / end run 0x800 / 0x1000 (0x1000 closes only A 0x1000000 windows).
+- Rows (A, B): gaugewin 0x00000c03, 0x00100201; playermo 0x08011c02, 0x00040221; mp_pmode 0x04011c02, 0x00040221;
+  targetwi 0x02002401, 0x00020225; magselec 0x20001a00, 0x00080201.
+- Kept on entering battle (52): inline, keypad*, keyselec, fep, feppalle, helpwind, titlewin, logwindo, logwin2,
+  rem4line, rem4li2, spoolmsg, splmsg2, query, gmtell, casttime, eventtim, cnttime, holdtime, titlehan, targetwi,
+  partywin, raid1, raid2, link5, lscswin, link6, arealist, bluinven, bluehelp, chocobor, racecard, netstat,
+  ut_point, map0, mapframe, mapv3, mapv2, scanlist, mapscan, maplist, passinpu, ranking, evitem, buff, netwait,
+  netbar, ok, chdummy. No sound on this path *(inferred: no SE call in FUN_1015f3e0)*.
+- playermo is object DAT_10578170 (FUN_1012ab20, vtable 0x10333318): open FUN_1012ada0 (refuses with no player or
+  target system, in an event, or dead; clears the Call for help toggle DAT_10578174), close FUN_1012aeb0, draw
+  FUN_1012b3c0, message FUN_1012bd10, focus FUN_1012ad40 (target system +0x74 bit 0), update FUN_1012b4b0. Rows:
+  table 0x1036f390 (8 x 13 bytes, 0x1c ends) through FUN_1012b2d0 and the filter FUN_1012af30; layout 6 is `12 08 07
+  19 09 03 0c 18 0b`. A row-count change swaps the actionmN window and keeps the cursor index (FUN_10118db0). Check
+  (0xb) needs a target without +0x1d0 bit 0x100 and !FUN_1008e150().
+- Command table 0x1036f240 (12 bytes: u16 sprite, u8 library 0 keytops3 / 1 windowps, u16 help id, the Right
+  handler @8): 2 / 3 FUN_1012acc0, 4 / 5 FUN_1012aae0 (chatctrl), 8 FUN_1012ab00 (magselec) *(inferred: the ">" is
+  part of keytops3 sprites 7 / 22)*.
+- gaugewin's handler DAT_105781ec (vtable 0x103361d8): open FUN_10139350 takes the position once (FUN_10118f70 into
+  +0x1c / +0x1e) and sets the previous TP +0x2c = 0; sprites framesus 8 (library slot 4) and windowps 97 (slot 1).
+  Data: our party record FUN_100e8b80(0): +0x20 HP, +0x24 MP, +0x28 TP, +0x2c HP %, +0x2d MP %. The numbers use the
+  shape font (fontshp; FUN_101c9b50 draws right to left, so x is the right edge). The pulse's alpha byte wraps while
+  p < 1 (a short bright flash). The update runs once a call (a frame), not by ticks *(inferred: steps meant for
+  2-tick frames)*. The cast bar's test is FUN_1011ba40 on DAT_105781ec (FUN_1012c0f0); the palette shift also needs
+  DAT_106218ee == 0 (always when it is 1; its source not traced).
+- Lock-on: near / far use the current focal length (FUN_100145d0, config 0x49): near = (7.2 + 0.125 d + s) f /
+  1000, far = (8.6 + 0.125 d + s) f / 1000, s = target bounds size x _DAT_10456dac (0 in normal lock). The cone clamp
+  is immediate (FUN_10032600), not eased; the cone is x1.5 (_DAT_1032a3ac) when _DAT_10456dac > 0. Lock modes
+  (target system +0x5c & 3, FUN_10157660): 1 locked, 2 locked with 5.0 (the x1.5 cone, +5 x bounds distance), 0
+  free; no PC caller passes 2 *(inferred: unused on PC)*.
+- Not traced: FUN_1013eff0 *(inferred: the pool holds items)*, DAT_106218ee's source, FUN_1015e6e0's exact effect
+  under a sub-target prompt (hide or dim), whether a reopened playermo keeps its cursor.
+
 ## UI sounds and window animations along the menu chain (2026-10-24)
 
-Audit `~/ffxi/lab/research/sound_audit.md`.
 - Retail's generic window event method FUN_10118260 gives every window cursor 0001 (when the cursor child changed),
   Enter 0002 (0004 on a disabled child) and Escape 0003, unless its open hook clears one (+0x84 / +0x85 / +0x86, set
   by the constructor). SE functions: 10037b30 0001, b90 0002, bf0 0003, c50 0004, d70 0009 (target from none, sub-
@@ -5537,9 +6786,39 @@ Audit `~/ffxi/lab/research/sound_audit.md`.
   (replay_on_change; retail's close of the old contents is not drawn).
 - Live: battle menu -> Abilities -> Job Abilities -> Escape: each step's close and open zooms seen.
 
+From the research notes:
+- Every SE function looks a type-0x3d SeSep up by its 4-character name (FUN_10072290) and plays it centred
+  (FUN_10036f00(0x40, level)); 0x10037cb0..0x10037d6f have no callers *(inferred: 0005..0008, unused)*. FUN_10038070(n)
+  plays the alarm window's (FUN_10205cc0) sound from table DAT_1032a8e4[n]; FUN_10037f50 0015 also serves the map's
+  4-state cycle FUN_101fdbf0 (not identified); FUN_10038010 0039 when the counter DAT_104df908 grows with config 0x48
+  on (FUN_102010a0 / FUN_102010e0; *inferred: a mail / delivery notice*).
+- FUN_10118260 also counts a mouse hover onto a child (event 9) as a cursor move; Escape closes unless registry flag
+  2. The window constructor sets +0x84 / +0x85 / +0x86 = 1. Open hooks that clear one: menuwind / socialme +0x86,
+  playermo +0x84, the magic / ability lists +0x86, delivery +0x86, query (event choices) +0x85, fulllog +0x85, loot
+  +0x85, itmsort2 / itmsortw +0x84, mapv3 +0x86, alarm +0x86, flistmai +0x86, rem4line / spool +0x84 and +0x86, the
+  lobby's chmk* and dbnamese all three; the config pages (conf2win, conf3win, conf6win, textcol*, conf11s, k*assign)
+  toggle +0x85 per row. All others (mgcmenu, abimenu, abiselec, commenu, inventor, equip, mogdoor, map0, comyn /
+  resyn*, mcr1pall / mcr2pall, dead, ...) keep all three. Holder vtables: [1] the open hook, [6] the event handler,
+  [10] per frame (324 windows; loby1win / loby2win have no constructor).
+- Main menu: the open hook FUN_10140090 plays 0014; the rows (FUN_10140400 case 5) 0002; Trade 0004 when FUN_1013fe70
+  refuses; row 9 0004 + 0002 when refused; the other page's open hook FUN_1014e720 0014; the social rows FUN_1014e7b0
+  0002 (Mog row 4: 0004 + 0002 when refused). The action menu's 0011 (FUN_101585f0 / FUN_10158db0) only when it was
+  not open (+0x6e == 0); FUN_1012b880's Trade refusals 0004 (cases 0x12 / 0x13).
+- Others: the item list base FUN_101f6c70 0001 on every row move, scrolling included; iuse FUN_101f33a0 0004; storage
+  FUN_101f3e60 0013; Manual FUN_101f0b30 0002; recycle FUN_101db690 0002 / 0004 / 0013; equipment FUN_101322b0 0004 /
+  0013, its candidate list FUN_10131810 0001; the paged lists FUN_10222150 0001; magic FUN_1022ca30 / ability
+  FUN_10224460 0013 / 0004 / 0002; emote FUN_10225c70, mount FUN_102269a0; sort windows FUN_1022c290 / FUN_10223cf0
+  0013; yes / no prompts (comyn, resyn*, merityn, shopbuy, shopsell) FUN_102110c0 0004, FUN_10211340 0003,
+  FUN_10211370 0002; fep FUN_1018f3a0 0001, feppalle FUN_1019f5b0 0002 / 0004; the full log FUN_10138230 0001 /
+  0002 / 0004; the macro editor (FUN_101a4950, FUN_101a5010, FUN_101a5690, FUN_101a6180, FUN_101a6350) 0013 (+0004);
+  mapscan / mapframe FUN_101fbb30 0004; mogdoor FUN_101d6540 0004 on refused rows. The text engine FUN_101b00b0 also
+  plays 0004 for over-long input and 0001 for caret / candidate moves (passinpu uses it; the chat line *inferred*).
+- Not traced: the number windows (quantity / gil; delivery FUN_1012ed50 / FUN_1012edd0 / FUN_1012ee50 0002 / 0004,
+  the trade gil window); FUN_100a3ac0 case 0xb, which buzzes 0004 for a message with byte +6 == 0xf6 (the packet not
+  identified); FUN_1007e630 / FUN_1007e7a0's Mog House exit / layout refusals 0004 *(inferred)*.
+
 ## Skill actions: holds, op reactions, messages, the death after the hits (2026-10-24)
 
-Spec `~/ffxi/lab/research/ws_reaction_spec.md`.
 - The 0x028 handler plays no reaction, message or death for categories 3..6, 0xb, 0xd..0xf: FUN_100a9230 raises the
   busy counter (+0x11c) of the caster and every target until the effect file's "main" starts (FUN_100a9500 /
   FUN_100a9610; 1800-tick safety), and main's own ops drive the rest: op 0x20 holds actor2 for dur x speed (its
@@ -5557,9 +6836,37 @@ Spec `~/ffxi/lab/research/ws_reaction_spec.md`.
 - The action menu's key arm takes only arrows / Enter / Escape (it swallowed Space, so the chat line could not open
   while the battle menu was up).
 
+From the research notes:
+- Fields: entity +0x16c the server status, +0x170 the applied one (motions, the death and the target drop read it),
+  +0x11c the busy counter (FUN_100a4140 +1 / FUN_100a4160 -1; +0x11e the 1800-tick safety that zeroes it, in
+  FUN_1008e9a0), actor +0x80 the no-reaction counter, actor +0x102 knockback running. While busy, +0x16c is not
+  copied to +0x170.
+- 0x028 dispatch (handler 0x1009e400): categories 1 / 2 -> actor vt+0x2b4 (scheduler "atk0" / "shlg": the reaction
+  op 0x21 in the target's `damg`, the message op 0x2b in `dada` at hit + 4, the hold op 0x20 in the swing); 3..6, 0xb,
+  0xd..0xf -> vt+0x2c0 = FUN_100a9230; 7..10, 0xc -> vt+0x298(cmd_arg, self).
+- FUN_100a9230: a 0x34-byte context (caster, first target, action, file id = base + record 0's animation); busy raised
+  by FUN_1018c890 (caster) and FUN_1018c8c0(i) (target i). A skeleton caster with categories 3 / 14 / 15 loads the
+  per-race files (FUN_100d25e0(anim, 0 / 1 / 2)); a polling task (vtable 0x1032e7c0) waits for every model (vt+0x1e4),
+  starts "main" (FUN_10056c70) and deletes itself. Other casters: LAB_100a8fb0 starts main and drops the counts at
+  0x100a910c.
+- Combo, Hume M (33243 = 33227 + 16), length 140: t0 op 0x20 dur 100, op 0x59 dur 115, op 0x2e 115; t40 op 0x25
+  (amount 1.0, rate 1.0, count 2, blend-in 10, fade 30); t57 op 0x25 (blend 5, fade 30); t80 op 0x25 (blend 1, fade
+  42); t100 `mdam`. 33228: hits by local `hit1` / `hit2` (amount 0.5 / 0.7, count 1, side 1 / 2), mdam t80; 33229: op
+  0x20 90, a hit at t66, mdam t85; 33259: op 0x20 140, hits t44 / t103, mdam t130. Fire (2944): op 0x20 110, op 0x3d
+  {op 0x25 side 1, op 0x25 side 2} op 0x3e (a random front / back pick), mdam t50. Mob TP 3910: op 0x25 and op 0x5e
+  at t63.
+- Op 0x25 / 0x21 are skipped while the reactor's knockback runs (FUN_1005e5f0). FUN_100cdd60 gives none for a dead
+  reactor (applied 2 / 3), level 0, riding, or +0x80 != 0; level > 3 (or no entity) -> 3. Op 0x25 ignores result.miss:
+  a WS miss has hitDistortion 0 (LSB sets it only from damage), so no motion.
+- Messages: FUN_1009e090(action, idx, which): 0 main (+0x18), 1 proc (+0x28), 2 react (+0x30); op 0x2b stores the
+  printed index at action +10. Action freed (FUN_1018cea0, refcount 0) -> FUN_1018c620.
+- LSB's kill: the 0x028 (result info bit 0, Defeated) and, in the same zone tick, the mob's 0x00E status 3; the 0x029
+  "defeats" line later (after m_DropItemTime). `dead` (orc 1300): op 05 `ded?` (u16 @6 111), `vded` at 60, op 0x78, op
+  05 `cor0` at 111.
+
 ## UI sounds: the rest of the audit (2026-10-24)
 
-Spec `~/ffxi/lab/research/sound_audit.md`.
+More in "UI sounds and window animations along the menu chain".
 - Event choices (FUN_1014e410): SE 0001 when Up / Down or a click moves the cursor, 0002 on Enter.
 - NPC talk (FUN_10158db0): SE 0009 once the talk packet went out.
 - Chat line (text engine FUN_101b00b0): Enter 0002, Escape 0003. The full log's Escape 0003.
@@ -5569,7 +6876,7 @@ Spec `~/ffxi/lab/research/sound_audit.md`.
 
 ## Skillchains: the burst file, the proc message, load holds by count (2026-10-24)
 
-Spec `~/ffxi/lab/research/skillchain_spec.md`.
+More at the end of this entry.
 - FUN_1006b2b0 writes 0x80 over the first op of DAT 0's global `proc` (op 01 on disk) at start-up; 2147 skill files
   call `proc` next to `mdam`. Ours patches the parsed ops (fx/tasks.rs sched_ops).
 - Op 0x80 (FUN_10057fb0, FUN_100a8e30): record 0's proc kind -> DAT_1035bc3c[kind] (18 x u16: 0, 479, 480, 475, 476,
@@ -5586,9 +6893,48 @@ Spec `~/ffxi/lab/research/skillchain_spec.md`.
 - Grammar kind 0x14 (FUN_1021d650 -> FUN_1021d8e0): field 1 of the status name entry (English adjective: "stunned",
   "KO'd"); kind 0x13 is field 0 (the noun). Message 204 "is no longer <adj>." printed an empty name before.
 
+From the research notes:
+- FUN_1006b2b0 (engine init): FUN_10072290(&r, 7, 'proc') finds DAT 0's global type-7 scheduler and writes 0x80 over the
+  first byte of its op stream (resource +0x74, relocated in FUN_10056a50). On disk `proc` is op 01 (len 2, wait 0), so
+  no file holds an op 0x80. Its 2147 callers: every WS main (e.g. Shoulder Tackle 33244: `mdam` and `proc` at t80), the
+  elemental nukes 2944..2973, blue magic and abilities 3018..4542, pet skills 49392.., mob TP moves 50196..61745 and
+  86825..97283; WS, magic skillchains (Chain Affinity, Immanence) and mob / pet / trust skillchains all share it.
+- Op 0x80 (FUN_10057fb0 case 0x80, asm 0x1005ba9a..0x1005baf0): with the task's action (+0x90) and record 0's proc kind
+  (FUN_1005e330(0) + 0x18 = record +0x20) != 0: clone = FUN_1018cef0(action) (the same header and 0x34-byte records),
+  FUN_1005e380(clone) marks every record printed, then FUN_100a8e30(clone) with ECX = FUN_10062770 (the task's actor1,
+  doll-resolved).
+- FUN_100a8e30: FUN_100a96b0 (a target exists, and not (caster vt+0x304 false and entity +0xb2 & 0x20)); the target is
+  record 0 (FUN_1018ca20; the clone's +3 is 0); k < 0x12 and DAT_1035bc3c[k] != 0, else the clone is freed
+  (FUN_1018c620); a 0x34-byte context as FUN_100a9230's (name `main`, +0x26 = 0: no spell recast); busy +1 on the caster
+  and every record target (FUN_1018c890 / FUN_1018c8c0 + FUN_100a4140) until main starts; file 0xaf0 + DAT_1035bc3c[k]
+  (FUN_100730e0) started by LAB_100a8fb0, the magic loader. Speed: that loader's rule (0.7 with several records outside
+  14 / 15) *(inf)*.
+- Record layout (parser FUN_1018ca40; 0x34 bytes): +0 actor, +4 id, +8 result: +8 miss, +0xc kind, +0xe animation, +0x10
+  info, +0x12 scale, +0x14 value, +0x18 message, +0x1c bit, +0x20 proc kind (u16), +0x22 proc info, +0x24 proc value,
+  +0x28 proc message, +0x2a react kind, +0x2c info, +0x2e value, +0x30 message.
+- Kinds (= LSB ActionProcSkillChain) and files: 1 Light 3279, 2 Darkness 3280, 3 Gravitation 3275, 4 Fragmentation 3276,
+  5 Distortion 3277, 6 Fusion 3278, 7 Compression 3267, 8 Liquefaction 3269, 9 Induration 3274, 10 Reverberation 3271,
+  11 Transfixion 3272, 12 Scission 3273, 13 Detonation 3270, 14 Impaction 3268, 15 Radiance 3813, 16 Umbra 3814; 0 and
+  17 none. 67507 is a copy of 3279's main that the table does not use (purpose unknown).
+- Burst mains: 3279 Light (len 175) t0 op 20 dur 117, generators `pk00`.., sound 9005, t118 op 25 (amount 1, rate 1,
+  count 2, blend 8, fade 42), t144 op 03 `mprc`; 3268 Impaction (len 72) t0 op 20 dur 64, t7 op 0b sound 9008, t39 op 25
+  (blend 2, fade 10), t65 op 03 `mprc`. So the line prints about 1.1 s (Impaction) or 2.4 s (Light) after the WS damage
+  line.
+- DAT 0 `mprc` = op 71 1: FUN_1009e090(action, action+10, 1), work [cmd_arg, value, proc value, react value, bit]; the
+  clone's +10 is 0 (FUN_1018c690), so record 0's proc message. Op 0x71 sites: `mprc` / `wapr` (1), `sb00..sb09` / `dcnt`
+  (2), and a few WS mains with a direct op 71 1 (33431..33440 and their race copies).
+- LSB (action.cpp recordSkillchain): proc value = the skillchain damage, proc message 287 + kind (288..301) or 384 +
+  kind (385..398 when the target absorbs; value -dmg). A closer counts only more than 3 s after the opener and within
+  the 10 s status; who opened it is not checked. Text (file 7027): 0x120.. "Skillchain: Light." and a damage line, by
+  kind; 0x181..0x18e "... recovers N hit points!"; Radiance / Umbra 0x2ff / 0x300 (absorbed 0x301 / 0x302), which LSB
+  never produces (Light II / Darkness II map to Light / Darkness).
+- Magic bursts: LSB sends them as the spell's main message (252 "Magic Burst! ...", 274 drain, 268 / 271 enfeebles; file
+  7027 0x109 / 0x10d / 0x110, 0x2ed..0x2f1) with the proc empty, so they print at `mdam` like any main line; no client
+  effect keyed on them was found *(inf: from absence)*. Where the client adds its prefix for the 0x028 info modifier
+  0x04 (LSB MagicBurst: Swipe / Lunge) was not traced.
+
 ## On-screen damage numbers (config 0x13) (2026-10-24)
 
-Spec `~/ffxi/lab/research/damage_display_spec.md`.
 - FUN_100ad8f0: kind table 0x1035cae0 (1024 bytes; 0 none, 1 damage, 2 recovery, 3 miss), config 0x13 (0 Log, 1 Both,
   2 Screen). A kinded message is off the screen in Log mode and off the log in Screen mode; a kindless one is never on
   screen. Chat Filters (0x32 / 0x33) drop both. 0x029 / 0x02D only ever ask for the log channel (no numbers; their
@@ -5607,9 +6953,62 @@ Spec `~/ffxi/lab/research/damage_display_spec.md`.
 - A zone change drops queued swings, messages and holds (combat Pending / rounds / holds / loads): a melee line
   printed after zoning with its target gone ("Lnxtest misses the .").
 
+From the research notes:
+- DAT 27 (ROM/0/27.DAT; FUN_10072ed0(0) loads it at engine start with DAT 0 and 52743): schedulers `damv` / `curv` /
+  `misv`, 60 ticks each, op 0x02: damv t0 dam0, t2 dam1; curv t0 cur0, t2 cur1; misv t0 mis0 and mis1. The generators:
+  attach word 0x00010003 (mode 0x13), life 0, interval 100 (one element per task *(inf: the task end stops them)*),
+  update op 0x11 0x3fd (follow); emission op 0x01 kind 0x5c, name 'damv' (no resource), flags 0x1 (billboard).
+- Per generator (life, pos y with y down, op 0x72 bias, op 0x16 colour, op 0x1e blend, keys): dam0 48, 0.33, -1.5, 80
+  80 80 (neutral: becomes the message colour), 0x44, pos c0py, alpha c0ca, scale d0sx / d0sy; dam1 48, 0.33, -1.2, 96
+  26 26 (red), 0x48 additive, c0py, c1ca, scale 1.4 / 1.6 x k001 / k002; cur0 48, 0.44, -1.5, neutral, 0x44, c0py,
+  c0ca, c0sx / c0sy; cur1 48, 0.44, -1.2, 26 3c aa (blue), 0x48, c0py, c1ca, c1sx / c1sy; mis0 46, 0.40, -1.5, 7a 8c
+  7a (fixed, not the message colour), 0x44, m0py, c0ca, rot z m1rz, op 0x3c mis1; mis1 48, 0.398, -1.2, 46 0f 64
+  (purple), 0x48, m0py, c1ca, op 0x45. dam2 / cur2 / mis2 are the same with D3m 'hit8' meshes; nothing starts them
+  *(inf: leftovers)*.
+- Element update stream: 0x0e (t = 1 - life / max), 0x10 pos.y = base + key(t), [0x14 rot.z], 0x15 / 0x16 scale x / y
+  = key(t), 0x1b alpha = key(t) x 255. Keys (t, v), linear: c0py (0, 0) (.1357, -.094) (.3630, .026) (.4865, 0) (1, 0)
+  (up 0.094 by tick 6.5, at rest from 23.3); m0py the same with .06 / -.02 (the Miss drops first); c0ca (0, 0) (.0671,
+  .5) (.6090, .5) (1, 0) (in by tick 3.2, held to 29.2, out by 48); c1ca (0, 0) (.1254, .62) (.2052, .36) (.3305, .18)
+  (.5340, .18) (1, 0). The scale keys peak at 1.3..2.8 early and settle at 1 (k001 / m1sx end at 2.24, k002 / c1sy /
+  m1sy at 0); m1rz turns -0.04..0.01.
+- Anchor: attach mode 0x13 (FUN_1003be10 case 0x13) = the target's (a2's) attach point 2 with y + 0.18 (DAT_1032ab24):
+  a number starts 0.51 below the plate point (y down) and bobs by c0py. Op 0x72: elem+0x128 = the value x the target's
+  model size for skeleton actors.
+- FUN_10041af0's visibility is the name-plate test FUN_100830c0: hidden when view z >= 0 or w < 1, when zi =
+  trunc(z_ndc x 4096) > 4100, on the local player in first person (DAT_10487f80), with actor +0xb2 != 0, or with
+  DAT_104568fc+8 == 0 *(inf: the 2D / world-UI switch)*; scale 1 below zi 4020, else (4100 - zi) / 80.
+- FUN_10041c20 transforms only the element's view-space origin, so its scale and rotation keys never reach the glyphs.
+  Open: check retail footage for whether the glow copies really draw at the digits' size (most of dam1 then hides
+  under dam0) and where the child mis1 sits. Then view z + 1.0 (DAT_1032961c, toward the camera), drawn only for 0 <=
+  z_ndc < 1; screen x = (x + 1)(W >> 1), y = (1 - y)(H >> 1), both - 0.5; at most 16 characters, those below ' ' zero
+  size; glyph size = corners (x1 - x0 - 1, y2 - y0 - 1); x starts at -(total / 2) (integer); quads [x, x + w] x [-h/2,
+  h/2]; FVF 0x144, rhw 1, z = z_ndc; the 0.1 argument is unused *(inf)*.
+- Stages (state block DAT_10352d30): stage 0 colour and alpha MODULATE2X(diffuse, texture), stage 1 colour
+  MODULATE2X(current, TFACTOR), alpha MODULATE4X(current, TFACTOR): rgb = sat(sat(2 c.rgb tex.rgb) x 2 tf.rgb), a =
+  sat(sat(2 c.a tex.a) x 4 tf.a); during a fade the alpha goes as 8 A² tex.a.
+- Glyphs ("menu    dmgnum" on "font    font"): digits 7..12 x 18 corners (drawn 6..11 x 16 units), ':' = sprite 10,
+  the "Miss!" art, 34 x 15; sprites 11..21 are not reached. At 1920 x 1080 and scale 1 a unit is 4.5 x 2.53 px.
+- Render state (the common element draw): 0x44 SRCALPHA / INVSRCALPHA, 0x48 SRCALPHA / ONE with FOGCOLOR 0; alpha test
+  off; Z test LESSEQUAL without write; fog on *(inf: far numbers fade toward the fog colour, black for the glow)*. One
+  z for the whole string: walls in front hide it, the target's own body does not. Sorted in CMoOT by +0x128 - z_view,
+  so the glow (-1.2) draws before the digits (-1.5); in the scene pass, under the 2D windows and the op 0x0f fade
+  *(inf: the exact slot)*.
+- No spread or stacking: every printed record starts its own task, so numbers on one target overlap and only their
+  print times separate them; no distance limit; no count limit beyond the pools *(inf)*. The Effects filter (0x92) is
+  not applied *(inf: FUN_10056c70 gets 0 for task+0x90)*.
+- When: melee / ranged at op 0x2b in `dada` (hit + 4 ticks); weapon skills, magic, items, abilities at op 0x2b
+  (`mdam`) for the first unprinted record, the rest at the action's end (FUN_1018c620 runs FUN_1018c810 64 times) or
+  when the file fails; procs and reactions at op 0x71 n (FUN_1018c870).
+- FUN_1009e090 also needs game state 0x60 (DAT_10456a28) and FUN_1009e370 false *(inf: it hides actions between actors
+  whose team byte +0x200 differs from ours with +0x201 clear: PvP / Ballista; LSB never sets it)*; the number also
+  needs both actor objects.
+- The kind table: MD5 91b8dd33c0418e992ec6e45bb31e364b, starts 00 01 01 00 00 00 00 02 00 00 00 00 00 00 03 03, unique
+  in the DLL; the 2019 copy (0x103516f8, read by FUN_100abec0) differs only at ids 800 / 802 / 803. Examples: 1 damage
+  1, 2, 67, 185, 252, 288..302 (skillchains), 352; 2 recovery 7, 24..26, 102, 103, 306, 318; 3 miss 15, 31, 32, 63,
+  85, 188, 282..284, 354 (resists and fails show "Miss!"); 0 status effects, defeats, experience.
+
 ## Emission op 0x3c and op 0x45; the double "Miss!" (2026-10-24)
 
-Spec `~/ffxi/lab/research/emit_3c_45_spec.md`.
 - Emission op 0x3c (2019 0x1004de52, current 0x1004ee0e) and the element-death op 1 (FUN_1004d770) run the named
   generator **resource** (link step FUN_10047270: by 4cc in the folder scope): countdown +0xcc = 0, then its update
   (FUN_10048740 / current FUN_100496f0) once with the new element as parent. No clone, and the running clones of that
@@ -5623,9 +7022,40 @@ Spec `~/ffxi/lab/research/emit_3c_45_spec.md`.
   and mis0's op 0x3c mis1 from the resource at 0.798, never drawn. Ours copied the number into that burst and drew a
   second purple "Miss!" below; `burst` no longer passes it.
 
+From the research notes:
+- Current build (2019 in brackets): the emission stream FUN_1004e8d0 [FUN_1004d920] (gen = ECX, the parent element an
+  argument), the generator update FUN_100496f0 [FUN_10048740] (the per-frame generator task passes parent 0,
+  0x1005425e [0x100532ae]), the DamValueProg ctor FUN_10041f40 [FUN_10041100] (called at 0x1005109f), the attach copy
+  FUN_1003c740 [FUN_1003b900], get source / target actor FUN_1003b6d0 / FUN_1003b700, set FUN_1003b7b0 / FUN_1003b830,
+  the element frame FUN_100473f0 [FUN_10046440], the frame borrow FUN_10044c20 [FUN_10043de0], scale vectors A / B
+  FUN_10047450 / FUN_10047490. The 0x3c / 0x45 code is the same instruction for instruction in both builds.
+- Op 0x3c record {0x0303c, handle @4, 4cc @8}: the link step (FUN_10047270 case 0x3c) resolves the 4cc to the
+  generator resource handle (type 5, folder scope), never a running instance or a clone. The update's emission gate is
+  (flags at entry & 0x800) == 0 || (flags & 0x800), so a never-started resource emits: (d8 & 0x1ff) + 1 elements, then
+  countdown += rand % [d4] + 1 + [d6] (101 for mis1).
+- End-stream op 1 [FUN_1004d770]: saves +0xd6, restarts (FUN_100523c0), countdown 0, the update with the dying element
+  as parent, the soft stop (FUN_100528e0(0)), +0xd6 restored.
+- gen+0x64 (attach+0x34, zeroed by the attach ctor FUN_1003a800) is set only for clones a scheduler starts (op 2:
+  clone+0x64 = task), clones of clones (FUN_10052710) and weather generators (FUN_10183780 / FUN_10183a30). An
+  attached, non-persistent generator (mis1: mode 0x13) is always cloned by op 2, so its resource's +0x64 stays 0.
+  FUN_1003b900 copies attach+4 bits only (0xf, 0x3f0, 0xfc00, bit 16, 0x40000, 0x80000, 0xf00000), never +0x34, and
+  runs after op 1 built the string.
+- Op 0x45 with parent 0 does nothing (0x1004e930). Under 0x800000 the parent's 4x4 frame is copied only when both have
+  one, then the parent generator's scale A / B (+0x78 / +0x84). The borrow sets E+0x100 = the parent generator and
+  links E into its +0xac list (E+0x154 / +0x158, AddRef). Always E.pos (+0x54..+0x5c) += P.pos (the parent's local
+  position), pos0 = E.pos.
+- Op 0x86 (0x1004fac3 [0x1004eb07]): the attach copy without the actors; under 0x800000 the element's frame becomes
+  identity with the parent frame's translation (+0x30..+0x38) and the scale vectors copied per component, else the
+  same borrow; then pos += P.pos. Op 0x9b differs: v = P.pos through P's frame, then E's inverse frame, v.x /= G+0x78,
+  pos += v. Ours: both only add P.pos.
+- The stream's epilogue with a parent also sets E+0x188 (world pos), E+0x138 and E+0x12c from P: first-frame values
+  until E's own update.
+- The resource keeps stale state between runs (nothing visible in misv): the last 0x45's actors, its count +0x9c, the
+  countdown 101 after each burst. *(inf: nothing allocates a never-started resource's +0xa4, so the 0x3c element
+  borrows the mis0 clone's frame through E+0x100.)*
+
 ## Per-record reactions from the files: guard, parry, block, counters, added-effect / spike lines (2026-10-24)
 
-Spec `~/ffxi/lab/research/knockback_guard_spec.md` section 2.
 - dam0 (T+5) runs by miss value 1 `sway` (voice only: no evade motion in retail), 2 `gurd`, 3 `pary`, 4 `gur1`, react kind
   63 `cnt0`, 1..10 `sb0?`; ranged `daml` has no block and no spikes / counter. Op 09 runs them on the target with actor1
   = target.
@@ -5641,9 +7071,33 @@ Spec `~/ffxi/lab/research/knockback_guard_spec.md` section 2.
   T+21, sb0? +55, dcnt at the counter's hit). Melee / ranged ActionCtx records start printed (combat prints the mains).
 - Live: hits on both sides react from damg's op 0x21 one tick after the line.
 
+From the research notes:
+- LSB's resolutions (enums/action/resolution.h): 0 hit, 1 miss (evasion, Perfect Dodge, a shadow taking the hit with
+  message 31, Anticipate, and a counter with react kind 63), 2 guard (MNK / PUP, damage taken, hit distortion set), 3
+  parry (no damage), 4 block (shield, damage taken); react kinds 1..10 spikes, 63 counter.
+- What each plays: PC (7072) `sway` = op 57 `vswy` only (no motion); `gurd` = op 0x5a @0xe 0; `pary` = op 0x5a @0xe 1;
+  `gur1` = op 09 `chit` (the attacker's spark and hit sound), op 57 `sdam`, op 0x5a @0xe 0, t2 `vdam`; `cnt0` (battle
+  files 9672..) = op 03 `hwat`, op 0x5c, op 57 `vswy`. Monsters (orc 1300, bat 1556): `sway` op 03 `vswy`; `gurd` op
+  05 `gud?` (count 1, blend 0, p7 20) and `vswy` (1556: `vatk` and `gud?`); `pary` the same `gud?`; no `gur1`
+  (nothing); `cnt0` op 0x5c and `vswy`.
+- Op 0x5a in every PC file: `5a07 0000 | wait | 0000 | rate 1.0 @8 | count 4 @0xc | gd/py @0xe | blend 1.0 @0x10 |
+  fade 16.0 @0x14` (gur1's wait 2): 340 ops, all in gurd / pary / gur1 of PC-family skeletons (7072, 1831..1852, 2062,
+  2743..2745, the other races). gdi6 / pyi6 (region 6, an overlay) sit in the skirt-family files (9800, 9930, 7075 /
+  7076), gdm1 / pym1 in the battle files (9672..) and 7073 / 7074; a 2-frame pose x 4 = 16 ticks, out over 16. Op 0x5b
+  is used twice (87015 / 87016 `tgt0`, mob TP anim >= 0x800: count 2, fade 26 / 24, a guard).
+- Op 0x5c's name: actor1 standing (FUN_1005e5d0 false) `cni0`; moving, when vt+0x330 is false and the model kind
+  (FUN_10084400) is not 2 / 7, by +0x598 (the move direction) 2 `cnr0`, 3 `cnb0`, 4 `cnl0`, else `cnf0`. Found with
+  FUN_100ce480(type 7) on actor1 (missing: a debug print, nothing), started by FUN_10056bb0; the op returns 0 (no
+  10-tick early resume as 0x24 / 0x5d). Swings: 9672 cni0 = op 05 `at1?` 98 ticks, op 20 on actor2 44, op 2f / 59 70,
+  t34 `skaz`, t44 `dcnt`; 1300 cni0 `at0?`, t36 `dcnt`. `dcnt`'s op 09 `damg` runs on the original attacker, whose op
+  0x21 uses the original record's scale & 3 *(inferred: LSB sets no hit distortion on a countered swing, so usually
+  none)*.
+- Spikes `sb00`..`sb09` (actor1 the target): op 20 80 (a spike kill falls 80 ticks later), dolls, generators, sound,
+  op 71 at +55. `wapr` (proc kind > 0): op 20 20, op 71 1 at T+21. Op 0x71 n (FUN_1018c870) prints message n of the
+  record op 0x2b printed last.
+
 ## Knockback: scheduler ops 0x5e / 0xbf (2026-10-24)
 
-Spec `~/ffxi/lab/research/knockback_guard_spec.md` section 1.
 - Level = the record's `scale >> 2` (FUN_1005e360; bits 0..1 are the hit distortion). Op 0x5e: mode u16 @8 (0 = the
   level from DAT_1035bc60: speed per tick, decay, constant ticks; level 0 = nothing; no action = 1), pull u16 @0xa,
   explicit speed f32 @0xc a second, decay @0x10, ticks @0x14 (also the bf0? count; 0 loops). Op 0xbf: the same after
@@ -5660,9 +7114,50 @@ Spec `~/ffxi/lab/research/knockback_guard_spec.md` section 1.
 - Live: the Forest Hare's Ram Charge (skill 266, knockback 2, file 3910) on Lnxcsfix: level 2 push, bf0 then bf1 at
   tick 5, then idle.
 
+From the research notes:
+- Actor fields: +0x80 the no-reaction counter (vt+0x160 / vt+0x164), +0x11c the busy counter (FUN_10083300 /
+  FUN_10083310), +0xf8 moved this frame, +0x102 knockback running, +0x114 its motion 4cc, +0x130 the velocity (units a
+  tick), +0x140 decay, +0x144 / +0x148 constant-phase ticks left (now / last frame), +0x14c the signed speed, +0x150
+  the pusher's position (a snapshot), +0xc4 / +0x5c4 the control position.
+- The level: result +0xa is FUN_10185a20's 5-bit scale, bits 0..1 the hit distortion (FUN_1005e350), bits 2..4 the
+  level (FUN_1005e360). LSB: the skill's or spell's knockback minus the target's KNOCKBACK_REDUCTION, clamped 0..7,
+  none on shadows or evasion; only mob skills, blue magic and pet skills carry one.
+- Op 0x5e (asm 0x1005ab63..0x1005ac96): actor1 the pusher (FUN_10062770), actor2 the reactor (FUN_100627d0);
+  FUN_100ce180(reactor, actor1) gives the side (0 = in front). Mode 0: FUN_100aa8e0 (level < 8 -> DAT_1035bc60, 12
+  bytes a level: speed a tick, decay, ticks); else FUN_100aa940(@0xc / 60, @0x10, @0x14) (0x1032b160 = 1/60). Then,
+  for applied status 0, 1, 4, 7, 0x21, 0x2f, 0x30, 0x3f..0x53, FUN_100cd920(4cc, amount 1.0, rate 1.0, count
+  (int)@0x14, blend-in 12, fade 12, region 0): mode-0 ops have @0x14 = 0, so bf0? loops until bf1? replaces it.
+- DAT_1035bc60 (speed a tick, decay, ticks; then the simulated total ticks and distance on flat ground; bf1? comes
+  when the ticks run out): 1: 0.0833, 0.075, 5; 47, 1.41. 2: 0.1667, 0.15, 5; 29, 1.76. 3: 0.1667, 0.15, 10; 34, 2.59.
+  4: 0.1667, 0.15, 18; 42, 3.93. 5: 0.1667, 0.125, 30; 60, 6.15. 6: 0.1667, 0.10, 35; 73, 7.31. 7: 0.1667, 0.05, 45;
+  123, 10.61.
+- FUN_100aa940: ticks 0 -> 1.0; +0x80 and busy go up only when +0x102 was 0, so a second knockback replaces vector,
+  timer and motion without stacking the counters. FUN_100aab70 runs from FUN_100a57f0 (the CXiControlActor update);
+  the end test |v|^2 < 9e-6 is DAT_1032e83c. While +0x102 is set FUN_100a4ed0 takes the wall sweep (FUN_10181a10, then
+  the floor FUN_101814d0), so a push stops at walls and follows the floor, and FUN_100c63d0 skips the 0.125-a-tick
+  easing of the drawn position and the walk / turn motion choice (FUN_100c83c0..FUN_100ca730) for FUN_100ca8c0.
+- FUN_100ca8c0 (statuses 0, 1, 7, 0x21, 0x2f, 0x30, 0x3f..0x53): the recovery motion (the 4cc's third letter '1') with
+  count 1, blend-in 12, fade 24; it holds its last frame, then vt+0x1fc(1) gives the status motion back.
+- Motions: race skeleton 7072 bf00 bf01 bb00 bb01 bf10 bf11 bb10 bb11 (region 0 legs, 1 upper body), the skirt files
+  7075 / 7076 bf02 bb02 bf12 bb12, the battle files 9672.. bf01 bb01 bf11 bb11 (1831..1852 and 2743..2745 alike); the
+  region digit makes them full-body replacements. None in the monster files 1000..3500.
+- Op 0xbf: a 0x90-byte task (FUN_10060da0, update FUN_10060e30, dtor FUN_10060c60) counts delay x task speed
+  (FUN_1005e590); the motion and level are taken at the op; the destructor pushes (also when the task is killed early
+  *(inferred)*).
+- Use (DATs 0..120000: 407 op 0x5e, 49 op 0xbf): mob TP files 0xf3c + anim (3906..4401), 50160..51150, 60730..61238,
+  86798..87334; 3444..3805 (non-PC weapon skills or blue magic: base not resolved); PC weapon skill files 33474..38083
+  and 61453..61744; pet skills 49532 / 49573. 396 are mode-0 pushes and 5 mode-0 pulls (61742, 87321, 87322, 87328,
+  87330); explicit: 50383 / 51080 (push 12/s, decay 0.125, 1 tick), 61224 / 86827 / 86828 (pull, the same), 4186 trg0
+  (pull 8/s, 25 ticks). Never in DAT 0, the race skeletons or the melee chain.
+- Ops 0x21 / 0x25 skip a reactor with +0x102 set (FUN_1005e5f0). FUN_10083230 has nothing to do with the knockback
+  motion (it forwards to the entity, FUN_10088250); op 0x5e plays bf0? / bb0? itself.
+- Not traced: vt+0x304 / +0x103 / +0x104 in FUN_100a57f0 (other movement modes FUN_100a9fc0 / FUN_100aa1f0; +0x101 is
+  a second push kind, FUN_100aad40 / FUN_100aadf0); whether 3444..3805 are blue magic (0xaf0 + anim) or 0xd48 weapon
+  skills.
+
 ## Title buttons: sounds and the press animation (2026-10-24)
 
-Spec `~/ffxi/lab/research/select_buttons_spec.md`.
+FFXiMain 30261006_0; more detail at the end of this entry.
 - loby2win (FUN_102405f0): arrows / mouse onto a button 0001; Enter or click 0002 and the title locks (+0x1c, window
   +0x5d) until the screen changes; a disabled Select / Delete 0004 (Create never refused); Escape moves the cursor to
   Back with 0001 and does not leave. Config gives the title back when lobycwin closes (FUN_102406d0).
@@ -5676,9 +7171,47 @@ Spec `~/ffxi/lab/research/select_buttons_spec.md`.
 - The action does not wait: the fade-out starts on the press frame.
 - title-shot: FFXI_TITLE_PRESS=c draws Select Character pressed at counter c.
 
+From the research notes:
+- Addresses: FFXiMain 30261006_0, 2019 ones in brackets.
+- Window events: 1..4 arrows, 5 Enter (and the left click *(inf: the click path in FUN_10125360 not traced to the
+  end)*), 6 Escape, 8 right button / Numpad +, 9 the mouse moved the cursor onto another child (FUN_10118db0, only
+  when the child changed). The generic handler FUN_10118260 [10114f40] runs first, then the holder's vtable slot 6.
+  Every lobby holder clears +0x84 / +0x85 / +0x86 in its open hook and plays the sounds itself: title FUN_1023fe40,
+  dbnamese FUN_10241910, the ptc6yesn-type prompts FUN_101646a0 / FUN_10164430 / FUN_10164730 / FUN_10164350, ok
+  FUN_10166300.
+- loby2win: holder DAT_10669050, registry 0x10375a04, flags 0x1002e (2 Escape does not close, 8 no open / close
+  animation, 0x20 frameless); handler FUN_102405f0 [10235ec0]. While pressed (+0x1c) the handler ignores everything,
+  and the generic handler drops all but event 6 while +0x5d is set. Delete with DAT_10456a4c bit 0 gives 0004 and
+  draws 0x80202020 *(inf: the flag is only ever zeroed in this build)*. Escape: cursor 3 (Back), window cursor child
+  4, FUN_10118170, FUN_10124b70 *(inf: puts the pointer on the new child when the mouse is in use)*.
+- After the press the title loop FUN_102406d0 returns (FUN_1023e4d0 waits on +0x1c); Select / Create / Delete / Back
+  run the fade-out FUN_1023e570 ('sfot' + 'ffot', then FUN_1023e5b0's 34 frames) and close loby2win / loby1win. Create
+  also calls FUN_10037a70(0x1e) when DAT_10456aa4 == 0 *(inf: a sound-system command 9 to the music, FUN_1024c080(9,
+  -1, 0x1e); not followed)*.
+- loby1win (holder DAT_106690a0, FUN_10245230 [1023ab10]) has the same shape with a list of three items (+0x1c + 4 i
+  enable flags): 1 / 2 / 9 0001; 5 0002 and lock, or 0004 when disabled; 6 the cursor to item 2 with 0001 *(inf: a
+  second button set ours does not show; no caller traced)*.
+- Other prompt holders like ptc6yesn: FUN_1023c4f0 and FUN_1023d440 (3 / 4 / 9 0001, 5 0002), FUN_1023d2e0 (a
+  countdown prompt: 5 on child 1 checks key function 0xa6 -> 0004 / 0002). dbnamese event 8: chfwin takes the focus
+  with 0013 (0004 on an empty row). The hn* windows (hnbackwi, hncansel, hnyesno, hn1exist ...; FUN_1023ec90,
+  FUN_1023f700..1023fb50) are other lobby lists; FFXiMain has no login dialog.
+- FUN_10119fb0 [10116c90](window, sprite, x, y, sx, sy, N, c), RET 0x1c: with window +0x99 set, sx / sy become
+  FUN_101601d0's scaled-window factors *(inf: the 0x100000 registry flag; no lobby window has it)*. The base at (x,
+  y), tint 0x80805020, not centred, blend 0 (FUN_1011fc80 [1011c590]). Ring k: alpha = ftol(128 (1 - e / M)), tint
+  alpha << 24 | 0x805020, centred: x -= ftol((sx s - 1) |x1 - x0| / 2), y likewise, with the sprite's +0x20 / +0x22 /
+  +0x24 / +0x26 *(inf: its bounds)* (0x1011fcec..0x1011fd62). Constants 0.625 @0x1032d444, 0.3 @0x1032b15c, 128.0
+  @0x1032ae60.
+- Title draw FUN_10240030: sprite 0x103885a4[i] enabled / 0x103885ac[i] disabled (127 / 129 / 131 / 133 / 184 and 128
+  / 130 / 132 / 133 / 184), rect FUN_10118900(&r, i + 1, 1, 1), scale (W / 1024, H / 768); not the cursor 0x80808080;
+  the cursor 0x80805020 (+1, +1 for the 9 ticks after a refused Enter too); pressed: FUN_10119fb0(N 9, c = +0x5e).
+  After the rings the pressed button stays gold at -1, -1 until the fade closes the window.
+- Frames at 30 fps (c: button, ring k0, ring k1): 9: +1, s 1.000 a 128, none; 7: +1, s 1.107 a 82, s 1.017 a 120; 5:
+  +1, s 1.213 a 36, s 1.123 a 75; 3: +1, none, s 1.230 a 29; 1: +1, none, none; 0: -1, none, none *(inf: whether the
+  press frame draws c 9 or already 7 depends on the update / draw order)*.
+
 ## Actor sounds 1: voices, model init, sub-animations (2026-10-24)
 
-Spec `~/ffxi/lab/research/actor_sounds_spec.md`.
+More from the research notes at the end of this entry.
 - Every actor sound is a SeSep from a scheduler op (0x0a / 0x0b / 0x53 / 0x60 / 0x78), a generator sound element or
   the footstep code; motion chunks carry no sound track.
 - Voices: scheduler sounds start through FUN_100370d0 -> FUN_10036130 and a full voice table (0029, 12) steals the
@@ -5696,6 +7229,30 @@ Spec `~/ffxi/lab/research/actor_sounds_spec.md`.
   and surfaces with 0. `ntob` cries se 252001 on engaging; `dead` plays `vded` (252014..16).
 - Live: every model's init on arrival; the Tunnel Worms near Lnxtest emerged with se 17024. A burrow (ini1) was not
   seen in 45 s.
+
+From the research notes:
+- Status schedulers (FUN_1008c6c0) for the other new statuses, from the table at "noidbtiddead..." (DLL file offset
+  0x4898, 4 bytes a status): 0 / 4 / 7 / 0x21 and riding only the 0x22 special; 5 / 0x55 `idle`; 6 / 0x32 / 0x38
+  `fsh0`; 0x26..0x2b `fsh7 fsh2..fsh6`; 0x33..0x35 `fsh7..fsh9`; 0x39..0x3e `fsh7 fsh2..fsh6`; the rest `noid` (no
+  model file checked has it). Fishing statuses run the same name on the rod model (+0xa4); leaving one stops
+  `fsh0`..`fsh9` (+0x29c).
+- FUN_1008c480 also runs `hen0` (and clears the bit) after `init` when entity +0x128 bit 30 is set: the switch to
+  model kind 2 (asm 0x10095f8c, a transformation).
+- Where the melee sounds live: PC voices (`vatk`, `vdam`, `vswy`, `vded`) in the face part file (Hume M 7080..7111, se
+  5010xx: vatk 501003..6, vdam 501007..10), the PC's `sdam` in the body part file (Hume M 7368..; 7376: se 6002),
+  `skaz` and `se h` -> `shit` in the main weapon part file (8413: 6028 / 6029; `sinr` 6083 and `sotr` 6084 for the
+  draw and sheathe); monsters' all in the model file (Tunnel Worm 1724: sdam 6009, skaz 6062, shit 6063, atk1..4
+  252003..6, dam1..4 252007..10, swy1..3 252011..13, ded1..3 252014..16). `vatk` / `vdam` pick one of 7 entries, 3 of
+  them silent (op 0x50); `vswy` always speaks. Guard / parry for a PC: the pose only; a monster's `gurd` plays `vatk`,
+  `pary` `vswy`.
+- Tunnel Worm on LSB (mob_controller): burrow = animationsub 1 with the name hidden and untargetable -> `ini1`, then
+  the Invisible status 3 s later; emerge = a position update with status Update (still sub 1, alpha 0 from ini1), then
+  animationsub 0 two seconds later -> `init`. 1724's `pop0` fades in over 86 (0x05B / 0x065 mode 3); `idl2` (252002)
+  is named by no scheduler (unused, inf). Retail keeps a hidden actor's model (+0xb2 bit 1, inf); a model rebuilt at
+  the show would play `init` twice.
+- The Effects filter (config 0x92) gates generators only, not the sound ops.
+- Not traced: ops 0x07 / 0x1f in init / ini1 (locks), the voice priority value, whether 0x00D carries @0x2A for PCs
+  (the reader at 0x1009a194, inf).
 
 ## Actor sounds 2: status schedulers and the fall thud (2026-10-24)
 
@@ -5718,13 +7275,13 @@ Spec `~/ffxi/lab/research/actor_sounds_spec.md`.
 - Schedulers whose motions actmotion plays (event motions, the engage draw `in N` and sheathe `out N`, event steps
   `@tl0` / `@tr0`, synthesis results) now also run in fx with their motions off (actmotion::fx_too), so their sounds
   and generators come: `in 1` -> `sinr` -> se 6083 live.
-- Not done (spec 4): the `shi<n>` / `ska<n>` sound variants and the swing letter by sub-animation (multi-form
-  monsters), op 0x53's nearest-to-player target, `pop0` / `pop1` (0x05B / 0x065 modes 3 / 6), the entity +0x138
-  hide skip, `?ead` / `sdep`.
+- Not done then (done since: "Actor sounds 4" and after): the `shi<n>` / `ska<n>` sound variants and the swing
+  letter by sub-animation (multi-form monsters), op 0x53's nearest-to-player target, `pop0` / `pop1` (0x05B / 0x065
+  modes 3 / 6), the entity +0x138 hide skip, `?ead` / `sdep`.
 
 ## Status icons: "menu    buff" (2026-10-24)
 
-Spec `~/ffxi/lab/research/status_icons_spec.md`.
+Class, life time, files and draw detail at the end of this entry.
 - Its own window (object DAT_106671b8, registry A 0x93 / B 0x00400015): open in the field, out of battle, engaged and
   in events, closed on zoning / logout; not tied to gaugewin. Cells = the layout's children (142 + 2 + 26 (k % 9),
   48 + 2 + 26 (k / 9)), 24x24, up to 32 icons; the window's own 240x4 line is not drawn (the user's retail shows none).
@@ -5740,6 +7297,42 @@ Spec `~/ffxi/lab/research/status_icons_spec.md`.
   at (cell x + 14, y + 20), 0x80808080 (FUN_101c97b0).
 - Live: Haste "21" (dimming at 12), Protect "1m", Regen "9m" beside each other at (142, 48).
 - Not done yet: Num+ focus (cursor, name / description, Enter cancels with c2s 0x0F1), the party member icons (0x076).
+
+From the research notes:
+- Class vtable 0x1033c218 (ctor FUN_102278b0, 26 slots): [4] draw FUN_10221f50 (the paged list base: the icon callback
+  LAB_10227f70 and the label callback LAB_10228080 per item, then the cursor unless blurred); [6] messages
+  FUN_10227ab0 (5 cancels; the rest FUN_10222150 with step 9); [19] cursor moved FUN_10227ea0 -> FUN_10227ed0 (help
+  and title slot 2 cleared); [21] open FUN_10227970 (36 visible, 9 columns, blurred, window +0x69 = 0: no scroll bar;
+  the hand scaled 0.74 and offset (-5, -5); opens the party icon object); [22] close FUN_10227a20; [23] focus
+  FUN_10227a60; [24] per frame FUN_10227bf0; [25] FUN_10227e90 -> the party icons' draw.
+- Life time by the registry broadcast FUN_1015f3e0: 0x4 (in the field, game state 0x60) opens every A & 0x80 window
+  unfocused (buff, logwindo, partywin, helpwind, titlewin, netstat); 0x8 (zoning / logout, inf) closes those without A
+  0x100; 0x200 (state 0x40) closes those without B 0x8; 0x800 (event start) keeps it (B bit 2); battle neither opens
+  nor closes it. No region bits in A: it never stacks on another window *(inf)*.
+- Layout (39542): the window (142, 48) 240 x 4 with refs "menu    buff" 0 and "anc     anc_equi"; children 1..36 24 x
+  24 at (2 + 26 (k % 9), 2 + 26 (k / 9)), each with sprite 1 "menu    corner" (not drawn by the list code; inf: the
+  focused cursor box). Library sprite 0 = hfr1 240 x 4 at (0, 28)..(240, 32), colour (128, 128, 128, 97), additive;
+  whether the window drawer draws that line was not traced (open: compare with a retail screenshot).
+- Per frame (FUN_10227bf0): a change of config 0x99 bit 2 reopens the reader on slot {0x3b, 0x3a}[+0x65] (FUN_10227f40
+  -> FUN_10227280); ids 0xffff and 0 (KO) are skipped and the rest compacted; cache slots of ids that left are freed;
+  a count change clears the bars (FUN_10227ed0); count 0 while focused gives the focus up (FUN_10157620). The blink:
+  +0x28c counts down from 40.0 by the frame ticks (FUN_10014cf0, at least 1), +0x288 = (t <= 20 ? t : 40 - t) x 0.05
+  (ours advances by real 60 Hz ticks).
+- The 0x037 list is DAT_10485a30 (32 x u16, reset to 0xffff by FUN_10093720; handler FUN_1009d0f0). 0x063 sub 9
+  (handler 0x10099270, case 9 at 0x1009939c) copies 0xc0 bytes to 0x10485904 (ids) / 0x10485944 (ends) and sets
+  DAT_10485824 |= 0x10, never cleared (FUN_10099230). LSB sends 0x037 and 0x063 together from the same set, so the
+  indexes line up; unused slots carry id 0xff.
+- Files: slot 0x3a English 87 (ROM/119/57.DAT, "sts_iconstNN_32"), 0x3b 39557 (ROM/287/81.DAT, "sts_iconstNN"), the
+  names slot 0x5c (55732 = 55725, loaded whole into DAT_106671b4 by FUN_102271d0). Loader FUN_102272b0 ->
+  FUN_10227140. The image @0x284: flag byte 0x91, name[16], BITMAPINFOHEADER (32 bpp), BGRA bottom-up, alpha 0 / 0x80;
+  4153 bytes at 32 x 32, 1081 at 16 x 16; retail ignores the size field @0x280 (FUN_10026890 -> FUN_1001d940). Retail
+  caches 32 icon textures and draws an icon only once its read has finished.
+- Draw: FUN_10026ad0; while scaled, MIN / MAG linear and D3DRS_ALPHAREF 0x60, positions -0.5 px (DAT_10329a08). The
+  pulse colour c = 0x40 + trunc(64 x phase). Label: rem capped at 356400 (99 h); formats 0x1038627c "%dh", 0x10386278
+  "%dm", 0x10352ff0 "%d"; font 0 = "font    fontshp" (DAT_10662e50[0]), advance (w - 1) x 0.85, start x = x + 14 -
+  width x 0.85 / 2 (FUN_101c9550's width), glyphs at truncated pen positions; the colour fixed.
+- Open: the 240 x 4 line and the per-cell corner sprite against a retail screenshot; whether retail hides the window
+  in cutscenes by other means (the registry keeps it in events).
 
 ## Status icons: Num+ focus and cancelling (2026-10-24)
 
@@ -5800,7 +7393,6 @@ Spec `~/ffxi/lab/research/status_icons_spec.md`.
 
 ## Engaged menu: Check through the prompt, Conflict rows, Call for help block (2026-10-24)
 
-Spec `~/ffxi/lab/research/engaged_menu_spec.md`.
 - FUN_1012b880 Check: engaged, the sub-target prompt over monsters first (FUN_10159440 flags 0x20, LAB_1012bec0);
   otherwise at once. FUN_101347b0 (also /check, /checkname): the id or the target; not the same id again within 2 s
   (DAT_105781c4); c2s 0x0DD only for a player or a monster (+0x120 bit 13), any other NPC nothing. Check is hidden on
@@ -5816,9 +7408,41 @@ Spec `~/ffxi/lab/research/engaged_menu_spec.md`.
 - Not done: Treasure's `menu    loot` window, the mouse hold (60 ticks on a row with a Right function), the party-list
   cursor cancel on engaging, the inspect window (s2c 0x0C9).
 
+From the research notes:
+- Command table 0x1036f240: 12-byte rows {u16 sprite, u8 library, u16 help @4, Right handler @8}. Rows 0x16 Quarry /
+  0x17 Scout / 0x18 Sprint: keytops3 0x164 / 0x165 / 0x166, help (group 0xe) 0x254 "Search the area at your feet for a
+  Petra." / 0x255 "Obtain information on the location of the nearest Rook." / 0x256 "Temporarily increases movement
+  speed."; FUN_1012b880 cases 0x15..0x17 run /quarry / /scout / /sprint (ids 0x8c..0x8e, handlers FUN_1007ee90 /
+  FUN_1007eef0 / FUN_1007ef50). None has a Right handler; picking one keeps the menu up with only the generic SE 0002.
+- Layout table 0x1036f390: the engaged layout 6 is 12 08 07 19 09 03 0c 18 0b; 0x18 is in layouts 0, 2, 4 and 6, 0x16
+  in 0 and 2 only.
+- FUN_101cc350(a, b), on our entity (FUN_101cc4f0): +0x1d0 bit 0x400 (FUN_1008e290: +0x1ff in 2..99) and not (a and
+  +0x1ff in 8..9) and not (b and +0x1ff in 0x28..0x2b). *(inf: 2..4 Ballista teams, 5 / 6 Brenner, 8 / 9 Monstrosity
+  Belligerency, 0x28..0x2b another PvP mode, 0x63 used by FUN_101cc220.)* Other players' team byte comes from 0x00D /
+  0x00E u8 @0x29.
+- Sprint becomes Scout (0x17) when our +0x1ff is not 5..6 and +0x27c != 0 *(inf: Petra carried)*: +0x27c is printed by
+  the `<petra>` tag and written only at asm 0x100a22e4 from u32 @8 of a packet whose u16 @4 holds kind 1 / sub 2 (code
+  at 0x100a21c0, not decompiled; *(inf: s2c 0x0E6, Ballista)*). Ours does not parse it (Sprint always).
+- Outside Conflict the three commands print group 7 0xa7; in game (mode 0x60) they send c2s 0x01A {own id, own index,
+  ActionID, 0}; with no own record the command fails (the ">> /sprint" error echo). Nothing happens on the client
+  *(inf: the speed-up is a server status)*; LSB accepts and ignores them.
+- Check is also hidden when the target has +0x1d0 bit 0x100 *(inf: an "ally" NPC, +0x12c bit 13)*. Treasure's help is
+  0xe 0x1b "Distribute ..." when FUN_10201690() == 3, else 0x1c "Acquire ...".
+- FUN_101347b0 in full: the inspect object DAT_105781b8 +0x14e = 1 when called from a text command with the action
+  menu closed (DAT_10578170 +8 == 0; its close FUN_101336d0 reopens playermo / mp_pmode when 0); nothing while +0x74
+  != 0 (a result window up); DAT_105781c4 is in whole seconds (FUN_100dc130) and reset when the result window closes.
+  Entity search: slots 0..0x3ff, then 0x400..0x8ff; +0x13c bit 0x40 and not FUN_10133a40 (a Belligerency team test) ->
+  FUN_1007bf30(target, 2, ...) instead *(inf: help 0x327)*; not in the entity table: a second table
+  (DAT_10481af0..0x10482eef) the same way. c2s 0x0DD (FUN_100e5660, size 0x10): u32 UniqueNo @4, u32 ActIndex @8, u8
+  Kind @0xc; the id is remembered at +0x19d20.
+- The engaged pick: first FUN_101591d0 (the battle target, else the nearest monster in front), confirm SE 0009
+  (FUN_10158db0), then the saved target and the lock come back (FUN_10159040); a cancel sends nothing and the menu
+  reappears. LSB answers a monster check with s2c 0x029 msg 170..178 (174 +-1 defence, +-3 evasion), data (level, 64 +
+  difficulty), or 249; nothing past 50 units.
+
 ## Text commands: toggles, /ver, /playtime, /chatmode, /localsettings (2026-10-24)
 
-Spec `~/ffxi/lab/research/textcmds2_spec.md` parts A and B (handlers, config ids and group 9 lines per command).
+Handlers, flags and group 9 lines per command at the end of this entry.
 - Config toggles through `cfg` (set, save with cnf.dat, cfgapply): /ignorepet 0x97, /ignorefaith /ignoretrust 0xaa,
   /aoe 0xc0, /hidetrust 0x99 bit 5, /emotetrust bit 9 (set = not linked), /furcc bit 6 (set = off), /layoutctrl 0xc1,
   /statusparty 0xc2, /statustimer 0xc3, /gtst 0xc4 (atoi, 1..100), /battlebgm bit 0, /bellsw bit 1, /yellsw
@@ -5842,9 +7466,67 @@ Spec `~/ffxi/lab/research/textcmds2_spec.md` parts A and B (handlers, config ids
   /battlebgm (party battle music), /bellsw (scheduler op 0xb3), /furcc (furniture collision); /displayhead,
   /partyinfo, /jobmasterdisp, /focustarget, /autotarget.
 
+From the research notes:
+- Handler table 0x10356e30 (12-byte rows {id, fn, word}, to id 0x1d4); name table 0x10355408 (277 names; flags u16
+  @0x16: 0x20 dead ok, 0x40 mounted ok, 0x80 event ok, 0x10 UI free, 0x100 target command, 0x02 allowed while the
+  prompt is up). A row's third word is 1 only for /shoot, /attack, /item, /ma, /ws, /ms, /mount, /nin, /so, /ja, /pet,
+  /bstpet: while DAT_1047d498 is set (the tag pass's dry run, FUN_10081440) a command with 0 returns at once. Flag
+  0x2000 (only /?) echoes the line in mode 0x9d first.
+- Commands (id, flags, handler; group 9 lines): /names 0x1a8 0x61 FUN_100790e0 (DAT_1047d694 hidden, DAT_1047d695 = 4
+  for "otherpc", matched case-insensitively; read by the name draw FUN_100d0510; no line); /ignorepet 0x1a9 0x61
+  FUN_100791d0 (on 0xea, off 0xeb, report 0xe8 / 0xe9); /ignorefaith /ignoretrust 0x1aa / 0x1ab FUN_10079270 (0x10d /
+  0x10e, report 0x10b / 0x10c); /areaeffect /aoe 0x1ac FUN_100793a0 (0x129 / 0x12a; read by the target prompt's area
+  display FUN_101582f0, not modelled); /partyinfo 0x1ad FUN_10079310 ("showtp" only, no line); /displayhead 0x64 0x51
+  FUN_1007ddc0 (no line).
+- More: /hidefaith /hidetrust 0x65 / 0x66 0x51 FUN_1007de50 (0x111 / 0x112, report 0x10f / 0x110); /emotefaith
+  /emotetrust 0x67 / 0x68 FUN_1007dee0 (0x14b linked / 0x14c not; the consumer at asm 0x100a094c skips emotes 0x7a /
+  0x7c for our trusts and was not traced further); /furcc 0x84 0x11 FUN_1007e9b0 (0x12d / 0x12e, report 0x12f /
+  0x130); /layoutctrl 0x85 0x01 FUN_1007ea40 (type1 / type2: 0x131 / 0x132, report 0x133 / 0x134); /statusparty 0x86
+  0x141 FUN_1007eae0 (0x138 / 0x139); /statustimer 0x88 FUN_1007ec10 (0x13c / 0x13d); /groundtargetst /gtst 0x89
+  FUN_1007ec90 (atoi clamped 1..100: 0x13e; none: 0x13f; read by FUN_10159a20, the ground-target cursor's step, not
+  modelled); /jobmasterdisp 0x8b FUN_1007ede0 (0x143 / 0x144).
+- More: /yellsw /assistjsw /assistesw 0x91..0x93 0x121 FUN_1007f0e0 / FUN_1007f1a0 / FUN_1007f260 (0xf9 / 0xfa, 0x153
+  / 0x154, 0x155 / 0x156); /blockaid 0x95 FUN_1007f3e0; /blockhelp 0x96 FUN_1007f480 (the session flag DAT_10578175,
+  cleared by FUN_1012ad30; 0xf7 blocked / 0xf8); /battlebgm 0x97 FUN_1007f500 (0xf2 own battles only / 0xf3 any
+  member); /bellsw 0x98 FUN_1007f5c0 (0xf4 / 0xf5); /mutebgm /mutese 0x99 / 0x9a 0x161 FUN_1007f680 / FUN_1007f750
+  (0x147 / 0x148, 0x149 / 0x14a).
+- The config store: FUN_10193850 get, FUN_10193830 set (an unchanged value is a no-op except 0xce; FUN_10196040
+  range-checks); bits FUN_101938b0 / FUN_10193910, config 0x99's FUN_10193890 / FUN_101938f0; the chat filter pair
+  {0x32, 0x33} (FUN_101939a0 / FUN_101939d0): bits 0..0x1d in 0x32, bit b >= 0x1e is 0x33 bit b - 0x1e. Word tables
+  for FUN_1007b6a0: {"off", "on"} at 0x10357aac / 0x10357ab8 (off 1, on 2), {"type1", "type2"} at 0x10357aa0.
+- /mutebgm /mutese: DAT_103517f8 (music, 1.0 at the sound init FUN_100355f0) multiplies every BGM volume; DAT_103516fc
+  (SE) multiplies the ambient loop, the effect channels and the stream (FUN_10035fb0 / FUN_10036050 / FUN_100360a0 /
+  FUN_100360f0); FUN_100372e0 / FUN_10035ec0 store them and re-level what plays; never saved. A word other than on /
+  off prints the state without a change.
+- c2s 0x0DC (FUN_100e46a0(which, set), 0x14 bytes, LSB GP_CLI_COMMAND_CONFIG; SetFlg @0x10 1 set / 2 clear): which 0
+  @4 |= 4 anon, 1 |= 2 away, 2 |= 1 invite, 3 the language ((b & 0xef) | 8), 5 @5 |= 0x40 AutoTargetOff, 6 @5 |= 0x80
+  AutoParty, 8 @7 |= 2 Mentor, 9 @7 |= 4 NewAdventurerOff, 10 @7 |= 8 DisplayHeadOff, 0xb @7 |= 0x20 Recruit. The
+  toggles read the 12-byte mirror at session +0x2cfd8 (FUN_100e47c0 / FUN_100e4520), written by the s2c handler at
+  0x100e4f20 *(inf: s2c 0x0B4)*.
+- /ver (FUN_10078170): the string is read at start from "patch.ver" (FUN_101bf8b0, 0x120 bytes, converted by
+  FUN_103114a2) into the file-system object DAT_10662dcc +0x10; without it, "psfiles date[%d:%d:%d]" from bytes +0x14
+  / +0x13 / +0x12 of "/config/data/winfiles.h" *(inf: a date)*; kept in DAT_1047d240.
+- /playtime (FUN_1007cab0): t = PlayTime (zone +0x2d67c, from the 0x00A) + now - the clock at that 0x00A (+0x2d680);
+  days FUN_10103c50, hours FUN_10103c60, minutes FUN_10103c80; with no zone object nothing prints (success).
+- /chatmode's words (table 0x10357ac8): say / s 2, shout / sh 3, tell / t 4, party / p 5, linkshell / l 6, emote / em
+  7, message / me 8, unity / u 0xb, linkshell2 / l2 0xc, assistj / aj 0xe, assiste / ae 0xf; an unknown word does
+  nothing. FUN_101ad670 keeps the previous mode (+0x10c, prefix +0x88) unless the current one is shout or message;
+  prefixes (FUN_101adc30): 2 "/say ", 3 "/shout ", 4 "/tell " + name, 5 "/party ", 6 "/linkshell ", 7 "/emote ", 8
+  "/message ", 9 "/yell ", 10 "//worldmes ", 0xb "/unity ", 0xc "/linkshell2 ", 0xe "/assistj ", 0xf "/assiste ".
+  FUN_1012d2b0 *(inf: the log window's chat-mode menu)* and FUN_101b83e0 (back to say) set it too.
+- /hide (FUN_1007e120) also sets the PlayOnline friend-list status object DAT_104df90c to 4 (FUN_100f7a90; /online 0,
+  /away 1). /localsettings (FUN_100808e0, table 0x10357b80): shadows normal / off / high -> 0x3a 0 / 1 / 2; charanum
+  -> 0x3c clamped 25..50; distance N -> 0x3e = ftol(clamp(2N, 0, 25)); footeffect on / off -> 0x3f 0 / 1; hidearmor on
+  / off -> 0xa5 1 (9 0xff) / 0 (0x100); blureffect on / off -> 0xc8 1 (0x145) / 0 (0x146); hidearmor and blureffect
+  alone toggle; values only with exactly 3 tokens; anything unmatched fails.
+- Unnamed handler rows (nothing but FUN_10080dc0 reads the table, so they cannot run): 0x0 and 0x10a FUN_10078140
+  (no-op), 0x10b FUN_10078150 (9 0x67 "Cannot use yet."), 0x0e FUN_10079000 (a chat send of kind 0x18; inf: a retired
+  channel), 0x1f FUN_1007a9d0 (c2s 0x01A category 0xf; inf: an old /attack switch), 0x31 FUN_1007c1d0 (the talk
+  action), 0x4b FUN_1007d1a0 (inf: linkshell).
+
 ## Model-file generators: the stop match, var 0x3a, op 0x9a (Raminel's dust, 2026-10-24)
 
-Spec `~/ffxi/lab/research/model_gens_spec.md`.
+More from the research notes at the end of this entry.
 - FUN_10083970 [FUN_10085060] restarts a model file's 0x1000 generators when the file comes in (before `init`) and on
   un-hide, gated by vtable +0x124 = entity +0x130 bit 1 (FUN_10084a10, the same in all 16 actor vtables). The bit is
   set only for ship ids {0,1,2,5,6} and by scheduler op 0x9a (u32 @8 & 1). So skeleton NPCs pass, and Raminel's km00
@@ -5858,6 +7540,20 @@ Spec `~/ffxi/lab/research/model_gens_spec.md`.
 - Fixed: stop_generator's match, var 0x3a without an action, op 0x9a as an entity flag that keeps model_generators
   off. Live: Raminel walks without the smoke. 257 model files had stops that silently missed and now work.
 - Not done: the un-hide restart (FUN_10084320 re-runs FUN_10083970; ours never restarts).
+
+From the research notes:
+- The +0x124 gate (entity +0x130 bit 1) is set by the XiModelActor constructor for ships whose entity +0xf8 is in {0,
+  1, 2, 5, 6} (table 0x1035d648; skipped for +0x16c == 0x37) and by op 0x9a: 48 model files set it in `init` (760,
+  1106..1144, 1316, 1336, 1790, 1791, 2915, 3614..3628), 4 clear it (282, 283, 290, 291). Open: the 1106-type files
+  rely on 0x9a and have no stop in `init`, so their generators would run from load unless the actor is hidden then
+  (not traced).
+- FUN_10083970's walk: every type-5 node under the file, sub-folders included, skipping +0x1a bit 2 (clones); at most
+  128 starts (more: a debug print). A PC's race skeleton file does not go through it (FUN_100cecd0 -> FUN_100cd710),
+  only the part files.
+- Vars 0x3a..0x3e need no action (0x3b vtable +0x254, 0x3c entity +0x124 byte 1, 0x3d / 0x3e entity flags); only 4 and
+  0x11..0x39 read the action.
+- Of 458 model files with 0x1000 attached generators: 46 never stop them (lamp carriers 1501..1505, flowers 724..734,
+  fires 1268..1302 ...), 257 stop them from some scheduler (`stop`, `dead`, `kill`), 52 use op 0x9a.
 
 ## /pcmd live test with the server bots (2026-10-24)
 
@@ -5880,23 +7576,102 @@ Spec `~/ffxi/lab/research/model_gens_spec.md`.
 
 ## Search: the search server client and name lookups (2026-10-24)
 
-Spec `~/ffxi/lab/research/search_spec.md` (protocol 1.1..1.8, grammar, windows, other users, order).
 - net/search.rs: one TCP connection per query to the lobby's search address (MapLogin.search, LSB xi_search 54002);
   request = 0x10 header ("IXFF", data length, 0x80, wire type) + payload padded to 64 k + session word, MD5 of
   [8, P-8), salt; Blowfish (the map server's variant, no zero cut) keyed MD5("0s=m<1IZ2zBCc8{~" ++ salt) over
   [8, P+8). Replies keyed MD5(fixed ++ salt echo ++ session word), MD5 checked, entries `[u8 n][bits]` decoded by
   5-bit type (FUN_101061d0) into the 0x48 record; read until reply +0x0a bit 7 (LSB sends every page at once and
   answers retail's "more" with empty auction packets), then close. Conditions so far: all areas, one area, name
-  only. Unit test: the spec's fixed vector (request bytes exact, reply decrypt + 3 records); an ignored live test.
+  only. Unit test: a fixed vector (session word 0x11223344, salt 0x55667788, zone 101; request bytes exact, reply
+  decrypt + 3 records); an ignored live test.
 - FUN_1007c740 name lookup (client/search.rs): name normalised (first upper, rest lower, 15 chars), all areas, name
   only; the callbacks take only an exact name match (LSB matches a case-insensitive prefix).
 - /pcmd add NAME, /acmd add NAME with nobody by that name in the zone (LAB_1007d5b0): c2s 0x06E {UniqueNo rec+0x18,
   ActIndex 0, kind 5 when the record has flag 8 (party leader), else 0} for both commands; no match: silent. Live:
   Lnxtest in Southern San d'Oria invited Rokuro in East Ronfaure, who joined.
 
+From the research notes:
+- Retail keeps the search address at G +0x13808 (IP) / +0x1380c (u16 port), G = DAT_104df770, and hands it over at
+  map-login step 6 (FUN_100e1790, which also makes the session word +0x1e88 = MD5 dword 2 of the rolling state and
+  builds the "more" packet). Connection object DAT_104ae8b8 (FUN_100e1470 at login, freed by FUN_100e1770): +0 the
+  socket object (FUN_100d8490, a worker thread), +4 IP, +8 port, +0xa sequence, +0xc state; +0x10 four condition
+  buffers of 0x794; +0x1e60 the request key (fixed 16 + salt), +0x1e74 the reply key (fixed 16 + reply salt +
+  session word); +0x1e8c the 20-byte rolling state (MD5 + rand(), seeded with time() % 10 + 3 MD5 rounds); +0x1f0c
+  two request slots of 0x7d4 (a third query is refused: FUN_100e1c30 returns 0).
+- Slot: +0 time() stamp, +4 packets seen, +5 entries used in this packet, +6 entries delivered, +8 kind (0 condition,
+  1 id list, 2 group list, 3 auction, 4 comment, 5 a 0x404-byte group list with no caller), +0xe extra, +0x14
+  callback, +0x18 arg, +0x1c entries delivered a frame (5 the window, 0x14 name lookups, 1 default), +0x1e "more"
+  pending, +0x20 the payload copy (0x68, or 0x790 with friend ids / names).
+- Driver FUN_100e0d50 per frame on conn +0xc: 0 idle (a slot pending: connect -> 3, failure -> 2); 3 work (the oldest
+  slot's steps on the one connection; a slot older than 30 s or a failing step calls every slot's callback(arg,
+  NULL) -> 2; none left -> 1); 1 linger (close -> 0: the connection closes after each batch); 2 error (shutdown, close
+  -> 0). The socket worker (FUN_100d8520) reads 8 bytes and requires 0x17 < length < 0x56d.
+- Request: u32 total @0 (= P + 0xc), "IXFF" @4 (plain), u16 data length (0x10 + payload) @8, 0x80 @0xa, type @0xb, u16
+  0 @0xc, u16 extra @0xe, payload @0x10; the session word at P - 0xc, MD5 of [8, P - 8) at P - 8, the salt at P + 8;
+  P = ((datalen + 0xb) >> 6 + 1) x 0x40; Blowfish over [8, P + 8). Salt = the first dword of MD5(rolling state).
+- Reply: u32 length L @0 (LSB writes a u16), "IXFF" @4 (zeroed by the client once decrypted), u16 data size D @8 (D <
+  L, D + 0x14 <= L), flags @0xa (bit 7 the last packet), type @0xb (0x80 players, 0x82 group list, 0x88 comment, 0x95
+  auction list, 0x85 auction history; masked & 0x1f), u16 total matches @0xe, 4 x u16 group counts @0x10 (LSB 0),
+  entries @0x18, MD5 of [8, L - 0x14) at L - 0x14, the salt echo at L - 4; (L - 0xc) & ~7 bytes decrypted from +8.
+  LSB counts the blocks in a u8, so its replies stay under ~1032 bytes. Cipher FUN_100dc710 (init, 0x1048 bytes) /
+  FUN_100dca00 / FUN_100dcf60.
+- Kinds -> wire type: 0 condition (FUN_100e1b90; FUN_100e29c0 refreshes friend ids / request names first): 3 with
+  cond +0x4e bit 1, else 0; the condition [+ u16 n, n x u32 friend ids (<= 200) with flag 0x1000] [+ u16 n, n x
+  16-byte names (<= 64) with 0x1000000]. 1 id list (FUN_100e2e70 / FUN_100e2ee0, the Friend List): u16 n (<= 0x14) +
+  n x u32. 2 group list (FUN_100e2f10): 5 x u32 (party, alliance, LS1, LS2, 0); LSB sends nothing when all are 0. 3
+  auction (FUN_100e2ac0, FUN_100e2b60 / FUN_100e2c30): 0x15 when payload +6 != 0, else 5 / 6 by payload +5; 0xa8
+  bytes. 4 comment (FUN_100e2fd0 / FUN_100e3040): type 8, u32 char id; LSB sends nothing for an empty comment (the
+  client then waits 30 s). "More": type 0x10, no payload (FUN_100d8a20).
+- Condition (0x68 bytes; init FUN_10103ec0, reset FUN_10103f20; the window's copy W +0x5c): u32 flags @0 (1 name, 2
+  area, 4 nation, 8 job, 0x10 level, 0x20 race, 0x40 status, 0x80 master level, 0x800 LS1, 0x1000 friend, 0x10000
+  rank, 0x20000 comment, 0x80000 LS2, 0x100000 LS3, 0x1000000 request list); sort list u8[8] @4 (type, bit 7
+  descending; a 9th entry would overwrite name[0], a retail bug); name @0xc (16); level min / max i16 @0x1c / @0x1e
+  (shared with master level); sort count @0x20; area anchor i16 @0x22 (-1 ALL); areas i16[16] @0x24 (-1 ends);
+  nation @0x44; job @0x46; race @0x48 (0..4; FUN_10107d50 maps a model race 1..8); status low half @0x4a; rank min /
+  max u8 @0x4c / @0x4d; @0x4e bit 0 name exact (never set), bit 1 area given (wire type 3), bit 2 friend ids, bit 3
+  request names; LS1 / LS2 / LS3 u32 @0x50 / @0x54 / @0x58; comment type @0x5c (genre << 4 | sub); status u32 @0x60;
+  own unity bits @0x64; friend count @0x68 + u32[200] @0x6c; name count @0x38c + char[64][16] @0x390.
+- Encoder FUN_101041e0 -> FUN_10104200: bits MSB first, values big end first, out[0] = the byte count after it. First
+  +0x4a = low16(+0x60) and the sort list gets, when absent, 0 name, 4 level, 7 master level, 3 job, 2 nation, 5 race, 1
+  area, 6 status, 0x10 rank (after the typed sorts). Per entry: 5-bit type, desc bit, present bit, then the value:
+  name 1 bit (exact) + 4-bit length + 7 bits a char; area 10 bits, each further area `[00001][desc][1]` + 10 bits,
+  closed by `[00001][desc][0]` (none after a 16th); nation 2; job 5; level 8 + 8; race 4; status 16; master level 8 +
+  8; rank 8 + 8. An entry whose flag is clear goes out as `[type][desc][0]`. Then, without desc / present: LS1
+  `[01011]` + 32, LS2 `[10011]` + 32, LS3 `[10100]` + 32, friend `[01100]`, request list `[11000]`, comment `[10001]`
+  + 32, status high (+0x60 != 0) `[10110]` + 32. Payloads @0x10: `/sea` in zone 230 `04 00 14 E6 08` (wire type 3,
+  total 0x4c), zone 101 `04 00 14 65 08`, `/sea all` `02 00 10` (wire type 0).
+- Entries (0x80 / 0x82) from +0x18, each `[u8 n][n bytes]`, taken only when offset + n < D; fields `[5-bit
+  type][value]`; FUN_101061b0 -> FUN_101061d0 stops at the first repeated type (the zero padding reads as a second
+  name). The record (0x48): +0 present bits; type 0 name @4; 0xe full char id @0x14 (32; *inferred*; LSB 0;
+  /blacklist uses it); 8 char id @0x18 (20; 0x06E / 0x11C / the Friend List); 2 nation @0x1c (2); 5 race @0x1d (4); 0x10
+  rank @0x1e (8; 0 drawn as 1); 3 main / sub job @0x20 / @0x21 (5 + 5; 0x17 MON); 4 levels @0x22 / @0x23 (8 + 8); 7
+  master level @0x24 (8); 1 zone @0x28 (10); 6 flags low @0x2a (16); 0x17 languages @0x2c (16, *inferred*); 0x16 flags
+  @0x30 (32; the low half replaced by type 6); 0x11 comment type @0x34 (32); 0xd LS ranks 1..3 @0x38..0x3a (8 each)
+  and LS ids @0x3c / @0x40 / @0x44 (32 each). LSB's order: name, area, [nation, job, level, race, rank unless
+  anonymous], flags1, id, 0xe (0), [comment], flags2, languages; the group list adds 0xd after the id.
+- Flags (rec +0x30): 0x1 mentor, 0x8 party leader, 0x10 has a comment, 0x20 auto-group, 0x100 away, 0x400
+  *(inferred: a PlayOnline Friend List link; LSB never sets it)*, 0x800 linkdead, 0x2000 in a party, 0x4000 anonymous
+  (job / level / nation / race / rank not sent), 0x8000 seeking a party, 0x10000 *(inferred: icon colour
+  0xfffffffe)*, 0xe0000 Ballista team, 0x300000 Monstrosity (0x100000 in it), 0x0fc00000 unity leader << 22
+  (0x0f800000 none), 0x10000000 accepting party requests, 0x20000000 on our mute list, 0x40000000 master level shown.
+- Comment 0x88: @0x18 u32 char id, @0x1c u16 length (<= 0x80), @0x1e text; FUN_10106eb0 -> {u32 id, char[0x80]},
+  shown as 3 lines of 0x28. Delivery (FUN_100e2060), callback events: {0, 0, i16, i16} (kind 0, first packet), {1, 0,
+  u32 total, 4 x u16} (first packet), kind 3 sub 1 a record (at most slot +0x1c a frame), sub 4 a comment, sub 2 / 3
+  auction rows, NULL = finished (last packet, 30 s timeout, socket error).
+- LSB: names match by case-insensitive prefix; results sorted by the sort list, at most 40 shown while +0x0e carries
+  the total; GM-hidden characters skipped; anonymous players drop out of job / nation / race / rank / level searches;
+  comment searches match only (type & 0xf0) == value; master levels are not stored (a master-level range finds
+  nobody); group counts always 0.
+- The other users (name lookups through FUN_1007c740, 20 records a frame, exact strcmp on rec +4): /blacklist add /
+  delete (callbacks LAB_1007c7c0 / LAB_1007c920; c2s 0x03D {rec +0x14, or 0 with no match, name, mode 0 / 1});
+  /pcmd add / /acmd add (LAB_1007d5b0); /prcmd add / remove out of the zone (LAB_1007dc00 / LAB_1007dd40: c2s 0x11C
+  {rec +0x18, 0, kind 0 / 1}; refused 9 0x78); /befriend (FUN_1007a020, LAB_1007a0b0; the Friend List is PlayOnline's);
+  /mutelist (FUN_1007ca40: all areas, status 0x20000000, results mode 1); /recruitlist (FUN_1020c390: the request
+  flag and the party-request history's names, mode 2); the Linkshell menu's member list (FUN_101e5c50, kind 2, mode
+  3); the Friend List refresh (FUN_100e6650, kind 1); the auction house (kind 3 and "more").
+
 ## Party rows for members in other zones (2026-10-24)
 
-Spec `~/ffxi/lab/research/party_zone_spec.md`.
 - In our zone (FUN_10202cc0, also FUN_10202530 / FUN_10202720 / FUN_102033c0): the slot used, record zone (+0x2e) ==
   ours (G+0x3c350) and marker (+0x30) == 0. 0x0C8 writes zone and marker together when the zone is new or changed;
   0x0DD sets the marker to its ZoneNo (@0x20); 0x0E2 sets the zone and clears the marker; 0x0DF touches neither; a
@@ -5912,10 +7687,37 @@ Spec `~/ffxi/lab/research/party_zone_spec.md`.
   Gavrel (leader) and Korrin in Southern San d'Oria, Lnxtest in West Ronfaure: "Gavrel (SSandOria)", "Korrin
   (SSandOria)" grey, the leader dot on Gavrel.
 
+From the research notes:
+- Roster records (0x70 bytes) at G+0x57d8; the party window's slot table DAT_10663ad8 holds 18 x 0x7c with slot +4 + x
+  = record +x: rec+2 name, +0x14 UniqueNo, +0x18 ActIndex, +0x2e zone, +0x30 marker; slot +0x24 / +0x28 / +0x2c HP /
+  MP / TP, +0x30 / +0x31 HPP / MPP, +0x78 / +0x79 the gauge anim bytes, +0x7a used. The in-zone test reads nothing
+  else (not GAttr rec+0x34, not the Mog House field rec+0x1a).
+- 0x0C8 on a known record writes zone and marker only when the zone differs; a new record gets both. 0x0DF writes
+  ActIndex (@0x14) even for a marked member, unused while away. Back in our zone 0x0C8 marks the member (+0x30 = zone)
+  and the 0x0DD that follows clears it.
+- LSB: 0x0C8 carries ZoneNo = DB pos_zone (pos_prevzone when 0) for every member, ActIndex when the character is on
+  this map process; 0x0DD's MoghouseFlg @0x1B is the party flag PARTY_MOGHOUSE 0x200, not a location; a member in a
+  Mog House is in the city's zone; 0x0DF goes to every alliance member with real HP *(inf: also those in other
+  zones)*; 0x076 rows come only for members in our zone. After a zone change or a join: 0x0C8, then one 0x0DD per
+  member.
+- The away row's name is slot +6 (never the Monstrosity name) through FUN_10202380 -> FUN_101ca180 (the 8-byte
+  ellipsis rule); the gauge anim bytes freeze while away *(inf: the bars ease from the frozen value on return and
+  reset only when the slot's id changes)*. Marks draw in both cases: leader windowps 71 / alliance leader 70 at (x -
+  3, y + 10), quartermaster 433 at (x + 99, y + 3), level sync 493 at (x + 99, y + 3) or (x + 103, y + 7); also the
+  lot column (FUN_10202440) and the job icons (FUN_102028a0; LSB sends jobs 0 for an away member).
+- Zone names: FUN_101cbc10(zone, 0) = group 4 (file 55466, short names), else group 9 0x40 *(inf: "---------")*; mode
+  1 = group 0x14 without a fallback. Ours prints "unknown" for a missing name.
+- For an away member: the F-keys do nothing (FUN_102033c0 -> FUN_102034a0 fails); the party cursor that follows the
+  target steps back (FUN_10203c80) to the nearest earlier slot with an actor; <stpt> / <stal> (DAT_106643e0) test only
+  "used", so away rows are selectable and Enter hands the callback the slot's UniqueNo, ActIndex (0 from LSB, or the
+  last 0x0DF's) and name, the hand keeping its base tint (0xa04040d0 in a selection) without a flash; <p0>..<p5> and
+  <a10>..<a25> expand to the name (FUN_10202c90, no zone test); the chat line's name completion (FUN_1018d7f0) offers
+  all 18 used names.
+
 ## Search: /search and the results window (2026-10-24)
 
-Specs `~/ffxi/lab/research/search_spec.md` (2, 3) and `~/ffxi/lab/research/scresult_draw_spec.md` (drawing; corrects
-search_spec 3.2: 15 visible rows and 7 columns, page by 15, the zone cell plain "%s", "Search" in the title bar).
+15 visible rows and 7 columns, paged by 15; the zone cell is a plain "%s"; "Search" goes in the title bar (more
+below).
 - /search /sea (0x3a, FUN_1007c570): nothing while the results window is up; no argument = the current zone, ALL =
   every area (the full grammar FUN_10104f00 is not done yet). FUN_1020a9d0 mode 1: the window opens on " [Searching]".
 - scresult: layout (16, 48) 366 x 248, no anchor bits, registry flags 0x30000 (no placement meaning: only 0x100000,
@@ -5936,6 +7738,78 @@ search_spec 3.2: 15 visible rows and 7 columns, page by 15, the zone cell plain 
 - Not done: the grammar and its tables, scsibori / searchma and the criteria windows, the comment fetch on Enter,
   acoption / /mutelist, /recruitlist, the LS member list, s2c 0x008 known-zone bits.
 
+From the research notes:
+- /search (FUN_1007c570): DAT_106644d8 = 0; needs S (DAT_104dfd98) and W (DAT_10664494), W closed; own unity bits
+  FUN_100e3200(S +0x40de6) ((id & 0x3f) << 22, 0x0f800000 none); the LS ids of the equipped linkshells, slots 1..3
+  (FUN_100e9730; slot 3 *inferred* never equipped); FUN_1020a600(0); the region list FUN_1020c1c0(zone, buf, 16);
+  FUN_100e31c0 -> FUN_10106f40 -> FUN_10104f00; friend ids (FUN_100e3070, <= 200) / request names (FUN_100e3130)
+  when asked; FUN_1020a9d0(1, cond, 1, 0, 0, 0). No failure lines: the parser stops at the first token it cannot use.
+- Window objects (handler vtable base 0x10333360: +4 open, +8 close, +0x10 draw, +0x18 select, +0x28 frame, +0x2c
+  cursor): scresult W (vtable 0x1033b948; open FUN_1020bf90, Enter FUN_1020c250, messages FUN_1020a580); scoption
+  DAT_10664498 (0x1033b9d8; FUN_1020c540 / FUN_1020c9a0); acoption DAT_1066449c (0x1033ba20; FUN_1020cc90 /
+  FUN_1020cd00); searchma DAT_106644a0 (0x1033b900; FUN_1020d250 / FUN_1020d340); scsibori DAT_106644a4 (0x1033b8b8;
+  FUN_1020ce40 / FUN_1020cf60); arealist DAT_106644c0 (0x1033ba68; FUN_1020ee70 / FUN_1020ef00); searchjo
+  DAT_106644a8 (FUN_1020d670); scchar DAT_106644ac (FUN_1020dd50); searchle DAT_106644b0 (rank, FUN_1020d5e0);
+  searchna DAT_106644b8 (FUN_1020d6e0); searchra DAT_106644b4 (FUN_1020d750; row -> DAT_10385a0f); scname
+  DAT_106644bc (FUN_1020e3a0); comgenre DAT_106644c4 (FUN_1020d7f0); sccompar / sccomite / sccomls DAT_106644c8 /
+  cc / d0 (FUN_1020d940 / da10 / dae0); scmlev DAT_106644d4 (FUN_1020e0a0).
+- FUN_1020a9d0(mode, data, summary, p5, no_window, p7): returns while busy (DAT_10385a04: 1 sent, 2 header in, 3 rows
+  arriving, 4 idle); closes the old window (FUN_1020b3a0 -> FUN_1020c010, scoption / acoption too); DAT_106644d8 =
+  cond +0x60; the list DAT_106644dc (+0 rows, +4 capacity 0x284, +8 filled, +0xc total, +0x10 group counts, +0x16
+  scope, +0x17 summary, +0x1c rows of 0x54, +0x20 data of 0x4c); senders by mode: 0 FUN_100e1b90, 1 / 2 FUN_100e29c0,
+  3 FUN_100e2f10 (group list), 4 FUN_100e2d00, 5..7 auction (list DAT_106644e0, capacity 14), 8 local AH rows;
+  callback LAB_1020ac30, 5 rows a frame; with no_window the rows are only counted (the Monstrosity area search).
+- The callback: kind 0 sets the scope (2 no area, 0 one, 1 several: the summary line); kind 1 allocates the rows and
+  adds the header row (FUN_1020c060), group rows on when ev +0xc != 0; kind 3 sub 1 a group row (FUN_1020c140) when
+  the comment type changes (grouping only; never on LSB), then the person row (FUN_1020a740); NULL: busy still 1 ->
+  "Search failed."; else " [%d]" (FUN_1020b330), "No applicable entries." with no rows (only in mode 3: modes 0..2
+  always have the header), the summary, idle.
+- Geometry (open: FUN_101f6700(15) -> 15 visible rows (+0x18), 7 columns (+0x16), row height 16, origin (+4, +4)):
+  window windowps 72, children windowps 74 (356 x 16 at (0, 4 + 16 i)). The list draw (FUN_101f6a60) recolours no cell
+  on the cursor row (+0x48 = -1); the cursor bar windowps 75 at (winx, winy + 4 + 16 (sel - 1)) only while focused.
+  Scroll bar (`menu    scroll` 0..3) at x 374, y 48, h 248, past 15 rows: 0 top cap 8 x 4, 3 thumb at (x + 1, y + 4 +
+  off) 6 x len, 1 track (x, y + 4) 8 x (h - 8), 2 bottom cap; len = ((h - 9) visible + total) / total, off = (h - 8
+  - len) top / (total - visible).
+- Sheets (FUN_101c8c30(n)): 0 fontshp, 1 windowps, 2 keytops3, 3 pname. Icons (W +0x898, k): 2 keytops3 68
+  (linkdead), 3 69 (seeking), 4 352 (auto-group), 5 70 (0x400), 6 65 (away), 7 67 (anonymous), 8 362 (mentor), 9 550
+  (recruiting), 10 365 / 11 364 (Ballista 0xa0000 / 0xe0000 and 0x80000 / 0xc0000), 12..21 windowps 492, 495, 493,
+  496, 494, 499, 498, 71, 70, 70 (comment genres 1..10), 22..24 pname 27..29 (Ballista 0x20000 / 0x40000 / 0x60000);
+  the header bar windowps 323; group bars windowps {581, 575..580, 693, 694, 697}.
+- Cells (FUN_101f4bb0): 0x0e icon (-2: scale 0.9 at (x - 4, y + 2) in 0x80808080; -1 the same in 0xffffffff; else
+  scale 1 at (x, y + 2)); 0x0f icon at 0.8, centred by its bounds; 0x10 the job / level cell at y + 2; 0x14 language
+  letters windowps 595 + i at (x + 6 i, y + 5); 0x20 a bar at (x - 3, y); 0x23 "%s" in the shape font at y + 2 (0x24
+  would be "<%s>"); 0x29 the name fitted into w - 8 at y + 2 in ncol 5 (leader) / ncol 1 (party member) / 0x80808080;
+  type 1 the shape font at (x, y) (the header's " [%d]", 0x60808080).
+- The job / level cell (`menu    pname`: 0 brackets, 1..22 jobs, 30..39 digits, 40..44 races, 27..29 crests, 45 the
+  "ML." brackets, 46 "--"): FUN_101ca6c0: the brackets always (anonymous: only them); main job (x + 4, y + 1), level
+  tens / ones (x + 27 / x + 34: "05"), sub job x + 45, its level x + 68 / x + 75; race 40 + DAT_1037d36f[race] at x +
+  85 unless MON, the crest 18 after, the rank 12 after that (tens only from 10, y + 3, 6 px apart; rank 0 shown as 1).
+  The Num+ view FUN_101caa10: pname 45; main job x + 17; master level x + 40 / x + 47 or "--"; sub job x + 59, its
+  level x + 82 / x + 89; no race; the crest x + 103; the rank x + 115 / x + 121; rows built after the toggle start in
+  the default view *(inferred)*.
+- Ballista (f & 0xe0000): 0x20000 ncol 0x12 icon 0x16, 0x40000 ncol 0x13 0x17, 0x60000 ncol 0x14 0x18, 0x80000 /
+  0xc0000 ncol 0x15 0x0b, 0xa0000 / 0xe0000 ncol 0x16 0x0a; the second icon (column 1) then 4 (0x20), 3 (0x8000) or 9
+  (0x10000000), at 0.8. Group rows (never on LSB): g = (cmt >> 4) & 0xf, s = cmt & 0xf; s 1 / 2 -> W
+  +0x900[DAT_10385a07[g] - 1 + s] (DAT_10385a07 = {0, 1, 1, 1, 3, 7, 9, 0}), else windowps 581.
+- The summary: FUN_10153150(group 10, id, total - DAT_106644f0 (always 0)) printed by FUN_10129e80 (mode word 0x379:
+  chat mode 0x79); 9 0xbf when filled - 1 < total (filled counts the header and group rows).
+- Sounds (list base FUN_101f6c70; its open FUN_101f68b0 clears +0x85 / +0x86): Up / Down 0001 when the cursor moved
+  or the list scrolled, silent at the ends; Right / Left page by 15 with 0001 (at the last page only if the cursor
+  jumps); bar caps 0x16 / 0x17 a line, 0x18 / 0x19 a page; Enter 0002 when FUN_1020c250 returns true, else 0004 (the
+  header outside modes 1 / 2, a group row outside 1 / 2 or genre 6 / 7); a person while busy 0004, then 0002 as
+  scoption opens; Escape 0003, then FUN_1020a550 -> FUN_1020c010 and FUN_1020a460 frees the rows; Num+ silent.
+- Enter on a person with f & 0x10 while idle fetches the comment (FUN_1020b3e0, kind 4; the reply LAB_1020b440 ->
+  FUN_101dd780 prints it in mode 0xcc: `"%s (%s %s):"` / `"%s (%s %s / %s %s):"` / `"%s :"` (MON) / the anonymous
+  form, levels through 10 0x59 or 10 0x7a, job names group 0x12, then 3 trimmed 40-character lines with
+  auto-translate expanded).
+- scoption Invite is disabled when the person is in our party (FUN_102031f0), has 0x400, is in a party but not its
+  leader, is recruiting, is in another zone where cross-zone invites are not allowed (zone flag bit 4 of either zone
+  clear, FUN_100fd370), an event / layout is up, is MON (rec +0x20 == 0x17), or by FUN_10201f00; for a leader it
+  becomes "Form an alliance" (14 0x61) when FUN_10203310(1), else disabled. Tell with f & 0x400: 14 0x11 "Send a
+  Knock Message." (FUN_101ffc20, PlayOnline's).
+- Not traced: rec +0x14 against +0x18 (LSB fills only +0x18); the meaning of flags 0x400 and 0x10000; whether
+  searchma stays open under scresult.
+
 ## Search results: first cursor row (2026-10-24)
 
 - Retail (vanilla, the user's screenshot) shows the cursor on the first person once the rows are in, not on the header;
@@ -5945,7 +7819,6 @@ search_spec 3.2: 15 visible rows and 7 columns, page by 15, the zone cell plain 
 
 ## Cast tones and the sound grace (2026-10-24)
 
-Spec `~/ffxi/lab/research/cast_fx_spec.md`.
 - The cast-start tones are generator sound elements: neri gn2s se 5032 (25.3 s, no loop), gn1s 5015, gn4s 5037,
   ner5 5039, element life 30. st?? / sp?? kill them with op 0x1e on (caster, caster); the clone is (caster, caster)
   (FUN_10052710 takes the task's actor1 / actor2 as they are, asm 0x10058b4c..0x10058b60).
@@ -5965,12 +7838,50 @@ Spec `~/ffxi/lab/research/cast_fx_spec.md`.
 - Live (Lnxcsfix WHM 20, Cure on self, null output): 5032 starts with the cast and gets its 30-tick stop at the
   finish (2.07 s later) and at an interrupt (category 8 `spwh` after walking off). The Cure sound 3037 starts twice
   in one frame from ops 0x53 and 0x0b; FUN_10036460 lets the same resource start again in a frame, so retail does too.
-- Left: F5 (a file that fails to load blocks the +0x298 lookups), F7 (the start cap per pass; the two specs
-  disagree: 12 a pass in FUN_10035640, 20 distinct a frame in FUN_10036460).
+- Left (done since): a file that fails to load blocks the +0x298 lookups ("Effect lookups: failed files and the
+  +0x298 order"); the start cap per pass (12 a pass in the 2019 FUN_10035640, 20 distinct a frame in
+  FUN_10036460; "Motion name bases, `sdep`, ...").
+
+From the research notes:
+- Start (FUN_1009caa0, asm 0x1009cd0e [cur 0x1009e620 / 0x1009e67c]): a category 8 cmd_arg whose low 16 bits are
+  "ca" runs FUN_10083d60(caster, cmd_arg) [cur FUN_10085450], then the caster's vtable +0x298(cmd_arg, actor2 =
+  caster, action 0). +0x298 ends in FUN_10055cc0(sched, this, actor2, 0, action): `cawh` and `stwh` run on (caster,
+  caster) with no action, at speed 1.0.
+- FUN_10083d60's other callers all pass 0: the finish loads (0x100a8fe7 / 0x100a924f / 0x100a9543) and the entity
+  re-sync FUN_100aeea0 (0x100aef99 / 0x100af06c, state machine DAT_1048990c; *inferred: the zone-in replay*).
+- Finish: the file 0xaf0 + animation loads (LAB_100a7640), FUN_10083d60(caster, 0) runs the stored `stwh` on
+  (caster, caster), then `main` on (caster, first target); its op 0x3c `shwh` runs `stwh` again on (caster, target),
+  which misses the (caster, caster) clones in retail too (the first stop always runs before it). Interrupt `spwh`
+  (cmd_arg not "ca"): no FUN_10083d60, +0x298("spwh", caster, 0) on (caster, caster).
+- Schedulers (the same in every PC skeleton): `cawh` (length 93): op 0x03 `hwmg`, op 0x05 `mw0?` dur 93 count 23
+  blend 16, op 0x03 `ner2`. `ner2` (DAT 0 syst/effe/neri, length 1800): op 0x02 `gn2s` dur 0, `gn20` / `gn21` dur
+  1800. `stwh`: op 0x5f `ner2`, op 0x1e `gn2s`, op 0x2d `gn21` / `gn20`; `spwh` the same with op 0x28 (20.0) after
+  the 0x5f. `shwh`: op 0x03 `hwmg`, `stwh`, `eis4`, then op 0x03 `sswh` and op 0x3b `wash`.
+- Generators (neri): `gn2s` attach 0x11 mode 1, one SeSep `5032` element (flags 0x2cc, no loop bit), life 30,
+  emission op 0x4c near / far 0; `gn20` D3m `hit3` every 30 ticks, life 90 (a pillar growing to 3 units in 1.5 s);
+  `gn21` D3m `e41 ` every 40 ticks, life 80, update op 0x2b (a sine wobble), child `gn23` (D3m `ei30` every 5 ticks,
+  life 30). `ner3`'s gn3s (se 5035) has element life 60.
+- Op 0x1e / 0x2d (asm ~0x10058d5f): an unattached generator (FUN_1005d100: mode 0 / 0xe / 0xf / 0x14) that is
+  persistent, or the SeSep-element case (FUN_1005d6a0), acts on the generator itself (FUN_10052930 kill,
+  FUN_100528e0(0) soft); otherwise FUN_10052a50. Hard deletes the clone's elements; soft clears running bit 0x800 and
+  sets elapsed = life, so the live elements finish. Op 0x5f (FUN_10055f00) kills every task running that scheduler,
+  on any actors.
+- Sound element (FUN_100356c0 [cur FUN_100364e0], manager FUN_10035410 once a frame): FUN_10035590 starts the voice
+  (cmd 2, a new handle) with +0x1e4 = 3.0; each pass, while DAT_10450fd0 is set and +0x1e4 > 0, +0x1e4 -= 1.0.
+  Playing (FUN_100359a0) = +0x1e4 > 0, or the handle is among the voices the sound thread reported alive at the start
+  of the pass (FUN_1023ba50 into DAT_1044fc58). Not playing and not persistent, or out of range (FUN_10035e50 == 0):
+  destroyed. The destructor FUN_10035cd0 [cur FUN_10036af0] fades (FUN_10035dc0(handle, ftol(+0x114)) [cur
+  FUN_10036be0]) when the SeSep is valid, its generator (+0xfc) still is, and the handle +0x1e0 != 0.
+- Effect clocks: each frame's whole ticks (DevCtrl +0x28 = the last 4 frames' average, at least +0x30, at most 20;
+  FUN_10014000 = max(1, +0x28), copied to DAT_10469678 +0xeb0) drive the task countdown (FUN_10056e60), the
+  generator interval (FUN_10048740), op 0x02's life (FUN_1005d5e0), the element life (FUN_10043ca0) and the element
+  update (FUN_100499d0). Generator op 0x11's follow (FUN_10052cd0) and the spin ops 0x0e..0x10 step once a
+  FUN_10048740 pass, i.e. once a 2-tick frame.
+- FUN_10055cc0's 0.7 test is holder +0x1c > 1, read as the target count *(inferred)*; ours counts records outside
+  categories 14 / 15, the same for one target with one result.
 
 ## Bard songs: ops 0x76 / 0x77 and the range slot (2026-10-24)
 
-Spec `~/ffxi/lab/research/song_sound_spec.md`.
 - caso / shso run op 0x76 / 0x77 (asm 0x1005adb5): `lc` / `ls` + two digits of actor +0x886 (the range part file's
   info byte 0xe, FUN_100d0b50 case 8; vtable +0x3d8 = &+0x878) on actor1's own files, a plain child; mode 1 above 2
   -> 0, mode 2 not 11 -> 10, nothing while moving (+0xf8).
@@ -5981,9 +7892,44 @@ Spec `~/ffxi/lab/research/song_sound_spec.md`.
 - Live (Lnxcsfix BRD 20, Valor Minuet on self, null output): se 21005 from 1 s into the cast until its stop 0.5 s
   after the finish, then 20069. Before, the song was silent until the finish.
 
+From the research notes:
+- Packets (LSB): the start is 0x028 category 8 with the 4cc "caso" (interrupt "spso"), the record value the spell id;
+  the finish category 4, record animation 393 -> effect file 0xaf0 + 393 = 3193 (Valor Minuet). `caso` is in every PC
+  skeleton (7072, 10248, 13424, 16600, 19776, 23176, 26352): t0 op 0x76 mode 1, t0 op 03 `ner5` (the casting ring).
+- Op 0x76 / 0x77: actor1 and actor2 unwrapped from dolls (either missing: nothing); mode other than 1 / 2 (the ranged
+  `calg` / `shlg`, mode 0) keeps k, k < 0 nothing. The lookup FUN_100ce480(a1, 7, name, -1, 0, 0): the actor's
+  motion-file list (vt +0x400), then the model's file (vt +0x1dc); no part files, no DAT 0. Found: FUN_10056bb0 starts a
+  plain child (the parent goes on) with the parent's action, +0x144, and its speed when +0x142. a1 +0x7c4 is cleared
+  before and set to the name after (inferred: a record of the last lc / ls; nothing here reads it).
+- The class: FUN_100d0b50 case 8 sets +0x886 from the range file unconditionally; FUN_100cf210 takes the first loaded
+  file's byte 0xe >= 0 while +0x886 is still < 0 (skeletons and other parts carry 0xff). Hume M range files (base 9416):
+  ids 0..21 and 159..255 empty, class 0; bows / crossbows / guns 3..6; wind class 1 (64..71, 84, 105, 111, 116, 124,
+  135, 136, 150, 153); string class 2 (72..81, 100, 110, 128, 131); handbells class 11 (113, 121). Range files hold the
+  wep2 mesh and `lgin` / `lgot` / `kalg` / `selg` / `eflg`.
+- Schedulers (7072; every race the same shape): `lc00` (114 ticks) hides wep0..2, op 05 `sk1?`, t60 op 57 `vsng`; `lc01`
+  / `lc02` (800) op 89 800, op 03 `hwso`, `sf0?` / `sh0?` 60, t60 op 02 `sefl` / `sehp`, `sf1?` / `sh1?` 740; `ls00`
+  (104) op 5f `lc00`, `sk2?`, t60 op 57 `ksng` (not in Elvaan F 16600); `ls01` / `ls02` (98) op 5f `lc01` / `lc02`,
+  `hwso`, `sf2?` / `sh2?`, t25 op 1e `sefl` / `sehp`; `kf&h` op 1e `sefl`, op 1e `sehp`.
+- `vsng` / `ksng` are in the face part file (folder `pc_s`: generator `vsng`, schedulers `vsng` = op 02 `vsng`, `ksng` =
+  op 1e `vsng` wait 10; the SeSep one folder up). `sefl` / `sehp` generators sit in the skeleton file, their SeSeps in
+  DAT 0 syst/acti; attach word 0x11, element life 30 (plays once), op 0x4c near / far 0. SeSep: @8 the se id, @0xc the
+  length of trailing note bytes (bit 31 clear: no loop) that nothing on PC reads (inferred: a PS2 leftover). Lengths:
+  21001 12.05 s, 21002 12.64 s; `vsng` 21003 Taru F, 21004 Taru M, 21005 Hume / Elvaan M, 21006 Hume / Elvaan F, 21007
+  Galka, 21008 Mithra (about 12 s each).
+- Finish: `stso` (DAT 0, ner5 folder): op 5f `ner5`, op 2d gn52 / gn51 / gn50, t30 op 57 `kf&h` and `ksng`; 3193 `main`
+  t0 op 3c `shso` (op 03 `stso`, `eis6`, op 77 mode 1 -> `ls0K`, op 3b `waso`), per target `hit1` t30 se 20069. The
+  interrupt `spso` does not kill `lc0K`: one before t60 still lets it start its sound at t60 (as the data reads; not
+  seen). No BGM ducking or song special case in the client (none of these 4cc or se ids is an immediate in the code;
+  inferred).
+- With the range slot loaded, ranged attacks run their files too: `calg` op 0x76 mode 0 -> `lc03`..`lc06`, `shlg` op
+  0x77 -> `ls03`..`ls06`; geomancy `cage` / `shge` (mode 2) -> `lc10` / `ls10`, or `lc11` / `ls11` with a handbell.
+- Not done: op 0x89 (FUN_1005f450: actor +0x840 bit 1 and its x / z recorded for dur ticks; inferred: holds the actor in
+  place). Retail loads main / sub id 0 too (the fists file 8392 holds `se h`, `ef h`, `skaz`, `sinr`); dat/character.rs
+  skips them as parts (not checked live).
+
 ## Scheduler op 0x05: the motion rate (2026-10-24)
 
-Spec `~/ffxi/lab/research/raise_anim_spec.md`. Corrects "Scheduler op 0x05 (motion) and what ends it".
+Corrects "Scheduler op 0x05 (motion) and what ends it"; more from the research notes at the end of this entry.
 - FUN_100cb8e0's second argument (op 0x05 f32 @0x10) is the queue entry's weight (+0x1c; FUN_1001a400 blends it into
   the region queue +0xc, which only the overlay regions 5 / 6 use as their pose weight), not a speed. The third is
   the rate (+0x28 via FUN_10019a40). FUN_10019ab0 advances `frame += ticks x speed(+0x36) x 0.5 x rate`.
@@ -6004,9 +7950,22 @@ Spec `~/ffxi/lab/research/raise_anim_spec.md`. Corrects "Scheduler op 0x05 (moti
 - Ours: actmotion::op_rate; one-shots end by real ticks; the engage and death motions take the same rate.
 - Live: the Hume M raise `std` ran 3.35 s (200 ticks), as the user had seen it too fast before.
 
+From the research notes:
+- Raise effect files: Raise (511) 3311 holds actor2 230 ticks, `stnd` at t29, `mdam` t243; Raise II (512) 3312 260 /
+  t57 / t265; Raise III (496) 3296 268 / t64 / t258; Arise (847) 3647 320 / t64 / t320. The spell's file (3295 for
+  Raise III: op 0x20 234, `mdam`) has no stand-up.
+- `stnd` (every race skeleton, identical): op 0x2e 176, op 0x05 `std?` u16 @6 200, f32 @0x10 1.0, @0x14 1.0, blend 0,
+  u16 @0x1c 20, count 1. std natural length: Elvaan M 51 frames at speed 1.0 (102 ticks, rate 0.51), the other races
+  51 at 0.5 (204, rate 1.02).
+- Op 0x05 lookup: a name ending '?' first in the scheduler's own scope (FUN_1005d540 -> FUN_10071610, type 0x2b,
+  3-byte mask), skipped for `ded?` / `cor?` when FUN_10081b30 is 0; else the actor's files (FUN_100cc210: model +0x400
+  / +0x1dc, then the +0x7e4 list).
+- Rates (natural / length): Elvaan M ms0? / mn0? 0.45, mb00 1.76, mi10 0.65, mw20 1.89, mn20 0.42, `@tr0` / `@tl0`
+  wlk0 1.67 and idl0 0.57, lc0x 1.6, ati0 0.84; Hume M rx10 1.29, wlk0 1.58, idl0 0.5; emotes, talk and `ded?` within
+  5 %.
+
 ## Window groups, region stacking and the raise prompt (2026-10-24)
 
-Specs `~/ffxi/lab/research/raise_prompt_spec.md`, `mpcost_spec.md`.
 - Menu registry (30261006_0: 0x103722d8, 0x2c-byte rows): name, handler, u32 flags @0x24, u8 state @0x28, u8 layer
   @0x29 (draw order), u16 group @0x2a. Flags 0x1000 / 0x2000 / 0x4000 / 0x10000000 put a window in region 0 (on the
   chat log), 1 (on the party window), 2 (on the target window), 3 (query); masks 0x1037629c. 0x20000 marks the
@@ -6032,9 +7991,47 @@ Specs `~/ffxi/lab/research/raise_prompt_spec.md`, `mpcost_spec.md`.
 - F12 lines: the windows holding the keys, log focus, lock, party cursor and the held DIK codes (for the intermittent
   stuck-input reports).
 
+From the research notes:
+- resynus: registry 0x10374bec (handler DAT_10664524, flags 0x00011002); names by language at 0x1038a8d0 (resyn,
+  resynus, resynde, resynfr). The generic yes / no class (FUN_10210da0, vtable 0x1033bc30) built with +0x38 = 0 (not
+  cancellable; comyn gets 1). FUN_10096c90 mode 2 opens it with FUN_10210e30(LAB_10097370, &state[5], 0, 1, 0, 1, 0):
+  the cursor on Accept *(inf: the default child)*, +0x39 = +0x38 = 0, +0x40 = 0, +0x86 (the confirm sound) = 1, and
+  the log focus reset (DAT_1057876c +0x68 = 0). The callback sets state[5] = 1, state[6] = !yes, sent as c2s 0x01A
+  0x0D's parameter.
+- resynus layout: (16, 240) anchor 2, frame offset (0, -8), 112 x 64; strings: title 101, children 407 / 408; Accept
+  (21, 22) and Decline (21, 38), both 88 x 15, 1 px apart. Escape (message 6, also the right release): the generic SE
+  0003 (+0x84; it does not close: registry flags & 2), then the class's SE 0004 (+0x39 == 0) *(inf: whether 0003 is
+  heard too depends on the voice stealing)*.
+- The pointer follow (FUN_101626e0, asm 0x10162a26..0x10162ab7, right after FUN_1011a5a0 resizes the log): when new_h
+  != old_h, the keep is set and the active window (UI manager +0x54) has flag 0x1000 with the pointer inside
+  (FUN_10118c10), the pointer's y += old_h - new_h through FUN_10124700 (SetCursorPos too with the hardware cursor,
+  config 0x21 != 0). The region pass runs before the log update, so the window follows a frame later: a 2 px (rarely 8
+  px) one-frame mismatch; the first line after an empty log moves the prompt 10 px but the pointer 2 px (retail leaves
+  that).
+- Region pass (FUN_1015fa00, game state 0x60, regions 0..4 in order): FUN_1015f8f0 reads the holder's rect (top y0
+  while shown, else y1) and re-places the masked windows only when it changed, and every frame the holder has no
+  window. Holders (UI manager +0x8c + 4i): 0 logwindo (logwin2 through FUN_1015f980 unless config 0xb4 == 2), 1
+  partywin, 2 targetwi, 3 query, 4 logwin2. FUN_1015f790 fails when the holder has no window, when the window is the
+  holder's own, or when rem4line (DAT_105781cc) +0x48 is set and FUN_10087070(0) holds; it floors y at win+0xbe when
+  +0xbe != +0xc2 (both 0 by default) and at 16, moves the window by FUN_10119110 without easing, and sets +0x88 = (x -
+  8, y) *(inf: the hand)*. FUN_1015e530 places a window once at open (0x4000: region 2, failing that region 1);
+  FUN_1015f760 clears a region's stored top (layout swaps; region 2 from the target window's open FUN_10150870). The
+  target window's update FUN_10150090 closes it without a target, so region 2 then fails every frame.
+- subwindo: object DAT_10578474 (FUN_1014f840, vtable 0x10334eb8, draw FUN_1014f960); registry flags 0x00004001 group
+  0x80 (the only 0x4000 window); targetwi 0x02002401 group 2; partywin 0x83; the magic / ability / emote / mount lists
+  0x20001002 group 0xc. Layout (384, 208) anchor 3, 112 x 42, framesus 4 (only the background cell: the frame is the
+  window style); targetwi (384, 252) 112 x 44; ptw0 (384, 398) 112 x 34. Solo in 448-unit space: targetwi's top 352
+  and subwindo 308..350 with a target, subwindo at 354 without.
+- For magic the opener sets +0x20 = 0, +0x24 = 0, mode +0x28 = 1, +0x2c = 1000; per row +0x20 = FUN_10101d00(spell MP,
+  spell type +2, spell +0x44, own statuses DAT_10485a30), +0x24 = (recast + 0x3b) / 0x3c whole seconds, drawn
+  "%d:%02d" (from 3600 s "%d:%02d:%02d"). Not modelled: FUN_10101d00 / FUN_10101f00 adjust the cost by our statuses
+  (0x2f / 0xe5 -> 0; 0x179, 0x166 / 0x191, 0x167 / 0x192, 0x168, 0x169, 0x16e, 0x16f, 0x247 scale it by 50 / 90 / 120
+  / 150 / 200 % through FUN_10102030 by the spell type (1, 2, 0x63) and +0x44 bits 0 / 1) *(inf: the SCH arts,
+  Manafont, Manawell, Penury, Parsimony family)*; ours shows the record's MP. Mode 3 is group 0xb 0xbd "TP Cost"; mode
+  6 puts the pet's gauge at (x + 0x1c, y + 0x11) and name at (x + 5, y + 3) above MP Cost (y + 0x1a).
+
 ## /check on a player: "menu    inspect" (2026-10-24)
 
-Spec `~/ffxi/lab/research/check_spec.md`.
 - /check on a PC sends c2s 0x0DD; LSB answers s2c 0x0CA (bazaar message, name, title), then 0x0C9 kind 3 (equipment,
   8 a packet) and kind 1 (jobs, linkshell). 0x0CA prints group 10 0x33 "%s's title: %s" in chat mode 0x29 (not
   for our own name) and arms View Wares.
@@ -6048,9 +8045,51 @@ Spec `~/ffxi/lab/research/check_spec.md`.
 - Left: the bazaar list behind View Wares (shop list window + c2s 0x105).
 - Live: Brannoc (a bot) showed "Lv.16 Warrior" and its gear; the cursor moves by the column rule.
 
+From the research notes:
+- Handlers (G = DAT_104dfd98): 0x0C9 LAB_100e5af0 (primary table, registered by FUN_100e5190); 0x0CA primary
+  LAB_10157370 (the title line), secondary LAB_10133870 (bazaar flag, comment). 0x0C9 is dropped unless u32 @4 ==
+  G+0x19d20 (UniqueNo) and u16 @8 == G+0x19d1c (ActIndex).
+- Store G+0x19adc: 16 records of 0x24 {u32 slot (0x10 empty), u16 item @4, 28 data bytes @8 (24 from the packet)};
+  G+0x19d24 the packet counter (bit 0x80: general info in); G+0x19d28 the info block (jobs, levels, mjob, mlvl, mflags,
+  packed LS name, colour, LS item, chevron count and flag, Ballista flags). FUN_100e55f0 resets it; FUN_100e5660 sends
+  c2s 0x0DD {UniqueNo @4, ActIndex u32 @8, kind @0xc} and clears id / counter / info, not the slots.
+- 0x0C9 by u8 @0xa: 0 and 2 legacy (item @0xc / slot @0xe; 8 items @0xc, 8 slots @0x1c), 3 equipment (count @0xb,
+  0x1c-byte entries {item, slot, pad, Data[24]}, until item 0), 1 general (LS item @0xe, name @0x10, colour @0x20 &
+  0xfff, jobs @0x22, levels @0x24, mjob @0x26, mlvl @0x27, mflags @0x28, chevrons @0x2c, flags @0x30, Ballista @0x32,
+  MesNo @0x34, Params[5] @0x38). With @0x30 bit 1 and MesNo != 0, FUN_100a1ab0 prints file-7031 message MesNo (LSB sends
+  0). Kinds 0 / 2 / 3 count +1; the general one only sets bit 0x80. LSB: slots in our order, 8 a packet (a last packet
+  with count 0 after exactly 8 or 16 items); jobs 0 for /anon targets unless we are GM 3+.
+- 0x0CA: message[123] @4, u8 @0x7f (bit 0 bazaar, bit 1 self, bits 2..7 race), name @0x80, title u32 @0x90. English
+  takes the title's field 0; DE / FR pick a field by the race's gender (table 0x101575c0). Title 0 is printed too. The
+  bazaar state comes from the actor's +0x128 bit 9 (0x00D bit 31), not from the 0x0CA bit. The message is cut into 3
+  lines of 40 (trailing spaces trimmed) into "menu    comment" slot 1 (checking ourselves: slots 0 and 4 too).
+- 0x0DD on LSB: refused in an event or jail; a PC beyond 50 gets no reply at all; the target sees MsgStd 89.
+- Registry: inspect 0x00020002 (2: the generic handler does not close it on Escape), extra 0x00100201; comment
+  0x00020002 / 0x000c0201; iteminfo 0x01400003. Holder DAT_105781b8 (vtable 0x103337e0): +0x74 the checked UniqueNo,
+  +0x148 last event child, +0x14a remembered column, +0x14e no action-menu reopen, +0x14f 0xff player mode (else the
+  mannequin view). DAT_105781c0 / c1 / c2 bazaar flag / 0x0CA arrived / View Wares delay; DAT_105781c4 the time of the
+  last 0x0DD.
+- Moves: horizontal wraps (column 0 <-> 3); the top and bottom rows lead to View Wares. From View Wares Up lands on the
+  bottom of the remembered column, Down on its top; Left / Right stay. +0x148 is not reset on open, so the first move
+  off View Wares follows the plain links (Down Main, Up Back).
+- Draw: slot icons at scale 1.0 with no stack counts. Ballista (not done): when info Ballista flags and our actor +0x1ff
+  team are both in 2..6, keytops3 359 at (x0 + 0x10, y0 + 0xa2), "x %d" chevrons in the sprite font after it (y0 +
+  0xa6), keytops3 360 after the text when chevron flag bit 0; else the linkshell line: icon at half scale tinted
+  0x80RRGGBB (R = (c & 0xf) * 13 + 0x38, G from bits 4..7, B from bits 8..11), name at (x0 + 0x24, y0 + 0xa6) in
+  fontshp, clipped at 140 px. FUN_100ed650's decode ends on 0x35..0x3d and 0x3f and maps 0 to '`' (ours skips them).
+- View Wares is also disabled when we and the target are in Ballista teams 8 / 9 and the teams differ (FUN_101339f0). On
+  View Wares the cursor hook opens "menu    comment" (16,240 366x56) without focus (inferred), 3 lines at (x0 + 4, y0 +
+  4 + 16i); on an empty slot iteminfo stays open as an empty frame (inferred).
+- Close (FUN_10134760, hook FUN_101336d0): iteminfo, the comment and the bazaar list close, DAT_105781c4 = 0; the action
+  menu ("menu    mp_pmode" for the Monipulator) reopens unless +0x14e (a typed /check or Ctrl+C with the action menu
+  closed). Broadcasts 0x838 close it and reset the store: 0x8 zoning, 0x10 target dropped (gone, hidden, status 2 / 3,
+  beyond 50), 0x20 engaged, 0x800 an event; the registry extra adds 0x200 (game mode 0x40, inferred). The checked player
+  walking off while not our target only disables the button.
+- The first 0x0C9 opens no window while any window with registry flag 0x20000 is open (FUN_1015ecc0): DAT_105781c4 = 0,
+  the data is still stored.
+
 ## Chat line history (2026-10-24)
 
-Spec `~/ffxi/lab/research/input_history_spec.md`.
 - FSTEXTINPUT (DAT_10662d40, built once, freed at shutdown) keeps the history at input +0x7ed8: 10 slots of 0x97
   bytes, slot 0 the working copy, 1..count the sent lines newest first, count at most 9; not a ring (a push shifts
   and the oldest falls off).
@@ -6062,9 +8101,50 @@ Spec `~/ffxi/lab/research/input_history_spec.md`.
   World).
 - Live: two Ups recalled "/echo one".
 
+From the research notes:
+- FSTEXTINPUT DAT_10662d40 (0xf2f8 bytes, vtable 0x10337a98; built in the app's init state, FUN_10010d20 state 1 ->
+  FUN_101b8e70 -> FUN_101aff70 -> FUN_101b5210; freed at shutdown, FUN_100108b0 -> FUN_101b92b0) serves the chat line
+  and every other text field. Its line buffer at input +0x7e30: +0x6c4 the raw text (Shift-JIS, auto-translate blocks
+  FD k l hi lo FD), +0x888 raw length, +0x88c the plain expansion, +0xa50 its length, +0xa54 max (0x78), +0xa58 caret;
+  +0xc78 the dirty flag, set by any edit (FUN_101abc50, FUN_101abf40, FUN_101abe90, FUN_101acfb0) and cleared only by
+  a recall and at construction.
+- The history object at buffer +0xa8 (vtable 0x10337210, ctor FUN_101a1400): +0x004 the slots, +0x5ec u32 length[10]
+  (strlen + 1, 0 empty), +0x614 count, +0x618 index. FUN_101a16b0 reset (index 0, slot 0 cleared); FUN_101a1580 store
+  into slot[index] (cut at 0x96, Shift-JIS safe); FUN_101a1470 push; FUN_101a1660 / FUN_101a1690 index + 1 / - 1;
+  FUN_101a1500 fetch (at most max + 1 bytes, cut by FUN_1018fdf0); FUN_101ac580 record (reset, store slot 0, push "").
+  Nothing else writes count or the slots.
+- Recording: only FUN_101b6e40 (submit) in mode 4 (input +0xf108 == 4). Enter (FUN_101b5d10 case 0x0d / 0x6c): with
+  the candidate list open it puts the candidate in; raw length 0 -> callback(0, "") and close, returning -1: not
+  recorded and no SE (FUN_101b29f0 plays SE 0002 only on 1); else recorded, sent (LAB_101b7e90 -> FUN_10080dc0(text,
+  1)), closed (mode 3), SE 0002. The raw buffer is stored (the expansion only when it is longer than max, not normally
+  reachable). The /chatmode prefix is added later (FUN_101ad4b0 -> FUN_101ad820) and not stored. Never recorded:
+  macros (FUN_101a1cc0 -> FUN_10080dc0(line, 2)), menu commands (FUN_10080dc0(.., 0)), other text fields (mode 5: Up /
+  Down reach their owner as callback codes 3 / 4).
+- Keys: the arrows come as WM_KEYDOWN through the window proc FUN_100016c0 -> FUN_101b29f0 (every VK but 0x0d / 0x1b /
+  0x6c, which come from DirectInput); with the candidate list open Up / Down pick the previous / next candidate; else
+  FUN_101b5d10(0x26 / 0x28) -> FUN_101ac2c0 / FUN_101ac3d0, then on success vt+0x5c (FUN_101b3ae0, an IME composition
+  cancelled) and the owner's vfunc 0 (FUN_101b91b0). Held keys repeat at Windows' typematic rate *(inferred)*. No
+  gamepad path. Numpad 8 / 2 with NumLock off arrive as VK_UP / VK_DOWN *(inferred)*.
+- A recall: fetch, re-expand (cap 0x1c3); an expansion longer than max replaces the line, cut to max; caret at the
+  end; dirty 0.
+- The index goes back to the working slot (count and entries kept) on: every open of the chat line (SetMode(4),
+  FUN_101b4360 -> FUN_101b5850 -> FUN_101abbd0 -> FUN_101abbf0: the line cleared, the history reset; an open with text
+  then sets dirty); the channel shortcuts and R while typing (strip, close, reopen with "%s%s"); sending; Escape with
+  text (FUN_101ac250: the line cleared and the history reset, and the line stays open; Escape on an empty line closes
+  it; SE 0003 both times); Escape at the candidate list's root or out of a category (FUN_101abe50: index 0 and slot 0
+  emptied, but the line keeps its text, a quirk); SetMode(2) from some windows (FUN_1019cff0, FUN_1019d3b0,
+  FUN_1023fe40, FUN_102450e0).
+- Tell-name cycling (Ctrl / Alt + R) is a separate store: DAT_1066268c, a most-recent list of 8 x 16 bytes
+  (FUN_1018dba0; FUN_1018dc70(i) = name i mod count); R steps DAT_10662c38 when the last shortcut was R (0x1037ade4,
+  set each frame by FUN_101ae3e0).
+- While typing key functions 0x00..0x03 are dead (mask bit 0x01) and the camera axes 6 / 7 off; 0x2b..0x2e pass the
+  typing test, but only windows read them.
+- Not matched by ours (mod.rs): retail's Escape with text clears the line and keeps it open (a second Escape closes;
+  ours closes at once); retail's Enter on an empty line closes silently (ours plays Select).
+
 ## Effect lookups: failed files and the +0x298 order (2026-10-24)
 
-Spec `~/ffxi/lab/research/cast_fx_spec.md` F5.
+The first open item of "Cast tones and the sound grace" above.
 - A DAT whose load fails is remembered (Effects.failed): actor lookups pass it by, a file start ends at once, and
   model generators start from the files that did load. Before, the failed id stayed in `loading` for good, every
   lookup on that actor waited on it, and a pending st?? / sp?? was dropped after 600 ticks: the cast's stop was lost.
@@ -6085,7 +8165,7 @@ Spec `~/ffxi/lab/research/cast_fx_spec.md` F5.
 
 ## Search: the /search grammar (2026-10-24)
 
-Spec `~/ffxi/lab/research/search_spec.md` 1.5 / 2.2, checked against the decompile (FUN_10104f00, FUN_10105520,
+Checked against the decompile (FUN_10104f00, FUN_10105520,
 FUN_10105640, FUN_10105930, FUN_10105bd0, FUN_10105de0, FUN_10105ab0, FUN_10105fa0).
 - Word lists ({i32 value, char *word}, NULL-ended) in a row from 0x10331cf0: categories (14), the UNITY keyword
   (0x10331d68, FUN_101055f0), areas (460 words, ALL = -1), nations, races, jobs, status words; unity leaders at
@@ -6121,9 +8201,43 @@ FUN_10105640, FUN_10105930, FUN_10105bd0, FUN_10105de0, FUN_10105ab0, FUN_10105f
   `/sea "Southern San d'Oria" war` area 230 + WAR; "Northern San d'Oria" (not visited by Lnxtest) became a name, as
   FUN_10105930 refuses it.
 
+From the research notes:
+- Category words (0x10331cf0, {id, word}): NAME 0, AREA 1 (an area of 0x10331d78, or ALL), HOME 2 (SANDORIA / SAN 0,
+  BASTOK / BAS 1, WINDURST / WIN 2; 0x10332be0), JOB 3 (WARRIOR / WAR 1 .. RUNEFENCER / RUN 22; 0x10332c70), LEVEL 4,
+  RACE 5 (HUME / HUM 0, ELVAAN / ELV 1, TARUTARU / TAR 2, MITHRA / MIT 3, GALKA / GAL 4; 0x10332c18), STATUS 6, UNITY 6
+  (leaders 0x10364880: PIEUJE 0x400000, AYAME 0x800000, ISHIELD 0xc00000, APURURU 0x1000000, MAAT 0x1400000, ALDO
+  0x1800000, JAKOH 0x1c00000, NAJA 0x2000000, FLAVIRIA 0x2400000, YORAN 0x2800000, SYLVIE 0x2c00000), MLEVEL 7,
+  LINKSHELL 0xb, LINKSHELL2 0x13, FRIEND 0xc, RANK 0x10, REGION 0x12. Area names have a long and a short form
+  ("PHANAUET CHANNEL" / PHANAUETCH 1 .. "KAMIHR DRIFTS" / KAMIHR 267).
+- Status words (0x10332dd8, OR'ed into +0x60 with flag 0x40, several allowed): DOWN 0x800, AWAY 0x100, INV / INVITE
+  0x8020, BALLISTA 0xf0000, REC / RECRUIT 0x10000000, MUTE / MUTELIST 0x20000000, `*` 0x2000.
+- Ranges: `75` = 75..75, `10-20` / `10<20`, `-20` = 0..20, `50-` = 50..255 (rank ..100); min > max goes out as is
+  (LSB then ignores the level filter).
+- Examples (the parser test): `/sea`, `/sea all`, `/sea all war 70-75`, `/sea "Lower Jeuno" inv`, `/sea name Lnx`,
+  `/sea all -level 1-75 elv` (descending by level), `/sea all region`, `/sea all linkshell`, `/sea all unity ayame`,
+  `/sea all mute` (what /mutelist does).
+- Lines: "Search failed." (7 0x65) with no header (refused, timed out), "No applicable entries." (7 0x6b) for zero
+  rows; the summary group 10 0x05 (one area), 0x35 (several), 0x06 (no area), then 9 0xbf when truncated (LSB: over
+  40 found).
+- Regions (FUN_1020a680 / FUN_1020a3e0; 0x32 lists at 0x103858a8, name index DAT_10385970; entry 30 points into .bss):
+  0 {230..233}, 1 {234..237}, 2 {238..242}, 3 {243..246}, 4 {48, 50, 52, 71}, 5 {256..259, 280, 284, 283}, 6 {100,
+  101, 140, 141, 142, 190, 167}, 7 {103, 108, 196, 102, 193, 248}, 8 {104, 105, 195, 149, 150, 1, 2}, 9 {106, 107,
+  172, 143, 191, 173}, 10 {109, 110, 197, 147, 148}, 11 {115, 116, 145, 169, 192, 194}, 12 {118, 117, 198, 249, 213,
+  3, 4}, 13 {119, 120, 200, 151, 152, 7}, 14 {111, 166, 204, 9}, 15 {112, 161, 162, 5}, 16 {126, 127, 158, 157,
+  184}, 17 {121, 122, 251, 153, 154}, 18 {114, 125, 247, 208}, 19 {113, 174, 128, 212}, 20 {123, 250, 252, 176}, 21
+  {124, 159, 160, 205}, 22 {130, 177, 178}, 23 {185..188, 134, 135, 39..42, 294..297}, 24 {11, 12}, 25 {26}, 26 {24,
+  25, 27..30}, 27 {16, 18, 20, 22}, 28 {33, 34, 35}, 29 {37, 38}, 31 {65, 51, 68}, 32 {62, 61}, 33 {53, 79, 54, 78},
+  34 {72..77}, 35 {80, 81}, 36 {82, 84, 85, 86, 175}, 37 {87, 88, 89, 93}, 38 {83, 90, 91, 92, 171}, 39 {94, 95, 96,
+  129}, 40 {97, 98, 99, 164}, 41 {136}, 42 {137, 138, 155, 156}, 43 {132, 15, 45, 215..218, 253, 254}, 44 {182, 298,
+  279}, 45 {43, 44, 183, 287}, 46 {260..273, 281, 282}, 47 {274, 275, 133, 189, 276, 277}, 48 {288, 289}, 49 {291,
+  292}.
+- Zone flags (DAT_103669b8, FUN_101070f0, 4 bits a zone, 300 zones): bit 2 searchable, bit 1 listable, bit 4
+  cross-zone invite *(inferred)*. The known-zone bits are S +0x3c409 (0x30 bytes from s2c 0x008 +4, handler
+  LAB_100facd0).
+
 ## Window group walk (2026-10-24)
 
-Spec `~/ffxi/lab/research/window_groups_spec.md`.
+More at the end of this entry.
 - The window list (0x10621838) is in raise order: the head is the bottom, the tail the window created or raised
   last; layer only decides draw order (every layer >= 5 row has group 0). FUN_1015fa00 walks it from the tail
   (0x1015fe10..0x1015fe9c) with mask 0: a visible window sharing a bit with the mask is suspended
@@ -6146,6 +8260,64 @@ Spec `~/ffxi/lab/research/window_groups_spec.md`.
 - Live (Lnxcsfix): the main menu's Abilities page and the action menu's ability types show alone, as before (our
   code closes their parents too); the item list's Use / Drop window takes the Options window's place.
 
+From the research notes:
+- The list: head at manager +0, tail +4; a node is next +0, prev +4, data +0x10, a "free" byte +0x14 (FUN_10126520 /
+  FUN_10126550 iterate, skipping free nodes; FUN_1015ee00 / FUN_1015ee20 also stop at a dying window).
+- Window fields (ctor FUN_101172c0: +0x73 = 1, the rest 0): +0x10 state (0xe hidden: closing or suspended; 0 after a
+  show); +0x34 / +0x38 / +0x60 the registry flags @0x24 / group @0x2a / layer @0x29 (FUN_1015e950); +0x64 / +0x66 the
+  close countdown / its delay; +0x68 animates (0 with flag 0x8); +0x6e closing (a real close); +0x70 dying (destroyed at
+  the next pass); +0x71 raise ticket (1-based, this frame); +0x72 holds its group while hidden; +0x73 resumable by the
+  walk; +0x75 wanted (show once its group is free); +0x76 requeue request.
+- Insertion (FUN_1015db10): layer >= 5 at the tail; layer < 5 after the topmost layer < 5 window, so above every layer <
+  5 one and under the layer >= 5 ones. Every registry row with layer >= 5 has group 0 (all 370 rows checked), so layer
+  never matters to the walk; it only decides who draws over whom.
+- Raise tickets: every FUN_1015e350 show issues FUN_1015db80(w, 0), also for a window already visible, and 151 other
+  sites re-raise (handlers raising themselves, e.g. after a child closes). The raise pass (0x1015fbb8..0x1015fc7e) moves
+  tickets 1..n in order to the top of their class and focuses each (FUN_1015e850) unless registry flag 0x1 without
+  +0x98; the counter goes back to 1. Focus each frame: FUN_1015e850(FUN_1015e7e0()), the first window from the tail that
+  is not (flag 0x1 without +0x98), closing, dying or hidden. Draw (FUN_1015f6a0): layers 0..8, head to tail in each.
+- FUN_1015fa00's passes in order: destroy dying windows except the focus (0x1015fade..0x1015fb33), the requeue loop, the
+  raise pass, the focus, region stacking (0x1015fc94..0x1015fd9e), the focus flag to each handler (vtable +0x28), the
+  walk.
+- The walk also lets a hidden window with +0x72 = 1 add its group; hidden windows under the mask are left as they are (a
+  closing one keeps closing, a deferred one keeps waiting). It reads only +0x38, +0x10, +0x6e, +0x72, +0x73, +0x75 (and
+  +0x70). A partly overlapping window adds none of its bits: mapframe 0x5e under scresult 0x1c is suspended and does not
+  hold 0x40, so buff stays up.
+- Hide FUN_1015e6e0(w, a2, a3, a4, a5): stores the cursor child in the menu template (FUN_10118830 -> FUN_1011b360)
+  *(inf: cursor memory)*; already hidden: only +0x75 = a5; else +0x73 = a3, +0x72 = a4, state 0xe with the close
+  countdown DAT_1036c190 (25, or 0 with the window-animation config) when animated (a2 unused); without flag 0x1 and
+  with a4 == 0 it gives back its +0x6f count from DAT_1057876c +0x6a *(inf: the input lock count)*; clears the manager's
+  previous focus (+0x58) if w; +0x75 = a5; calls the window's +0x7c callback *(inf: an on-hide notice)*. The handler's
+  close (vtable +8) is not called, so the object, cursor and contents stay at their list place. Argument sets: the walk
+  (w,1,1,0,1); most handler hides (w,1,1,0,0), never brought back by the walk (FUN_1013f880 hides abiselec, abimenu,
+  menuwind, playermo; FUN_1013f970 shows them); (w,1,0,1,0) at 0x1022429c / 0x102242c1 / 0x1022c85c / 0x1022c87c, hidden
+  and still holding its group. Close FUN_1015e790: +0x6e = 1, then +0x70 at once when already hidden, else +0x72 = 0 and
+  (w,a2,1,0,0).
+- Show FUN_1015e530 (needs +0x6e == 0, a registry entry and state 0xe): FUN_10117ee0, state 0, the handler's vtable
+  +0x14 *(inf: an on-show refresh; FUN_1015e350 calls the init +4 before it, the walk does not)*, the region restack for
+  flags 0x1000 / 0x4000 / 0x2000 / 0x10000000, the open zoom (frame +0x26 = DAT_1036c190, +0x68 = 1; none with flag
+  0x8); with flag 0x20000 it closes every flag-0x40000 window (mcr1pall, mcr2pall, mcr1long, mcr2long, cnttime;
+  prvdungp, registry 0x00420002, is one of the closers).
+- Deferred opens: FUN_1015e350(name, show, defer) with a visible window sharing a bit (FUN_1015ed10(group, w, 0)): an
+  existing hidden window is reset, init (+4), +0x75 = +0x76 = 1, neither shown nor raised; a new one gets +0x75 and goes
+  in at the top of its class, hidden. The requeue loop (0x1015fb35..0x1015fbb6) moves each window with +0x75 and +0x76
+  before the first window from the head sharing a bit (under all its group-mates: FIFO), else to the tail, and clears
+  +0x76. Callers: FUN_1015f3e0 mask bit 0x20 for the registry flag 0x400 windows (0x1015f578), playermo / mp_pmode
+  (FUN_101585f0, FUN_10158db0), targetwi (FUN_101590c0, only while not visible).
+- Flags: none exempts a window from the walk. FUN_1015e6e0 reads only 0x1; FUN_1015e530 0x8, the region bits and
+  0x20000; 0x200000 is read only at creation (FUN_101190f0), 0x10000 only in FUN_10118870 (cursor start).
+- Who suspends the HUD windows (rows sharing a bit): gaugewin 0x10: the 0x10 rows (inspect, trade, loot, persona, shop,
+  auclist, mp_stat ...), every 0x1c row (fulllog, scresult, the merit pages, quest00, miss00, the Config pages ...),
+  0x5c chocobor / racecard, 0x5e mapframe / cnqframe, 0x91 mcresed. playermo / mp_pmode / money 0x04: the 0x04 rows
+  (abiselec, itemctrl, the moogle, storage and shop menus, mp_abisc ...), the 0x0c lists, 0x1c, 0x5c, 0x5e. targetwi
+  0x02: ut_point, moneyctr 0x0a, 0x5e, searchjo 0x83. buff 0x40: 0x5c, 0x5e, prvdungp 0xc1. subwindo 0x80: every 0x81
+  window, searchjo, macro 0x89, mcresed, prvdungp. iteminfo / chatctrl 0x08: each other, magselec, moneyctr, 0x0c, 0x1c,
+  0x5c, 0x5e, macro. titlewin / titlehan 0x20: each other only. The party window "menu    partywin" is group 0 (layer 3,
+  flags 0x83; opened by FUN_1024c550, closed by FUN_1024c6a0); ptw0 and the others are its layouts (FUN_1011a8f0).
+- Read from the code, not seen *(inf: the bits look like screen areas)*: subwindo opened by a list over the main-menu
+  chain hides menuwind / mgcmenu / abimenu below it; money and playermo hide each other; a fresh playermo (new,
+  deferred) comes up over a visible shopmain / abiselec and suspends it.
+
 ## Near plane 0.1; rain and frame rate (2026-10-24)
 
 - The scene projection's near plane is retail's 0.1 (FUN_100146e0, MODLOG "name plates"); ours was 0.5 since the first
@@ -6159,7 +8331,6 @@ Spec `~/ffxi/lab/research/window_groups_spec.md`.
 
 ## Action menu: the mouse hold, release confirm, party cursor on engaging (2026-10-24)
 
-Spec `~/ffxi/lab/research/engaged_menu_spec.md` 3 and 4.
 - FUN_1012b4b0's tail: with playermo focused and the pointer on a row, the left press sets the hold to 60, holding
   counts it down, and at 0 (not on the release frame) the row's Right function runs (table 0x1036f240 @8: Disengage /
   Call for help FUN_1012acc0, Magic FUN_1012ab00 -> magselec, Chat / Tell FUN_1012aae0 -> chatctrl, not done) and the
@@ -6174,9 +8345,26 @@ Spec `~/ffxi/lab/research/engaged_menu_spec.md` 3 and 4.
 - Live (Lnxcsfix): held 1.3 s on Magic -> magselec; a click on Abilities -> the ability types; a right click on the
   menu closed it.
 
+From the research notes:
+- In the world the action menu opens only on a left release (FUN_101585f0, result 0x16); a press held 25 ticks (or
+  moved 65 UI px²) is a drag whose release only picks. The hold exists only inside the menu.
+- Key function 0x8b modes: 1 press edge, 4 held, 5 release. The hold runs while a window has the focus (FUN_1015edb0:
+  WM+0x54 set, not type 0xe, not hidden), it is playermo (FUN_1015ed80), and the pointer is inside it (FUN_10118c10)
+  over a row (FUN_10118cb0); the open (FUN_1012ada0) and msg 9 (FUN_1012bd10 case 8, the cursor moved by the mouse)
+  reset it to 60. After a Right function runs, +0x52 = 1 (help / title refresh). Rows with a handler: 2 / 3 Call for
+  help / Disengage, 4 / 5 Chat / Tell, 8 Magic; the same code in and out of combat.
+- A toggle row flips once a second while held *(inf; magselec takes the focus, which stops the count on Magic)*. After
+  Disengage's hold the release confirms the row now shown, so Call for help runs /help *(inf: no guard)*; after
+  Magic's the release is judged against magselec *(inf: SE 0004 with the pointer still over playermo)*. Held on the
+  cursor row more than 30 ticks the WM also sends msg 0x1d, which playermo ignores.
+- Right release (FUN_1015def0, msg 6) = Escape: engaged, autorun off / the log line off; out of combat SE 0003 and
+  close. Middle (0x96) release -> msg 7 when FUN_10123e50(4) (playermo: FUN_1015ee40, the main menu) *(inf: the
+  button)*. During a sub-target prompt playermo is hidden (FUN_1015e6e0) and not focused: no hold, no row clicks.
+- The party cursor on engaging: cancelled through its callback with 0, its window restored, then FUN_10202d10 /
+  FUN_10157780(0, 0) / FUN_10157860(0, 0) and target-system +0x58 = 0; no sound *(inf)*.
+
 ## Treasure pool window: loot, lootope, lnowin (2026-10-24)
 
-Spec `~/ffxi/lab/research/loot_spec.md`.
 - Only the action menu's Treasure row opens it (command 0xc -> FUN_1013f060; also the Monstrosity menu): no text
   command, key function or main menu row. The row is in every layout (table 0x1036f390) while the pool holds an item,
   not in Conflict (FUN_1012af30 case 0xc); its help is 0x1b in a party, else 0x1c. The action menu stays open under it.
@@ -6214,9 +8402,53 @@ Spec `~/ffxi/lab/research/loot_spec.md`.
 - lnowin's raid1 dodge (FUN_1013f1c0) and its mouse (the pointer over it hands it the focus as message 8, SE 0013; a
   click is Done, a right click gives the focus back) built 2026-10-26, not tried live (needs a party and a pool).
 
+From the research notes:
+- Objects (registry flags / state / layer / group): loot DAT_10578214 (0x168 bytes, ctor FUN_1013e7f0, vtable
+  0x10333f28) 0x00030002 / 1 / 2 / 0x10; lnowin DAT_10578218 (vtable 0x10336388) 0x00080002 / 1 / 2 / 0; lootope
+  DAT_1057821c (vtable 0x10336340) 0x00010000 / 1 / 2 / 0. loot: open FUN_1013eb20, close FUN_1013eb80, draw
+  FUN_1013ee10, messages FUN_1013e880, update FUN_1013ebe0 (the rows rebuilt every frame into +0x1c, 10 x 0x20 bytes).
+  lnowin: open FUN_1013f1a0, draw FUN_1013f1c0, messages FUN_1013f2e0, opened through FUN_1013f160. lootope: open
+  FUN_1013f3c0, close FUN_1013f420, messages FUN_1013f460, update FUN_1013f430. The open is FUN_1013f060, the full
+  close FUN_1013f090. Registry flag bit 1 (Escape does not close by itself) is set on loot and lnowin; lootope closes
+  on the generic Escape.
+- Layouts (DAT 39542): loot's frame `menu    frames` 6 (10 icon wells down the left), hand anc_s, header "300" / "73",
+  rows (0, 5 + 18 k) 132 x 16 keytops3 50 (an invisible hit box), no wrap; lootope 112 x 40, frames 20, Cast Lot (21,
+  5) windowps 239 (hover 434, help 301), Pass (21, 21) windowps 240 / 435 (help 302); lnowin (384, 48) 112 x 45, frame
+  windowps 755 ("Option", "+ : Spoils Options" baked), Done (16, 22) 88 x 16 windowps 756 (help 922).
+- Closing by itself: engaging (FUN_1015f3e0(0x20)) and an event start (0x800) close the windows whose registry byte
+  +0x28 bit 2 is clear; zoning through 0x200 (bit 3 clear) or 8 (no flag 0x100) *(inf: which game state is the zone
+  change)*. The client never clears the pool slots on zoning (only FUN_100eb2b0 at the session's start); the server
+  sends all 10 again.
+- The mouse (built, not tried live): message 9 with the pointer row (DAT_104e1d4c +0x52) below 1 or past the count
+  puts the cursor on the last item, else SE 0001 when it moved onto another row; with lnowin open and the pointer in
+  its rect, loot's update sends message 8 *(inf: while focused)*.
+- The zone pool (not seen live): the flag is actor +0x18c (FUN_101cc330), from s2c 0x00D @0x20 bit 3 or 0x037 @0x28 bit
+  9; the width 0x11d through FUN_1011a5a0, the height kept; the two columns in fontshp (FUN_101c9780 / FUN_101ca180),
+  white. LSB fills no Loot* field in 0x0D2, but its 0x0D3 would in a Treasure-flag zone.
+- lnowin's raid1 dodge (FUN_1013f1c0): with "menu    raid1" (DAT_106643ac) open, lnowin's bottom reaching raid1's top
+  and its right edge reaching raid1's left - 32, it moves to x = raid1.x0 - 32 - its width - 1 (same y); back to (384,
+  48) when that stops (+0x14 holds the mode).
+- The chest (FUN_102041d0, partywin vtable 0x1033b078 slot 4; fontshp table +0x1e8, FUN_10204140) at (x0 + w / 2, y0
+  - h / 2); its neighbours 0x7b (trade hands) at x1 - 2 w when DAT_10578484 +0x74, 0x7c (money bag) at x1 - w when
+  DAT_10663490; none in partywin's +0x40 mode.
+- The quantity "%2d" (0x1036f9fc) goes at window x + 0xa6 for Japanese. The cursor row's rect comes from FUN_10118900
+  (1 px up-left while focused, 1 px down-right while pressed).
+- Slots: count byte G+0x19890 (FUN_100ebe60), the highest lotter's act index @0x3c; 0x0D3 JudgeFlg 1..3 zero
+  +0x04..+0x2f and decrement the count. 0x0D2 / 0x0D3 also write G+0x1988c (no reader found); 0x0D3's per-member lots
+  (party records +0x38 + 2 slot) are never read by the window.
+- Packet queue: 0x041 is allocated with key 0, so a second 0x041 within the id's minimum interval is not sent; 0x042
+  uses the slot as its key (a still-queued pass for the same slot is reused) *(inf: the interval's value)*.
+- LSB: ignores PropertyItemIndex; lots 1..1000 at random; ignores a second lot; refuses silently with a full inventory
+  or a Rare item held; a pass after a lot sets that lot to 0; never sets EntryFlg (our lots end as +0x30 = 1; Done
+  skips both). Its resend on joining a pool (zone-in, party change) has Entry = 1 and TargetUniqueNo 0, so every
+  resent item counts as acted on (Done skips it) while it draws white and Cast Lot works; IsLocallyLotted / Point /
+  Loot* are never filled in 0x0D2, so a resent pool forgets our lot's colour. At expiry the highest lot wins; with no
+  lots a random member with room who has not passed (and, for Rare, lacks it); nobody: lost (0x0D3 JudgeFlg 2 with no
+  winner).
+
 ## List scroll bars (2026-10-24)
 
-Spec `~/ffxi/lab/research/scroll_bar_spec.md`.
+Per-window detail at the end of this entry.
 - A window has a bar when its handler calls FUN_10118530 (11 sites): the generic row list (base vtable 0x1033a730,
   open FUN_101f68b0: scresult, inventor, bank, shop, cmbhlst, maplist, scanlist, the social, merit and auction lists),
   the paged list (base 0x1033bf78, open FUN_10221ef0: magic, ability, emote, mount, key items, quests, missions,
@@ -6239,9 +8471,47 @@ Spec `~/ffxi/lab/research/scroll_bar_spec.md`.
   retail: its category 0 has 13 rows, ours stops at 11), the key item / quest / mission lists.
 - Live (Lnxcsfix, 25 items): the item list's thumb at the top, at the bottom on the last row; the magic list's bar.
 
+From the research notes:
+- The bar object (window +0x88, 0x2c bytes): +0 x, +4 y, +8 h, +0xc visible, +0x10 total, +0x14 top (the drag writes
+  it), +0x18 colour 0x80808080, +0x1c 0 *(inf: a blend word)*, +0x20 / +0x24 scale 1.0, +0x28 the mouse hit code 0..5,
+  +0x29 dragging. FUN_10118530(window, total, visible) allocates it and calls FUN_10234630(x1 - 8, y0, height,
+  visible, total); visible -1 = window +0x58 (the layout's cursor children). Freed by FUN_10117460. Window defaults
+  +0x69 = +0x74 = 1 (FUN_101172c0). A window of type 0xe returns before the hand and the bar.
+- Draw FUN_101177d0 at 0x10117e97; FUN_10234680 draws at (x - (sx - 1) c, y - (sy - 1) h / 2). The sheet
+  FUN_10220cf0(3, k) (DAT_10666e88[3]) = "menu    scroll" (texture "menu    hnf999"): cells 0 / 2 8 x 4, colour (128,
+  128, 128, 192); 1 8 x 64, alpha 49 (a faint track); 3 4 x 64 (cell x 2..6), colour (128, 65, 65, 145): a red-tinted
+  thumb. The stacking that puts the bar back at x1 - 8 is FUN_1015f790 (registry flag 0x1000 on the log, 0x2000 /
+  0x4000 on the party / target windows; from FUN_1015e530 / FUN_1015f760 / FUN_1015fa00).
+- Row lists (FUN_101f6700 sets the rows; FUN_101f69d0 copies total and top every frame; visible fixed at open), bar
+  (x, y, h): scresult 15 (374, 48, 248); inventor 10, moved by its +0x44 FUN_101f1fe0 to x 16 / 200 / 314 for provider
+  modes 0 / 1 / 2, so the bar at x + 176 (192 / 376 / 490: 2 px past the frame's right edge, as coded; to check
+  against retail footage); bank 10 (190, 48, 190); shop 10, resized every frame (FUN_10210880): x 284, 389 with the
+  requirement column; cmbhlst 11 (x1 - 6 when placed: 376 at x 200); bluinven 10 and mp_invnt 11 ((488, 48, 190), or
+  x1 - 6 when placed); bluequip 10 (304, 48, 190); maplist / roomlist 5 (374, the stacked y0, 88); scanlist 10 (120,
+  48, 248); auclist / auchisto and link5 / link12 10 (374, 48 or 106, 190); msglist, friend, blklist, levelsyn and
+  ranking 15 (374, 48, 248); meritcat / merit2ca 11 and jbpcat / fp_cat / fp_cat2 10 (374, 48, 190); worldsel 14
+  (lobby; moved after open: x1 - 6).
+- Paged lists (ctor FUN_102217c0): +0x30 cursor, +0x38 top, +0x3c max top, +0x40 total, +0x48 visible, +0x54 first
+  child, +0x58 step, +0x5c flags (bit 0 Left / Right do not page, 1 disabled, 2 clamp instead of wrap, 3 silent),
+  +0x5e bar shown. Setup FUN_10221900 -> FUN_10221920 (visible, total, top 0); FUN_10221a80(total, paged): in paged
+  mode (the key item description view FUN_1022a360) visible = total - pages; FUN_10221e50 on every cursor change
+  writes top and total while +0x5e is set, else top 0 and total 1 (hidden); FUN_10221c50 / c60 clear / set +0x5e;
+  FUN_10221c30 / c70 clear / set window +0x69 / +0x6a around sub-windows (key items, quests, missions, guides; never
+  magic, ability, emote or mount). Visible: magic / ability / emote / mount 12 ((190, the stacked y0, 200); magic in
+  German / French is widened to 0xc6, its bar at 208); buff 36 (never shows); evitem 8, quest00 5 (8 in its
+  sub-views), quest01 / miss00 / guide00 / guide01 / evitem01 8, all at (374, 48, 248).
+- Own handlers: query (open FUN_1014de10; visible 3 from the layout, total = the options, top +0x32; (374, the stacked
+  y0, 88); German / French resize it -> x1 - 6); gmtell (the same class, its handler ignores 0x16..0x1b); fulllog
+  (open FUN_101376a0; visible trunc((H - 448) / 16) + 23; update FUN_10137840: h = H - 64, top = total - scrolled -
+  visible, inferred for the main tab; (16 + w - 6, 48, H - 64)); cfilter / fxfilter 14 (open FUN_10197b80) and
+  k1assign / k2assign 14 (total 30, or 28 / 29) at (374, 48, 248); textcol1 11 (374, 106, 206); faqsub / faqmain in
+  percent (total 100, visible = 100 view / content); hnhead (lobby) 3 of 64, fixed at (screen w - 16, 64, 170), drawn
+  by FUN_1023ef80 itself. An unregistered paged list DAT_106671c0 (vtable 0x1033c328, visible 14, FUN_10228c10)
+  exists; its code at 0x10228940 was not followed.
+
 ## Chat mode window: chatctrl (2026-10-24)
 
-Spec `~/ffxi/lab/research/chatctrl_spec.md`.
+More at the end of this entry.
 - Right (or the mouse hold) on the action menu's Chat / Tell row runs FUN_1012aae0: "menu    chatctrl" (vtable
   0x10336420; registry flags 0x21202, group 0x08), the action menu stays under it. Rows 1 Say, 2 Tell, 3 Party,
   4 Linkshell, 5 Linkshell 2, 6 Unity, 7 Shout (keytops3 label sprites), child 8 the tell-name arrow; Up / Down wrap
@@ -6270,6 +8540,44 @@ Spec `~/ffxi/lab/research/chatctrl_spec.md`.
   the target window, the Chat bars; Party -> "hello" gave "There are no party members." and "(chatmode : /party )",
   the log caption Party, the action menu still up; Tell showed "Lnxcsfix" in yellow and set "/tell Lnxcsfix ".
   Shout was not tried (it reaches the zone).
+
+From the research notes:
+- The handler object (0x1c bytes; registry row 64, handler 0x1057818c, state 1, layer 2): +0x14 i16 the tell selector,
+  +0x16 i16 the last cursor row, +0x18 u8 "init re-run done". Vtable 0x10336420: +4 init FUN_1012ccd0, +8 close
+  FUN_1012ce30 (closes subwindo, unfreezes the tell names), +0x10 draw FUN_1012ce90, +0x18 message FUN_1012d2b0, +0x28
+  update FUN_1012ce60 (runs init once more on its first call, then sets subwindo's range from the cursor row, not the
+  mode).
+- Messages, after FUN_10118260's generic part: 1..4 follow the child links (SE 0001 on a move, nothing on a self link);
+  5 Enter SE 0002, or SE 0004 on a disabled child and the handler is not called; 6 Escape SE 0003, passed on (flags bit
+  1). Child 8 (81, 23) 18 x 12, frames 26 (the red arrow) has no links: the mouse only, as Right.
+- Enter: Tell's name by the selector: >= 0 history FUN_1018d950(i); -1 the target's name (entity +0x214 when u16 +0x210
+  != 0, else +0x7c); -2 nothing; -3 SE 0004 and nothing. Linkshell / Linkshell 2 are re-checked. Then DAT_10662d40 vtbl
+  +0x24 = FUN_101b5760(""): a closed input line opens empty, an open one has its IME composition and text cleared.
+- Layout (39542): (130, 192) anchor 2, 252 x 120, frames 195, cursor anc_s, strings ["595", "129"]; children 1..6 at (5,
+  5 + 16 k) 72 x 16, 7 at (13, 101) 72 x 15; keytops3 sprites (kind 0 / kind 4): Say 28, Tell 31, Party 34 / 330,
+  Linkshell 37 / 331, Linkshell 2 518 / 519, Unity 520 / 521, Shout 43. Party has a dim sprite but chatctrl never
+  disables it.
+- Linkshell n equipped (FUN_100e9730): slot G+0x9808+n and bag G+0x980f+n from s2c 0x0E0 (@4 number, @5 index, @6
+  category; G = DAT_104dfd98) and an item in that record. The Unity word counts only while DAT_10485824 bit 0 (set by
+  the s2c 0x119 handler FUN_10099430).
+- PvP flag FUN_100e3730 = s2c 0x0B4 u16 @0x10 (LSB sends 0): non-zero enables rows 4 / 5 and the linkshell lines show
+  the team by our entity +0x1ff (2 "San d'Oria", 3 "Bastok", 4 "Windurst", else "------------"; table 0x1035ba98) in
+  0x80806060 at (+0x4f, +0x36). Not modelled.
+- The mode object DAT_10662da4 (FUN_101ad290): +8 prefix[0x80], +0x88 the previous prefix, +0x108 mode, +0x10c the
+  previous mode (both start 2). Modes (FUN_101adc30): 1 custom, 2 say, 3 shout, 4 tell, 5 party, 6 linkshell, 7 emote, 8
+  message, 9 yell, 0xa "//worldmes ", 0xb unity, 0xc linkshell2, 0xe assistj, 0xf assiste. FUN_101adb80 runs after each
+  of the 12 channel sends. Game state 0x40 (FUN_1015f3e0(0x200) -> FUN_101b83e0) sets Say again *(inf: leaving the
+  game)*.
+- Tell names DAT_1066268c (FUN_1018d640): +4 count, +8 8 x 16-byte names, loaded from the per-character file acq.dat
+  (FUN_101b9f20 kind 1, 0x80 bytes; names of up to 15 letters) *(inf: saved like cnf.dat)*. FUN_1018d6e0 on a sent
+  tell's echo (">>%s : %s"); FUN_1018d980 copies the list each frame to the snapshot (+0x88 count, +0x8c names) unless
+  frozen (+0x10d, while chatctrl is open). +0x10e the current tell name (set by mode 4, cleared by any other). The
+  snapshot, then the target, then the party feed Tab name completion (FUN_1018d7f0).
+- Selector: the first value FUN_1012d1d0 is -2 with a current tell name, else -1 with a target, else 0 with names, else
+  -3. FUN_1012d210(step, wrap): -2 kept only with a current name, -1 only with a target, i < count; past the end with
+  wrap -3, then once more from -2; without, back to the first value.
+- subwindo mode 0: windowps table 0x10371b6c (index 3 is 290 "Bid", unused here); tint 0x80808080; placed as the MP Cost
+  box (region 2, flag 0x4000).
 
 ## Config lists: bars, textcol1 scrolling (2026-10-24)
 
@@ -6323,13 +8631,11 @@ Spec `~/ffxi/lab/research/chatctrl_spec.md`.
   (actor ambient 167..173, sun 196 x 1.5) a shaded texel 0.5 went 84 -> 110 where retail goes 83 -> 220. Without a
   flash both formulas agree (within the ftol rounding). lit_actor now follows retail; flash-shot zone 103 hour 12:
   peak difference 155 (was 43).
-- Not done: each 0x8010 material record's light factor f (f32 at record byte 18): body path scales the RS ambient
-  bytes and light diffuse by f, cloth path diffuse x f and emissive max(f - 1.5, 0); Hume faces carry 1.2..1.6.
-- Research notes and scripts: `~/ffxi/lab/scratch/flash2/`.
+- Since done: each 0x8010 material record's light factor f ("Material light factor").
 
 ## The raise prompt: placement and the K.O. focus (2026-10-24)
 
-Research `~/ffxi/lab/scratch/raise2/` (30261006_0). Corrects "Window groups, region stacking and the raise prompt".
+Decoded from 30261006_0. Corrects "Window groups, region stacking and the raise prompt".
 - FUN_1015f790 moves the window's own rect (element 0: layout pos + anchor shift, layout size; FUN_10118f70 /
   FUN_10119110), not its frame: rect top = log top - h - 2 (log bottom - h with no lines), at least 16; the frame
   keeps its header offset from it. resynus is the only stacked window in 39542 with a frame offset (0, -8), so its
@@ -6357,8 +8663,8 @@ Research `~/ffxi/lab/scratch/raise2/` (30261006_0). Corrects "Window groups, reg
 
 ## Material light factor (2026-10-24)
 
-- Each 0x8010 material record carries a light factor f (f32 at record byte 18; research `~/ffxi/lab/scratch/flash2/`
-  matscan.py: Hume M parts 1.0, faces 1.2 / 1.3 / 1.6). Body path (FUN_1002cdf0, asm 0x1002d2dc..0x1002d3fb):
+- Each 0x8010 material record carries a light factor f (f32 at record byte 18; a scan of
+  the files: Hume M parts 1.0, faces 1.2 / 1.3 / 1.6). Body path (FUN_1002cdf0, asm 0x1002d2dc..0x1002d3fb):
   every light slot's diffuse r, g, b x f (a copy, then SetLight), the D3DRS_AMBIENT bytes x f clamped to 255 (alpha
   as is). Cloth path (FUN_100216a0, mesh flags & 0x7f == 1): the lights' diffuse x f, the material emissive =
   f - 1.5 per channel when f > 1.5 (0x1031f21c = 1.5), ambient unscaled.
@@ -6369,7 +8675,7 @@ Research `~/ffxi/lab/scratch/raise2/` (30261006_0). Corrects "Window groups, reg
 
 ## Name plates while K.O. (2026-10-24)
 
-Research `~/ffxi/lab/scratch/nameplate/`. No K.O. case in retail: FUN_100ce480 [current FUN_100d04c0] projects
+No K.O. case in retail: FUN_100ce480 [current FUN_100d04c0] projects
 vtable +0x1c4 of point +0x8a7 (2 from the constructor) plus f32 +0x8c0; FUN_1002b5e0 point 2 is the rest translation
 times the size (no bone, no rotation, no status), lifted only for status 5 / 0x55 (-1.3) and 0x3f..0x53 (-0.5). A
 dead PC's plate stays at standing head height, as ours (plate_point). The PC `dead` scheduler (7072) has no 0xb4 /
@@ -6380,7 +8686,7 @@ dead PC's plate stays at standing head height, as ours (plate_point). The PC `de
 
 ## List scroll bars: the mouse and the wheel (2026-10-24)
 
-Spec `~/ffxi/lab/research/scroll_bar_spec.md` sections 2..5. client/scrollbar.rs: the focused lists register their
+client/scrollbar.rs (retail detail at the end of this entry): the focused lists register their
 bar each frame (GameUi::bar_site, whether it shows or not); the next frame's HUD runs FUN_102347f0's zones (1 / 2
 caps, 4 / 5 the track, 3 the thumb), the press and the key repeat (16 ticks, then every 2; FUN_10234930) as 0x16 /
 0x17 / 0x18 / 0x19, the thumb's drag top = trunc(start + dy x total / (h - 8)) as 0x1b (FUN_10234a20), and each wheel
@@ -6399,13 +8705,32 @@ the bar holds the mouse the windows see no press and no pointer.
   hand kept. Unit tests scrollbar::{row_list, paged_list, hit_zones}.
 - Not done: the post / delivery / trade / synthesis lists (post.rs draw_rows) and the synthesis history.
 
+From the research notes:
+- Only the focus window (manager +0x54) takes the mouse: FUN_1015f6a0 runs FUN_10234930 for it and FUN_10125360
+  hit-tests FUN_10160c90(). FUN_102347f0 (needs total != 0; inside x..x + 8, y..y + h): 1 my <= y + 4, 2 my >= y + h -
+  4, 4 above the thumb, 5 below it, 3 the thumb. A press on a bar with total > visible is consumed (+0x86 = 1); on the
+  thumb it starts a drag (state 3). FUN_10234930 runs only while visible <= total; key modes 0 press or repeat, 1
+  press edge, 5 release; messages through FUN_1015dd00. The drag clamps to 0..total - visible and sends 0x1b only when
+  the top changes. The wheel (asm 0x10125dad..0x10125dcd) sends its message whether or not the window has a bar.
+- Row lists (FUN_101f6c70; scresult, auclist, auchisto, link12 and levelsyn wrap it in FUN_1020a580; jbpcat has its
+  own update copy FUN_1014a930): 0x16 / 0x17 top -/+ 1 (0001 when it moved); 0x18 / 0x19 top -/+ visible, at the ends
+  the hand jumps to row 1 / the last (0001 if anything moved); 0x1b top = the bar's top (0001); the tail clamps the
+  hand to the count. Left / Right reach the page branches only with +0x47 set or the 0xa8 modifier.
+- Paged lists (FUN_10222150, tables 0x10222410 / 0x10222450): 3 / 4 with step < 2 and flag bit 0 clear resend
+  themselves as 0x19 / 0x18; 0x18 back by min(top, visible) (FUN_10221d60); 0x19 forward by visible (FUN_10221da0);
+  0x1b cursor += bar top - top; 0001 whenever the cursor changed (unless flag bit 3).
+- query (FUN_1014e410): the view follows the selection (sel - top <= 2); pages via FUN_1014e0f0(.., 1). The Config
+  lists (FUN_10197be0 cfilter / fxfilter, FUN_1019c9b0 k1assign / k2assign, FUN_10198800 textcol1): 0x1b moves the
+  hand by the difference, clamped to 1..visible. faqmain / faqsub (FUN_1021a240) scroll by pixels (0x19 / 0x1b seen:
+  FUN_102180b0 / FUN_10218110). hnhead takes 0x16 / 0x17 / 0x1b in its handler.
+
 ## Actor collision and lifts (2026-10-24)
 
-Spec `~/ffxi/lab/research/collision_actors_spec.md` (30261006_0).
+Build 30261006_0; more detail at the end of this entry.
 - Actor collision: only XiModelActor boxes (Mog House furniture) join the player's sweep (FUN_1016e930, gate
   DAT_106631d4 = the Mog House object and FUN_101d5fe0). Characters (CXiSkeletonActor) are not in that sweep: they
   have their own test, see "Character bump" (that pass missed it). Corrects "actor-body boxes" in "Player movement
-  collision". The furniture boxes (FUN_1016d580, spec 1.3) wait for the furniture.
+  collision". The furniture boxes (FUN_1016d580) wait for the furniture (since done: "Mog House furniture").
 - Lifts: the only moving platforms, vertical only (RID '@' records in zones 9, 141, 143, 149 and 237; ships are their
   own zones). The record: +0x30 bits 4..7 the surface type, +0x34 / +0x36 i16 floors (pos.y + v / 256), in memory the
   height +0xdc (the box centre until a lift actor exists). The lift NPC (0x00E SubKind 3, XiLiftActor) carries the
@@ -6424,7 +8749,55 @@ Spec `~/ffxi/lab/research/collision_actors_spec.md` (30261006_0).
   mv01 / mv10 every 18 s over 480 ticks, the character riding on the planks with the camera; /map refused. Tests
   lifts::metalworks_shaft, ground::rides_a_lift.
 - Not done: the zone-in fade's wait for a lift actor while standing in a shaft (FUN_1008abe0 state 4); the camera's
-  look point; LSB's Metalworks door data (spec 2.7) not checked against the doors.
+  look point; LSB's Metalworks door data (below) not checked against the doors.
+
+From the research notes:
+- Actor classes (descriptors {name, size, parent}, walked by FUN_1002c8f0): CXiActor 0x1032cf7c <- CXiAtelActor
+  0x1032d44c <- CXiControlActor 0x1032df68 <- CXiCollisionActor 0x1032db30 <- CXiSkeletonActor 0x10330ebc (0xa0c
+  bytes: every character). XiModelActor 0x10330684 (0x794), XiFurnitureActor 0x10330690 and XiDoorActor 0x1032fd4c
+  derive from CXiControlActor; XiLiftActor 0x10330278 (0x600) from CXiAtelActor; CXiDollActor 0x1032f910 from CXiActor
+  (the actor iterator FUN_10085240 / FUN_10085270 skips dolls).
+- The sweep's actor boxes (FUN_1016e930): model actors with pos.y >= -0.1 within 4 (xz) of the start. FUN_101d5fe0 is
+  true (boxes skipped) while byte +0x40db1 bit 4 is clear; the zone load clears it and the Mog House entry sets it for
+  map 0x121..0x123 or +0x40d82 != 0 *(inf: the rent-a-rooms have no furniture collision)*. The docks' ships (kind 5,
+  model id + 0x791c) are XiModelActors too, never blocking outside the Mog House. FUN_100a6240 (move input) tests no
+  actor but the /follow target.
+- The RID '@' record in memory (0xf4 bytes, FUN_10173c10): the inverse matrix +0 (T(-pos) RotY(-yaw) S(1 / |size|)),
+  corners +0x4c, the id +0x40, centre +0xac, floors +0xb8 / +0xbc, the height +0xdc, surface +0xec. '@' records get no
+  collision box (FUN_10171930 runs for '_' only).
+- Every '@' record in zones 0..299 (floor 0 y / floor 1 y, surface): zone 9 Pso'Xja @090..@09a, 11 lifts, surface 5
+  (e.g. @090 at (300, 13.416, -60), 8 x 50 x 8, 32.147 / -0.334); 141 Fort Ghelsba @3x0 -28.007 / -52.186, 7; 143
+  Palborough @3z0 1.028 / -32.117, 6; 149 Davoi @450 (yaw 0.3299) -1.969 / -9.168, 7; 237 Metalworks @6l0 (-55.979,
+  -13.1, -12.021) and @6l1 (-56.006, -13.1, 12.014), 1.962 / -9.983, 0. The box is the whole shaft (@6l0 y
+  -28.84..2.64); in the MZB the lift model sits at one floor (Metalworks `liftallb`, its floor face at -9.98) and
+  `liftbaseb` (y 2.58) is the shaft bottom.
+- Schedulers sit in a folder named by the id, e.g. 237 `wt_b/even/@6l0`: `mv00` / `mv11` (10 ticks, op 0x1d only),
+  `mv01` / `mv10` (op 0x02 generator g000 / g001, op 0x1d with i16 @6 = 480, wait 480); Ghelsba / Pso'Xja add op 0x1e,
+  Palborough / Davoi op 0x0b (a sound at the lift). The op's i16 @6 (480 Metalworks, 200 Davoi, 400 Ghelsba, 720
+  Pso'Xja @093) goes into a time object nothing reads.
+- The lift actor (FUN_1008f740 kind 4): FUN_100c3a60(id) sets +0x5f0 = id and +0x5c4 = the '@' door group
+  (FUN_1017ad90; without a group nothing else happens), then +0x5d0 / +0x5d4 the floors, the parts' bounds widened for
+  culling (FUN_101710d0), +0x5ec = floor 0, +0x5f4 the scheduler folder; FUN_100c3cf0 plays `mv<old><new>`;
+  DAT_10482f45 = 1 (reset at zone load). SubKind 3 and 4 copy @0x34 / @0x38 / @0x3c into +0xf8 / +0x184 / +0x180 on
+  every update. A state change (FUN_1008b460) sets +0x5fc = end x 60 ticks. Op 0x1d's task (vtable 0x1032b95c, update
+  FUN_100600f0): remaining = max(0, +0x5fc - now x 60) ticks, linear from the height now; a move started at or after
+  its end snaps.
+- Riding (FUN_100a4ed0, for every CXiCollisionActor through CXiSkeletonActor vtable 0x10330f40 slot 0x20 =
+  FUN_100c63d0): the lift test (LAB_100a5512) runs after the move and the floor ray; a hit sets the ground normal (0,
+  -1, 0) (vt+0x20c), the surface (vt+0x214), +0x5e0 = 1 (grounded) and +0x5e2. FUN_10176620 takes the first matching
+  '@' record in list order; its six-face test (table 0x10376bc0, FUN_101768a0) gets the world-space old position and
+  delta, so it is dead for real lifts *(inf: a retail bug; the zone-line twin FUN_10175910 passes local coordinates,
+  the sub-area one FUN_101760f0 has the same bug)*.
+- Other uses of riding (+0x5e2, getter FUN_100a46f0 = vt+0x19c): the camera (FUN_1001ee60, all.c 22907..22915) adds
+  the player's y change to eye.y (the last y in DAT_10456d9c) and sets the hold DAT_10456d74 = 10; the look point
+  eases as usual. The entity update FUN_1008cd90 skips its snap (drawn vs server more than 12 apart, _DAT_1032d6b8 =
+  144) for a riding model. The motion speed (FUN_100c8930) is horizontal.
+- LSB's Metalworks data (the open check): LSB's NPC "@6l0" (door_id 0x306c3640) stands at z +12.0 with doors `_6lv` /
+  `_6lu` (z +12) and animation 10 = "Top", while the client's RID '@6l0' is the z -12 shaft, where animation 10 is
+  floor 0, the lower floor (y 1.962, FUN_100c3bc0). If doors open on the other shaft or at the wrong floor, check
+  LSB's data against a capture first. c2s 0x015 carries no lift field; LSB's elevator handler moves only the platform
+  NPC and the doors.
+- Not lifts: Port Bastok's drawbridge (`_6ke`, `_6ks`, `_6kt`) is a door group; no ship zone has an '@' record.
 
 ## Lifts: the zone-in wait (2026-10-24)
 
@@ -6441,7 +8814,7 @@ Spec `~/ffxi/lab/research/collision_actors_spec.md` (30261006_0).
 
 ## Character bump (2026-10-24)
 
-Spec `~/ffxi/lab/research/collision_chars_spec.md` (30261006_0).
+FFXiMain 30261006_0; more detail at the end of this entry.
 - FUN_100a8770 (old FUN_100a6e00): called at the end of the local player's move input FUN_100a6240 (old FUN_100a48d0)
   in both camera modes, with no input too, before the delta is applied and before the MZB sweep; only the local
   player. Off when our GmLevel (+0x128 bits 11..13; 0x037 @0x28 bits 29..31) >= 3. The nearest eligible actor (3D,
@@ -6465,9 +8838,46 @@ Spec `~/ffxi/lab/research/collision_chars_spec.md` (30261006_0).
   ours e.no_bump from the VM generic Effect::Op (the actor is the VM own NPC). The other subs bits have no known
   reader yet (R12).
 
+From the research notes:
+- FUN_100a6240 skips the test on its forced-follow path (entity +0x2a2) and in an event that forbids movement
+  (DAT_104568fc+8 set and FUN_100964f0() == 0 return before any move). Frame order: FUN_100c63d0 (actor frame) ->
+  FUN_100a4ed0 -> FUN_100a57f0 -> FUN_100a5ec0 -> FUN_100a6240 (bump, then the delta into +0xd4) -> the MZB sweep
+  FUN_10181a10 (+0x5c4 to +0xd4). Knockback runs in FUN_100a4ed0, not through the test; autorun, /follow and locked-on
+  movement go through it.
+- No eligible actor within 8 units leaves the hold state as it is; an eligible one at gap >= 0 resets it (+0x5a0 none,
+  +0x5ac 0, +0x5b0 0). Ties on distance keep the earlier actor (list FUN_10085240 / FUN_10085270, dolls skipped). The
+  +0x5a0 handle (+0x5a4 entity index, +0x5a8 server id; FUN_100814f0 / FUN_10081550) resolves only while the entity
+  exists with a model (+0x120 bit 9), so a despawned blocker does not match and the next contact holds again. The
+  countdown takes (i16) trunc(frame ticks) (FUN_10014cf0, at least 1).
+- Eligibility, in test order (asm 0x100a87cc..0x100a88c3): not self; the main body only (FUN_10085490: not one of
+  +0xa4..+0xd0, the mount and sub-models); vt+0x128 (FUN_10084a80 = entity +0x120 bit 6; called nowhere else); kind
+  +0xee (FUN_10084400); +0xb2 == 0; vt+0x34c (FUN_100827a0: +0xa4 not 1..4) and vt+0x358 (FUN_100827f0: +0xa4 != 0x54)
+  *(inf: mount get-on / get-off stages; FUN_100d4800 uses the same pair to place the rider point)*; status +0x170
+  (FUN_10084390); look slot 0 (FUN_10084480(0) = entity +0xfc; models 50..59 are the 2-bone `toum` / `yuka` markers,
+  files 1350..1357, radius 0); +0x59c, which rises 1/32 a tick once the model is ready (vt+0x1e4 == 1), about 0.53 s
+  after spawn; the id test (FUN_1008e140).
+- 0x00E SubKind (u8 @0x30 & 7) to kind +0xee: 0 -> 2; 1 -> 1 (0 with +0x12c bit 30, the PetFlag); 2 door -> 3; 3 lift
+  -> 4; 4 ship -> 5; 5 misc (Fomors) -> 6; 6 "automaton" (trolls, lamia, mamool) -> 7; 7 chocobo -> 8. PCs (0x00D,
+  FUN_1009afe0) -> 0 (2 when look +0x10 is 0xffff). Kinds do not tell PCs from NPCs; the id test does. +0xfc stays 0
+  for SubKinds 5 / 6.
+- Entity-less actors read zero defaults (kind DAT_1047d610, status DAT_1047d60c) and pass those tests; model actors
+  (vt+0x1c8 = FUN_10082120) have radius 0 *(not traced: whether one reaches +0x59c >= 1)*.
+- Active timer: FUN_100a57f0 runs every frame for every collision actor; moved = a 3D move > 0.02 (_DAT_1032b7b4) this
+  frame; the status test is FUN_10084330 -> FUN_10095790; then +0x5ae -= trunc(frame ticks), floored at 0. +0x5ae is
+  read only there and by the bump test.
+- Radius FUN_100aaef0: p = vt+0x1c8(0x2c) (FUN_100d4800), skeleton point 44 in the current pose through FUN_1002c3e0
+  -> FUN_1002a750 -> FUN_100351f0 (the 26-byte point table after the bones, no bounds check), in world space with the
+  actor's scale, minus the actor position; the rider (-1.3) and chair (-0.5) y tweaks leave x / z alone. 0.8 =
+  _DAT_10329a34.
+- Every skeleton has 128 points; of 1210 model files (1300..2799) 1186 put point 44 on bone 0, 19 on bone 52 (e.g.
+  Elvaan M 13424: 0.399 at rest; these sway a little with motion), a few on bones 1, 2 or 71. Rest R: orc 0.80, goblin
+  0.64, rabbit 0.32, mandragora 0.16, adamantoise / behemoth 4.05 / 4.08; 330 of 1210 (`toum`, `lion`, `tyun`, `tent`
+  ...) 0. Median 0.40, 90th percentile 1.12.
+- Our GM level also comes in a 0x00D about ourselves: u8 @0x23 & 7 (asm 0x1009a554).
+
 ## Party menu (2026-10-24)
 
-Spec `~/ffxi/lab/research/party_menu_spec.md` (30261006_0); ours client/partymenu.rs.
+FFXiMain 30261006_0; ours client/partymenu.rs.
 - Main menu child 6 (FUN_10140400 case 6, SE 0002 always) -> FUN_102016e0: prtyjoin while an invite is pending, prty3
   for the alliance leader or a party leader with no alliance, prty7 for a party leader in someone else's alliance,
   prty2 for a member, else prty1. The row is disabled (its kind-4 sprite, silent) while the party is us and trusts
@@ -6503,9 +8913,62 @@ Spec `~/ffxi/lab/research/party_menu_spec.md` (30261006_0); ours client/partymen
   the leader dot on the bot); prty2 (its leave row's windowps 80 reads "Disband"); Leave -> Solo and the window closed
   itself; Find Member with no target: 8 seekers in the region. The receiving side is untested live (no bot invites).
 
+From the research notes:
+- Names: G = DAT_104dfd98 (our id G+0x3c390, zone G+0x3c350); P = DAT_10664390 (FUN_10203120): P[0] the alliance
+  leader, P[1] our party's leader, DAT_10664394[1..2] the other parties' leaders, DAT_106643a0[0..2] their numbers
+  (0xf none), DAT_106643a3..a5 the member counts, DAT_106643a6 invite pending, DAT_106643a7 its kind (1 party, 0
+  alliance); filled by FUN_10201fb0 / FUN_10202b80. Config bytes C = G+0x2cfd8, 12 bytes from s2c 0x0B4 @4..@0xF
+  (LAB_100e4f20; @0x10 u16 -> G+0x40e2c, @0x12 -> G+0x2cff4); FUN_100e47c0(n): 0 anon C[0] bit 2, 1 away bit 1, 2 seek
+  bit 0, 6 autogroup C[1] bit 7, 0xb request C[3] bit 5.
+- Window events (FUN_10118260, before the handler): 1..4 the links (SE 0001 if +0x85), 5 Enter (SE 0002 if +0x86; a
+  disabled child gets SE 0004 and no handler call), 6 Escape (SE 0003 if +0x84, closes unless registry flag 2). State
+  5 disabled (FUN_10118b60(5, c)), 0xb enabled again (FUN_10205440 / FUN_10205470). The Party row is also disabled in
+  Monstrosity (FUN_10097d50; FUN_10140090 at open, FUN_10140270 each frame); menuwind sets +0x86 = 0, so a disabled
+  row is silent *(inferred)*. FUN_10201690: 0 no G / partywin, 1 invite pending, 2 solo, 3 party, 4 us and trusts.
+- Registry (0x103722d8): prty1..prty8 flags 0x00220000, layer 2, word +0x2a 0x0081; prtyjoin and alarm 0x00020000;
+  prty6 is in the DAT, not registered. Handlers (FUN_102017a0): prty1 DAT_106643b8 (vtable 0x1033aef8), prty5*
+  DAT_106643bc (0x1033aea8), alarm DAT_106643c0 (0x1033ae60), prty2 DAT_106643c4 (0x1033ae10), prty3 DAT_106643c8
+  (0x1033adc0), prty7 DAT_106643cc (0x1033ad70), prty4 DAT_106643d0 (0x1033ad20), prty8 DAT_106643d4 (0x1033acd0),
+  prtyjoin DAT_106643d8 (0x1033b0c8). The base FUN_10205500: open FUN_10205570, close FUN_10205660, draw FUN_10205790
+  (the Find Member child in 0x80808080, 0x80805020 under the cursor, or the 9-tick press pulse), FUN_10205860 (Enter
+  -> slot 17), per frame FUN_102056c0 ([6] = the target is someone else with +0x124 bit 20 or 21; [7] the state
+  watched), slot 19 the labels. [5] / [7]: prty1 2 / 2, prty3 and prty7 1 / 3, prty2, prty4, prty8 -1 / 3, prty5 -1 /
+  2.
+- Rows top to bottom (child: windowps label, help 0xe). prty1 (title 0xd 0x13, comwin 6, 112 x 122): 1 Seek Party 78 /
+  Play Solo 257, 0x180; 2 Find Member 82 / Invite 79, 0x10 / 0xf; 5 Request 778 / 780, 0x3b7; 6 View Request 782,
+  0x3b9; 3 Autogroup 474 / 484 (485 dim), 0x182; 4 Languages 49, 0x183; 7 Alarm Type 791, 0x3be. prty2 (0xd 0x5e): 1
+  Member List 81, 0x184; 6 Request; 7 View Request; 4 Rearrange 703, 0x346; 5 Focus 776, 0x3b6; 2 Distribution 258,
+  0x185; 3 leave 80 (its glyphs spell "Disband"), 0x186. prty3 (0xd 0x5f, comwin 11, 112 x 202): 1 Find / Invite; 2
+  Member List; 11 Request; 12 View Request; 3 Distribution 83, 0x188; 4 Chg. Leader 84 (dim 455), 0x189; 9 Rearrange;
+  10 Focus; 5 Rmv. Member 85 (456), 0x18a; 6 Disband 86 (457), 0x18b; 7 Alliance 87 (458), 0x61; 8 Level Sync 611 /
+  613, 0x2a1 / 0x2a3. prty7: as prty3 but 3 = 258 (0x191, the view) and 7 = Dissolve 89 (460, 0x18c). prty4 (0xd 0x60,
+  comwin 1, 112 x 42): Form 88 (459), 0x61; Dissolve 89 (460), 0x18c. prty8 (0xd 0x62): Lottery 91, 0x193;
+  Quartermaster 90, 0x194. prty5us (0xd 0x61, comwin 4, 112 x 90): English 93, French 94, German 95, Japanese 92,
+  Other 574 (help 0x18e, 0x18f, 0x28d, 0x18d, 0x28e; bits from table 0x10385388 + 5 x the language: 1, 3, 2, 0, 4).
+  alarm (frames 134, (440, 48) 56 x 140): OFF keytops3 351, 1..7 keytops3 542..548, help 0x3bf..0x3c6, sounds table
+  0x1032a8e4. prtyjoin ((384, 48) 112 x 56, frames 64, title 0xd 0x63): Yes 251, 0x195; No 252, 0x196.
+- The auto-pool area rule (open above): prty3's open FUN_10205e20 gives child 3 windowps 258 and help group 9 0xc2
+  "All treasure obtained will be automatically pooled." when FUN_101cc330 holds (our actor +0x18c != 0, set from 0x00D
+  @0x20 bit 3; meaning not traced); child 3's Enter then shows the setting (FUN_10205280) instead of opening prty8,
+  and the Distribution view prints 9 0xc2.
+- Packets: 0x06E {u32 id, u16 ActIndex, u8 kind} (0xc; an invite kind 0 with ActIndex 0, Form kind 5 with the target's
+  ActIndex); 0x06F {u8 kind} (6); 0x070 {u8 kind} (FUN_100e9090 sends only with our GAttr G+0x97f8 4 for kind 0, 0x40
+  for 1, 8 for 5); 0x071 {u32 0, u16 0, u8 kind 0, pad, name[15]} (0x1c); 0x077 {name[16], kind, change kind} (0x16; 0
+  leader, 4 quartermaster, 5 lottery, 6 / 7 level sync on / off); 0x074 {u8 answer} (6); 0x0DB (FUN_100e4630, 0x28: @6
+  kind, @8 / @0xc / @0x10 the C words, @0x24 the mask; LSB's kind 1 stores only the languages); 0x0DC (FUN_100e46a0,
+  0x14: which 0 @4 |= 4, 1 |= 2, 2 |= 1, 5 @5 |= 0x40, 6 @5 |= 0x80, 8 / 9 / 10 @7 |= 2 / 4 / 8, 0xb @7 |= 0x20; @0x10
+  1 set, 2 clear).
+- s2c 0x0DC (LAB_10203a50): {UniqueNo @4, ActIndex @8, AnonFlag @0xa, Kind @0xb, name[16] @0xc, RaceNo @0x1c}; the
+  pronoun is 2 with AnonFlag bit 0. /join and /decline (FUN_1007d640 / FUN_1007d670) also clear the pending invite, as
+  does the partywin reset FUN_10204140.
+- The party-list cursor FUN_10202d80(cb, cb2, win, f0, f1, f2, mode): modes 2 / 3 start at -1 (the fellow row), 18
+  slots in mode 3, else 6; it opens on the target's slot when in range. The callback gets ({ActIndex, id}, name), null
+  on cancel. When done: raise win; f0 reopens it (FUN_1015e530), else f1 closes it. Escape (FUN_10202f00): in stage 2
+  only cb(null); else cb(null), raise, f0 reopen, else f1 && f2 close.
+
 ## Status window (2026-10-24)
 
-Spec `~/ffxi/lab/research/status_window_spec.md` (30261006_0); ours client/status.rs.
+Ours: client/status.rs.
 - Main menu child 1 (FUN_10140400 case 5, SE 0002): persona in Status mode at (16, 16) with its group 0x30 (titlewin's
   bit too: GameUi::set_group; the walk hides the title bar), level at its layout place, statcom2 at (384, 48); c2s 0x061
   {0} with the busy strip until the next 0x061. Ours closes the main menu and brings it back on the Status row (retail:
@@ -6532,6 +8995,48 @@ Spec `~/ffxi/lab/research/status_window_spec.md` (30261006_0); ours client/statu
   SSandOria, rank 1, Gla, prestige 0), job levels, combat skills (blue capped Hand-to-Hand 4 / Evasion 5), Magic Skl.
   refused (SE 0004, no magic skills), crafts "Amateur (0)"; Escape twice back to the main menu on Status.
 
+From the research notes:
+- persona: vt 0x10334928 (open FUN_10146ec0, close FUN_10146fd0, draw FUN_101470d0, frame FUN_10147030); Status mode
+  (+0x1c = 1) moves it to (16, 16), sets its group byte +0x38 |= 0x20 and opens level, then statcom2 (raise order
+  persona, level, statcom2). level DAT_105783e8 (vt 0x10334970), (16, 208) 112 x 88, frames 12 (y + 0x14 in mode 1,
+  + 0x34 in mode 2). statcom2 DAT_10578404 (vt 0x10334778; open FUN_10148e80, close FUN_10148bb0 (persona, mp_stat and
+  the pages close with it), frame FUN_10148be0, events FUN_10148d00), (384, 48) 112 x 218, comwin 12.
+- Registry (flags / group): statcom2 0x00220002 / 0x81; level 0x1 / 0x04; persona 0x1 / 0x10 (0x30 in Status);
+  profile, joblevel (0x10001), btlskill, mgcskill, trdskill, masterle 0x1 / 0; merit1, ut_menu 0x20000 / 0x220000,
+  0x81; levmerit 0x1 / 0x04; merit2ca, jbpcat, fp_cat, fp_cat2, meritcat, evitem 0x30002 / 0x1c. Flag 0x200000:
+  FUN_101190f0 puts child +0x58 in state 0x10 at creation *(inf: the caption child)*. All state 1.
+- The stats request (persona's frame): every frame while +0x1e == 0, +0x21 counts down; below 0
+  FUN_10097fd0(LAB_10147010, 0) queues c2s 0x061 {0}; queued: +0x1e = 1 and busy bit 0x40 (FUN_10221270); queue full:
+  a retry every 20 ticks (+0x21 = 0x14), given up after 12 tries (+0x20); the first try is on the first frame. LSB
+  answers with 0x0DF, 0x061, 0x062, 0x119 and 0x063 types 2, 3, 5 (type 4 only at login).
+- statcom2 rows (child, y, label normal / dim, help 0xe): 1, 6, keytops3 181, 0x1e0; 2, 22, keytops3 52, 0x1e1; 12,
+  38, keytops3 564 / 565, 0x41d; 3, 54, 182 / 333, 0x1e2; 4, 70, 183 / 334, 0x1e3; 5, 86, 184 / 335, 0x1e4; 6, 102,
+  506, 0x2d0; 10, 118, 528, 0x2d0; 11, 134, 529 / 530, 0x375; 9, 150, windowps 32, 0x1dc; 7, 166, windowps 549 / 670,
+  0x25e; 8, 182, 669 / 671, 0x31f; 13, 198, 843 / 844, 0x448; 14 the "Status" caption, comwin 17. The cursor starts on
+  child 1 *(inf)* and is not kept (the object is made on every open). The display pages by name table 0x103716b8.
+- Fields (window origin; fontshp; white 0x80808080; numbers FUN_101c9440 with group 0xc 0x5b's ","): persona's name at
+  (4, 7) cut at width - 6; "Lv%2d " (group 10 0x59) at (4, 0x13) / (4, 0x1f), the job sprite after it; "ILv" (4, 0x2b)
+  with the value right-aligned at 0x46, "Su%2d" (0x4a, 0x2b); HP "%4d/" right at (0x46, 0x3a), the max at (0x48, 0x3a);
+  MP the same at y 0x46; TP "%4d" right at (0x4b, 0x52); STR..CHR at (0x32, 0x60 + 13 i), the bonus " +%d" green
+  0x80408040 or " %d" red 0x80804040; keytops3 430 at (0x1f, row y + 1) for a stat, (0x17, 0x3b) HP, (0x17, 0x47) MP.
+  level: "%s %d" (0xc 0x56) at (8, 10), 0xc 0x57 "EXP" (0xf, 0x16) with the value right at (0x5a, 0x22), 0xc 0x58
+  "NEXTLevel" (0xf, 0x2e) / (0x5a, 0x3a), the gauge at (0x16, 0x48) windowps 97 / 38; blue 0x802060a0 heading and
+  dark grey 0x80404040 numbers on 0x063 type 2 bit 14. Master-level mode (0x061 @0x66 bit 0): 0xc 0x203 "M. Level"
+  with @0x65, 0xc 0x204 "Exemplar Points" (7, 0x16) u32 @0x68, 0xc 0x205 "Next M. Level" u32 @0x6c (LSB fills none).
+- profile (130, 48) 252 x 178, frames 97: the crest keytops3 74 + nation at (0x37, 0x12); race at (0x32, 0x24) (table
+  0x10364cb0; in Monstrosity from 0x063 type 3 u32 @8 >> 0x12 & 0xf); home point at (0x5e, 0x34); rank right at (0x40,
+  0x44); the rank points gauge (0x5c, 0x54), framesus 103 / 98, @0x48 / 4096; with the Monstrosity data (DAT_10483158):
+  the gladiator rank {"Gla", "CG", "HCG"} (table 0x103716ac) at (0x8c, 0x91), prestige 0x063 type 3 u16 @0x14 at (0x5a,
+  0xa1) (LSB writes infamy at @0x12: a mismatch on its side), mastery rank 0x01B @0x66 at (0x6e, 0x6a), mentor
+  keytops3 560 + rank at (0xda, 0x68) or "--". The home point's 10-letter group 4 names (file 55466) are to be checked
+  live against retail.
+- joblevel / masterle (130, 48) 252 x 182, frames 102 / 203: names at x 0x0a / 0x82, levels right at 0x6e / 0xe6, rows
+  from y 0x13; main gold 0x80e09620, sub blue 0x804070a0. btlskill 252 x 248 frames 99, mgcskill 252 x 136 frames 100:
+  values at 0x6e / 0xe6, combat at 0x78 / 0xf0 except in Japanese. trdskill 252 x 136 frames 101: the rank sprite at
+  x 0x6e (0x5f Japanese, 0x7d de / fr unless +0x18), "(%d)" right at 0xf5; FUN_101d29c0(1, 0) true picks a random rank
+  instead (not identified, left out); the draw sets the height to (n / 2) x 14 + 0x16, overwritten by the update's n x
+  14 + 0x16 before the frame draws *(inf)*.
+
 ## Party window hand over the log (2026-10-24)
 
 - FUN_10202110's hand (anc2s) sits at the party / alliance row's top-left and reaches left over the chat log. The
@@ -6552,7 +9057,7 @@ Spec `~/ffxi/lab/research/status_window_spec.md` (30261006_0); ours client/statu
 
 ## Missions (2026-10-24)
 
-Spec `~/ffxi/lab/research/quest_mission_spec.md` sections 2, 3, 5 (30261006_0); ours client/journal.rs (the store
+FFXiMain 30261006_0. Ours client/journal.rs (the store
 and the row rules), client/missions.rs (the windows), dat/journal.rs (the name files).
 - s2c 0x056 (LAB_10098ad0): data u32[8] @4, Port @0x24 into the store: quest areas' current (0x50 + 8 a, 0xE0, 0xF0,
   0x100) and completed (+0x40, 0xE8, 0xF8, 0x108) bits, 0xD0 the nations' and Zilart's completed missions, 0xD8 ToAU /
@@ -6572,6 +9077,57 @@ and the row rules), client/missions.rs (the windows), dat/journal.rs (the name f
 - Inferred: row bands beyond the count hidden; the held-key header stop not done.
 - Live (Lnxtest, San d'Oria rank 1): "Smash the Orcish Scouts" current, its description; Bastok "Not allowed under
   current allegiance."; Zilart "No current missions."; Escape back to the social menu on Missions; /mission.
+
+From the research notes:
+- Windows (registry flags / group; layout): socialme (0x02 / 0x81); missionm DAT_1066837c, vtable 0x1033c578 (open
+  FUN_1022da40, Enter FUN_1022db40) (0x20000 / 0x81) (384, 48) 112 x 122, comwin 6; miss00 DAT_10668378, vtable
+  0x1033c5c0 (0x30002 / 0x1c) (16, 48) 366 x 248 windowps 72, rows 1..8 at (39, 40 + 25i) 320 x 18, arrows 9 (9, 11)
+  frames 25 and 10 (343, 11) frames 26 (not cursor stops); quest00 DAT_10668ecc (0x30002 / 0x1c); quest01 DAT_10668ed0
+  (0x1000a / 0: 8 = no open zoom); evitem DAT_106671d4 (0x30002 / 0x1c), rows at (40, 13 + 29i) 256 x 18; evitem01
+  DAT_106671d8 (0x1000a / 0). Registry flag 2 keeps the generic Escape from closing the lists; their handlers do.
+- Titles (group 0xd): missionm children 1 0x2a, 2 0x18, 3 0x83, 4 0x87, 5 0x90, 6 0x31 "Misc.", 7 0x9f; miss00 0x55,
+  quest00 / quest01 0x64, evitem 0x3b. Help: missionm 0xe 468; the lists have none, so the help line is empty while one
+  has the focus (inferred).
+- The store: current quests 0x1047fb48 + a x 0x20, completed 0x1047fca8 + a x 0x20 (received bits a / 11 + a); missions
+  done 0x1047fe08 (64 bits each San d'Oria, Bastok, Windurst, Zilart; bit 22), ToAU / WotG 0x1047fe28 (23), Campaign
+  0x1047fe48 / fe68 (24 / 25); the received mask DAT_1047feac, complete byte 0x1047fe8f. Areas: 0 San d'Oria, 1 Bastok,
+  2 Windurst, 3 Jeuno, 4 Other Areas, 5 Outlands, 6 Aht Urhgan, 7 Crystal War, 8 Abyssea, 9 Adoulin, 10 Coalition. Area
+  6's current words 4..7 are the Assault / ToAU / WotG / Campaign current missions, its completed words 4..7 the Assault
+  bits. Port 0xFFFF: @4 nation -> fe8e, @8 u16 nation mission -> fe8c (0xffff none), @0xc RotZ fe88, @0x10 CoP fe90,
+  @0x14 CoP sub-paths fe94 (low 5 nibbles, >= 10 clamped to 9), @0x18 & 0xffff ACP / AMK / ASA nibbles fe98, @0x1a
+  Tales' Beginning flags fea8 (bit 0 RotZ, 1 ACP, 2 ASA, 3 CoP, 5 SoA, 6 RoV declined), @0x1c SoA fe9c, @0x20 RoV fea0;
+  0xFFFE TVR fea4. Zeroed by FUN_10093a30 in the world-entry reset FUN_10093720. The lists do not rebuild while open
+  (only state 0 polls; inferred: a change shows at the next build).
+- Mission logs (table DAT_10667a90 + log x 0x94; title group 0xd; English file; expansion bit DAT_10386984): 0 San
+  d'Oria 0x15 55715 (0), 1 Bastok 0x16 55716 (0), 2 Windurst 0x17 55717 (0), 3 Zilart 0x18 55718 (1), 4 CoP 0x83 55719
+  (2), 5 Assault 0x86 55720 (3), 6 ToAU 0x87 55721 (3), 7 Campaign 0x8f 55724 (4), 8 WotG 0x90 55723 (4), 9 SoA 0x9f
+  55738 (0xb), 10 RoV 0xb7 55741 (0), 11 TVR 0xbc 55742 (0), 12 ACP 0x98 55735 (5), 13 AMK 0x99 55736 (6), 14 ASA 0x9a
+  55737 (7); ja = en - 120, de = en + 120, fr = en + 540. Quests (DAT_10668380 + a x 0x94): areas 0..6 55706..55712, 7
+  55722, 8 55713, 9 55739, 10 55740. FUN_1025b580 maps de / fr to en when DAT_10456a28 +0x18 is negative. Quest files
+  are XOR 0xff with fixed 0x280-byte records. Placeholder entries show only if their bit is set.
+- Shared pieces: rows FUN_10221f50 with colours 0x103860fc (0x80808080, grey 0x80404040, cursor 0x80803040); the icon
+  row FUN_10233250 / FUN_10233280 (framesus 35, ja frames, at (4 + 6 indent, 5), text at (18 + 6 indent, 0), width 319 -
+  that x); the description box FUN_10233130 / FUN_10233190: framesus 35 at (36, 25), the name at (50, 20), the text at
+  (40, 50) wrapped at 327 px; the row bands hidden, hand and bar off, the arrows kept (inferred). Waiting: "Preparing
+  data." (9 0x61) at (20, 20), "Please wait a moment." (9 0x62) at (20, 40); Escape there clears the busy bit and
+  closes. Enter on a row that does nothing still plays 0002 (inferred: the generic method runs first). Mouse: hover over
+  children 9 / 10 hides the hand and disables the list until a row is hovered again.
+- missionm: disabled children draw their kind-4 sprites (windowps 623..626, 622, 661) and keep the cursor; Enter there
+  plays 0004. Screen order 1, 2, 3, 4, 5, 7, 6 (1 <-> 6 wrap). Enter: child 1..5 -> category 0..4, 7 -> 5, 6 -> 6; the
+  log: 0 the nation, 1 -> 3, 2 -> 4, 3 -> 6, 4 -> 8, 5 -> 9, 6 -> 10 while RoV < 340, else 11.
+- Current row (FUN_1022dfa0): nations -3 unless ours, -4 at 0xffff; Zilart fe88, entry 0x3f when fe88 <= 3 with Tales
+  bit 0; CoP the entry numbered fe90 (or 1000 at 0 with Tales bit 3), else the largest number below; Assault / ToAU /
+  Campaign / WotG area 6 current words 4 / 5 / 7 / 6 (Assault / Campaign 0 -> -4); SoA / RoV / TVR the last entry
+  numbered <= fe9c / fea0 / (fea4 & 0xefff), 999 -> -4, TVR -4 with fea4 bit 31, SoA / RoV 0 with Tales bit 5 / 6 ->
+  1000; ACP / AMK / ASA the nibble as the index (ACP 0 with Tales bit 1 -> 0xc, ASA 0 with bit 2 -> 0xf).
+- Completed (FUN_1022e3a0): 0..3 bit log x 64 + i of fe08; CoP: at 325 n - 330 in 0..=sub & 0xf, or n - 340 in 0..=sub
+  >> 4 & 0xf, or n <= 325; at 530 n - 540 / 550 / 560 in 0..=nibble 2 / 3 / 4, or n <= 530; else n <= current. With
+  LSB's values the current CoP mission is listed as completed too (inferred; to check against retail footage). Assault
+  area 6 completed bit 128 + i; ToAU fe28 bit i; Campaign fe48 bit i; WotG fe30 bit i; SoA / RoV / TVR: number(i + 1) <=
+  value; ACP / AMK / ASA i < nibble.
+- The held-key header stop (not done): a -1 header reached on a held repeat steps back Down and sets +0x60 = 2 (the list
+  stops); on a fresh press Up from row 1 wraps to the last row. Scroll messages 0x16..0x1b skip no headers. The three
+  nations are always in the Left / Right cycle.
 
 ## Cursor memory and the held action menu (2026-10-24)
 
@@ -6593,7 +9149,7 @@ and the row rules), client/missions.rs (the windows), dat/journal.rs (the name f
 
 ## Quests (2026-10-24)
 
-Spec `~/ffxi/lab/research/quest_mission_spec.md` section 6; ours client/quests.rs.
+Ours client/quests.rs.
 - Social child 2 runs /quest (0x4d, FUN_1007d240, SE 0002): quest00 beside the social menu (group 0x1c, the menu stays
   drawn unfocused); its setup sends c2s 0x061 {0}; waiting with the busy strip until the 0x056 store is complete.
 - quest00: five rows moved to y 14 / 46 / 110 / 142 / 174 (FUN_1022f670): Current, Completed, the RoE "Current" with
@@ -6609,9 +9165,29 @@ Spec `~/ffxi/lab/research/quest_mission_spec.md` section 6; ours client/quests.r
 - Live (Lnxtest: empty lists, the panel at 0; Lnxcsfix with !addquest 0 10 / !completequest 0 11: "A Squire's Test"
   current with its description, "Grave Concerns" completed; both removed again with !delquest and checked).
 
+From the research notes:
+- quest00 (messages FUN_102300c0, draw FUN_102300a0): "menu    ut_menu" (Unity) children 1 / 2 open it in modes 1 / 2
+  (Unity Information / Ranking); /quest sets mode 0. Row 0 is moved to y 14 but keeps the layout's bottom (35 high, a
+  retail quirk). Rows: framesus 35 at child (4, 5), text at (16, 0); 0xc 0x3b, 0x3c, 0x6d (format 0x103869e4), 0x6e,
+  0x208. Vana'Bout is enabled (child state 0xb, total 5) only while FUN_10087160() and one of the 20 dwords from
+  0x1048058c has low 12 bits, else state 5, total 4, drawn grey.
+- RoE panel (FUN_10233560, window-relative): "Records of Eminence" (0xc 0x6c) at (20, 78); Sparks (0x78) / Deeds (0x7a)
+  at (20, 200) / (20, 220), values right at 160; Unity Accolades (0x79) / Number Completed (0x82) at (168, 200) / (168,
+  220), values right at 350; Plaudits (0x209) at (180, 174), value at 350.
+- RoE data: s2c 0x110 @4 & 0xffffff Sparks -> 0x104804d0, @8 Deeds, @0xa Plaudits, @0xc 8 bytes; flag 0x104807ec bit 0
+  (Sparks / Deeds read 0 before). s2c 0x111: 64 records {Id:12, Count:20} -> 0x104804e0, flag bit 1. s2c 0x112:
+  Data[128] @4, Offset @0x84 -> 0x104805e0 + Offset x 0x80; Offset 0 clears flag bit 2, Offset 3 sets it. Unity
+  Accolades (DAT_1048568c >> 10) & 0x1ffff once 0x119 was seen.
+- quest01 (messages FUN_102330b0, draw FUN_10232720): the first area is the nation; built once per open or area change.
+  Numbers above 1000 map through a 10-entry table to area 9 bits (the Mog Garden quests listed in Other Areas). Titles
+  (group 0xd) by area: current 0x19..0x1e, 0x88, 0x91, 0x9c, 0xa0, 0xa3; completed 0x1f..0x24, 0x89, 0x92, 0x9d, 0xa1,
+  0xa4. "No current quests." (9 0x63) / "No completed quests." (9 0x64) at (20, 40), hand hidden. The area cycle table
+  DAT_10386998 (4 bytes an area, a negative byte ends): 5 bit 1, 6 bit 3, 7 bit 4, 8 any of 8 / 9 / 10, 9 / 10 bit 0xb.
+  Escape closes quest01 (FUN_1015e790(w, 0)) and gives quest00 its hand, rows and bar back.
+
 ## Key Items (2026-10-24)
 
-Spec `~/ffxi/lab/research/quest_mission_spec.md` section 7; ours client/keyitems.rs.
+Ours client/keyitems.rs.
 - s2c 0x055 (FUN_10098710): tables 0..7 only; the owned bits @4, the seen bits @0x44 (keyitems::Seen): a table whose
   DAT_104802b8 low-word bit is set merges (local |= ~last & new, keeping the marks made here); the others take the
   packet; only the first table ever received gets the bit (asm 0x10098790..b2).
@@ -6632,9 +9208,29 @@ Spec `~/ffxi/lab/research/quest_mission_spec.md` section 7; ours client/keyitems
   then seen; LSB accepted the 0x064. Both removed with !delkeyitem (their seen bits stay set on the server, as LSB
   keeps them).
 
+From the research notes:
+- s2c 0x055: @4 owned[16], @0x44 seen[16], @0x84 u16 table (refused above 7). Owned -> 0x1047feb8 [table x 16 + i] (test
+  FUN_10097e50); the last packet's seen bits at 0x104802bc + table x 0x40; the local seen table DAT_104800b8 (test
+  FUN_10097eb0). "Any 0x055 received" (FUN_10087650) = DAT_104802b8's high word. Zeroed by FUN_10093ad0 at world entry.
+  Mark seen: FUN_1022b040 -> FUN_10097f10, sent only from Yes; opening a seen item sends nothing.
+- The table (code 0x3f: en 55705, ja 55585, de 55825, fr 56245): fixed 0x2bc-byte records, 3244 entries; en fields [id,
+  article type, -, -, singular, plural, description]; field 1 is the article type, not a category. Descriptions are
+  field ja 2 / en 6 / de 8 / fr 10.
+- evitem (messages FUN_1022aaa0, draw FUN_1022a8b0): +0x88 mode (0 key items; 1 / 2 the Currencies windows), +0x89
+  opened by an event, +0x8e the id to show, +0x90 state (0 waiting, 1 categories, 2 items, 3 description), +0x74 the
+  category cursor, +0x78 row records {u16 w, u16 h, i32 entry}. Close FUN_1022ad60 clears helpwind slot 2. The
+  event-start broadcast 0x800 closes it unless +0x89 (FUN_1022ad80). Categories: 8 visible, bar total 10; the unseen
+  mark is keytops3 170 at (18, 1); pages FUN_10221a80(n, 1): max top = the smallest i with rows(i) + i == n, 0x18 back
+  to the previous page start (FUN_10221d60). In state 3 with +0x89 the keys are ignored.
+- evitem01: FUN_10222600(callback LAB_1022ae00, ..), handler FUN_10222710; Escape answers No; it closes with
+  FUN_1015e790(w, +0x70).
+- Event op 0xcc sub 0x20 (FUN_100b9d90, val @2; not done): id != 0 -> FUN_1022a640(0, id): +0x89 = 1, +0x8e = id, evitem
+  opens display-only (window +0x30 |= 4, +0x34 |= 1) in state 3 on that id; id 0 -> FUN_1022a6d0 closes it; the
+  zone-change teardown closes it too. FUN_101bb430 (the auto-translate key item group) uses the owned test.
+
 ## Search menu, part 1 (2026-10-24)
 
-Spec `~/ffxi/lab/research/menu_rows2_spec.md` part S; ours client/searchmenu.rs.
+Ours client/searchmenu.rs.
 - Main menu child 8 (FUN_10140400 case 8, SE 0002): searchma in the main menu's place (ours: the menu closes and comes
   back on Search; retail: group 0x81 suspends menuwind), the criterion windows in searchma's place (all 0x81: the
   walk shows the newest); title slot 2 0xd 0 "Search" while searchma is open; cursor memory per window.
@@ -6650,6 +9246,29 @@ Spec `~/ffxi/lab/research/menu_rows2_spec.md` part S; ours client/searchmenu.rs.
 - Live (Lnxtest, Southern San d'Oria): Job -> Warrior: Lnxtest and Pellam; Country -> Bastok: Pellam, Pomomaru; Escape
   back to searchma, then to the main menu on Search.
 
+From the research notes:
+- Windows (registry 0x103722d8; object, flags / group, layout, title 0xd): searchma 0x106644a0 (vtable 0x1033b900:
+  open FUN_1020d250, close FUN_1020d2f0, select FUN_1020d340, focus FUN_1020d310), 0x00220000 / 0x81, (384, 48) 112 x
+  282, 0 "Search"; scsibori 0x106644a4, 112 x 250, 105 "Refine by Type"; arealist 0x106644c0, 0x00031002 / 0, (16,
+  208) 366 x 88, 38; searchjo 0x106644a8, group 0x83 (also suspends subwindo), 22 rows, 39; searchna 0x106644b8, 42
+  "Search by Allegiance"; searchra 0x106644b4, 43; searchle 0x106644b0, 106 "Search by Rank"; scchar 0x106644ac,
+  0x00020002, windowps 205, 103; scmlev 0x106644d4, windowps 815, 190; scname 0x106644bc, windowps 253, 104; comgenre
+  0x106644c4, 7 rows, 44; sccompar / sccomite / sccomls 0x106644c8 / cc / d0, 105; the own comment editor "menu
+  comment" 0x10663484, (16, 240) 366 x 56.
+- searchma rows in screen order (child, help 0xe): 1 Area 0x1c5, 2 Name 0x1c6, 3 Job 0x1c7, 4 Country 0x1c8, 5 Race
+  0x1c9, 6 Level 0x1ca, 17 Master Level 0x41e, 7 Rank 0x1cb, 16 Request 0x3c7, 14 Unity 0x379, 8 Friend 0x1cc, 9
+  Linkshell 0x1cd, 15 Linkshell 2 0x390, 10 Ballista 0x25a (status 0xf0000), 13 Monstrosity 0x2cd, 11 Comment 0x1ce,
+  12 Edit Comment 0x1cf; child 18 is the "Search" tag. Up / Down wrap 12 <-> 1. Busy = DAT_10385a04 != 4.
+- FUN_1020a600(0): the condition reset (FUN_10103f20 on W+0x5c) plus the current zone (FUN_10107b00); its arg 1 with
+  zone flag bit 2 would add the whole region (the menu never passes 1). Ballista's S+0x40dac bit 15 is written by the
+  zone-in handler near 0x100fb07e *(inf: the Ballista state)*.
+- Criterion helps: searchjo 0x6e..0x78, 0x1b7..0x1ba, 0x27a..0x27c, 0x291, 0x292, 0x2b3, 0x2b4 in child order (jobs
+  1..22); searchna 0x83..0x85; searchra 0x86..0x8a (child -> model race DAT_10385a0f {_, 1, 3, 5, 7, 8} ->
+  FUN_10107d50); searchle 0x1bb..0x1c4.
+- Sub-genres (rows 1..3): sccompar 0x26b looking for a party, 0x26c for members, 0x271 misc; sccomite 0x26d sell,
+  0x26e buy, 0x33a crafting; sccomls 0x33b join, 0x33c members, 0x271 misc. LSB matches comments by (type & 0xf0) ==
+  value, so a base + row search finds nobody there; it stores no master levels (a master-level search finds nobody).
+
 ## Search menu, part 2 (2026-10-24)
 
 - scchar / scmlev (FUN_1020dd50 / FUN_1020e0a0): shown, they ask for fresh stats (c2s 0x061) and set both values to
@@ -6661,20 +9280,20 @@ Spec `~/ffxi/lab/research/menu_rows2_spec.md` part S; ours client/searchmenu.rs.
 - scname: Enter on the field opens a 15-character box (typed text, Backspace; Enter commits, Escape closes it keeping
   the text); OK searches name + current zone; the name stays between opens (World.search_name).
 - comgenre in mode 1 (searchma's Comment): genre rows 1..7 search comment type genre << 4 (Cond.comment, flag
-  0x20000, encoded after friend as [10001] + 32 bits, search_spec 1.5).
+  0x20000, encoded after friend as [10001] + 32 bits; "Search: the search server client and name lookups").
 - Live (Lnxtest): level 10..20 and name "Pellam" in Southern San d'Oria found nobody, and /sea all showed why
   (Pellam in Tahrongi, the 10..20 players elsewhere).
 
 ## Compass radar dots (2026-10-24)
 
-Spec `~/ffxi/lab/research/radar_dots_spec.md` (FUN_102203b0, old FUN_10216610); ours client/radar.rs, hudtop.rs
+FUN_102203b0 (old FUN_10216610; more at the end of this entry); ours client/radar.rs, hudtop.rs
 draw_compass.
 - Every entity but us, in slot order, that passes FUN_10098210(0) (no door / lift / ship, not hidden or asleep, not
   invisible: InvisFlag u32 @0x20 bit 29 of 0x00D / 0x00E, not untargetable (@0x2B 0x08) or radar-off (0x00E @0x2B
   0x40), not an object model), within the compass range horizontally and 4 in height: local (P.x - E.x, E.z - P.z)
   through S(2k) Rz(h') Rx(-1.0996), truncated; sprite 5 of "menu    compass" (an additive 6x6 dot).
 - Alpha from the compass alpha A: trunc((1 - t) A) past the fade start, then trunc((1 - u) a) past 2 high (x87,
-  truncating; the spec's vectors are unit tests). Colour by the kind bits (FUN_1008e290, ported as radar::kind_bits:
+  truncating; the vectors below are unit tests). Colour by the kind bits (FUN_1008e290, ported as radar::kind_bits:
   1 PC, 2 NPC, 0x10 monster, 4 party, 8 roster, 0x20 / 0x40 / 0x80 door / lift / ship, 0x100 charm, 0x200 us, 0x400
   allegiance, 0x800 our fellow (0x037 u16 @0x48), 0x1000 trust): PC 0x0040f0 (party / alliance 0x3060e0) unless in
   Monstrosity (0x00D u16 @0x3E), charm flag (pets, trusts) 0x30d000, NPC 0x00b040, then only when monsters are shown
@@ -6688,9 +9307,44 @@ draw_compass.
 - Not modelled: +0x120 bit 15 (own model hide), the s2c 0x077 NPC hide (LSB never sends it), SubKind 6 object models.
 - Live (Lnxtest, Southern San d'Oria): green NPCs, Pellam blue beside us, a faded one past the fade start.
 
+From the research notes:
+- The radar code is the same in the 2019 build (FUN_10216610) but for entity offsets 4 lower there (kind bits +0x1cc,
+  Monstrosity +0x20c, status +0x16c, allegiance +0x1fb).
+- Only when the zone has a compass (FUN_100ad7c0) and our actor exists (none: no dots and no time). Slots 0 .. 0x8ff of
+  DAT_10480af0 in order (later on top), skipping ours and empty ones; the actor's +0xb2 bit 7 and +0xb3 bit 0 clear; the
+  kind bits non-zero.
+- Alpha (A = compass +0x20, an int 0..0x80): past the fade start C38, t = (dist - C38) / (C34 - C38), a = trunc((1 - t)
+  A); then past 2 high, u = (h - 2) x 0.5, a = trunc((1 - u) a); a NaN takes the fade too. Vectors (WAR, A = 128): d 10
+  -> 128, 14.4 -> 128, 20 -> 78, 28.7 -> 0, 28.9 no dot; d 10 h 3 -> 64; d 20 h 3 -> 39; h 4 -> 0; h 4.1 no dot. NIN: d
+  27 -> 64.
+- An NPC at status 0x31 gets no dot: client-made actors (FUN_100a9b60, slots below 0x400). There is no target, claim or
+  seeking colour.
+- Position: (dx, dz, 0, 1) through the dot matrix (FUN_10028170), x = trunc(out.x) + C+0x28, y = trunc(out.y) + C+0x2a -
+  C+0x2c; FUN_10220cf0(1, 5), then FUN_1011fb60(x, y, colour). Sprite 5 of "menu    compass" ("compassd" / "compassf" in
+  German / French): one 6 x 6 cell centred on the point, texture "menu    marker" at (48, 21), colour (128, 128, 128,
+  145), blend b[1, 0, 2, 1] = additive; the texels are a red dot (core 0xff3831), so monsters draw red, PCs dim blue,
+  NPCs green.
+- The compass object DAT_10666e84: init FUN_1021eeb0 (+0x28 = 0x58, +0x2c = 0x2a, +0x30 1.0, +0x34 32.0, +0x38 16.0,
+  +0x2f 0 until the first open); open FUN_1021ef10 (24 ticks); FUN_1021f240's state 1 waits for DAT_10472e20 bit 0 (set
+  by s2c 0x119, never cleared) before sampling the jobs (0x061 @0x0c main, @0x0e sub, @0x0f sub level); state 2 +0x20 =
+  (24 - t) x 128 / 24, +0x24 = 1 - t / 24; close the reverse.
+- h = wrap(4.712389 - camera yaw) (FUN_10220c20). Letters at (0, 140) sprite 4 N, (-140, 0) 1 E, (0, -140) 3 S, (140, 0)
+  2 W (local frame lx = P.x - E.x, ly = E.z - P.z). The disk's 4 cells are one quadrant mirrored.
+- Kind bit sources (FUN_1008e290, rebuilt each frame from FUN_1008e9a0): 2 / 0x10 by +0x120 bit 13 (0x00E u32 @0x20 bit
+  0); 4 roster mode 0 (FUN_100e5dd0 / FUN_100e5ec0: record 0 us, then members with ((own ^ member+0x34) & 3) == 0), 8
+  mode 5 (every listed member); 0x20 / 0x40 / 0x80 by +0xee 3 / 4 / 5; 0x100 +0x12c bit 13 (0x00E u8 @0x27 bit 3); 0x400
+  allegiance 2..99 (u8 @0x29; 0x037 u32 @0x34 >> 21); 0x800 a non-PC non-trust at player +0x29c; 0x1000 +0x12c bit 22
+  (u8 @0x28 bit 0). LSB sets the charm flag on every PC-owned pet and trust (trusts @0x28 |= 0x45), so a charmed monster
+  is 0x10 | 0x100 (green-yellow); our pet is no bit.
+- FUN_10098210(0) in full: kinds outside {0, 1, 2, 6, 7, 8}; +0x120 bits 14, 15, 18; +0x128 bit 6 (InvisFlag); outside
+  events +0x130 bit 7 or 15, in events +0x120 bit 17 instead; kinds 2 / 7 whose model +0xfc is in 0x32..0x3b,
+  0x32e..0x331, 0x3c0..0x3c9, 0x737..0x746, 0x974..0x97d, 0x9ba..0x9c3; +0x124 bit 12 (despawned) unless an event
+  participant; +0x130 bit 21 (client-made).
+- Not part of this draw: FUN_10215760 / FUN_10216030 / FUN_10216160 (PvP / zone 0x47 extras drawn before the compass).
+
 ## Linkshell menu: link5 / link6, the item submenus, link11 (2026-10-24)
 
-Spec `~/ffxi/lab/research/menu_rows2_spec.md` part L; ours client/linkshell.rs.
+Ours client/linkshell.rs.
 - Main menu row 10 (child 9, FUN_10140400 case 9): in Conflict SE 0004 + 0002 only; else link5 and link6 open beside the
   main menu (registry group 0: nothing is suspended), SE 0002. Order on the page: Status, Equipment, Magic, Items,
   Synthesis, Abilities, Party, Trade, Search, Linkshell, Region Info, Map.
@@ -6736,9 +9390,37 @@ Spec `~/ffxi/lab/research/menu_rows2_spec.md` part L; ours client/linkshell.rs.
   list. !additem 515 gives Flag 3 with GroupId 0, so it opens link13. Not yet seen live: a real shell (create, equip,
   unequip, switch), Create Pearl; Link List (link12) not done.
 
+From the research notes:
+- Windows (registry from 0x103722d8): link5 DAT_10663520 (ctor FUN_101e3f50, list base vtable 0x103394c0, flags
+  0x30000, (16, 106) 366 x 190, windowps 721); link6 DAT_1066352c (FUN_101e5750, flags 0x1, (16, 48) 366 x 56); link1
+  DAT_10663530 (0x210000 group 0x81, (384, 48) 112 x 42); link11 DAT_10663528 (0x10002, frames 28); link2 / 3 / 4
+  DAT_10663534 / 38 / 3c; link13 DAT_10663540; link12 DAT_10663524 (FUN_101e4a20, the scresult class, 0x30000 group
+  0xc); link7..10 DAT_10663544 / 48 / 4c / 50; lscswin DAT_10663554 (0x80002). link14 ("Drop", help 0xe 0x123) and
+  inlink have layouts but no code reference. Every title is 0xd 0x47 "Linkshell".
+- Helps (0xe): link5 0x126, its rows 0; link1 0x11b Name Link, 0x11c Drop; link2..4 0x124 Link List, 0x122 (then 1 /
+  2) Equip, 0x125 Create Pearl; link13 rows 1 / 3 / 2 (that order) 1, 1, 0x11c; link7..10 0x11d Tell, 0x127 To Sack,
+  0x129 To Pearl, 0x128 Kick; link11 0x11e the name, 0x11f the colours, 0x120 OK, 0x121 Cancel. Label sprites: link13
+  705 / 707 / 57, link7 131 / 127 / 125, link8 131 / 126 / 125.
+- FUN_101e4470's mode 1 is the concierge's language-filtered item picker (caller 0x100b809d, callback 0x100b8460, rows
+  FUN_10087cb0(i), i < 16); msg 8 (Num+) focuses lscswin with SE 0013. Event 0x800 (FUN_101e43f0) closes link5 in mode
+  0 *(inf: a close-all / zone event)*. link5 +0x65 bit 0 marks "equip sent", bit 1 "pearl or drop sent" (readers not
+  traced).
+- Row data (0x17 bytes): slot, bag, state, a 20-character name. Extdata (LSB Exdata::Linkshell): u32 GroupId, u16
+  GroupKey, u16 Color (R, G, B, A nibbles, low first), u8 Flag, u8 Name[15]. Icon tint 0x80000000 | (R x 13 + 0x38) <<
+  16 | (G x 13 + 0x38) << 8 | (B x 13 + 0x38). The container check FUN_101e3b10 *(inf: always true for real items)*.
+- link11: values +0x30..+0x32 (7, 7, 7 at open), backup +0x33, name +0x34; Left / Right are key function 0x3e 3 / 2
+  *(inf)*; while typing msgs 4 / 3 move the caret (FUN_101c6920(4 / 5)) and msg 0x11 ends it. The encoder FUN_101c8f60
+  -> FUN_100ed590(buf, 16, name) (strlen < 0x14): 6-bit codes MSB first, 'a'..'z' 1..26, 'A'..'Z' 27..52, NUL 0x3f,
+  anything else 0x3e. LSB's createLinkshell needs item 512, turns it into 513 with the colour and sends 0x020; it does
+  not equip it *(inf: retail the same)*. The R bar's tint 0x70808080 is as read: compare it with retail footage.
+- link2..4 draw the Equip row themselves (FUN_101e6090): the cursor on it: the press animation (FUN_10119f80, 30
+  ticks) while +0x5e > 0, else 0x80805020 enabled / 0x40402810 disabled; elsewhere 0x80808080 / 0x30808080. Their case
+  4 ("menu    comment" type 0x73) has no child in the layout: dead code.
+- Open: the generic Escape path from link2.. back to link5 *(inf)*.
+
 ## Search: arealist, scsibori (Refine), the own comment editor, maplist fixes (2026-10-24)
 
-Spec `~/ffxi/lab/research/arealist_spec.md`; ours client/arealist.rs, searchmenu.rs, seacom.rs, search.rs, map.rs.
+Ours client/arealist.rs, searchmenu.rs, seacom.rs, search.rs, map.rs; more of the trace at the end of this entry.
 - arealist (registry 0x31002, layer 3, group 0: stacked on the log, suspends nothing, draws over scresult): 5 rows,
   columns {20, 245, 320} from the row origin (+3, +4); names game font y + 2, "[n]" shape font right-aligned at the
   column end - 2 (y + 4), "(s)" and "~Lv%2d" shape font y + 2; windowps 75 cursor bar, nothing recoloured, no scroll
@@ -6775,9 +9457,75 @@ Spec `~/ffxi/lab/research/arealist_spec.md`; ours client/arealist.rs, searchmenu
 - Not done: /seacom and /seacomup on the same store, scoption's
   Request / Cancel Request (/partyrequestcmd is not supported yet).
 
+From the research notes:
+- arealist object (0x74 bytes, FUN_1020ed00; vtable 0x1033ba68 over the list base FUN_101f67c0 / 0x1033a730): +0x50
+  row capacity (258 in modes 0..3, 12 in mode 4), +0x54 rows filled, +0x58 i16 the expanded region + 2 (0 none), +0x5a
+  i16 the row to return to on the fold, +0x5c u8 view (1 by region, the construction default; 0 flat), +0x60 cell rows
+  (0x54 bytes each), +0x64 data (8 bytes: i32 value, u8 level-text form), +0x68 windowps 75 (copied to +0x34, the
+  cursor bar), +0x6c mode (0 search, 1 / 2 event pick, 3 Monstrosity, 4 Unity), +0x6d picking, +0x6e i16 the pick (-1
+  at open), +0x70 the level tier. Row values: a zone id; 0 All Areas; -1 Current Region; -2 - i region i (0..49); in
+  mode 4 the unity index.
+- Vtable: +4 FUN_1020f4e0 replaces the list base's FUN_101f68b0 (so no scroll bar, the generic window sounds stay on
+  and the +0x44 config hook never runs); +8 FUN_1020f4f0 close (mode back to 0); +0x40 FUN_1020f500 (broadcast 0x800,
+  the event start: close unless mode 1 / 2); +0x44 / +0x4c FUN_1020ede0 / FUN_1020ee00 load / save config 0x45, never
+  called; +0x58 FUN_1020ef00 messages; +0x60 FUN_1020ed40 the game font at (x, y + 2); +0x70 FUN_1020ee20 show (modes
+  1 / 2 with no rows close at once).
+- Openers: searchma row 1 and scsibori row 1 FUN_1020ee70 (mode 0, as the last close left it); searchma row 13
+  FUN_1020f210 (mode 3); searchma row 14 and scsibori row 12 FUN_1020f3a0(0, 0) (mode 4); "menu    ut_menu" row 3
+  FUN_1020f3a0(1, 1) (the condition reset and the area cleared first). Column table DAT_103859b4 (mode 4:
+  DAT_10385a18) u16 {20, 245, 320, 380}, row height 16. *(inf: an opener running while arealist is open would reset
+  the mode through +8; not reachable by keys.)*
+- Top rows (FUN_1020e570): Current Area (the current zone; 9 0x23 / 9 0x24 "(Area)"; help 0xe 0x14 "Select area to
+  search."), Current Region (-1; 9 0xba / 9 0xbb "(Region)"; help 0xe 0x62), All Areas (0; 9 0x25 / 9 0x26 "(World)";
+  help 0xe 0x15). Region rows (FUN_1020e890): the name group 0x13 id DAT_10385970[i], help 0xe 0x14; region 30 (0x1c
+  "Empire of Aht Urhgan") points into .bss that is never written (0x10664490): always empty, never shown. Zone rows
+  (FUN_1020ea30): column 1 the group 4 short name (FUN_101cbc10), fallback 9 0x40 "---------".
+- The zone filter: known (FUN_100fc6e0: zone < 0x180 and its s2c 0x008 bit), a group 0x14 name, zone flags
+  (FUN_101070f0, DAT_103669b8) & 3 == 3. At most 230 zones pass (156, 277 and 282 lack the flags); FUN_1020ea30 has no
+  bound check.
+- Unity rows (FUN_1020f290): column 0 0xc 0x1ba "Unity" for row 0, else 0xc 0x192 + i; column 1 the name whose key is
+  i << 22 in the {key, name} list at 0x103648e8; help 0xe 0x37c "Select a Unity.". Order: Unity, Pieuje, Ayame,
+  Invincible Shield, Apururu, Maat, Aldo, Jakoh Wahcondalo, Naja Salaheem, Flaviria, Yoran-Oran, Sylvie.
+- The level table's rows: {u16 zone, u8 tier @2, u8 min @3, u8 max @4, u8 0}; it starts `05 00 02 3a 5a 00 18 00 02 1f
+  00 00 19 00 02 1f 00 00 21 00 02 44 00 00` (unique in the DLL). Max levels: zone 5 90, 112 60, 118 30.
+- Window: layout (16, 208) 366 x 88, frame 2, children 1..5 at (0, 4 + 16k) 356 x 16 windowps 74, title 0xd 0x26
+  "Search by Area"; registry 0x10373ae8 flags 0x00031002 (0x1000 stacked on the log, 0x10000 the cursor starts on
+  child 1, 0x20000 closes the macro palettes, 0x2 the generic Escape does not close), layer 3. Help slot 2 = the
+  cursor row's text (FUN_101f6720); the title slot 2 stays "Search".
+- Enter on Current Region works only with the region found (else the list's SE 0004). FUN_1020a9d0 returns at once
+  while a query is out (DAT_10385a04 != 4), but the windows still close, 0002 plays and the condition has changed
+  *(inf)*.
+- scsibori (DAT_106644a4, vtable 0x1033b8b8, open FUN_1020ce40, rows FUN_1020cf60): from scresult's Enter
+  (FUN_1020c250) on the header or no row, only in results modes 1 / 2 (W+0x58; every search of ours is mode 1), else
+  0004. Registry 0x10373abc flags 0x00220000, layer 2, group 0x81; layout (384, 48) 112 x 250, title 0xd 105 "Refine
+  by Type", child 16 the "Search" tag; cursor memory.
+- scsibori's disabled rows at open (FUN_10118b60(5, child); s = DAT_106644d8): 8 Friend when the friend count G+0x132
+  is 0; 9 / 13 without LS1 / LS2; 10 Ballista when S+0x40dac bit 15 is clear; 10 and 14 with unity bits (s &
+  0x0fc00000); 12 with s & 0xf0000; 14 with s & 0x8000, s & 0x20 or s & 1; 12 and 10 with s bit 28 or s & 1; 12, 14
+  and 10 with s bit 29.
+- scsibori's rows top to bottom (wrapping): 1 Area (0xe 0x1ad; arealist mode 0, scsibori stays), 2 Name (scname), 3
+  Job (searchjo), 4 Allegiance (searchna), 5 Race (searchra), 6 Level (scchar), 15 Master Level (scmlev, 0xe 0x41f), 7
+  Rank (searchle), 14 Request (0xe 0x3c8: status 0x10000000 only when none is set, run, close), 12 Unity (0xe 0x37a:
+  arealist mode 4, close), 8 Friend (friend flag 0x1000, run), 9 Linkshell (the LS1 id, run with p7 1), 13 Linkshell 2
+  (p7 2), 10 Ballista (0xe 0x25b: status 0xf0000 only when none is set, run), 11 Comment (comgenre mode 2). Every row
+  first checks busy (FUN_1020a410) -> 0004. Run = FUN_1020a9d0(1, W+0x5c, 1, 0, 0, p7).
+- The comment editor object (DAT_10663484, FUN_101dd000, vtable 0x10338e60): +0x14 the line being edited (-1 none),
+  +0x15 the current line, +0x16 mode (0 bazaar, 1 view, 2 search comment, 3 linkshell), +0x17 type, +0x18 the type
+  last sent (0xff), +0x1a seven blocks of 3 lines x 0x29 bytes (mode m edits block m; block 5 = the search comment
+  last sent), +0x378 the text box (FUN_101c5be0, kind 9, 40 bytes). The first menu reset (FUN_1015d860) clears blocks
+  2 / 5 and +0x18 *(inf: the comment starts empty each login)*. Genre dots windowps {492, 495, 493, 496, 494, 499,
+  498} for genres 1..7 (FUN_1020b4b0). Types: 0x11..0x13, 0x21..0x23, 0x31..0x33, 0x41..0x43, 0x51..0x53, 0x61, 0x73.
+- c2s 0x0E0 (0x98 bytes): text[128] @4 (<= 123 bytes), installTime @0x84 (FUN_100e3220: a u32 from "ffxiusr.sys", 8
+  bytes {time(), -1}, made if missing), "WIN" @0x88 with byte @0x8b = DAT_104b1770 *(inf: from that file's read)*,
+  srvExCode @0x8c (PTR_DAT_103601bc + 0xac) and cliExCode @0x90 (+0xb0) *(inf: the login expansion / feature bits)*,
+  msgType @0x94. LSB ignores 0x84..0x93, stores an empty message as type 0 and answers with the char status packet.
+- Not traced: the generic handler running before the list for arealist (inferred from +0x85 / +0x86 staying set); the
+  editor's FUN_101c6920 code 3 (messages 8 / 0xc) and message 0x12; where ffxiusr.msg lives (FUN_101c4920; probably
+  the character's USER folder, as the .MRK files *(inf)*).
+
 ## Linkshell message: s2c 0x0CC, the client's own 0x0E1, /lsmes and /ls2mes (2026-10-24)
 
-Spec `~/ffxi/lab/research/menu_rows2_spec.md` L5; ours client/linkshell.rs (MsgState, on_equip, on_message, lsmes).
+Ours client/linkshell.rs (MsgState, on_equip, on_message, lsmes).
 - s2c 0x0E0 (LAB_100ea780) after storing the slot: with ItemIndex != 0 and the ask state S+0x9818 + 4n 0 (fresh at
   login) or 1 (set by our own 0x0C4 with ActiveFlg 1), c2s 0x0E1 goes out with reason 1 or 2 (S+0x9834 + 4n); the
   state is 2 afterwards either way. Typed /lsmes asks with reason 0.
@@ -6800,6 +9548,25 @@ Spec `~/ffxi/lab/research/menu_rows2_spec.md` L5; ours client/linkshell.rs (MsgS
   "set TEXT" / "TEXT" -> 0x0E2 @4 0x40 with the text at @0x10 (strncpy 0x80, @0x8f 0).
 - Live (Lnxcsfix, no shell): both commands print 7 0x71. The message lines need a real shell (not seen yet).
 
+From the research notes:
+- c2s layouts (offsets with the header): 0x0C3 (FUN_100e96f0) @4 State 0, @5 LinkshellId, size 6; 0x0C4 @6 ItemIndex,
+  @7 Category, @8 ActiveFlg, @0xc..0x1a the name, @0x1b LinkshellId, size 0x1c (ActiveFlg 1 sets S+0x9818 + 4n = 1);
+  0x0E1 also @0xa seq 0, @0xc 0, size 0x90; 0x0E2 message (FUN_100eace0, LS1 only): @4 low nibble | 0x40, @5 &= 0x3f,
+  @6 bag, @7 slot, @0xa 0, @0x10 the text; 0x0E2 level (FUN_100ead60): @4 | 0x20 (unless level 4), @5 bits 2..3 the
+  level, @0xa seq S+0x9852; 0x0E4 (FUN_100eabc0) @4 0xb0, @0xa ++S+0x9852.
+- s2c 0x0CC: @4 stat (low nibble) / attr, @5 readLevel bits 0..1, writeLevel 2..3, pubEdit 4..5, n - 1 6..7, @6 seq,
+  @8 the message (128), @0x88 u32 time, @0x8c the poster (16), @0x9c u16 opType, @0xa0 the encoded LS name. LSB: Load
+  op 2 stat 0 attr 7, Post op 1 stat 0 attr 7 (LS2 members get @5 |= 0x40), a level change op 3 attr 3, denied op 3
+  stat 3; it answers 0x0E1 only when a message exists, takes 0x0E2 posts only on LS1 with the rights (else denied) and
+  levels only from the holder; 0x0E4 is not implemented (logs only).
+- The ask state S+0x9818 + 4n is set for n 1..3 by FUN_100e8930 (the session's handler setup in FUN_100fa050): 0 when
+  FUN_100da570() is true, else 2 *(inf: true only for the first zone-in after character select)*. The line callbacks
+  are registered by FUN_100e8b40 from FUN_10080350.
+- The message's text is expanded for auto-translate (FUN_101b7280, 0x280) and trimmed (FUN_101c8f40); table 0x1032cf40
+  holds {mode, 3, 0} per n.
+- /lsmes's actor +0x124 bit 27 is not traced; "set TEXT" encodes auto-translate (FUN_1018fb30). /ls2mes takes no
+  argument, only the 0x0E1.
+
 ## Lift ride: the camera eye follows the drawn height every frame (2026-10-24)
 
 - Reported by the user: dark bars flickering across the screen, only on an elevator (Metalworks '@6l0' / '@6l1').
@@ -6816,7 +9583,7 @@ Spec `~/ffxi/lab/research/menu_rows2_spec.md` L5; ours client/linkshell.rs (MsgS
 
 ## Region Info: "menu    region", cnqframe and the conquest maps (2026-10-24)
 
-Spec `~/ffxi/lab/research/menu_rows2_spec.md` part R; ours client/region.rs, dat/tables.rs `conquest`.
+Ours client/region.rs, dat/tables.rs `conquest`.
 - Main menu row 11 opens "menu    region" (group 0x81, cursor memory; help 0xe 0x14b, title 0xd 1); Enter opens the map
   of the row (mode row - 1) and hides region; the map's close resumes it. /regionmap /rmap 0x50, /besiegemap 0x51,
   /campaignmap 0x52, /colonizationmap 0x53 open the map when none is (queued to the frame, which has the UI).
@@ -6861,9 +9628,74 @@ Spec `~/ffxi/lab/research/menu_rows2_spec.md` part R; ours client/region.rs, dat
   Zahbi, three armies Lv 1 Defending); Colonization with bayld 0.
 - Not done: Campaign's windows (campresu / campsan / camparea / allied), the mouse on cnqframe, Japanese placements.
 
+From the research notes:
+- Sub-windows (all built by FUN_101e6fb0; object, vtable, draw): conquer1 DAT_10663650 0x10339b78 FUN_101e9410;
+  conq6sta DAT_1066364c 0x10339b30 FUN_101e95d0; conq3pts DAT_10663654 FUN_101e9710; beseige1 DAT_10663658
+  FUN_101e99c0; beseige2 DAT_1066365c FUN_101e9c40; imperial DAT_10663660 FUN_101e9e20; campresu DAT_10663664
+  0x103399c8 FUN_101e9ec0; campsan DAT_10663668 0x10339980 FUN_101ea150 (open FUN_101ea0d0); camparea DAT_1066366c
+  0x10339938 FUN_101ea330 (open FUN_101ea2f0); allied DAT_10663670 0x103398f0 FUN_101ea640; coloresu DAT_10663674
+  FUN_101ea6e0; colorank DAT_10663678 FUN_101ea850; colopoin DAT_1066367c FUN_101ea910. cnqframe: registry #207,
+  DAT_10663648, vtable 0x10339bc0, flags 0x20042, group 0x5e. Images: mode 0 5312, 1 53416, 2 53443, 3 53569 (512 x
+  512 IMGs).
+- Marker record (8 bytes, entry +0x1c): i16 +0 id (region id; a zone's owning region), +2 -1 region / -2 campaign
+  front / else zone id, +4 name id (-1 none), u8 +6 mode (low nibble), +7 (conquest bit 0: the region's first zone;
+  campaign: the area index 0..25); names (+0x18) group 0x13 (file 55654) for -1 / -2, else 0x15 (file 55661). Entry
+  (0x20 bytes): u16 flags, u8 +2 icon, +3 second icon, +4 overlay icon (with +0x88; unused here), +5 alpha, i16 +6 /
+  +8 the 512-image pixel, +0xa / +0xc label offset, u8 +0xe / +0xf label place (Japanese / other languages), i16 +0x10
+  colour index into DAT_10382084 {0x2020c0 capitals, 0x6060a0 regions, 0x606070 zones, 0x504010, 0x7020c0 fronts /
+  beastmen}. Flags besides those above: 0x4000 the overlay icon, 0x400 / 0x2000 the fade direction (FUN_101eef90).
+- Place codes (flag 0x40; iw / ih the icon box, tw the text width, 16 high): 0 above centred (x + iw/2 - tw/2, y -
+  17), 1 below centred (y + 1 + ih), 2 left (x - 3 - tw), 3 or > 7 right (x + 2 + iw), 4 above (x + iw/2 - 3 (tw/4)),
+  5 above (x + iw/2 - tw/4), 6 below (x + iw/2 - 3 (tw/4)), 7 below (x + iw/2 - tw/4); tw/4 rounded toward zero.
+- Per mode (entry table; top, top + regions, total, default region): 0 0x1037fcd0 (4, 0x17, 0xa9, 4), 1 0x103811f0 (1,
+  6, 0x22, 0x18), 2 0x10381630 (8, 0x10, 0x2a, 0x21), 3 0x10381b70 (1, 9, 0x15, 1). At open a region (+2 == -1) gets
+  flags |= 1, &= ~0x20; a front (-2) |= 1 | 0x20; a campaign zone (record +0 == 0) loses 1 and 0x20; any other zone
+  loses 1 and gets 0x20; alpha 0. Icon set (DAT_10381e10, keytops3): {63, 63, 307, 113, 110, 111, 112, 432, 115, 113,
+  118, 117, 116, 114, 115, 180, 179, 178, 383, 385, 384, 502, 433, 0}: 2 Jeuno crest, 3 white square (a neutral
+  region), 4 / 5 / 6 the San d'Oria / Bastok / Windurst crests, 7 the beastmen crest, 8 / 14 "?", 9 white, 10 red, 11
+  blue, 12 yellow, 13 purple (zone squares by owner), 15..17 squares with crests, 18 the Aht Urhgan crest, 19 / 20 the
+  Astral Candescence orb lit / unlit, 21 the Adoulin crest, 22 a white square. A new request resets mode 0 entries 4..
+  to icon 8, mode 1 entries 1..5 (flag 4 off) to icons 8, mode 2 entries 16..41 (flag 0x200 off) to 0xff / 8, mode 3
+  entries 1..8 (flag 4 off) to icons 3.
+- Campaign layouts (x anchored right, framesus frames): campresu (384, 48) 112 x 88 fs 141; campsan 112 x 144 fs 151 +
+  child fs 146; camparea 112 x 176 fs 145 + child fs 147; allied (384, 256) 112 x 40 fs 140 (a flag-0x2000 legend like
+  conq3pts 72, imperial 122, colopoin 176).
+- s2c 0x05E, D = packet + 4: +0 balance (2 bits per nation at bits 0 / 2 / 4 for SdO / Bastok / Windurst: rank 1..3, 0
+  none), +1 alliance, +0x16 + 4r rank with beastmen, +0x17 + 4r without (unused), +0x18 + 4r graphics (a 2-bit level
+  per nation, bit 6 beastmen ahead, bit 7 unknown), +0x19 + 4r owner (0 none, 1..3 nation + 1, 4 beastmen), r = record
+  id - 5 (0 Ronfaure .. 18 Tavnazian Archipelago); +0x82..0x84 the current region's nation %, +0x88 days to the tally,
+  +0x8c u32 conquest points, +0x90 u32 the region's beastmen %, +0x94 calculating (group 9 5), +0x98 Besieged valid,
+  +0x9c the Besieged overview (bits 0-1 candescence, 2-3 Al Zahbi orders, 4-7 / 8-11 / 12-15 Mamool / Troll / Undead
+  levels, 16-18 / 19-21 / 22-24 their orders), +0xa0 + 4k stronghold k (bits 0-2 orders, 3-10 forces, 11-14 level,
+  15-18 mirrors, 19-22 prisoners; LSB puts MirrorDestroyed at bit 15, mirrors at 16-19 and prisoners at 20-23, so its
+  mirrors read as (mirrors << 1 | destroyed)), +0xac imperial standing.
+- Campaign data (not done; LSB never sends 0x071 mode 2: the sender is commented out and campaign::SendUpdate has no
+  caller): 0x071 mode 2 stores AlliedNotes (+0xc), ControlledAreas (+0x10) and 7 nation dwords (+0x14) at S+0x3c158..,
+  then 13 zone records of 12 bytes from +0x30 into S+0x3c17c + 12 off (off = packet +9, < 26); when off + 13 >= 26 the
+  callback (S+0x3c150, LAB_101e8200) takes the buffer: per area entry (mode 2 entries 16..41) bit 0 (battle *(inf)*)
+  -> flag 0x200 and icon 0x16 (white square 433), else icon 0xff; the second icon = owner (bits 1-3, > 3 -> 4) + 9.
+  Area record: dword 0 bits 0 battle, 1-3 owner, 4-13 fortifications, 14-23 resources, 24-31 heroism; bytes 4..7
+  influence SdO / Bastok / Windurst / beastmen; dword 2 bits 0-9 max fortifications, 10-19 max resources.
+- Campaign windows (FUN_101e86b0; without data help 9 6): nothing, a front (record +2 -2), the Jeuno capital (name 3)
+  or icon +3 == 9 -> campresu; names 0..2 / 0x2a..0x2d -> campsan with nation index name + 1 / name - 0x26 (1..7);
+  else camparea with area index record +7; allied always.
+  - campresu: the ControlledAreas 5-bit counts SdO / Bastok / Windurst / beastmen, "%d" right-aligned at (x1 - 6, y +
+    0x16 + 16 k).
+  - campsan (dword n = buffer + 4 + 4 i): three sprites at (x + 4, y + 8), (x + 0x20, y + 6), (x + 0x20, y + 0x14)
+    (not traced); reconnaissance 10 0x59 "Lv%2d " of n & 0xf right at (x1 - 0x10, y + 0x40); morale (n >> 18 & 0x7f)
+    and prosperity (n >> 25) gauges (framesus 148 scaled v / 100 at (+1, +2)) at (x + 0x1d, y + 0x5e / 0x7e).
+  - camparea (record = buffer + 0x24 + 12 i): fortifications "%d/%d" at (x1 - 8, y + 0x12), resources at (x1 - 8, y +
+    0x2e), influence gauges at (x + 0x1d, y + 0x56 / 0x6e / 0x86 / 0x9e), the heroism gauge (byte 3 >> 1) beside the
+    marker at (x - 0x10, y + 0xb), 0x1e higher for place codes 1 / 6 / 7.
+  - allied: "%10d" of AlliedNotes.
+- Japanese placements: a marker's label place byte +0xe (other languages +0xf); beseige1 / 2 width 120 (else 136);
+  conquer1's tally at x + 0x5f without the + 6.
+- Not traced: the beseige2 / campsan sprites and the Besieged forces gauge sprites (in FUN_101e9c40 / FUN_101e9af0 /
+  FUN_101ea150); the zoom limits (taken as [fit, 4 fit]).
+
 ## Party menu: Member List, Level Sync, Focus, Rearrange; /focustarget (2026-10-24)
 
-Spec `~/ffxi/lab/research/party_menu_spec.md` 3; ours client/partymenu.rs, levelsync.rs, target.rs, search.rs.
+Ours client/partymenu.rs, levelsync.rs, target.rs, search.rs.
 - Member List (prty2 child 1, prty3 / prty7 child 2, FUN_10204d50): c2s 0x078 (no body) with the callback and its mode
   stored (FUN_100e9800: G+0x9860 / +0x9864; mode 0, or 5 when our GAttr & 3 != 0). s2c 0x0E1 {GroupID @4}
   (LAB_100ea7f0) calls the stored callback on every answer (never cleared). LAB_10204cd0: a group list query (search
@@ -6894,7 +9726,7 @@ Spec `~/ffxi/lab/research/party_menu_spec.md` 3; ours client/partymenu.rs, level
   trust sets it (target object +0x84 / +0x88) with "%s(%s)" of 9 0x13a and the name (mode 0x79); else 7 0xc3.
 - The focus tag is `<focust>` (tag table 0x10357860 type 0x1d, expanded in target commands too: FUN_10159380, the
   member's name while in a window slot). `<ft>` (type 0x1b) is the adventuring fellow (FUN_101cc550) and `<fthpp>`
-  (0x1c) its HP %; textcmds2_spec.md's `<ft>` for the focus was wrong.
+  (0x1c) its HP % (not the focus, as first assumed).
 - The party icon display (FUN_10228440, config 0xc2) shows the focus target first, its name in "< >" (strings
   0x10386284 / 0x10386280, by the previous frame's +0x230); else FUN_10157cb0's (the party cursor's member while it is
   up, else the current target), each only when FUN_101593c0 (not us, in our six slots, not a trust). Ours had the
@@ -6907,9 +9739,17 @@ Spec `~/ffxi/lab/research/party_menu_spec.md` 3; ours client/partymenu.rs, level
 - Not done: View Request (/recruitlist and the party-request history), the request-history prompt, the stage-1 mark
   (if retail draws one), Level Sync's empty list text, the mouse in levelsyn.
 
+From the research notes:
+- "menu    levelsyn": (16, 48) 366 x 248, windowps 72, 15 rows 356 x 16, help 0xe 0x2a2 "Please select the player to
+  whom you would like to synchronize your level.", title 0xd 0x95 "Level Sync".
+- The cursor calls: Chg. Leader FUN_10202d30(LAB_10205020, win, 0, 1, 0, 0) (any slot, us too; the menu closes after
+  the pick); Rmv. Member (LAB_10204fa0, win, 0, 0, 0, 0); Focus (LAB_10205160, win, 1, 0, 0, 1); Rearrange
+  FUN_10202d60(LAB_10205070, LAB_102050c0, win, 1, 0, 0, 3) (mode 3, 18 slots); the move FUN_100e99b0 on the G+0x9534
+  lists, then FUN_100e9a70 rebuilds.
+
 ## View House: "menu    mogcont" (2026-10-24)
 
-Spec `~/ffxi/lab/research/social_rows_spec.md` part V; ours client/viewhouse.rs.
+Ours: client/viewhouse.rs.
 - Social page child 4 (FUN_1014e7b0 case 4): in a room (FUN_101cc070(0), ours room_flag) the row checks first: in the
   nations' residential zones (230..232, 234..236, 238..241) before our first s2c 0x067 kind 2 of the zone
   (FUN_100f9680 / S+0x40c41, ours `mh_seen`, cleared at zone-in *(inf)*) SE 0004 + 0002 only; visiting another's Mog
@@ -6925,9 +9765,35 @@ Spec `~/ffxi/lab/research/social_rows_spec.md` part V; ours client/viewhouse.rs.
 - Live (Lnxcsfix in Metalworks): Safe 2 and Satchel dim; the Mog Safe read-only beside mogcont; the Mog Case two-list
   view with mogcont hidden; Escape back to mogcont, then to the social page on View House. Not tried in a Mog House.
 
+From the research notes:
+- The social page socialme: DAT_10578468 (vtable 0x103363d8; open FUN_1014e720, messages FUN_1014e7b0, 2019
+  FUN_10147fc0), registry flags 0x2, group 0x81, layer 2, (384, 48) right anchored, 112 x 202, comwin 11. Its open sets
+  child 15 (the caption) state 0x10, children 13 / 14 (the page arrows) 0xf and window +0x86 = 0 (each row plays its
+  SE itself). Rows (y, label, help 0xe, title 0xd): 4 View House (54, windowps 31, 0x1d7, 0x6b), 5 Set Bazaar (70,
+  windowps 30, 0x1d8, 0x0f), 6 MacroPalette (86, windowps 29, 0x1d9, 0x50), 8 Help Desk (118, windowps 36, 0x1db, 0x3c).
+- The gate: FUN_100f9680 is true outside zones 230..232, 234..236, 238..241; inside it is S+0x40c41, set by
+  FUN_100f9620 the first time the 0x067 kind 2 owner field (@0x20) is stored (S+0x40c3c). FUN_100f9600 != 0 = visiting
+  (group 7 0xbc through FUN_10129e30, mode 0x7b). Outside a room there is no check.
+- mogcont: DAT_1057846c, registry flags 0x20000 (Num+'s log focus skipped while it is open), state 1, layer 2; vtable
+  +4 FUN_1014eaf0, +8 FUN_1012ac40, +0x10 FUN_1011ba30, +0x18 FUN_1014ec40 (msg 6 not handled: the generic close);
+  layout (384, 48) right anchored, 112 x 250, comwin 14, anc_s, header [-1, 0xd 0x6b]; children 88 x 16 at x 16.
+- Rows (screen row: child, y, windowps (dim), help 0xe, opener): 1: 1, 6, 65, 0x280, FUN_101dae10(DAT_10663760, 1, 0,
+  0); 2: 8, 22, 769 (770), 0x3a7, FUN_101dae10(DAT_10663778, 9, 0, 0); 3: 2, 38, 505, 0x281, FUN_101dae10(DAT_10663768,
+  2, 0, 0); 4: 3, 54, 45, 0x282, FUN_101dae10(DAT_10663764, 4, LAB_101dadd0, 0); 5: 4, 70, 614 (615), 0x2a8,
+  FUN_101daf70(5, 1, 0); 6: 5, 86, 627 (628), 0x2aa, FUN_101daf70(6, 0, 0); 7: 6, 102, 664 (665), 0x2ca, (7, 0, 0); 8:
+  7, 118, 672 (673), 0x321, (8, 0, 0); 9..15: 9..15, 134..230, 798 / 800 / 802 / 816 / 818 / 820 / 822 (+1 dim),
+  0x3de..0x3e0 / 0x422..0x425, (10..16, 0, 0). FUN_101daf70 is (container, need_satchel, nomad).
+- The disables: the Satchel by FUN_100ec470 (size > 0x1d); Safe 2 by FUN_100f97a0 = S+0x3c43a bit 0 (s2c 0x067 kind 2
+  @0x27 bit 0); Wardrobes 2..8 by the sizes of the objects DAT_10666e50..e68. The cursor starts on child 1 and is not
+  remembered *(inf)*.
+- In a room (not tried): the opener's callback first (the Locker without a lease: the read-only list and 7 0xb6); a
+  moogle zone not yet given its 0x067: nothing; our house: the moogle's 7031 0x2e "I'll look after your items,
+  kupo!" and the two-list view at the moogle; visiting: 7 0xbc; no moogle zone: the read-only list and 7 0x48 (as
+  "Storage views").
+
 ## Currencies and Currencies 2 (statcom2 rows 6 / 10) (2026-10-24)
 
-Spec `~/ffxi/lab/research/status_rows_spec.md` 3 and appendix A; ours client/currencies.rs.
+Ours client/currencies.rs.
 - statcom2 child 6 / 10 (FUN_1022a620(1 / 2)): "menu    evitem" in mode 1 / 2 (group 0x1c: persona and level are
   suspended by the walk, statcom2 stays drawn unfocused, titlewin slot 2 group 0xe 0x2d1 "Currencies" for both). c2s
   0x10F / 0x115 (header only) is sent again every 31 ticks *(inf: 60 Hz)* until s2c 0x113 / 0x118 calls the stored
@@ -6942,9 +9808,18 @@ Spec `~/ffxi/lab/research/status_rows_spec.md` 3 and appendix A; ours client/cur
 - Live (Lnxcsfix): `!addcurrency sandoria_cp 1234`, `kindred_seal 7`, `bayld 56789` showed 1234, 7, 56789 in their rows
   (u32 @4, u16 @0x12, 0x118 u32 @4); removed with `!delcurrency` (char_points back to 0).
 
+From the research notes:
+- c2s 0x10F / 0x115: header only, 4 bytes (FUN_100fd520 / FUN_100fd550); the retry counter (+0x8b / +0x8c, vt +0x60
+  FUN_1022ad20) counts down from 30. s2c 0x113 / 0x118 handlers 0x10099640 / 0x10099660 (registered at 0x1009462e).
+  Row table records: {u32 field, u16 label (group 0xc), u16 help (group 0xe)}; the whole table (offset, size, label,
+  help) is MODE1 / MODE2 in client/currencies.rs. Close FUN_1022ad60; an event start closes it.
+- LSB fills both from char_points; its layouts match the client's offsets field by field (0x113 0xfc bytes, packed;
+  0x118 in the same order up to @0x9c). It leaves 0x118's Mellidopt Wings (@0x48) 0 and sends Imperial Standing
+  Accolades as u16 @0x94 + u16 padding (the client reads a u32: the same value while the padding is 0).
+
 ## Unity (statcom2 row 11) (2026-10-24)
 
-Spec `~/ffxi/lab/research/status_rows_spec.md` 4; ours client/unity.rs.
+Ours client/unity.rs.
 - statcom2 child 11 (FUN_1014c260): c2s 0x116 {u32 week} for each complete week, which is then downloaded again;
   "menu    ut_menu" (group 0x81: statcom2 suspended) and "menu    ut_point" (group 2, flag 0x2000 on the party
   window: "%d/%d" of the accolades (0x061 @0x58 >> 10 & 0x1ffff) and 99999 right-aligned at (100, 0x14)). ut_menu
@@ -6975,9 +9850,30 @@ Spec `~/ffxi/lab/research/status_rows_spec.md` 4; ours client/unity.rs.
   "--"; both weeks' rankings (LSB's offset as above); Unity Lists stacked on the log. Not done: the mouse in these
   windows.
 
+From the research notes:
+- 0x061 @0x58: unity id bits 0..4 (1..11, 0 none), rank bits 5..9, accolades bits 10..26; @0x5c: u16 low the current
+  week's evaluation, high the previous week's (LSB: accolades / 1000).
+- s2c 0x063 type 7 (case 0x10099351): the 0x80 bytes go to table 0x10483164 + week * 0x1000 + dataType * 0x80;
+  dataType 0x1f sets the week's complete flags (0x10483160[w], 0x10483162[w]). ut_menu's open (FUN_100996a0(0) / (1))
+  sends c2s 0x116 {u32 @4 week} (8 bytes, FUN_100fd5e0) for each complete week and clears its flags. LSB sends both
+  weeks at every zone-in and on each 0x116.
+- ut_menu: no disabled rows (531..536's dim sprites unused); caption child 4 never highlights (flag 0x200000). Unity
+  Lists = FUN_1020f3a0(1, 1): the search condition reset, all areas, mode 4 *(inf: the reset condition)*, only when
+  arealist's object exists; the SE is the generic 0002.
+- ut_point before the stats are ready (s2c 0x119, DAT_10485824 bit 0): retail formats "/%d" with no argument ("/" and
+  garbage); ours "/" *(inf)*.
+- quest00 mode 1: setup FUN_1022f8a0, draw FUN_1022fb50, messages FUN_10230150, frame FUN_102302b0, close
+  FUN_10230370; Enter on child c sets c % 2 (1 Active, 2 Inactive). c2s 0x118 {u8 @4} is 8 bytes (FUN_100fd680); LSB
+  takes the player out of / into the unity chat, then re-sends 0x061 (@0x60 the chat flag). Mode 2: setup
+  FUN_1022fa10, draw FUN_10230060, messages FUN_102301b0.
+- quest01 modes 5 / 6 (setup FUN_10231c20, list FUN_102319c0, draw FUN_10232720, messages FUN_10231ac0): rows built
+  when the list is empty (stats and both weeks needed): rank at (0x10, 0), name at (0x3a, 0), "%dpt" at (0xfa, 0), 8
+  visible; not ready: 9 0x61 / 0x62 at (0x14, 0x2d) / (0x14, 0x49). For the mouse: Enter on child 9 / 10 (quest01's
+  arrows) = Left / Right; Escape gives quest00 its hand, rows and bar back.
+
 ## Set Bazaar: "menu    bazaar", Set Prices, Edit Comment (2026-10-24)
 
-Spec `~/ffxi/lab/research/social_rows_spec.md` part B; ours client/bazaar.rs, shop.rs (View::Bazaar), seacom.rs (mode 0).
+Ours: client/bazaar.rs, shop.rs (View::Bazaar), seacom.rs (mode 0).
 - Social child 5: "menu    bazaar" (group 0x81) over the main menu: 1 Set Prices, 2 Edit Comment (links 1 <-> 2);
   Escape gives the social page back.
 - Set Prices = the shop list with the price source (vtable 0x10338ed4): its open sends c2s 0x10B {u32 0}; the rows are
@@ -6999,9 +9895,46 @@ Spec `~/ffxi/lab/research/social_rows_spec.md` part B; ours client/bazaar.rs, sh
   0 again), the editor opened and closed unchanged (nothing sent; bazaar_message still NULL).
 - Not done: the name's bazaar glyph (0x9c), the row disabled in Monstrosity, the buyer side (View Wares).
 
+From the research notes:
+- Objects: bazaar DAT_10663480 (FUN_101dce20, vt 0x10338e18; registry flags 0x20000, layer 2, group 0x81); the comment
+  holder DAT_10663484 (FUN_101dd000, vt 0x10338e60; 0x20002, group 0x0c; also /check's message and the search
+  comment); the price source DAT_1066348c (FUN_101de6b0, vt 0x10338ed4); the buying source DAT_10663488 (vt
+  0x10338ea4); the shop list DAT_10664508; shopsell DAT_10664514; moneyctr DAT_1057824c (vt 0x10334070, group 0x0a:
+  it suspends iteminfo); the customer count DAT_10663490.
+- Layout (384, 48) right anchored, 112 x 42, comwin 1: child 1 (15, 6) windowps 406 "Set Prices" (help 0xe 0x24e),
+  child 2 (15, 22) windowps 407 "Edit Comment" (0xe 0x24f), child 3 (0, 0) 60 x 9 comwin 29, the caption (state 0x10
+  at open).
+- Price source slots: +4 FUN_101de740 (c2s 0x10B, size 8), +8 FUN_101de6f0 (0x109 when +0x13, the rows priced at the
+  last build, is not 0), +0xc FUN_1020f640 (iteminfo with the slot), +0x10 / +0x14 title / help, +0x18 FUN_101deac0
+  (no widening), +0x1c rows FUN_101de860 (every frame; the inventory is settled when player flags S+0x3c35c & 0x200000
+  or & 0x800), +0x20 tint FUN_101de790, +0x24 Enter FUN_101deaf0, +0x28 FUN_101ddfd0 (Escape closes). Japanese puts an
+  unpriced stackable's count in cell 2; a priced row there shows no count.
+- The tint's augment test: FUN_101cb960 / FUN_101cba20 (equipment types 4 / 5, item not 0, 0x200..0x203, 0x108c,
+  0x108d, 0x1525, 0x1526; extdata byte 0 == 2 (ids in table 0x1037d378 excluded) or 3, and byte 1 bit 1).
+- moneyctr (FUN_10140d90; (130, 240) 366 x 56, frames 23, help 0xe 0x160 "Specify the price.", title 0xd 0x58 "Price
+  Set") calls back LAB_101deba0(price, entry); the confirmation is shopsell's FUN_10210e30(LAB_101dec10, price, 0, 0, 0,
+  1, 0) at (16, 256), help 0xe 0x1d2 "Sell this merchandise?" on Sell.
+- The comment holder: seven slots of 3 lines x 0x29 bytes at +0x1a + 0x7b slot (0 our bazaar message, 4 its copy as
+  last sent / received, 1 the /check target's, 2 / 5 the search comment and its copy, 3 / 6 the linkshell message);
+  +0x14 the line edited (0xff none), +0x15 the cursor line, +0x16 mode, +0x17 type, +0x19 our message in, +0x378 the
+  input. Our message: s2c 0x0CA with MyFlag through LAB_10133870 (registered at every field entry, FUN_10133850) ->
+  FUN_101ddae0(msg, 1): 3 lines of 40, trailing spaces trimmed, into slots 0 and 4. Mode 0: open FUN_101dd2b0 (flag
+  0x1000, line 0 editing, title 0xd 0x0f, help 0xe 0x32), layout (16, 240) 366 x 56 frames 84, keys FUN_101dde60 (Down
+  / 0x11 commit and the next line, Up the previous, 0x12 the auto-translate menu, Escape commits and closes), close
+  FUN_101dd330 (slots 0 / 4 compared by FUN_101dd520, c2s 0x0DE through FUN_100e55b0).
+- LSB: 0x10B closes the bazaar for current customers (s2c 0x107 to them) and sets isSettingBazaarPrices (refused in an
+  event and in Monstrosity); 0x10A needs it, takes 0..99,999,999, ignores Exclusive items, refuses currency, answers
+  0x020 + 0x01D; 0x109 clears it, so leaving with no priced row leaves LSB pricing until the next 0x109 (no bazaar
+  either way); 0x0DE stores 120 bytes (refused in an event). hasBazaar (not pricing, not Monstrosity, any priced item)
+  drives 0x00D / 0x037 u32 @0x20 bit 31 -> actor +0x128 bit 9, the name's bazaar glyph 0x9c (FUN_10097500 /
+  FUN_10097840).
+- s2c 0x108 (LAB_101dcd80): {UniqueNo @4, State @8, HideLevel @0xc, ActIndex @0xe, sName @0x10}, printed by
+  FUN_10129e80 (mode 0x79); the count never goes below 0. s2c 0x10A (LAB_100e0500): {ItemNum @4, ItemNo @8, sName
+  @0xa}.
+
 ## Help Desk: "menu    faqsub" (2026-10-24)
 
-Spec `~/ffxi/lab/research/social_rows_spec.md` part H (H1, H2); ours client/helpdesk.rs.
+Ours: client/helpdesk.rs.
 - Social child 8 (FUN_102174c0, SE 0002) and /helpdesk, /supportdesk (0x54, FUN_1007d3c0): faqsub (group 0x1c) beside
   the social page, which stays drawn unfocused; title slot 2 group 9 0xdd "Help Desk". faqsub draws its own text, not
   its children: from the content origin (rect + (8, 10), rect height - 5; right pad 0x1c, bottom 0x14) each entry 10
@@ -7023,14 +9956,57 @@ Spec `~/ffxi/lab/research/social_rows_spec.md` part H (H1, H2); ours client/help
   wrapped and scrolled to Back), Mentor Search (0 results on LSB). Not done: the Adventuring Primer (guide00), the GM
   call (faqmain, DAT 5813's script), the keyword box's field frame, the mouse.
 
+From the research notes:
+- FUN_102174c0 opens faqsub (FUN_10216600) when its holder exists; /helpdesk only while it is not open (FUN_1021bbf0 <
+  1: holder +0x32). Holders, made at UI start (FUN_1021bb90): faqsub DAT_10664530 (FUN_10216570, 0x34 bytes, vt
+  0x1033bcf8), faqmain DAT_106646a0 (FUN_102175c0, 0x37c bytes, vt 0x1033bd58). Registry: faqsub and faqmain
+  0x00020002, state 1, layer 2, group 0x1c, layout (16, 48) 366 x 248 windowps 72, children 1..15 at (0, 4 + 16 (k -
+  1)) 356 x 16 windowps 74 (not used as rows); guide00 0x00030002.
+- Both draw their rows and markers themselves; their open / placed hooks clear +0x61, +0x84, +0x85, +0x86 and make a bar
+  (FUN_10118530(100, -1)). faqsub: +4 FUN_10216650, +8 FUN_10216720, +0x10 FUN_10216790 -> FUN_10212760 (the state
+  machine runs in the draw), +0x14 FUN_10216770 -> FUN_10212640 (pads: content +0x166 8, +0x16a 10, +0x168 0x1c,
+  +0x16c 0x14, +0x170 0x14 indent, +0x174 10 gap), +0x18 FUN_102167a0 -> FUN_10212aa0. The content object FUN_102121b0
+  (0x1d0 bytes, vt 0x1033bcec) at +0x14; anc_s (24 frames, counter +0x2c), sprite 35 of the language's frames library,
+  windowps 75.
+- Texts (FUN_10216a50, group 9): 0 0xc3 "Q&A", 1 0xc4, 2 0xc5 "Help Desk", 3 0xc6 "Config", 4 0xc7 "Back", 5 0xc8 "Your
+  keyword search has failed.", 6 0xc9 (too many results), 7 0xca (the list truncated), 8 0xcb "%d matches found (%d
+  results displayed).", 9..11 0xcc..0xce, 12 0xcf "Mentor Search", 13 0xd0 "What is a New Adventurer?", 14 0xd1 the
+  terms, 15 0x12b "Adventuring Primer", 16 0xd5, 17 0xd6, 18 0xd8, 19 0xd7, 20 0xd9, 21..23 0xda..0xdc, 24 0x12c, 25
+  0xdd. Help slot 2 by FUN_10216970 (only when it changed), cleared by FUN_102169c0; title FUN_102169e0 / FUN_10216a30.
+- The page model: a header (+0xc, 0x94 bytes), 31 entries (0x400 bytes each), 31 long entries (4000 bytes, article
+  lines) and the keyword box (+0x108: FUN_101c5be0(8, 0x20, .., x 0xc0, 0x3c, 0x8c), 32 bytes). Entry flags +0x28 bit 0
+  selectable (the bullet), bit 1 the cursor row; +0x29 bit 0 not selectable. Without the sprites the markers are ">>"
+  / "--"; text 0x80808080, a result or article page's header 0x80808000. The bar: thumb w x 100 / total, position
+  -scroll x 100 / total (FUN_102148e0).
+- States (content +0x110): 0 -> 1; 1 build the menu, the box text "" -> 3; 2 rebuild after a failed search -> 3; 3
+  the menu page; 4 start the search (< 0 -> 2, > 0 busy bit 8, -> 5); 5 collect (Escape cancels); 6 / 7 reset the
+  results -> 8; 8 the results page; 9 / 10 fetch the article "Q%05d"; 0xb / 0xc the article page "[Q%05d] %s" (Up /
+  Down 15 px, Right / Left 150 px, Back / Escape -> 7); 0xd / 0xe Config.
+- The keyword box (its field frame not done): active, Right / Left / Enter / Escape go to the input (FUN_101c6920(7 /
+  6 / 1 / 8)) and 0x12 opens the auto-translate list; its done callback FUN_102132d0: confirmed copies the 32-byte
+  keyword, state 4; cancelled acts as Escape on the menu. The Primer row hides socialme (FUN_1015e6e0(socialme, 1, 1,
+  0, 0)) and opens guide00 (FUN_10233b80); Help Desk clears help and busy bit 8 and runs FUN_1021bb60 ->
+  FUN_10217a40. faqsub's close (FUN_10216720) clears helpwind busy bit 8 and both slots 2.
+- Q&A (PlayOnline only): FUN_10216250 reads kb_faq.pib, kb_faq_idx.pib and kb_faq.pfb from PlayOnline directory id
+  0x14 through the host vtable (DAT_10456a2c + 0x1f8) and runs its knowledge-base calls (+0x9f8..+0xa74); up to 30
+  result rows and Back.
+- Config: the flags from FUN_100e47c0 (7 / 8 / 9 = 0x0B4 @7 bits 0 / 1 / 2); rows 0 / 1 send c2s 0x0DC with SetFlg
+  @0x10 1 / 2 (FUN_100e46a0(8, ..)), row 2 FUN_100e46a0(9, 1) after comyn's Yes (LAB_10215c00); prompts 9 0xd2 / 0xd3
+  ("Enable / Disable Mentor Status?") are loaded, but rows 0 / 1 never ask. LSB: MentorFlg changes only with the mentor
+  role unlocked, NewAdventurerOffFlg can only be turned on; it answers 0x0B4 and the char status (and 0x067 when
+  changed).
+- Mentor Search (FUN_10216500): FUN_1020a600(0), FUN_10107b40, FUN_10107e70(crit, 1), FUN_1020a9d0(1, crit, 1, 0, 0,
+  0); faqsub stays open under the results *(inf)*.
+- Open: the page header against row 0 (both "Q&A" as decompiled); the hand's frame rate (counter / 24).
+
 ## MacroPalette: Edit Macro (2026-10-24)
 
-Spec `~/ffxi/lab/research/social_rows_spec.md` M1; ours client/macroedit.rs, macros.rs.
+Ours: client/macroedit.rs, macros.rs.
 - Social child 6: "menu    mcrmenu" (group 0x81: the social page is suspended, the main menu keeps its cursor);
   Edit Macro -> "menu    mcrselec": 20 rows of the page's books (page 0 books 1..20, 1 books 21..40; Left / Right flip,
   the page kept across opens), the active book's red bar (keytops3 87), the names in mcralpha at (8, 2) cut before 75
   px (letters and digits only; other bytes skipped); help "Macro Book (#%d)" (10 0x6d), title the name; Escape writes
-  mcr.ttl / mcr_2.ttl. Edit Equip. Set (M2) is not done.
+  mcr.ttl / mcr_2.ttl. Edit Equip. Set: section "MacroPalette: equipment sets".
 - "menu    mcrselop" left of the cursor row (x = row x - its width, y = min(row y, mcrselec bottom - its height)):
   Confirm (the book becomes the active one at the same set, the palettes open), Change Name (the field: 15 bytes,
   Enter and Escape both commit, empty -> "Book%02d"), Copy (nmcr.dat .. nmcr9.dat), Paste (dim until a copy; 9 0xef),
@@ -7056,15 +10032,55 @@ Spec `~/ffxi/lab/research/social_rows_spec.md` M1; ours client/macroedit.rs, mac
 - Not done: auto-translate and Shift-JIS input in the fields, the caret position (always at the end), the palettes'
   flip zoom, the mouse.
 
+From the research notes:
+- S = the macro store DAT_10662794 (FUN_101a1a20, 0x2360 bytes), E = the editor state DAT_106627a8 (FUN_101a4440, vt
+  0x103373bc; +0xc the focused palette 1 / 2, +0xd / +0xe the Ctrl / Alt column). Windows (registry flags / layer /
+  group; object, vtable; open / close / draw / handler / frame): mcrmenu 0x220002 / 3 / 0x81, DAT_106627c0 0x103374a8,
+  FUN_101a6490 / - / - / FUN_101a64b0; mcrselec 0x220002 / 3 / 0x81, DAT_106627c4 0x10337828, FUN_101a6580 /
+  FUN_101a65e0 / FUN_101a67c0 / FUN_101a68c0; mcrselop 0x210000 / 4 / 0, DAT_106627c8 0x103377e0, FUN_101a6a20 / - / - /
+  FUN_101a6b10; mcr1edit (mcr1edlo) 0x20002 / 2 / 0x81, DAT_106627ac 0x103373c8, FUN_101a4820 / FUN_101a4750 /
+  FUN_101a4a80 / FUN_101a4950 / FUN_101a4c00; mcr2edit 0x20002 / 2 / 0, DAT_106627b0 0x10337418, FUN_101a4ed0 /
+  FUN_101a4e00 / FUN_101a5150 / FUN_101a5010 / FUN_101a52e0; mcrbedit 0x10002 / 2 / 0, DAT_106627b8 0x103378b8,
+  FUN_101a5ef0 / FUN_101a5f10 / FUN_101a60b0 / FUN_101a6180 / FUN_101a5f40; macro 0x20002 / 2 / 0x89, DAT_106627b4
+  0x10337460, FUN_101a5e00 / FUN_101a5ec0 / FUN_101a5af0 / FUN_101a5690 / FUN_101a5a00; mcrledit 0x10002 / 2 / 0,
+  DAT_106627bc 0x10337870, FUN_101a62c0 / - / - / FUN_101a6350 / FUN_101a62e0. All state 1 (an event start closes
+  them). The long names come from FUN_10160760's filter (menu manager +0xb5 == 0), as mcr?pall -> mcr?long.
+- Layouts: mcrmenu (384, 48) 112 x 42 comwin 1, title 0xd 80; 1 windowps 698 (help 0xe 0x33d), 2 windowps 699
+  (0x33e), 3 the "Macro" caption comwin 35. mcrselec 112 x 330 comwin 34, rows keytops3 86, arrows 21 / 22 (comwin 31
+  / 32). mcrselop 112 x 90 comwin 4, caption comwin 19: Confirm windowps 66 (0xe 0x295), Change Name keytops3 30
+  (0x296), Copy windowps 604 (0x297), Paste 475 / 582 dim (0x298), Delete 476 (0x299). mcrbedit (384, 134) 112 x 77
+  windowps 481 ("Options" / "+ : Button Edit"): Copy 604 (0x293), Paste 475 / 582 (0x13e), Delete 476 (0x13d); set
+  mode's helps 0x29c..0x29e. macro (16, 48) 366 x 248 framesus 61: Prev keytops3 102 at (8, 8), Next 103 at (302, 8),
+  the title framesus 63 at (112, 32), the lines framesus 62 at (188, 68 + 30 k) with rect offset -168. mcrledit (384,
+  48) 112 x 77 windowps 482: Copy Line 605 (0x294), Paste Line 477 / 583 (0x140), Delete Line 478 (0x13f). The edit
+  palettes: the play palettes' geometry (frames 66, long 167), keycaps keytops3 120..129 / 130..139, title 0xd 75.
+- Fields (FUN_101c5be0): the book name mode 4, 15 bytes (+0xc..+0x11 = 0, 0, 0, 1, 0; *(inf: no auto-translate)*);
+  the macro title mode 8, 8 bytes; the lines mode 9, 60 bytes (auto-translate, 0x12 its menu). The editor blinks
+  +0x24 40 on / 20 off of 60 frames while editing *(inf: the caret)*.
+- The flip (not done): on a set change both palettes' element +0x44 = 2 for 20 ticks, then 3 for 20 *(inf: the close
+  zoom, then the open zoom, the contents swapped at once)*.
+- A broadcast (8 zone, 0x20 engage, 0x800 event) while "macro" is open closes everything without storing the fields:
+  unsaved edits are lost.
+- S: +4 the current set (20 macros x 0x17c: six 61-byte lines at +4, the title at +0x172), +0x1db8 2 x set, +0x1dbc book
+  x 20 + 2 x set (mcr.sys), +0x1dc0 book, +0x1dc6 40 names x 16, +0x21d0 the macro clipboard, +0x234c the copied
+  book's name, +0x235c / +0x235d / +0x235e macro / set / book clipboard valid, +0x235f no write-back while copying.
+  File names (FUN_101a2610): prefix "" / "n" / "s" + "mcr" + (n or "") + ".dat". A missing file read with the
+  write-back on writes the cleared buffer to the current set's file (retail quirk); a bad file prints group 7 0xc8
+  "Macro Book %u Set %u contains invalid data and has been reset.".
+- mcrselec +0x2c (FUN_101a6560) clears the book and set clipboards (S+0x235e / +0x235d) *(caller not traced)*.
+- Open: the default cursors (mcrselec child 1?, "macro" the layout head's 4 = line 1?); FUN_101262e0 as the left click
+  in the palettes' frame (a click in the other palette switches to it, in mcrbedit = Num+; in "macro", mcrledit =
+  Num+).
+
 ## MacroPalette: equipment sets (2026-10-25)
 
-Spec `~/ffxi/lab/research/social_rows_spec.md` M2; ours client/equipsets.rs (store, commands, packets), esmenu.rs
+Ours: client/equipsets.rs (store, commands, packets), esmenu.rs
 (mcres20, mcresmn).
 - Store: es<page>.dat in USER/<id> (macros.rs container, version 1, payload 20 x 0x50: name[16] + 16 slot entries
   {state | container << 2, index, u16 id}); pages read when the list opens and on every page turn, written on every page
   turn and on Escape (so turning pages writes the page being left). Sets of other pages are read one record at a time
   (version check only, no MD5) for /equipset and /lockstyleset; a missing file fails the command.
-- mcres20 / mcresmn as the spec; mcres20's links: rows [prev, next, up, down, right, left] = [r-1, r+1, r-1, r+1, r, r]
+- mcres20 / mcresmn as below; mcres20's links: rows [prev, next, up, down, right, left] = [r-1, r+1, r-1, r+1, r, r]
   (Left / Right stay put and only turn the page), the arrows 21 / 22 have up / down -> 1. The link slots are
   0 / 1 prev / next, 2 / 3 up / down, 4 right, 5 left (macroedit.rs used 0 / 1 for Left / Right: the macro editor's
   Left / Right moved up / down instead of to Prev / Next; fixed).
@@ -7079,9 +10095,59 @@ Spec `~/ffxi/lab/research/social_rows_spec.md` M2; ours client/equipsets.rs (sto
   query ("Style lock mode is enabled."), /lockstyle off dropped the look.
 - Since done: the slot editor (esedit.rs, mcrmogc) and the Monstrosity refusals ("Monstrosity, part 6").
 
+From the research notes:
+- Objects (registry flags / layer / group): mcres20 DAT_106627cc (FUN_101a6c10, vt 0x103374f0) 0x220002 / 3 / 0x81;
+  mcresmn DAT_106627d0 (FUN_101a7280, vt 0x10337538) 0x210000 / 4 / 0; mcresed DAT_105781bc (FUN_10135850, vt
+  0x10333898) 0x20002 / 2 / 0x91; mcrmogc DAT_105781a4 (vt 0x10335e50) 0x20002 / 3 / 0; the editor's list source
+  DAT_105781c8 (vt 0x10333830); comyn DAT_10664520 0x31002 / 8 / 0. The store DAT_106627d8 (FUN_101a83c0, 0x670 bytes,
+  vt 0x1033757c: +4 one page of 20 records, +0x644 a 20-slot LRU of {u8 set id, u8 next}, +0x66c its head), accessor
+  DAT_106627d4, clipboard DAT_106627e8 (0x50 bytes, made on Copy, freed when mcres20 closes), last /equipset time
+  _DAT_106627e0, last lockstyle time _DAT_106627e4, print flag DAT_106627dc.
+- A record's 16 slot entries by equipment slot (0 main .. 15 back): byte 0 bits 0-1 the state (0 keep, 1 item, 2
+  remove), bits 2-7 the container (0x3f not found, transient), byte 1 the index, u16 the id (LSB's
+  equipsetrequestitem_t). Default names "Set%03d" (0x1037ab20). Page load FUN_101a8820, page save FUN_101a88d0
+  (FUN_101a8a90 always 1), one record FUN_101a8530 (offset 0x18 + (id % 20) x 0x50).
+- mcres20: (384, 48) right, 112 x 330, comwin 34, anc_s; rows keytops3 86 at (16, 6 + 16 k); arrows 21 (-16, 7)
+  comwin 31, 22 (113, 7) comwin 32; caption 23 comwin 37. Open FUN_101a6c90 (mcralpha loaded, the page read), close
+  FUN_101a6d00 (a name edit discarded, title slot 2 cleared), draw FUN_101a6e00 (the names in mcralpha at (x + 8, y +
+  2) cut before 75 px; other characters draw nothing and take no space), frame FUN_101a6d60 (title slot 2 the name,
+  help group 10 0x75 "Equipment Set (#%d)" as the child's help override through FUN_1011ae10 *(inf)*), keys
+  FUN_101a6eb0. The name box (FUN_101c5be0 kind 4, 15): Enter and Escape both commit (FUN_101a7170(1)); FUN_101a8990:
+  empty -> "Set%03d".
+- mcresmn: 112 x 138, comwin 7, title 0xd 0xac "Equipment Sets", caption 9 comwin 19; rows (sprite (dim), help 0xe):
+  Edit windowps 700 (0x33f), Name keytops3 30 (0x340), Copy windowps 604 (0x341), Paste 475 / 582 (0x342; asks 9
+  0x115), Delete 476 (0x343; 9 0x116), Overwrite 701 (0x344; 9 0x117), Equip 702 (0x345), Set appearance 753 / 759
+  (0x399). Placed at x = the cursor row's x - 112, y = min(row y, mcres20's bottom - 138); Paste dim without a
+  clipboard; Set appearance dim in Monstrosity or within 9 s of the last lockstyle (checked every frame,
+  FUN_101a73b0). comyn's cursor starts on No; LAB_101a7650 / 7690 / 7670 act only on Yes. Overwrite (FUN_101a75c0):
+  every slot state 2, then each equipped item state 1, so empty slots end as "remove".
+- Equipping (FUN_101a7af0): fails silently for set >= 200, no record, Monstrosity, or within 900 ms of the last; the
+  fix-up (FUN_101a7930) keeps a state-1 slot whose bag (0, 8, 10..16) still holds that id at that index, else searches
+  its container for the id (unused by another slot), then the bags 0, 8, 10..16; not found: 7031 0x113 "Unable to find
+  the <item>." (when printing) and the slot dropped; the stored set is unchanged. c2s 0x051 (FUN_100e5420, 0x48
+  bytes): u8 count @4, entries from @8 {index, slot, container, 0}, state 2 as {slot, 0, 0}; count 0 sends nothing.
+  The line is group 0xc 0x15d "Set #%d equipped." (chat mode 0xca). s2c 0x117 (LAB_100e5e80 -> LAB_101a6fb0): 7031
+  0x112 "Failed to equip the <item>." for each changed entry not equipped, when printing.
+- Lockstyle (FUN_101a7df0): the 9 s refusal is index 0x22 (table 0x103763b0: group 7 0xc1, mode 0x7b); entries only for
+  slots 0..8; c2s 0x053 (FUN_100e5490, 0x88 bytes): count @4, mode 3 @5, @6 bit 0 print, 8-byte entries from @8
+  {index, slot, container, 0, u16 id, 0}; config 0xbf = 1; the line 0xc 0x1c8 "Appearance locked to equipment set %d.".
+  FUN_101a8030(mode, no_wait, flags): modes other than 2 without no_wait get the 9 s check; mode 0 clears 0xbf, 1 / 3
+  / 4 set it. Field entry: FUN_101a80d0. s2c 0x11b (LAB_101a8100): 0 / 1 clears / sets 0xbf; s2c 0x11c (FUN_100e5f30):
+  7031 0x126 per id.
+- Commands: /equipset (0x9e, flags 0x51) FUN_1007b570 with the gate FUN_101cc0d0(0x46) (fishing, synthesis and bit 0x40
+  *(inf)*), N 1..200 (FUN_101a7ad0) else a failure, and a 0 from FUN_101a7af0 is a failure (the ">>" line and 9 0x78);
+  /lockstyleset (0x9c, flags 0x161) FUN_1007f8b0: no argument -> FUN_101a7fd0(0) (mode 4, the 9 s check), "echo" ->
+  FUN_101a7fd0(1); /lockstyle (0x9b, 0x161) FUN_1007f820: on -> 4 (1 when 0xbf is set), off -> 0, else 2 (Query).
+- LSB: 0x051 is blocked in an event, an abnormal status or Monstrosity, count 1..16, containers 0, 8, 10..16 with a size
+  (5, 6, 7 with EQUIP_FROM_OTHER_CONTAINERS), encumbered slots skipped; it never sends 0x117 or 0x11b. 0x053: 0 Disable
+  (unlock, s2c 0x051 GRAP_LIST + char sync), 1 Continue, 2 Query (s2c 0x009 269 / 270), 3 Set (skips EquipKind > 8), 4
+  Enable; 0x11c for weapons owned but unusable, not owned or mismatched.
+- Open: who calls mcres20 vtable +0x2c FUN_101a7010 (it registers the 0x117 / 0x11b / 0x11c callbacks) *(inf: at
+  load)*; the status gate's bit 0x40; chat mode 0xca's colour.
+
 ## The chat line's caret (2026-10-25)
 
-Spec `~/ffxi/lab/research/autotranslate_spec.md` 3.1 (FUN_101b5d10, English direct path, list closed); ours
+The keys of FUN_101b5d10 (English direct path, list closed; the input object in "Auto-translate input"); ours
 client/fep.rs, World.chat_caret.
 - Left / Right (VK 0x25 / 0x27, FUN_101ac4e0 / FUN_101ac520): one unit, a phrase block crossed in one step; Home /
   End (VK 0x24 / 0x23): the caret (+0xa58) to 0 / the raw length. Typing and pasting go in at the caret
@@ -7099,7 +10165,7 @@ client/fep.rs, World.chat_caret.
 
 ## Equipment sets: the slot editor (2026-10-25)
 
-Spec `~/ffxi/lab/research/social_rows_spec.md` M2.6 / M2.7; ours client/esedit.rs.
+Ours: client/esedit.rs.
 - mcresmn's Edit: "menu    mcresed" (16, 48), the 16-slot grid (children as the Equipment window's, labels frames
   40..55, help group 0xe 0xf3..0x102, title 0xd 0xac also in title slot 2), and the item list "menu    inventor" at
   (200, 48): the source's vfunc +4 returns 1, which FUN_101f1fe0 places at (200, 48) (0 -> (16, 48), 2 -> (314, 48)).
@@ -7136,6 +10202,26 @@ Spec `~/ffxi/lab/research/social_rows_spec.md` M2.6 / M2.7; ours client/esedit.r
   Options; es0.dat after Escape held main / body / head-remove.
 - Not done: the mouse, the wardrobe number glyph.
 
+From the research notes:
+- FUN_10134d90(the record's slots): the source DAT_105781c8 on the inventory, FUN_101f23a0 opens the list (iteminfo
+  mode 0 *(inf)*), FUN_10135de0: +0x74 = the record's slots, "menu    mcresed" opens, the working copy at +0x78 (16 x
+  4), +0xb8 = keytops3 429 (from "menu    marker"), the s2c 0x116 callback DAT_104b1778 = LAB_10134d70; the base open
+  sets mode 2 and window +0x61 = 0. The close hook FUN_101358e0 writes the working copy back; FUN_10134e70 closes the
+  list and the editor together. Frame FUN_10135920: title slot 2 0xd 0xac; the slots' container / index copied to +0x22
+  / +0x34 for the list's green.
+- The grid: frame framesus 192; child of each slot from table 0x1036f734 {1, 5, 9, 13, 2, 3, 7, 12, 16, 6, 8, 10, 14,
+  11, 15, 4}, at x 24 / 58 / 92 / 126, y 11 / 45 / 79 / 113.
+- The extra rows: source +0x44 = 3, +0x38 FUN_101354e0; the strip's Enter FUN_10135520 (SE 0002, mcrmogc). Remove /
+  Keep have help group 0xc 0x54 (" "); in mode 1 they pick kind 0xfe / 0 (the mask cleared).
+- mcrmogc: (384, 48) 112 x 266, comwin 40, help 0xe 0x322 "Select a form of storage.", title 0xd 0xa9; rows in screen
+  order Inventory windowps 674 / 675, Mog Safe 65, Safe 2 769 / 770, Storage 505, Locker 45, Satchel 614 / 615, Sack
+  627 / 628, Case 664 / 665, Wardrobe 672 / 673, Wardrobe 2..8; no row is disabled in code (the kind-4 refs unused, as
+  read). It is not the Equipment screen's mnstorag.
+- c2s 0x052 is FUN_100e5380 (0x4c bytes). LSB answers 0x116 always (blocked in events), from its slot rules (2h against
+  shield / grip, h2h removes sub, ranged / ammo skill match, removeSlot ids); unsent slots come back state 0, and a
+  rejected request still sends a zeroed 0x116 that clears every slot to state 0 (LSB quirk; retail not known).
+- Open: iteminfo's mode and place while the editor is open.
+
 ## Item info mode 1 placement (2026-10-25)
 
 - FUN_1013e590 places iteminfo by mode: 1 (130, 240), 2 (16, 48), 3 (130, 260), 4 (16, 16), 5 (130, 240), else
@@ -7148,7 +10234,7 @@ Spec `~/ffxi/lab/research/social_rows_spec.md` M2.6 / M2.7; ours client/esedit.r
 
 ## Help Desk: the GM call questionnaire (faqmain) (2026-10-25)
 
-Spec `~/ffxi/lab/research/social_rows_spec.md` H3 / H4; ours client/faqmain.rs (state under helpdesk.rs's holder).
+Ours: client/faqmain.rs (state under helpdesk.rs's holder).
 - DAT 5813 (ROM/19/62.DAT) is plain text (Shift-JIS Japanese column; the German / French columns have non-SJIS bytes,
   so only the Japanese column is read two bytes at a time): DATASET 2003022101, 54 nodes (select and question), 43
   LINK records. English = the second string of HEADER / SLOT; an "Input:REQUIRE" slot is {"Input:REQUIRE", var, ja,
@@ -7181,9 +10267,48 @@ Spec `~/ffxi/lab/research/social_rows_spec.md` H3 / H4; ours client/faqmain.rs (
   writes a row in the server's help_desk table.
 - Not done: the GM reply page (s2c 0x0B6, gmNotice.fdt, c2s 0x0D5), the language row (area code 2), the mouse.
 
+From the research notes:
+- faqmain (vt 0x1033bd58): +4 FUN_102176b0 (+0x2c0 = 1, the bar), +8 FUN_10217c70 (inputs freed, the session deleted,
+  busy bit 8 off), +0x10 FUN_10219f70, +0x14 FUN_10217d20, +0x18 FUN_1021a240. FUN_10217a40: layout constants
+  +0x26..+0x48, 32 text inputs at +0x2c4 (FUN_101c5be0(8, 150 characters, .., width 0x14a, 0x3c, 0x78), done callback
+  LAB_102176d0), c2s 0x0D4 (FUN_10113250, counter DAT_104e1b5c), the script session DAT_104e170c =
+  FUN_10112bd0(language, 0, FUN_10115220()) (0x904 bytes, vt 0x10332f50, base FUN_1010a290; language 0 Japanese, 1
+  English, 2 / 3 the European ones, from DAT_10456a28 + 8); a session already in state 4 / 5 -> FUN_1010a550(0), 7 ->
+  FUN_1010a5f0(0) *(inf: restart / retry)*. Placed: a non-Japanese client sets +0x2bc = FUN_101addc0('wind', 0x183)
+  *(inf: a resource for the language row)*; busy bit 8 stays on until the first page shows.
+- The script's records: DEF SELECTNODE / QUESTIONNODE n .. END NODE (48 select, 6 question), LABEL (a leading '#' picks
+  another page drawer, FUN_10219b80), HEADER ja / en / de / fr, HELP, EVAL "KEY", SLOT k ja / en / de / fr, DISP k
+  "VAR" "S:eq" | "S:ne" "value"; DEF LINK n / UP slot from to / END LINK. A slot without a link ends the walk *(inf)*.
+  The tree: node 0 -> 1, 22, 27, 38; the question nodes 3 (harassment), 4 (stuck: EVAL EXEC.RESCUE), 5 (general), 6, 7
+  (blocked) carry GMREPORT.GMCALL and the kind. EVAL keys: GENERIC.AREACODE / CLILANG / SELLANG / PLATFORM / VERSION,
+  GAME.INFIELD / GMTIME, EXEC.LOGOUT / POLEXIT / RESCUE, GMREPORT.NOTICE / GMCALL / HARASSMENT / STUCK / BLOCK,
+  GMCALL.INPUT.
+- The interpreter: FUN_1010a2d0 load step, FUN_1010a4d0 the current node (vt +0x10 == 1: a question node),
+  FUN_1010a420(slot) follow, FUN_1010a4a0 back, FUN_1010a4f0 history, FUN_10110ac0 / FUN_101124b0 slot text and DISP,
+  FUN_1010f350 / 510 / 540 / 340 the slot iterator, FUN_10109140 / FUN_1010d5e0 / FUN_1010de90 parameters. Session
+  states (+0x8e8): 0..3 loading, 4 a select node, 5 a question or leaf, >= 6 an error, retried every 600 frames
+  (FUN_1010a5f0(0)); after 3 tries group 9 0x7e "Data read error." at the text origin.
+- The language row (not done): on a question page when a non-Japanese client has area code 2 (0x0B4 @0x12): English
+  / French / German (table 0x10385cd8, default the client language); active (+0x20), Right / Left cycle (SE 0001),
+  Enter picks (SE 0002, DAT_1066469c), Escape (SE 0003) leaves it and stores GENERIC.SELLANG (1 / 2 by language).
+- The mouse (not done; FUN_10218340): hovering a row moves the cursor (SE 0001 when it changed) and sets the pointer
+  shape (DAT_104e1d4c + 0x4c = 2); a click on the cursor row posts a click at its centre (FUN_10124700) *(inf: =
+  Enter)*. 0x16 / 0x17 scroll 15 px, 0x18 / 0x19 150 px, 0x1b the thumb. With no session only Escape (FUN_1021bb70) and
+  a debug error-file viewer ("err_%03d.bin", +0x34a; not traced).
+- c2s 0x0D3 blocks: 0 position (FUN_10113940), 1 version (FUN_101139c0, only with a session), 2 error codes (the ring
+  DAT_104e1708, 8 x {i16 code, u16 count, u32 time}), 3 the strings (FUN_10113a70), 4 lobby history (FUN_10114b40, up to
+  8 x 0x1c); pktId is ++DAT_104e1b64. Execute's close (FUN_1021bb70) puts faqsub's title back to "Help Desk";
+  EXEC.POLEXIT is the text command "/pol".
+- s2c 0x0B5 (LAB_101131f0): only while the 0x0D4 counter is not 0, 32 bytes to DAT_104e1b44 (RescueCount, params[4],
+  Id, Option, Status, RescueTime); no reader found. LSB answers 0x0D4 with {RescueCount 0, params[0] 1, the Id,
+  RescueTime 1800}; keeps 0x0D3 GMCall packets until eos (at most 6, one call per 10 s), stores a help_desk row
+  (message = GMCALL.INPUT) and passes it to the world server; AddHistory and GMNotice are ignored. 0x0F0 needs the map
+  setting SELF_UNSTUCK_ENABLED (a cooldown, a warp to the home point).
+- Open: where "Input:REQUIRE" is enforced (SE 0004 *(inf)*); where 9 0x7c "Carry out selected process?" is drawn; the
+  parameter evaluation (GAME.INFIELD / GMTIME) and the '#' pages.
+
 ## Main menu: the Status comparison, the gauge rules, the Mog House row (2026-10-25)
 
-Spec `~/ffxi/lab/research/mainmenu_panels_spec.md`.
 - The user's retail shot with the persona and level panels at the left was the Status window (statcom2 child 1 help
   0xe 0x1e0 "View your profile including current allegiance and title."), not the bare main menu: FUN_1015ee40 /
   FUN_10140090 open only "menu    menuwind" (SE 0014). Ours matches retail there (checked live side by side).
@@ -7198,9 +10323,49 @@ Spec `~/ffxi/lab/research/mainmenu_panels_spec.md`.
 - Live: the Mog House door was not reached by !pos this time (the earlier run entered by the zmr0zmr1 rect from the
   sub-area); checked offscreen.
 
+From the research notes:
+- FUN_1015ee40 opens the menu only when DAT_1057876c +0x68, +0x59 and +0xc4 are 0, FUN_101b5c90() is false and the
+  myroom mode (DAT_106631d4 +0x1c) is 0 (the blockers are not identified); there is no engaged test (inferred).
+  Handler DAT_1057823c (ctor FUN_1013fbe0 caches windowps 23 / 44 / 443 at +0x18 / +0x1c / +0x20), vtable
+  0x10333ff0: +4 open FUN_10140090, +8 close FUN_10140260 (empty), +0x10 draw FUN_1013ff90, +0x18 events FUN_10140400
+  (3 / 4 / 7 / 0x1c open socialme, page 2; 5 Enter; 6 Escape), +0x24 FUN_10140370 (DAT_1057876c +0x74 bit 0,
+  inferred: holds the world keys), +0x28 per frame FUN_10140270.
+- The open closes the menu at once when FUN_10087070(0) (inferred: an event lock) or the player's +0x170 is 2 / 3
+  (K.O.). Child 15 (the caption) state 0x10, children 13 / 14 (the page arrows) state 0xf; window +0x86 = 0.
+- Row 12 per frame: enabled (help 0xe 0x29 "Open the Mog House menu.", +0x25 = 1) out of the Mog House, in
+  Monstrosity, or when FUN_10097b40 && FUN_101cc0a0 (inferred: one's own house). Its label is white away from the
+  cursor, 0x80805020 at scale 1 under it (FUN_1011fc80), FUN_10119f80(.., 0x1e, +0x5e) while +0x5e > 0. Whether the
+  layout's own "Map" sprite also draws under it is not traced (inferred: hidden).
+- Registry (place; flags / state / layer / group): menuwind (384, 48) 112x202, 0x2 / 1 / 2 / 0x81; socialme (384,
+  48) the same; statcom2 (384, 48) 112x218, 0x220002 / 1 / 2 / 0x81; persona (16, 48) 112x190, 0x1 / 1 / 2 / 0x10
+  (0x30 at (16, 16) in Status mode); level (16, 208) 112x88, 0x1 / 1 / 2 / 0x04; titlewin / titlehan (16, 16)
+  112x30, 0x8093 / 0x8013, state 5, layer 2 / 3, group 0x20; helpwind (130, 16) 252x30, 0x8093 / 5 / 2 / 0; gaugewin
+  (16, 48) 128x44, 0xc03 / 1 / 2 / 0x10; playermo 0x8011c02 / 0x21 / 2 / 0x04. "menu    statuswi" in the DAT is
+  unused.
+- Who opens persona / level: the Status row (persona +0x1c = 1; FUN_10146ec0 opens level and statcom2); Equipment
+  FUN_10133130 (+0x1c = 2 at (16, 48), no level); blue magic sets FUN_101df020 (persona mode 2, bluepoin, bluequip);
+  mp_stat FUN_101446f0 (level mode 1 at y + 0x14 with statcom2, or mode 2 at y + 0x34); the Monstrosity menu
+  FUN_10142210 (level mode 2).
+- Closing: Escape on statcom2 with no page shown closes it (FUN_10148bb0); persona's close (FUN_10146fd0) closes
+  level and clears busy bit 0x40. Engaging (FUN_1015f3e0(0x20)) and an event start close every row whose state lacks
+  0x04: menuwind, statcom2, persona, level. statcom2's Left / Right link to itself, so the page swap cannot happen
+  under it.
+- The level panel (DAT_105783e8; ctor FUN_101475b0, vt 0x10334970: open FUN_10147620, close FUN_101479c0, draw
+  FUN_101476b0): drawn once the stats are ready (DAT_10485824 bit 0, s2c 0x119); the labels are strings in fontshp
+  (FUN_101c9780 left, FUN_101c9b50 right). Colours white / white, or C1 blue 0x802060a0 and C2 grey 0x80404040 with
+  0x063 type 2 byte +3 bit 6 (capped or merit mode). Normal: "%s %d" of 0xc 0x56 and the level at (8, 10); 0xc 0x57
+  at (0xf, 0x16); EXP right at (0x5a, 0x22); 0xc 0x58 at (0xf, 0x2e); next right at (0x5a, 0x3a); the gauge at (0x16,
+  0x48). Master level: 0xc 0x203 and @0x65, 0xc 0x204 at (7, 0x16), 0xc 0x205; u32 @0x68 / @0x6c. Numbers
+  FUN_101c9440: groups of three with the separator 0xc 0x5b. Gauge FUN_101cb040 -> FUN_101cad00: fill windowps 97 at
+  (x + 4, y + 1), frame windowps 38. Modes 1 / 2 move it down 0x14 / 0x34.
+- The level (FUN_101cc5d0) is the player object's +0x40c42 (0x067 kind 2 @0x25), else 0x061 @0x0D. The 0x061 block
+  is kept at 0x10485634 (@0x10 = DAT_10485644, @0x65 = DAT_10485699, @0x66 = DAT_1048569a); 0x063 type 2 @8..0xf at
+  0x10485826 (FUN_10099270 case 2).
+- Ours closes the main menu under Status and brings it back without a zoom; retail suspends menuwind (statcom2 is
+  group 0x81) and the walk resumes it with the open zoom (inferred, not checked live).
+
 ## Sprite cells with blending off (2026-10-25)
 
-Spec `~/ffxi/lab/research/equip_screen_spec.md` D.
 - A cell's blend byte 0 is the enable: 0 makes FUN_1011e980 -> FUN_1011f2d0 -> FUN_1011f300 set ALPHABLENDENABLE
   FALSE, so the cell draws opaque (texel x vertex colour), cut only by the UI's alpha test (GREATER 0); its low vertex
   alpha only feeds that test. Ours drew those cells alpha-blended, so the Equipment window's element balls (framesus 13
@@ -7210,9 +10375,21 @@ Spec `~/ffxi/lab/research/equip_screen_spec.md` D.
   gauges) and inventory shots are unchanged apart from the balls, now red / green / violet / white / cyan / yellow /
   blue / dark as the user's retail shot.
 
+From the research notes:
+- No code draws the Equipment window's element balls: they are cells 1..8 of its frame sprite framesus 13, drawn with
+  the frame, each a 10 x 10 quad of a 32 x 32 ball in "menu    colorbal" (128 x 128), vertex colour (128, 128, 128)
+  with alpha 25 (49 the dark one), blend bytes (cell +0x29..+0x2c) [0, 0, 2, 1]. Quad (from the window origin), texel,
+  element (number field): (6, 162) (64, 0) red fire (0); (6, 176) (96, 0) cyan ice (1); (50, 162) (32, 0) green wind
+  (2); (50, 176) (32, 32) yellow earth (3); (94, 162) (96, 32) violet lightning (4); (94, 176) (0, 0) blue water (5);
+  (138, 162) (0, 32) white light (6); (138, 176) (64, 32) dark (7).
+- The path: FUN_1011e980 (blend word 0) -> FUN_1011f2d0 -> FUN_1011f300(enable 0) -> SetRenderState(ALPHABLENDENABLE,
+  FALSE) (asm 0x1011f300..0x1011f31a -> 0x1011f85e); texel x vertex colour is MODULATE2X (0x80 = 1.0).
+- Most of the blend-off cells have alpha 192 (-> 255), so only soft-edged texels change; windowps 488 (the newtex
+  plate, alpha 49) becomes an opaque dark plate.
+
 ## Equipment screen as retail: the list, both modes, mnstorag (2026-10-25)
 
-Spec `~/ffxi/lab/research/equip_screen_spec.md` (FUN_10133130, list source vt 0x103336c0, equip vt 0x10333728);
+FUN_10133130, list source vt 0x103336c0, equip vt 0x10333728;
 ours client/equipwin.rs (moved out of items.rs; Win::Equip holds an EquipWin).
 - Open: persona, money, the list (always, at (314, 48), unfocused) on the Inventory with every piece of gear, the grid
   focused in mode 2; c2s 0x061 {1}; the main menu is hidden and comes back (with its cursor) when the screen closes.
@@ -7245,8 +10422,60 @@ ours client/equipwin.rs (moved out of items.rs; Win::Equip holds an EquipWin).
   -> "You need the Dual Wield ability to equip that as a sub-weapon."; Num+, Hume Slacks picked (orange), the grid to
   Legs, Enter equipped them; Storage Options focused; Escape back to the main menu.
 - Not done: the unequip toggle not seen live yet. Since done: the open refusals (synthesis 7 0x4e, fishing 0x4d),
-  the not-loaded refusal 0xa8, "menu    pupequip", C.7's pointer swap ("Equipment: pupequip, the not-loaded
+  the not-loaded refusal 0xa8, "menu    pupequip", the pointer swap ("Equipment: pupequip, the not-loaded
   refusal, the pointer focus swap").
+
+From the research notes:
+- Main menu child 2 (FUN_10140400 case 2): Monstrosity -> FUN_10141ba0 ("menu    mp_mncst"); PUP main or sub
+  (DAT_10485640 / DAT_10485642 == 0x12) -> pupequip; else FUN_10133130 (2019 FUN_1012ec60); SE 0002 each. The open:
+  view 2 of the nine equippable containers (objects DAT_10666e2c Inventory, e4c Wardrobe, e50..e68 Wardrobe 2..8)
+  rebuilt with FUN_1021c7e0(0xffff, 2, 0x12, 0); persona +0x1c = 2, persona and money open; the list source
+  DAT_105781b0 (vt 0x103336c0) on the item list DAT_10663740 (vt 0x1033a5d8) through FUN_101f23a0; "menu    equip"
+  last (focused); c2s 0x061 {1} (FUN_10097fd0(0, 1)).
+- Windows: persona DAT_105783e4 (16, 48) 112 x 190, windowps 8; money DAT_10578248 (16, 240) 112 x 56, framesus 11;
+  inventor registry 0x30002, framesus 6, anc_item, header 0xe 3 / 0xd 2; equip DAT_105781a8 (FUN_10131940, vt
+  0x10333728, base FUN_10131530 vt 0x10333670) 0x20002, (130, 48) 182 x 190, framesus 13, anc_equi, children 0xe
+  0xf3..0x102; iteminfo DAT_10578204 0x1400003, group 8; mnstorag DAT_105781a0 (vt 0x10335e98) 0x20002, layer 3,
+  (384, 48) 112 x 154, comwin 8, title 0xd 0xa9.
+- The list's place: source +4 (FUN_10131a70) returns 2 -> FUN_101f1fe0 moves it to (314, 48) and sets window +0x38 =
+  0x81 (its group); 0 -> (16, 48) with 0x10, 1 -> (200, 48). While it is open menuwind and playermo are hidden in
+  state 0xe (FUN_1015e6e0); its close (FUN_101f2600) resumes them (FUN_1015e530 resumes only state 0xe), so opened by
+  a hotkey with no menu up nothing comes back. The equip close hook FUN_10131e40 clears title slot 2 and puts the nine
+  containers back to view 1, mask 0 (FUN_1021c7a0(0, 1)).
+- Source DAT_105781b0: +4 picked, +5 the picked index, +6 compare edge primed, +7 bits 0-1 the compare slot turn, +0xc
+  the picked entry, +0x10 the container; its vtable's +0x2c FUN_10130a80 (Ctrl compare), +0x30 FUN_10130540 (tint),
+  +0x34 FUN_101306f0 (messages 5 / 6 / 8), +0x38 FUN_10130c00 (the strip), +0x3c FUN_10130d00 (its Enter). Equip window
+  (0x44c bytes): +0x14 / +0x18 container / index of the grid slot's piece (FUN_101321d0), +0x1a open counter, +0x1c
+  mode, +0x20 allowed-slot mask, +0x22[16] / +0x34[16] index / container by slot (from FUN_100e5290 every frame,
+  FUN_10132c30), +0x88 the ten number fields, +0x1c8 keytops3 429, +0x1cc the slot number fields.
+- View 2 is qsorted (LAB_1021d220) by item cache +0x1c (the record's +0xa), then id; the rows are rebuilt every frame
+  (FUN_101f1230 from FUN_101f27a0). An item arriving while the view is built is appended unsorted (FUN_1021c5b0, which
+  tests mask & cache +0x1c: a quirk) until the next rebuild *(as read)*. Status grey: 0x0f, 0x13 (a linkshell; allowed
+  only for the source DAT_10663474), 0x19 (bazaar); item 0xffff grey. The count "%d" only for stacks > 1,
+  right-aligned at row x + 16, y + 4.
+- The strip's wardrobe number cell (kind 0x40, FUN_101f4bb0 case 0x3f) first draws framesus 188..191 (Wardrobe 1..4)
+  / 204..207 (5..8) at (cell x, y + 2): tinted 16 x 16 itemslot cells with vertex alpha 0 under alpha blending, so
+  they draw nothing *(as read; to check against retail footage with a wardrobe list)*; the grid's wardrobe pieces get
+  the same badge (FUN_10132db0) at (child + 16, child). Sprite 185 (case 0x40) spans x 16..182: on screen window x
+  19..185, y 6..22.
+- mnstorag rows (windowps normal / dim, help 0xe): 1 Inventory 674 / 675, 0x323; 2 Wardrobe 672 / 673, 0x324; 3..9
+  Wardrobe 2..8 (containers 10..16) 798 / 799, 800 / 801, 802 / 803, 816 / 817, 818 / 819, 820 / 821, 822 / 823, 0x3e1..
+  0x3e3, 0x426..0x429; links wrap. Enter (FUN_10134d00 -> FUN_10134990) sets the list's container and closes, with no
+  rebuild (the rows follow from that container's view 2 next frame); title slot 2 stays "Equipment".
+- The slot of a grid child: table 0x1036f734 (FUN_10131680); its piece's container FUN_10132270 (player +0x19a58
+  + 8 slot {flag, container}). Focus = the most recently raised window (FUN_1015db80 bumps +0x71).
+- Sounds as read: 0001 moves; 0002 the strip's Enter, a mode-1 pick, a mode-2 equip from the list; 0004 an
+  encumbered slot, a failed equip, Enter on a grey row (vt +0x5c FUN_10148f60 returns 0); 0013 Num+ both ways; a
+  mode-1 grid equip that works plays nothing; Escape and the mode-2 grid Enter have no sound in these handlers (the
+  window manager's not traced).
+- Bars: the strip's help is 0, so slot 2 is cleared and slot 1 shows the list child's text, falling back to
+  inventor's 0xe 3 "Select an item." *(inf)*; the list losing the focus (FUN_101f6940(0)) clears help slot 2.
+- Compare: list messages 1..6 and 0x1b clear it (FUN_10130be0). The pointer swap (FUN_10132c30 / FUN_101f27a0; *(inf:
+  FUN_10118c10 = the pointer inside that window)*): grid focused and the pointer over the list -> message 8 (mode 1,
+  the list focused); list focused and the pointer over equip -> message 8 (back to mode 2 when nothing is picked).
+- esedit's list (source vt 0x10333830; the strip by FUN_10135300): mcresed's grid Enter rebuilds view 2 on all 16
+  containers (FUN_10134f00); at the editor's open no rebuild runs (the view the last user left) *(inf)*.
+- Open: the list's cursor row after a grid Enter is kept (only the top row is reset) *(as read)*.
 
 ## Text fields block the game keys (2026-10-25)
 
@@ -7300,8 +10529,8 @@ ours client/equipwin.rs (moved out of items.rs; Win::Equip holds an EquipWin).
   has no 0x800000: op 0x45 copies g000's attach fields (point 1 becomes point 0) and actors, so each copy sits at the
   falling text's local position in the same frame and rides with the character: the smear above the text in the
   user's retail shot. Ours had kept g001's own point 1, a second copy a body height away.
-- Op 0x45 (emit_3c_45_spec.md section 3) is now complete: FUN_1003b900 copies the parent generator's attach word
-  (mask 0xfdffff) and actors; under 0x800000 the element's snapshot becomes the parent element's frame (and the
+- Op 0x45 (MODLOG "Emission op 0x3c and op 0x45") is now complete: FUN_1003b900 copies the parent generator's attach
+  word (mask 0xfdffff) and actors; under 0x800000 the element's snapshot becomes the parent element's frame (and the
   scale vectors); without it a frameless element borrows the parent's frame slot, kept alive while borrowed. The GPU
   readback now returns each element's local position (back words 13..15), which op 0x45 adds; it was zero.
 - fx-shot takes --file N (that file's "main" on the caster) and --walk x,y,z (caster movement a tick).
@@ -7328,7 +10557,6 @@ ours client/equipwin.rs (moved out of items.rs; Win::Equip holds an EquipWin).
 
 ## The chat line's channel tab (2026-10-25)
 
-Spec `~/ffxi/lab/research/chat_mode_tab_spec.md`.
 - The chat line is "menu    inline" (registry 0x103723b4, layer 6, no open animation), not msgline (the event input).
   Its draw FUN_101b7fd0 puts a "menu    fep" tab at (x0, y0 - 12) = (16, H - 50): the full log's unselected tabs,
   label baked in (Say 10, Shout 11, Tell 12, Party 13, Linkshell 14, Linkshell 2 16, Unity 17, Assist J 29, Assist E
@@ -7343,13 +10571,36 @@ Spec `~/ffxi/lab/research/chat_mode_tab_spec.md`.
   does not. The full log while typing moves its lines up 16 more (FUN_10138020 offset -16), the hand with them.
 - Live (Lnxcsfix): Say on open, none on "/", Party on "/p hi", Linkshell 2 + "No Linkshell" on "/l2 x". The user's
   retail shot showed the Say tab.
-- Since done (side findings, spec section 6): the line's text origin (x0 + 2, y0 + 3), its width (log width - 86),
+- Since done (side findings in the same draw): the line's text origin (x0 + 2, y0 + 3), its width (log width - 86),
   the blinking '|' caret.
+
+From the research notes:
+- inline: registry flags 0x0a (8: no open / close animation), group 0; layout (16, 410) 366 x 22, anchor 2, windowps 37;
+  width log +0x32 + 14 on open. Handler object (0x38 bytes, FUN_101b8e70; vtable 0x10337a40): +0x1c FSTEXTINPUT, +0x20
+  caret blink, +0x24 reopen flag, +0x28 scroll, +0x2c tab mode, +0x30 tab sprite (0 none), +0x34 text width (log +0x32 -
+  0x56). vt+0x40 broadcasts: 8 closes inline (+0x24 = 1), 4 reopens it, 0x200 sets the mode back to Say, 0x400 / 0x2000
+  FUN_101c6870(0). The event broadcast 0x800 is not handled: the line and its tab stay up in events. Open sets +0x2c = 1
+  and close (FUN_101b7fb0) clears +0x30, so a line opened holding "/" stays tabless.
+- FUN_101ad840 compares case-sensitively, n = strlen(word) + 1 (the prefix with its space), only when the text is at
+  least n long: "/p" and "/P " show nothing, " /p x" (leading space) the default mode. The default mode is DAT_10662da4
+  +0x108 (2 at start, FUN_101ad290).
+- Tab sprites are 64 x 12 grey tabs with the label baked in (no font call). fep 15 is a 16 x 16 IME icon, not a tab:
+  mode 0xd (LS 3) has none and its branch in the draw is dead. The layouts insay / inshout / intell / inparty / inlink
+  (fep 10..14) are never opened (their names are not in FFXiMain).
+- Linkshell extras (FUN_100a3800): no shell: group 0xc 0x55 "No Linkshell" 0x80808080; PvP flag: the team name in
+  0x80806060; a shell: its icon at scale 0.5 tinted 0x80000000 | (lo(ext[6]) * 13 + 0x38) << 16 | (hi(ext[6]) * 13 +
+  0x38) << 8 | (lo(ext[7]) * 13 + 0x38), the name (ext + 9) in 0x80806060. Unity: group 0xc 0x1a2 + faction (> 11 -> 0,
+  "No Unity"), 0x80803040 for 0, 0x80404040 when s2c 0x061 u32 @0x60 bit 0 is clear, else 0x80808080.
+- With the Tab completion list open the tab follows FUN_101b7d00's preview text (inferred, not seen). UI hidden (key
+  0x56) draws neither line nor tab. Closing the line leaves the log alone, so its text drops 16 px at once (inferred
+  from the missing call). Log window 2 gets the same nudge but its vtable +0x4c returns 0: its text does not move.
+- Visible width: FUN_10190280 with inline +0x34 and the scroll +0x28 (inferred: cuts or scrolls the line to that width).
+  Caret: drawn as '|' after the piece before the 7F FF marker; +0x20 counts 0..25 per draw, on for 10..24.
 
 ## Name plate icons, job master stars, invisible players (2026-10-25)
 
-Spec `~/ffxi/lab/research/nameplate_icons_spec.md` (FUN_10097840 / 10097500 / 10097730 / 100977a0 / 100979b0, the draw
-FUN_10086210 / FUN_10086900, the target window FUN_101501a0).
+FUN_10097840 / 10097500 / 10097730 / 100977a0 / 100979b0, the draw FUN_10086210 / FUN_10086900, the target window
+FUN_101501a0.
 - The icons are fontshp glyph bytes 0x8e..0xb1 (sprites 110..145, texture "menu    ustatshd") put in front of the
   name with a space; one main glyph from the priority chain (POL, link dead, Monstrosity, Campaign / Ballista side,
   away, GM by level, Campaign sword, recruiter, auto party, seeking party, level sync, trial, mentor, New Adventurer,
@@ -7372,6 +10623,62 @@ FUN_10086210 / FUN_10086900, the target window FUN_101501a0).
   invisible players opaque before.
 - Live: Lnxcsfix shows the "?" (LSB's new player), `!togglegm` the grey "E" orb and a pink name.
 
+From the research notes:
+- Call path: the pass FUN_10080100 "CXiActorNameDraw" -> drawobj vt+0x284 FUN_100d0510; vt+0x278 FUN_100d04c0 ->
+  FUN_100830c0 (anchor, scale, colour = drawobj +0x78; alpha pulses on the target). Line 1: vt+0xcc FUN_10082f20 ->
+  FUN_10097840 -> FUN_100d0880 -> FUN_10086210(anchor, text, scale, name colour, icon colour drawobj +0x7c); line 2:
+  vt+0xd0 FUN_10082f60 -> FUN_100979b0 -> FUN_100d08b0 -> FUN_10086900. Neither draws when drawobj +0xb2 != 0; with no
+  actor the text is drawobj +0xb8.
+- FUN_10097840 (buffer DAT_104855b0, 0x80 bytes): no name (FUN_100977f0 false), no icons. a = 0x92 for a PC with
+  LinkShellFlag (+0x124 bit 27), then a = FUN_10097500(0, a); x = FUN_10097730(0); c = FUN_100977a0(). With c, a is
+  kept only when 0xab and c goes first; after a main glyph come x (if any) and a space; then the name (+0x214, the
+  Monstrosity name, when +0x210, else +0x7c). The icon colour is the LS colour (+0x1d4) for 0x92, else 0x80808080. A
+  Belligerency gladiator without a main glyph reads "[rank]Name", no space.
+- The name gate FUN_100977f0: +0x120 bit 9 and not +0x128 bit 3; then either (+0x120 bit 7 with DAT_104807f5: not
+  +0x12c bit 16 and not +0x120 bit 17) or (not +0x120 bits 14..15 and not +0x130 bit 7); and FUN_100973f0 == 0.
+- The chain FUN_10097500, first match: +0x124 b26 POL 0x8e; b28 link dead 0x8f; +0x210 Monstrosity 0xab; a team (2 <=
+  +0x1ff < 100, not 0x28..0x2b): the team rule, and stop; +0x124 b22 away: a PC 0x90, an NPC by MonStat (+0x124 >> 1 &
+  7) 5 / 6 / 7 0xae / 0xaf / 0xb0, else the default; the GM level (+0x128 >> 11 & 7) without GmIconFlag (+0x12c b18):
+  table 0x1035b61c (1, 2 0x93; 3 0x95; 4..6 0x96..0x98; 7 0x99); +0x1da Campaign 0x94; +0x140 b3 recruiter 0xac;
+  +0x124 b21 auto party 0x9d; b20 seeking 0x91; +0x130 b23 Level Sync 0xa8; b14 trial 0x93; b12 mentor 0xa2 (a non-PC
+  0xb1 "i"); b13 New Adventurer 0xa1; +0x128 b9 bazaar 0x9c; else the default (0x92 or none).
+- The team rule: i = +0x294 (Ballista info), else allegiance - 1 below 7: 1 0x9e San d'Oria, 2 0x9f Bastok, 3 0xa0
+  Windurst, 4 0xa3 Wyverns, 5 0xa4 Griffons, 6 +0x29c ? 0xa5 : 0xa3, 7 +0x29c ? 0xa5 : 0xa4 (0xa5 a crystal shard
+  *(inferred: carrying Petra; +0x29c = 0x067 type 2 u32 @0x14)*); allegiance 0x20 / 0x22 / 0x24 / 0x26 -> 0xa6, 0x21 /
+  0x23 / 0x25 / 0x27 -> 0xa7 *(inferred: Brenner sides)*. The badge FUN_10097730 (team members or Campaign): 0xac,
+  0x9d, 0x91, 0xa8 in that order. The rank FUN_100977a0 (allegiance 8 / 9): {0xc8, 0xc9, 0xca, 0}[+0x13c >> 4 & 3]
+  with Monstrosity, else {0xcb, 0xcc, 0xcd, 0}[+0x13c >> 2 & 3]; FUN_10086210 expands 0xc8..0xcd to 0xa9 and 0 / 1 / 2
+  / 0 / 1 / 2 stars 0xaa (tables 0x1032d36c / 0x1032d374).
+- FUN_10086210: the text cut to 36 bytes, each 0xac followed by a 0xad. The size (FUN_1011fa80) is (TR.x - TL.x - 1,
+  BL.y - TL.y - 1) of the first cell (icons 15 x 15, 'A' 8 x 10, space 3). Pass 1 width: the first glyph w (not 0xad);
+  later 0x8e..0xa8 add w / 2 and take the size (0.8 w, 0.8 h) truncated; 0xaa halves the size and adds w' / 2; 0xad
+  nothing; others w. Pass 2 from -W / 2: a badge at 0.8 of the 0.8 size, dx = -w' / 2, dy = h' / 2, advance 0.625 w';
+  a rank star dx = -w', dy = h', advance w' / 2; 0xad at 0.5, dx = -2 - w, dy = -2, no advance (on the previous icon's
+  corner); '\n' moves 8 down. Icons stand 2 units above the letters (off.y -2). Glyphs from 0x8e (the second texture;
+  its start byte from FUN_10120660) take 0x80808080 or the LS colour, alpha forced to 0x80, ALPHAREF 0x60.
+- Line 2 (FUN_10086900): anchor.y -= 16 glyph units; 0xd2 -> 0xd3 0xd4 0xd5: the outer stars 0xad at half (7 x 7,
+  off.y + 7), the middle one 15 x 15; W 29: left (-14.5, 5)..(-7.5, 12), middle (-7.5, -2)..(7.5, 13), right (7.5,
+  5)..(14.5, 12).
+- s2c 0x00D (0x10099ae0): on every non-despawn packet @0x32 -> +0x294; @0x33 bit 0 -> +0x130 b25, bit 1 trial -> b14,
+  bits 2..3 -> +0x13c b4..5, bits 4..5 -> b2..3, bit 6 job master -> +0x13c b7; u16 @0x3e -> +0x210 (FUN_1009acb0).
+  With mask 0x04, Flags1 @0x20: b11 LFG -> +0x124 b20, b12 anon -> b23 (the name colour only), b14 away -> b22, b16
+  POL -> b26, b17 LS -> b27, b18 link dead -> b28, b24..26 GM -> +0x128 b11..13, b29 invisible -> +0x128 b6, b31
+  bazaar -> b9; Flags2 @0x24: r g b @0x24..0x26 -> +0x1d4, b28 GmIconFlag -> +0x12c b18, b31 auto party -> +0x124 b21;
+  Flags3 @0x28: b1 recruiter -> +0x140 b3, b23 New Adventurer -> +0x130 b13, b24 mentor -> +0x130 b12; @0x29 Ballista
+  team -> +0x1ff.
+- s2c 0x037 (0x1009d0f0): Flags0 @0x28 b4 LFG, b5 anon, b7 away, b24 POL, b25 LS, b26 link dead, b29..31 GM; Flags1
+  @0x2c b15 invisible, b29 bazaar, b31 GmIconFlag; @0x31..0x33 the colour; Flags2 @0x34 b2 auto party, bits 21..28 ->
+  +0x1ff; Flags3 @0x38 b0 recruiter, b1 trial, b3 New Adventurer, b4 mentor, @0x39 -> +0x294; u16 @0x54 Monstrosity;
+  @0x58 b7 job master; @0x5a bits 0..1 -> +0x13c b4..5, bits 2..3 -> b2..3. s2c 0x00E: Flags1's away and GM as 0x00D,
+  @0x2b b0 -> +0x130 b12 (the "i"), MonStat @0x2a & 7 -> +0x124 b1..3 only with Flags1 b0 or Flags3 b26. s2c 0x067
+  (0x1009cee0): type 2 @0x10 b1 Campaign (+0x1da), b2 Level Sync (+0x130 b23), u32 @0x14 -> +0x29c; type 3 @0x10 b1
+  Campaign, b2 -> +0x130 b22 (not an icon).
+- On LSB: visibleGmLevel = min(GM + 3, 7) with GM mode on; GmIconFlag and AutoParty always 0; the LS colour (c << 4) +
+  15 per channel; 0x00D leaves @0x33 bits 2..5 at 0, so others always show rank 0; POL, trial and the NPC icons are
+  never sent.
+- No other callers of the glyph builders: no icons in the party lists or the log. No config hides them alone;
+  /jobmasterdisp (config 0x99 bit 8 + c2s 0x11B) asks the server to drop our JobMasterFlag.
+
 ## Correction: invisible party members (2026-10-25)
 
 - Retail hides every invisible PC but ourselves, party members included (FUN_100973f0 has no party case; the user
@@ -7382,12 +10689,12 @@ FUN_10086210 / FUN_10086900, the target window FUN_101501a0).
 
 ## Merit Points and Job Points (2026-10-25)
 
-Spec `~/ffxi/lab/research/status_rows_spec.md` sections 1, 2 (client/merits.rs, client/jobpoints.rs, dat/merits.rs).
+Ours client/merits.rs, client/jobpoints.rs, dat/merits.rs.
 - Tables: file 89 (merit categories) is indexed by list position = record number (FUN_10160f00), u16 @0 is the
   name id (FUN_10161070 reads strings[2 x u16 @0]; for categories it equals @3, the category id); file 88 by merit
   index; files 93 / 94 the job point entries / jobs; 100407 + job the gifts. Names from the d_msg files of language
-  slots 0x1d..0x20 (current numbering, resolved through FFXiMain's slot table at UI load). The spec's "names by
-  position" was wrong; the dump's names-by-u16-@0 is right.
+  slots 0x1d..0x20 (current numbering, resolved through FFXiMain's slot table at UI load). Names by
+  position (first assumed) were wrong; names by u16 @0 are right.
 - s2c 0x08C (merit records {u16 id = index x 2, bit 0 delete, u8 next, u8 level} from @8), 0x08D (64 x {u16 entry,
   u16 next | level << 10}), 0x063 type 5's per-job (capacity, current, spent) from @0xc are parsed.
 - merit1 / levmerit / merit2 (mode switch, c2s 0x0BE {2, flag}) / meritcat (the category list, a category's merits,
@@ -7405,6 +10712,42 @@ Spec `~/ffxi/lab/research/status_rows_spec.md` sections 1, 2 (client/merits.rs, 
   points (Mog House only; a raise would leave merit rows on the test character), the mouse on jbpcat's page areas
   (children 11 / 12). Not done: Alter Ego Points (fp_cat / fp_cat2 / fp_info, 0x08E).
 - statcom2's rows link 1, 2, 12, 3, 4, 5, 6, 10, 11, 9, 7, 8, 13 (wrapping): Merit Points is three Ups from row 1.
+
+From the research notes:
+- Records: file 89 (merit categories) 96 x 12: @3 category id, @4 cap (max total upgrades), u32 @8 job mask; file 88
+  (merits) 3072 x 12, record = index = cat * 32 + k: @2 cat, @3 k, @4 max upgrades (0 = no merit), u32 @8 job mask;
+  file 94 (job point categories) 32 x 0x44: u8 @2 job (0 none), u16[] @4 entry ids (10 used, job * 32 + 0..9, in
+  display order); file 93 (job point entries) 768 x 4: u8 @0 k, @3 max (20); 100407 + job: 256 x u16, the JP spent
+  needed for gift i (0 none). Names: slot 0x1d merits; 0x1e job points ([2 job] the job, [2 job + 1] its description,
+  [2 id] / [2 id + 1] an entry); 0x1f gifts ([2 ((job - 1) * 256 + i)] and + 1).
+- Category list order: 1 HP/MP (cap 75), 2 Attributes (105), 3 Combat Skills (152), 4 Magic Skills (112), 5 Others
+  (10), 6 Weapon Skills (id 0x1a, cap 15), 7..28 the jobs (ids 6..0x19, 0x1b, 0x1c; cap 10). Positions 32..54 are the
+  jobs' second groups (id = job category + 0x1a, cap 10, never listed themselves). 274 merits; the wire id is index x 2
+  (Max HP 0x40 = index 32).
+- s2c 0x08C: kept sorted by id at session +0x2d000 (count +0x2cffe), a change stamps +0x2d004; a category's spent
+  (FUN_10161010) = the levels of the ids with id >> 6 == cat. LSB sends all merits at every zone-in, one after each
+  0x0BE. 0x063 type 2: u16 @8 limit points, u16 @0xa merits & 0x7f, bit 13 merit mode usable, bit 15 merit mode on; u8
+  @0xc max merits (LSB: bit 13 = level >= 75 and Limit Breaker). 0x08D: slot +0x2d010 + id x 2 = level | next << 6,
+  the +0x2d610 callback per job, +0x40db5 bit 0; LSB sends two jobs a packet and answers 0x0C0 only with Job Breaker.
+- meritcat colours (FUN_101491a0): the name grey unless in the Mog House (session +0x3c35c bit 0x100; ours myroom
+  *(inf: the same zones)*), the main job in the entry's mask and (cat != 0x1a or main level >= 96 with key item 0x80b),
+  then the group colours {0x80808080, 0x80909040, 0x80509050}; the cost white only then, with 0x063 type 2 in, cost <=
+  merits and the category's spent < cap. Weapon Skills' cap +5 for each of key items 0xc98 / 0xc99, at most 100.
+- merit1 child 2 (Mode Switch): disabled in Monstrosity; refused with group 7 0xbb under status 0x8f, 0x101 or 0x10d.
+  merit2 greys the current mode's row (bit 15) and swaps on the next 0x063 type 2; LSB's 0x0BE kind 2 writes
+  char_exp.mode and sends 0x063 types 2, 3, 4.
+- merit3 (not tried live): Raise possible = a 0x08C record with cost != 0 and a white cost cell; Lower = level != 0
+  and a name not grey. Neither: it closes at once; per frame it closes with sortyn and merityn once the chosen action is
+  no longer possible. Raise: sortyn (help 0xe 0x264, title 0xd 0x82) then merityn (group 10 0x50); Lower: 0xe 0x265
+  then group 10 0x51; No returns to merit3. meritcat's Enter on a merit that can do neither plays SE 0004 twice (its
+  hook and the list base). LSB's 0x0BE kind 3 (Mog House only): 0x029 MeritIncrease / Decrease, 0x063 types 2 / 3 /
+  4, 0x08C for the merit, 0x061, 0x062, 0x119.
+- levmeri2: "%d/%d" of the job's capacity points / 30000 at (x1 - 8, y0 + 0x1c); "%d/%d P" of its JP / 500 at (x1 -
+  8, y0 + 0x44), blue at 500. jbpcat page 1: the JP spent "%d" at (0x102, 4).
+- jbpcat's mouse (not tried live): children 11 / 12 (windowps 332, 15 x 9 at (2, 5) / (338, 5), transparent):
+  hovering (msg 9) puts the hand on that child and hides the rows' hand; Enter there = Left / Right. A raise is asked
+  only while DAT_1057844c == 0. LSB's 0x0BF (Mog House, an existing entry): 0x063 type 5, 0x08D for the entry (the
+  callback rebuilds page 0), 0x029 JobPointsIncrease.
 
 ## Chat line text, width and caret (2026-10-25)
 
@@ -7434,7 +10777,7 @@ Spec `~/ffxi/lab/research/status_rows_spec.md` sections 1, 2 (client/merits.rs, 
 
 ## Linkshell: the Link List and member actions (2026-10-25)
 
-Spec `~/ffxi/lab/research/menu_rows2_spec.md` L4.5 (client/linklist.rs).
+Ours client/linklist.rs.
 - Link List (link2 / link3 / link4 row 1, FUN_101e5c50(n)): the search server's group list with the shell's group id
   (exdata u32 @0) in the LS1 or LS2 place; link12 replaces link5 (FUN_101e4570) under link6's header and its close
   brings link5 back (FUN_101e5030). Rows (FUN_101e4e50): only records carrying our group id among their three
@@ -7451,9 +10794,28 @@ Spec `~/ffxi/lab/research/menu_rows2_spec.md` L4.5 (client/linklist.rs).
 - Not seen live (needs a linkshell on the test character); the record parse has a unit test. Not done: the comment
   fetch on Enter (kind 4), as in scresult.
 
+From the research notes:
+- Opening: FUN_1020a9d0(3, ...): the busy check; the old window closed (vt +0x74 = FUN_101e5030); FUN_100e2f10 (kind
+  2, callback LAB_1020ac30); no chat summary line; +0x894 = n. Open (+0x70 FUN_101e4f90): cursor windowps 75, 10 rows
+  of 18 px, 5 columns at x {1, 18, 156, 160, 270} (DAT_1037f30c); link6 in mode 2 shows the worn shell n (none: 7
+  0x71). No header row (vt +0x7c FUN_101d7c90 returns 0), no group rows. link12 shares the list globals with scresult
+  (DAT_106644dc / DAT_106644e4, busy DAT_10385a04) *(inf: opening one replaces the other's list; whether retail ever
+  shows both is open)*.
+- The request: search kind 2 (wire type 2), 5 x u32 @0x10: party 0, alliance 0, LS1, LS2, 0. LSB
+  (HandleGroupListRequest): online members with that id as LS1 or LS2, by name, all pages, type 0x82 entries carrying
+  0xd (ranks 1 holder / 2 sack / 3 pearl, the ids).
+- Not done: the comment fetch on Enter (FUN_1020b3e0 as scresult: kind 4, printed in mode 0xcc when the member has
+  flag 0x10).
+- Packets: c2s 0x077 (FUN_100e9420, size 0x16): name[15] @4, Kind @0x14, ChangeKind @0x15 (LSB GROUP_CHANGE2 2 / 3:
+  the holder only); c2s 0x071 (FUN_100e9220, size 0x1c): u32 0 @4, u16 0 @8, Kind @0xa, name[15] @0xc (LSB
+  GROUP_STRIKE kinds 1 / 2: a pearlsack or the holder). Kick's prompt also takes FUN_101cc590(race) *(inf: the
+  pronoun)*; with nobody under the cursor SE 0004.
+- link9 (FUN_101e6ac0): n != 1 -> row 2 off, then FUN_101e6780(2). Every action closes link12, whose close hook
+  reopens link5 and link6 (FUN_101e5030); Escape the same.
+
 ## Help Desk: the GM reply page (2026-10-25)
 
-Spec `~/ffxi/lab/research/social_rows_spec.md` H4.2 (client/faqmain.rs).
+Ours: client/faqmain.rs.
 - s2c 0x0B6 SET_GMMSG (LAB_101132b0): msgId u32 @4, seqId u16 @8, pktNum u16 @0xa (0 = the last), text @0xc (244).
   A new msgId starts over; the next seqId of the same one appends (0x400 bytes at most); a repeat or a gap is dropped;
   pktNum 0 completes it (unit test). Retail writes it as "gmNotice.fdt" (DEF SELECTNODE 0, LABEL "NOTICE", HEADER
@@ -7464,6 +10826,11 @@ Spec `~/ffxi/lab/research/social_rows_spec.md` H4.2 (client/faqmain.rs).
   next. Live (2026-10-28, a help_desk row for Lnxcsfix): the reply arrived at zone-in, /helpdesk -> Help Desk showed
   it with "Delete this message." / "Return.", Delete set deleted_at (LSB) and went back to faqsub; the same in the
   modern UI. Not done: netstat's "reply waiting" mark (+0x30 = 2, its drawing not traced).
+
+From the research notes:
+- FUN_10115020 (every frame) writes the finished text as "gmNotice.fdt" / "gmNotice.siz"; FUN_10115250 reports the
+  waiting reply to netstat (+0x30 = 2, FUN_102014f0; which sprite its states 1 / 2 draw is not traced). The reply
+  page's row 0 sends c2s 0x0D5 (FUN_10115280, 12 bytes, u32 @4 = 0: msgId / seq not filled) before the type-1 report.
 
 ## The party cursor with the mouse (2026-10-25)
 
@@ -7483,7 +10850,7 @@ Spec `~/ffxi/lab/research/social_rows_spec.md` H4.2 (client/faqmain.rs).
 
 ## Party requests (2026-10-25)
 
-Spec: `~/ffxi/lab/research/party_request_spec.md`. Ours: client/partyreq.rs, search.rs, textcmd.rs, partymenu.rs.
+Ours: client/partyreq.rs, search.rs, textcmd.rs, partymenu.rs.
 
 - s2c 0x11D PARTYREQ (LAB_100a2610, asm only): Status 0 a request, 1 stopped; UniqueNo, ActIndex, Flags, Race unused
   (the pronoun call's result is thrown away). Status 0: dropped while the name is on our blacklist or the blacklist is
@@ -7504,7 +10871,7 @@ Spec: `~/ffxi/lab/research/party_request_spec.md`. Ours: client/partyreq.rs, sea
 - scoption in request-list mode (results mode != 3 and the condition has 0x1000000, so a refine keeps it): child 4
   "Clear History" (windowps 785, help 14 0x3bc) asks 9 0x140 (default No) over scoption, Yes clears (9 0x142) and
   closes the search windows; child 5 "Delete Request" (786, help 0x3bd) deletes (9 0x141), closes, runs View
-  Request again. Rows 4 / 5 are never disabled; search_spec 3.3's "row 5 disabled on ourselves" is child 2 (Befriend).
+  Request again. Rows 4 / 5 are never disabled; the "row 5 disabled on ourselves" of an earlier reading is child 2 (Befriend).
 - The Request toggle (FUN_10204ee0): turning it on with any history asks 9 0x140 (default No); Yes clears; either
   answer then turns Request on (c2s 0x0DC).
 - /recruitlist delete Name (9 0x141 whether or not it was there; a bad name 9 0x65 in mode 0x9d and the command
@@ -7516,9 +10883,48 @@ Spec: `~/ffxi/lab/research/party_request_spec.md`. Ours: client/partyreq.rs, sea
   stop line only for a known name, View Request listing two online bots, Delete Request, Clear History, the toggle
   prompt, /prcmd add / remove to a bot (the bot answered with a party invite).
 
+From the research notes:
+- s2c 0x11D (LSB layout): UniqueNo u32 @4, ActIndex u16 @8, Flags u8 @0xa, Status u8 @0xb, sName[16] @0xc, Race u16
+  @0x1c; Flags & 1 == 0 calls the pronoun FUN_101cc590(Race), its result unused. The request line wraps the name in 7F
+  FC / 7F FB (FUN_100da580) and goes through FUN_10153180 (group 10 0x77) to the log in mode {0x87, 0x01, 0}; the stop
+  line has the plain name, mode {0x87, 0x41, 0} (the 0x40 bit changes nothing in FUN_101273c0). FUN_10127990 plays
+  sounds only for modes 5 / 0xd / 0xc.
+- The history object (0x508 bytes, vtable 0x103368a4; +4 count, +8 64 records of 0x14, index 0 the newest) is made once
+  at game start (FUN_10010d20 -> FUN_101a8b50 -> FUN_1018dcd0) and survives zoning. Readers: FUN_100da5b0 (count),
+  FUN_100da5c0(i) = FUN_1018df70(i, 1) (NULL past the count or older than 30 days). A repeat within 180 s is silent but
+  still moves the name to the top with the new time.
+- pec.dat: registered by FUN_101b9f20(version 2, 0, "pec.dat", +8, 0x500, LAB_1018dfd0); read with the USER files at
+  field entry (FUN_101ab730 -> FUN_101ba030); a missing file, another version or a bad MD5 zeroes it; on success the
+  bytes after each name's NUL and byte 15 are zeroed; written (FUN_101ab7d0 -> FUN_101b9ff0) only at logout / shutdown.
+- View Request (FUN_1020c390, W = DAT_10664494): needs the session and DAT_10485824 bit 0 (s2c 0x119 seen);
+  FUN_1020a600(1) resets the condition, FUN_10107b40 all areas, FUN_10108010 cond |= 0x1000000, FUN_1020a9d0(2, ..)
+  (silent while a query is out, DAT_10385a04 != 4); title slot 2 group 0xd 0 "Search". FUN_100e3130 fills cond +0x390
+  char[64][16] / +0x38c count at every send with that bit (refines too), skipping records older than 30 days. The
+  /search grammar has a type-0x18 branch (FUN_10104f00), but no keyword maps to it *(inf: not reachable by typing)*.
+- The Request toggle (FUN_10204ee0): FUN_10210e30(LAB_10204f40, set, 9 0x140, ..) with the cursor on No;
+  LAB_10204f40 clears on Yes (FUN_1020c3e0), then calls FUN_10204c50(set) either way *(inf: Escape answers No)*.
+- /recruitlist (0x60, FUN_1007d910; subcommands table 0x10357a54 "list" / "delete" / "clear", exact case) and /prcmd
+  (0x61; table 0x10357a74 "add" / "remove"): no argument (for /prcmd) or an unknown subcommand is Ok and does nothing.
+- /prcmd add: no player actor 7 0xc4; the player actor's +0x124 bit 23 or 22 -> 7 0xc6 (the bits are not decoded: not
+  done). The lines (mode {0x7b, 3, 0}): 0xc4 "You cannot request to join that player's party.", 0xc5 "You are unable to
+  request to join the party of someone you have blacklisted.", 0xc6 "You were unable to make a request to join.". c2s
+  0x11C is FUN_100e9590 (0xc bytes); not queued, no 10 0x76 line.
+- The name-search callbacks (LAB_1007dc00 add / LAB_1007dd40 remove; kind-3 records, strcmp of the normalised name
+  with rec+4): add checks the blacklist (0xc5 / 0xc6), then 0x11C {rec+0x18, 0, 0}: queued 10 0x76, refused 9 0x78
+  through FUN_10077e30 (mode 0x9d); remove 0x11C {rec+0x18, 0, 1}, refused 9 0x78; no match: silent; no self check on
+  this path (LSB refuses self).
+- scoption in request-list mode: FUN_1020c540 open, FUN_1020c7a0 draw, FUN_1020c9a0 select; the labels from
+  FUN_1020c470's windowps [9] 783, [0xb] 784, [10] 785, [0xc] 786 (child 4 draws [9 + mode], child 5 [0xb + mode]).
+  Clear History's callback LAB_1020cc00 (No: back on scoption); Delete Request then runs W vtable +0x74 FUN_1020c010
+  (scresult / scoption / acoption closed, title slot 2 off) and FUN_1020c390.
+- LSB (c2s 0x11C): refused in an event, Kind not 0 / 1, self, Monstrosity; dropped silently when the recipient has us
+  blacklisted; else s2c 0x11D to the recipient (ActIndex only in the same zone, Flags 0, Status = Kind, Race = the look
+  race); no RecruitFlg check and no reply to the requester. 0x0DC: InviteFlg and RecruitFlg clear each other;
+  RecruitFlg goes to 0x037 / 0x00D Flags3 LfgMasterFlag and is cleared at logout.
+
 ## Records of Eminence lists (2026-10-25)
 
-Spec: `~/ffxi/lab/research/roe_lists_spec.md`. Ours: dat/roe.rs, client/roe.rs, quests.rs.
+Ours: dat/roe.rs, client/roe.rs, quests.rs. More from the research notes at the end of this entry.
 
 - The objectives and the Objective List are records of the item record store (FUN_1015b9e0, rotated right by 5, valid
   when u32 +0 is the id and byte 0x13ff is 0xff): objectives 0xe000 + n (FUN_1015cb60: +8 repeatable, +0xc goal,
@@ -7573,9 +10979,36 @@ Spec: `~/ffxi/lab/research/roe_lists_spec.md`. Ours: dat/roe.rs, client/roe.rs, 
   (login and every zone change, once First Step Forward is done) and on its 4-hour cycle, not when First Step Forward
   completes as retail does: there "New Challenge" follows the memorandoll scene at once (user's retail video).
 
+From the research notes:
+- The store (FUN_1015b9e0): a 100-slot LRU; a miss reads the 0x1400 bytes async and returns 0 until loaded (callers
+  retry next frame). Ranges (table 0x10372150): e000..eff7 code 0x30 (ja / en / de / fr 55552 / 55672 / 55792 /
+  56212), f200..f5ff code 0x31 (55553 / 55673 / 55793 / 56213), f620..f62f code 0x33, the guide pages (55558 / 55678 /
+  55798 / 56218; "menu    guide01", id + 0xf620). de / fr read the en file when DAT_10456a28 +0x18 is negative.
+- Objective record +4 u32 the date added (yyyymmdd; 0 unused), not read by the lists. en strings are six fields [name,
+  0, name, '' or '.', description, page 2]; unused records read ".".
+- Root 0xf200's children: Tutorial 0xf210, Combat (Wide Area) 0xf211, Combat (Region) 0xf212, Fishing 0xf213, Crafting
+  0xf214, Harvesting 0xf215, Content 0xf216, Achievements 0xf217, Vana'versary 0xf219 (each done(1)), Unity 0xf218
+  (done(5)), Other 0xf21b. The en files use condition types 1, 4, 6 (byte 0 the Shared A..F day, byte 1 the leader
+  week 0..3) and 7 only; 81 named objectives sit outside the tree.
+- 0x111 slots: 0..29 taken, 30..41 counted only in mode 2's total (they would leave empty rows; LSB never sets them),
+  42 special (inf: a second limited-time slot), 43..62 Vana'Bout, 63 the timed record. "Current %d/%d" = taken 0..29 +
+  (63) + (42). Predicates compare n = (id + 0x2000) & 0xffff with Id & 0xfff; active, progress and claimable need
+  0x111, completed and done for good the whole 0x112.
+- quest01 (DAT_10668ed0): +0x74 the current category record, +0x78 / +0x7a next / previous sibling, +0x7c u16[5]
+  the stack, +0x86 u8[5] saved cursors, +0x8b depth, +0x8c the described id, +0x8e / +0x8f modes 2 / 4 built, +0x90
+  the page. Siblings (FUN_102305e0, each draw): none when the parent has fewer than 2 children. The arrows
+  (children 9 / 10) take state 5 unless both siblings exist (no kind-4 sprite; ours dims kind 0 at 0x30808080,
+  inf); Enter on them = Left / Right.
+- Vana'Bout's remove (n in 43..52): the prompt becomes 0xc 0x20d "Deselecting the objective will clear your progress.
+  Select and hold Yes to proceed." (FUN_10210f10 with "menu    holdtime", a 150 countdown); unreachable on LSB.
+- quest01's draw keeps four empty-list texts by mode (9 0x63, 9 0x64, 0xc 0x72, 0xc 0x87).
+- LSB: c2s 0x10C is refused in an event, for a timed record, or for one done and not repeatable; a record it does not
+  implement (1085 do) gets "The record #N is not implemented at this time." from "RoE System"; a full log gets
+  nothing.
+
 ## Blue magic sets (2026-10-25)
 
-Spec: `~/ffxi/lab/research/blue_magic_spec.md`. Ours: dat/blumagic.rs, client/bluset.rs, magic.rs.
+Ours: dat/blumagic.rs, client/bluset.rs, magic.rs.
 
 - s2c 0x044 (FUN_100fcb70): 0x9c bytes from @4 kept per side (@5 IsSubJob) only when @4 is the job s2c 0x01B gave that
   side (0x01B @8 main, @0xb sub, not 0x061). BLU block: @8..@0x1b 20 slots (spell - 0x200, 0 empty), u32 stamp @0x1c;
@@ -7604,6 +11037,45 @@ Spec: `~/ffxi/lab/research/blue_magic_spec.md`. Ours: dat/blumagic.rs, client/bl
   both flows and Remove All send the expected 0x102 (LSB refuses them: not BLU). A real BLU test needs `!changejob BLU`,
   which writes BLU's level.
 
+From the research notes:
+- Stamp: FUN_1022b290 keeps the last one in DAT_10667a88; a non-zero value that differs calls FUN_1022b3b0(0x3c), recast
+  slot 0x400 (DAT_106679e0, entry 0x400 of the spell recast array DAT_106671e0) = 60 * 60 ticks; 0 resets DAT_10667a88.
+  What the value means is inferred (a change counter or the time of the last change).
+- The same blocks serve PUP (job 0x12: FUN_100fcbc0(side, 0x1200, i) slot bytes i < 16; FUN_100fcc50(side, 0x1201 /
+  0x1202, n) bit n at block +0x14 / +0x34) and COR (0x1100: bits at +4). FUN_100fcd70: the stamp of the first BLU block.
+- LSB sends 0x044 (main, then sub, only BLU / PUP sides) at zone-in after 0x01B, on a job change, after every c2s 0x102,
+  on merit changes and on Remove All at a level loss.
+- File 90 is read raw through the record cache DAT_106631e8 (vtable 0x103390ac): 0x60-byte records, 16 cached, offset
+  (idx >> 4) * 0x60. Venom Shell (513) = 01 03 01 01 2a 00; family 15 is unused; 22 ids have points 0xff.
+- Families: group 0xc 0x3e + family (1 Aquans .. 14 Beastmen, 15 Elementals unused, 16 Empty, 17 Vorageans, 18 Archaics,
+  19 Elementals); type: group 0xc 0x52 + byte 5. Points by band [0,10,15,20,25,30,35,40,45,50,55], slots
+  [0,6,8,10,12,14,16,18,20,20,20]. The 0x063 bonus counts whenever type 2 was seen (DAT_10485824 & 2). Level: 0x061 main
+  level DAT_10485641 for main BLU, else the sub level DAT_10485643; taken once at the screen's open.
+- FUN_1022cf30's order: status (fishing, mounted, healing, sitting, zone flag 0x100), recast, 0x119 / job / level
+  (0x57), MP, then for 0x200..0x2df the lockout (0xb7) before the set test (0xb5); 0x2e0..0x2ff need status 0x1e5 or
+  0x1f9 (0x57). A typed /ma does not check the set (LSB refuses unset spells). blusortw row 3 is disabled by
+  FUN_1022c260 (FUN_10118b60(5, 3)); its Enter (FUN_1022c290) is the only way in: no Mog House or zone rule.
+- Open order (FUN_101df020): persona (at 16, 48 as in Equipment), bluehelp, bluinven, bluepoin, bluequip last (it takes
+  the focus; inferred). Layouts (file 39542; group / layer / flags): persona 16,48 112x190 windowps 8 (0x10 / 2 / 0x1);
+  bluepoin 16,240 112x56 framesus 128 (0x0c / 2 / 0x1); bluequip 130,48 182x190, rows at (3, 6 + 18k) 132x16, framesus
+  131 (0 / 2 / 0x20002); bluinven 314,48 182x190 (0x81 / 2 / 0x2); bluehelp 130,240 366x56, grows down to max(56, body +
+  40), framesus 132 (0 / 3 / 0x3); bluesibo 384,48 112x298, rows at (16, 6 + 16k) 88x16, framesus 193 (0 / 3 /
+  0x200000). Help 0xe 0x27d (bluinven), 0x28b (bluequip rows), 0x28a / 0x69 (bluesibo).
+- bluequip columns (DAT_1037f1c4): x 0, 0x12, 0x24, end 0xa0 (FR / DE, no icons: 0, 0, 0x12). Band colour walk: levels
+  DAT_1037f1dc [20..90, 99], pts[k] / slots[k] at those levels (bonus included); per set slot used += cost, while pts[k]
+  < used k++, count++, then once if slots[k] < count k++. Every slot, empty ones too, takes DAT_1037f1e8[k]: 0x80808080,
+  0x80909050, 0x80508080, 0x80806090, 0x80509050, 0x80906050, 0x80506090, 0x80606050, 0x80604010.
+- bluesibo rows: keytops3 386..399, 472, 473, 527, 504; Enter on bluinven row 0 resets the filter to 0 first. Only
+  message 5 is handled: Escape closes it through the generic handler, the filter left at 0 (inferred).
+- Num+ with a pick: bluequip SE 0004, bluinven nothing. Mouse (inferred): a focused list whose pointer is over the other
+  list sends itself message 8 (FUN_101262e0, FUN_10118c10 on DAT_104e1d4c +4 / +8), so hovering moves the focus.
+- c2s 0x102: the throttle's intervals sit at player +0x43e34 (all 1000 ms); @5 is 0, @6..7 not written (inferred 0).
+  LSB: a spell set in another slot empties the target slot and stays where it was; retail moves it (inferred). No
+  message on any LSB refusal.
+- The registry rows quoted in "Magic / ability sort windows" are one row off: a name's flags, layer and group are in the
+  next 0x2c row's fields. Read so: mgcmenu 0x20200000, magselec 0x20001a00, sortyn 0x00200002, inventor 0x00030002,
+  magic / ability 0x20001002. The Num+ log-focus skip (flags 0x20000 / 0x20000000) is to be rechecked with these.
+
 ## Blue magic sets: live on LSB (2026-10-25)
 
 - Lnxcsfix `!changejob BLU 75` (it knew every blue spell): Set Spells set Maelstrom and Venom Shell (spell first),
@@ -7621,7 +11093,7 @@ Spec: `~/ffxi/lab/research/blue_magic_spec.md`. Ours: dat/blumagic.rs, client/bl
 
 ## Camera collision as retail (2026-10-25)
 
-Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_1001e030], same code in both builds).
+FUN_1001ee60 [2019 FUN_1001e030], the same code in both builds (details at the end of this entry).
 
 - Correction to "Free camera": there is no sweep from the frame's start eye. The final ray runs from a stack copy of
   the **look** (2019 asm 0x1001fc5d `[ESP+0xe4]`, slot +0xe0; Ghidra's `local_114` label is wrong). Ours swept from
@@ -7647,6 +11119,36 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   collision.rs keeps them as `cam_pass`. The floor ray keeps every face. Characters are never tested.
 - Not done yet: Mog House furniture in the camera ray. (The near-camera character fade: done since, section "The
   near-camera character fade".)
+
+From the research notes:
+- Globals (current [2019]): path mode DAT_10456d70 [DAT_10444458]; manual hold (10 after input or a spring push)
+  DAT_10456d74 [DAT_1044445c]; unlock hold (20 after the lock, 8 after first person) DAT_10456d7c [DAT_10444464];
+  zone-in countdown (60 frames, set by FUN_10184380 -> FUN_1001d480) DAT_10456d80 [DAT_10444468]; first person
+  DAT_10487f80 [DAT_10475578]; collision manager `[0x10631f24] + 0x178` [`[0x105ec9cc]`]. Camera object: the trail
+  buffer +0xbc (4 points, stride 0xc), its count +0xf0 (i8).
+- Constants (current): 0.5 @0x10329a08, 0.2 @0x1032a39c, 0.17 @0x1032a398, 0.01 @0x10329a18, 0.0001 @0x1032a1a8,
+  0.05 @0x1032a3e0, 10 @0x10329cec, the trail step 0.1 @0x1032a378; 3.1 is an immediate (0x40466666).
+- Calls (current [2019]): segment test FUN_101815b0 -> FUN_10169140 -> FUN_1016b1d0 [FUN_1017a6b0 -> FUN_10162320 ->
+  FUN_101643b0]; floor ray FUN_10181210 -> FUN_101693b0 [FUN_1017a310 -> FUN_10162590]; ceiling ray FUN_10181370 ->
+  FUN_1016b1d0 [FUN_1017a470]. FUN_101815b0 has only the camera's six calls, so the face skip is a camera rule; the
+  ceiling ray reaches FUN_1016b1d0 directly and gets the skip and the furniture too. First person (FUN_10021110
+  [FUN_100202e0]) has no collision calls.
+- Piece test FUN_1016b1d0: cell lists with head bit 0x2000 (open doors) are skipped; an object whose +0xbc equals the
+  loaded sub-area id (manager +4) is skipped. The skip bit is byte 5 of the 8-byte face record & 0x40 (v2 bit 14); the
+  loader FUN_10161130 never writes it (it only sets v1 bit 14 for zero-length edges), so it comes from the file. Inside
+  test FUN_10165570: every component of (b - a) x (p - a) times the same component of the face normal >= -0.0001. A
+  hit also writes the manager's normal, surface type and area / map key / lights; the camera reads only the point.
+- Furniture in that test: only while DAT_106631d4 (the Mog House object) is set, config 0x99 bit 6 is clear and
+  FUN_101d5fe0 is false; every XiModelActor with a collision box (+0x5c4), FUN_1016c5d0 [FUN_101657b0].
+- Floor ray FUN_101693b0: cells +-1 (+-2 with the loader flag +0x3413a), no camera skip, no actors, nearest hit to the
+  start. Ceiling ray: FUN_1016b1d0 from (x + 1e-6, y, z + 1e-6) to 10 above.
+- Side bar (current 0x10020846..0x10020a62): X = normalize(cross((0, -1, 0), eye - look)), the x axis of the look-at
+  matrix (FUN_10021c10, D3DXMatrixLookAtRH, up from camera +0xa8). h1 = the first hit of R -> L, h2 of L -> R (L / R =
+  eye -+ 0.17 X); x1 / x2 = their camera-space x. h1: eye = eye0 + (x1 + 0.17) X; then h2: eye = eye0 + (x2 - 0.17) X,
+  which wins when both hit. Retail compares h1 == h2 exactly.
+- Camera-passable faces in the current install (distinct meshes): East Ronfaure 62, La Theine 530, Jugner Forest
+  1054, Southern San d'Oria 812 (948 as placed, all walls, 1..4 units), Northern San d'Oria 944. The flagged meshes'
+  floor faces are mostly not flagged, so the floor ray still stands on them.
 
 ## Relogging: the effects' GPU caches (2026-10-25)
 
@@ -7681,7 +11183,7 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
 - First full run: 5564 files. Largest gaps: task ops 0x01 (4271 files), 0x2e, 0x56, 0x2f, 0x1f, 0x75, 0x69 / 0x6a,
   0x2a, 0x40..0x47 (the actor shine overlay, not transforms: see "Effect motions from the effect file"); stream 1 ops
   0x56, 0x32, 0x55, 0x3a, 0x08, 0x46, 0x43, 0x42; stream 0 ops 0x5d, 0x0f; the special attach points 0x30 / 0x31.
-  Specs: ~/ffxi/lab/research/task_ops_actor_spec.md, task_ops_rest_spec.md, fx_stream_attach_spec.md.
+  Taken up in the entries "Scheduler task ops", "Effect stream ops" and "The actor shine overlay" below.
 - 908 "main not found": LSB mob moves 0xc00..0xcdb and 0xedc..0xefe land on model data (0x14b07 + 0xc00 = 87815:
   textures, skeleton motions), not gaps. 644 item and 14 ability files are effect files with other entry names (4972:
   goal / kill / open / clos; 56695: str0 / str1 / dis0..2 / trg0): which of their schedulers retail starts is not
@@ -7739,7 +11241,7 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   U / V scroll and colour fades; Pollen's green wave), op 0x7b's two-point offsets, 0x33 and modes 7 / 8 at start
   (attach_now has no Frame), the spin ops' attachment rebuild.
 
-## Scheduler task ops: holds, locks, loops, flow (2026-10-25; spec ~/ffxi/lab/research/task_ops_rest_spec.md)
+## Scheduler task ops: holds, locks, loops, flow (2026-10-25)
 
 - Holds (FUN_100601f0, the busy +0x11c the status changes wait for): 0x56 every record's target (without an action,
   0x20 on actor2), 0x1f actor1, as 0x20 actor2. No reactions (+0x80, FUN_100607e0): 0x07 actor1, 0x08 actor2; 0x59 is
@@ -7763,6 +11265,39 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   (the shine overlay) and emission op 0x55 resolve their texture by an IMG 4cc in scope.
 - The weapon-skill sweep after this: 0x75 (weapon hide / show), the shine ops, stream 1 ops 0x43 / 0x56 / 0x32 left.
 
+From the research notes:
+- Helpers (cur): actor1 FUN_10062770, actor2 FUN_100627d0, the action (task +0x90) FUN_1005e510, record count
+  FUN_1005e320, record i's target FUN_1018c980, an actor's entity (+0x70) FUN_1005e2e0, its status (entity +0x170)
+  FUN_10084390, sub-task alloc FUN_1005e040(size); ticks = (float)dur x task +0x9c, truncated (FUN_1005e590). Timed ops
+  make a small sub-task (vtable +0x18 kills it) that counts down by the frame ticks (DAT_1047bfa8 +0xeb0) and undoes its
+  effect in its dtor; sub-tasks are children of the scheduler task.
+- 0x56: the hold is sub-task FUN_100601f0 (ctor FUN_10083300 -> FUN_100a4140, busy +1; update FUN_100602a0; dtor
+  FUN_100602d0 -> FUN_100a4160). 91 audited files have 0x56 and no 0x20.
+- 0x07 / 0x08: sub-task FUN_100607e0 (0x7c bytes): vt +0x160 (FUN_100832d0, +0x80 += 1), dtor FUN_100608b0 vt +0x164
+  (-1, floor 0). Readers of +0x80: FUN_100cdd60 (the op 0x25 / 0x21 hit reaction), the function at 0x100cdf00 beside the
+  guard FUN_100cde70 (a reaction, inferred), and FUN_100c63d0 / FUN_100c83c0 (the status / move motion choice).
+- 0x2e: sub-task FUN_10062310: vt +0x30c(1) (FUN_100aa8b0, +0xfc += 1); dtor FUN_100622c0 then FUN_100ca9b0. The only
+  reader, vt +0x310 (FUN_100a46c0), is called from FUN_100a5ec0 on the player's branch: FUN_100a6240 (keys, pad axes,
+  /follow) runs only while actor +0x88 bit 0 is clear and +0xfc == 0. FUN_100ca9b0 keeps the status motion when its
+  first three letters are idl 1dl 2dl 3dl btl 1tl 2tl 3tl cor rx1, else +0x7d8 = "    " (re-picked next frame).
+- 0x2f: sub-task FUN_100624b0: vt +0x314(1) (FUN_100d5460, +0x838 += 1), read by vt +0x318 (FUN_100a4a10) in
+  FUN_100c63d0 (the heading choice and its 0.125-a-tick ease of +0x61c) and FUN_100ab880 (a network position / heading
+  set leaves the rotation alone).
+- 0x64 / 0x65 (pop the stack value): true clones the task (FUN_10074920, countdown included) at the op after 0x64, i.e.
+  the 0x69 itself, then skips the block (FUN_1003de40: to the op after the matching 0x6a) and an 0x67 else block; false
+  skips the block and, with an 0x67 following, clones at the op after it. The op after the blocks then runs at once by
+  recursion, so its wait is not added. FUN_1003de40 also writes 0 into the wait of every 0x69 / 0x6a it walks (in the
+  shared resource). In all 817 audited occurrences the body of a conditional scheduler sits in a top-level 0x69 .. 0x6a
+  no 0x64 consumes (e.g. 4261 pip0: 01, 69, 6b, 6b, 6b, 64, 69 [03 tar0] 6a, 67, 69 [03 tar1] 6a, 6a), closed by a
+  wait-0 0x6a. Ours adds the next op's wait where retail does not (always 0 in the data). Not traced: whether retail
+  steps a clone in the frame it is made (ours does, up to one frame early).
+- 0x7f (item files 5036, 5069..5071): sub-task FUN_100613d0 drives +0x668 from vt +0x38 to u32 @8 through vt +0x34 (0x80
+  at construction; no reader on skeleton actors, inferred). 0x86: entity +0x128 |= 0x80; no test of bit 7 in either
+  build (inferred).
+- 0x73: op 0x03 starts children through FUN_10055c00 (speed 1, or the parent's with +0x142), 0x73 through FUN_10055cc0
+  with length 1 -> FUN_10055d30 -> FUN_100562c0 -> FUN_10056430(res, 1, action), so +0x141 = 1. The action speed rule of
+  FUN_10055cc0 (0.7 for several records outside categories 0xe / 0xf) applies to 0x73 children.
+
 ## Weapon meshes hidden and shown: scheduler ops 0x75 / 0xa3 (2026-10-25)
 
 - FUN_100d60e0(N, b) sets hide byte b of every mesh named `wepN` (FUN_1002c730); FUN_100d5f10(N, b) clears it; a mesh
@@ -7778,7 +11313,7 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   (every file sat 600 ticks, the pending start's timeout); runs before and after it are normal. The summary now ranks
   only inferred attach parts (modes 9..0xc, point 0x35), not every special point.
 
-## Effect stream ops: ground snap, point offsets, emitter spin, no-ops (2026-10-25; spec fx_stream_attach_spec.md)
+## Effect stream ops: ground snap, point offsets, emitter spin, no-ops (2026-10-25)
 
 - Emission op 0x42 (FUN_1004e8d0 0x1004f7d6): the element onto the ground under it (1 above to 6 below, through its
   attach matrix and back); a miss leaves it. emit() takes a ground query (Actors::ground_hit).
@@ -7802,12 +11337,42 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   rotation, inferred). 854 "scheduler not found" are the item / ability files with other entry names and LSB mob
   animations outside the effect files (see "Effects audit: fx-sweep").
 
+From the research notes:
+- Streams in Registry::unhandled: 0 the generator update stream (+0xe0, FUN_100496f0), 1 the emission stream (+0xe4,
+  FUN_1004e8d0, jump table 0x1005247c for ops 1..0x9e, others skip at 0x100523bf), 3 the expire stream (+0xec,
+  FUN_1004e720). Stream 2 (per element, +0xe8) runs on the GPU and is not audited.
+- Op 0x7b: FUN_10047c30 copies generator data 0x1c to gen +0x98 (0x00..0x0f to +0x34, 0x10 / 0x14 to +0x70 / +0x74);
+  after linking +0x98 is 0 when the emission stream has no 0x7b. FUN_10053e60 finds the op (FUN_100492f0(0x7b)); A = op
+  +4..+0xc, B = op +0x10..+0x18; the follow op 0x11 (FUN_10053c80) passes them too. 127 generators set it, e.g. 3474
+  owm_/bm00 mode 3 B (0, -1.4, 0), 3485 ga_b/* mode 3 B (0, -2.6, 0), 50274 dra_/fr20 mode 0x12 A (0, 1, 0).
+- Point table: FUN_10035210 = skeleton data + 0x34 + bones x 0x1e; FUN_100351f0 = table + 4 + k x 0x1a {i16 bone, f32
+  rx, ry, rz, tx, ty, tz}, with no bounds check (only FUN_1002a9b0 rejects k > 0x7f). Every skeleton has 128 points (all
+  2651 monster skeletons and the race skeletons 7072, 10248, 16600, 19776, 26352); unauthored points are {bone 0, offset
+  0}, the feet. FUN_1003ba20's offset is turned by RotY(actor yaw, vt +0x1c0). 0x31 / 0x32 need the other actor (else
+  (0, 0, 0)): the point among 0xd..0x14 (posed, offset added) nearest its +0x5fc, strict < (ties keep the lower index);
+  0x33 the same against the camera eye (FUN_10015250() +0x44); 0x34 the last foot contact (+0x63c..+0x644); 0x36 / 0x37
+  points 0x7e / 0x7f; 0x38..0x3c points 0x66..0x6a. The nearest-hit rule of FUN_101693b0 (point 0x30, op 0x42) is not
+  traced.
+- Modes (FUN_1003be10; a missing actor gives the identity): 1 pc on the caster, RotY(caster yaw); 2 pt on the target,
+  RotY(target yaw); 3 / 0x16 two-point (FUN_1003b980) pc caster, pt target or its associate (FUN_100845e0); 4 / 0x17 pt
+  with the caster's yaw; 5 / 0x18 pc with the target's yaw; 6 / 0x19 two-point pt -> pc; 7 / 8 the camera matrix
+  DAT_1047bfa8 +0xc10 at pc / pt; 0xd / 0x1a FUN_1003b980 with flag 1; 0x10 / 0x11 both points on the caster / target;
+  0x12 / 0x1b pt -> pc; 0x13 point 2 on the target, y + 0.18.
+- Spin ops with no keyframe handle use a stale stack value as the angle (as coded).
+- Op 0x42 by class: D3m 186 files, D3a 65, ground projection 16, VuAnm 9, specular 7, DistModel 7, D3b 3.
+- Op 0x56's real users besides VuAnm: VuDist 79 files, Disintegrate 4 (5036 yam_/mt00, 5069, 5070, 5071; its use of the
+  particle block is not traced), VuLine 1 (5024; its draw is an empty RET). Generator op 0x5d: the update jump table
+  0x1004a814 covers ops 4..0x17 only and the only finder call on +0xe0 asks for 0x11; it always follows an op 0x11 (dead
+  data).
+- Expire stream: op 6 (chain to another generator's expire stream) is in FUN_1004e720's switch and not in ours; the
+  audit never saw it.
+
 ## Effect rings: RingProg (kind 0x24), emission op 0x3a (2026-10-25)
 
 - Op 0x3a (FUN_1004e8d0 0x10051b5b, any class): radii f32 @4..@0x10, colours @0x14..@0x20 (file RGBA -> D3DCOLOR as
   op 0x16), segments S byte @0x24, rings R = byte @0x25 + 2 (at most 4). Element words RING_R / RING_C / RING_SR
   (shared with the morph weights).
-- Draw (FUN_100555f0, classes2.md 4.4): per ring pair p a strip of 2S + 2 vertices, pairs at angles 0, 0, s .. (S-2)s,
+- Draw (FUN_100555f0): per ring pair p a strip of 2S + 2 vertices, pairs at angles 0, 0, s .. (S-2)s,
   0 (the literal degenerate first pair), even vertices on ring p, odd on p + 1, at (sin a r, cos a r, 0) in the
   element's frame with that ring's colour; colour diffuse x TFACTOR x 2, alpha x 4 (TSS 0x10348678), TFACTOR the raw
   element colour (+0xf8, no fade). Ours: Draw::Ring / dk::RING, vs_ring builds the vertices from the vertex index
@@ -7816,7 +11381,12 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
 - Checked offscreen: weapon skill 85 (file 3485, ga_b/mr00: radii 1 / 2 / 3, colours 0 / 0x80000000 / 0, S 24, R 3,
   blend 0x44) draws its rings, a dark band at the target; not compared with retail yet.
 
-## The actor shine overlay: scheduler ops 0x40..0x47, 0x54 / 0x55 (2026-10-25; spec task_ops_actor_spec.md)
+From the research notes:
+- Element size 0x1b6: +0x1b4 S, +0x1b5 R, radii +0x194 + 4 i, colours +0x1a4 + 4 i (file RGBA -> BGRA by
+  FUN_1003d440). FVF 0x42 (XYZ | DIFFUSE), untextured, 2S triangles per ring pair; the doubled first angle makes the
+  closing edge span 2s, so in effect an (S-1)-gon.
+
+## The actor shine overlay: scheduler ops 0x40..0x47, 0x54 / 0x55 (2026-10-25)
 
 - On a skeleton actor (+0x734 bit 0): every mesh batch drawn again (FUN_1002b6e0 -> FUN_10024e10) with the TexInfo
   image +0x750, texture coordinates from the camera-space normal through the inverse view rotation (the world normal)
@@ -7837,13 +11407,41 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   olive green under the burst during the fade-in and scroll; not compared with retail.
 - Ops 0x48 / 0x49 (+0x734 bit 1, the refraction pass): see "The actor refraction pass" below.
 
+From the research notes:
+- Actor fields (CXiSkeletonActor 0x10330f40; accessors 0x100a48a0..0x100a4a00, shared by all 7 actor vtables): +0x734
+  effect bits (vt +0x4c OR, +0x50 AND-NOT, +0x54 clear; bits 0..3 read by +0x6c..+0x78); +0x750 the TexInfo (set +0x64,
+  get +0x408); +0x74c the overlay colour (set +0x60, get +0x40c); +0x73c U (+0x410 / +0x414; +0x58 sets U and V); +0x740
+  V (+0x418 / +0x41c); +0x730 a parameter, 0x48 (+0x7c / +0x80; no reader found, dead, inferred); +0x744 the refraction
+  level, 0.1. Only these ops change U, V and the colour; the overlay's end clears +0x750 and bit 0 only.
+- Every child task here is made by FUN_10074790 as a child of the running scheduler task (child +0x10 the parent, the
+  parent's list +0x24, siblings +0x28); deleting the scheduler task deletes its children (their dtors run). Scheduler
+  tasks have no parent, so a `tgt0` started by op 0x03 outlives `main`. Whether a child made during the scheduler's
+  update steps in the same frame is not traced (at most one frame).
+- 0x40 / 0x41 / 0x54 / 0x55: the TexInfo by FUN_10072290 in the scheduler's scope, cached in the op's u32 @0xc; an
+  unresolved name does nothing. Task FUN_100617b0 (0x7c bytes, vtable 0x1032bdc0), dtor FUN_10061730. 0x54 / 0x55 take
+  the parameter from u16 @0x10, packed by FUN_1005d260 as (hi byte << 24) | lo byte.
+- U / V: task FUN_100615b0 (0x88 bytes, vtable 0x1032bd78), update FUN_10061630, dtor FUN_10061530 (snaps to
+  fmod(target, 2)). V for 0x43 / 0x45, U for 0x42 / 0x44. Two drives on one channel do not cancel; the one stepped later
+  wins (inferred).
+- 0x46 / 0x47: FUN_1005f6c0(sched, actor, &op[8], dur, channel 1, restore 0); channel 1 reads +0x40c and writes +0x60
+  (channel 0 is the model colour, ops 0x29 / 0x2a). It deletes the actor's running drive on the same channel; a
+  CMoLockColorDriveTask of another owner makes the new one die on its first step. Per byte b = trunc(start + (target -
+  start) x k).
+- Draw: FUN_100d6d30 copies U, V, the colour and the texture to the pass globals when bit 0 is set; FUN_1002b6e0 builds
+  P = rot3x3(inverse view) x Scale(0.5) + Translate(0.5), and FUN_10025c40 draws each batch again: WRAP addressing
+  (D3DRS_WRAP0 = 7 when DAT_103c75f8 +0x5c and DAT_1044415c are 0, 2019 addresses), ALPHAFUNC ALWAYS, TEXCOORDINDEX
+  CAMERASPACENORMAL, COUNT2, texture transform P x Translate(U, V, 0). The mesh declaration has no diffuse, so DIFFUSE
+  is white with lighting off (inferred, the D3D8 default).
+- Op 0x05's `ded?` / `cor?` case (0x1005bbd2) skips the scheduler's scope for actors where FUN_10081b30 == 0 (not
+  traced).
+
 ## Effect attach modes 9..0xc: the bone frame (2026-10-25)
 
 - Modes 9 / 0xa (FUN_1003bd90 -> actor vtable +0x1d0): the generator rides point pc of the caster / pt of the target
   with its whole frame: Rx Ry Rz of the point (the skeleton keeps the three angles, Skeleton::point_rots, bytes 2..13 of
   each 26-byte point) with its offset, times the drawn bone, through the placement (Actors::point_frame). 152 files use
   mode 9 (weapon and limb effects that turn with the swing). Not seen live yet.
-- Traced exactly (2026-10-25, spec ~/ffxi/lab/research/fx_sweep_rest_spec.md 1): FUN_1003be10 -> FUN_1003bd90 remaps
+- Traced exactly (2026-10-25; more at the end of this entry): FUN_1003be10 -> FUN_1003bd90 remaps
   points 0x36 -> 0x7e, 0x37 -> 0x7f, 0x38..0x3c -> 0x66..0x6a (12 Trust weapon skill files use mode 9 with 0x36..0x39:
   the weapon hand, not the root), then CXiSkeletonActor vt+0x1d0 = FUN_100d49d0 -> FUN_100d4a90 -> FUN_1002a900: O =
   Rx Ry Rz T(P.t) Bone_world, whose rows carry the actor size (ours: the rotation columns times Actors::scale, no
@@ -7858,7 +11456,41 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   `c00N` path), whole / its rotation; identity off a voyage (Effects::voyage). Op 0x11 follows mode 0x14 too. The
   voyage itself: done (section "Ship voyages: the moving world").
 
-## Camera shake and rumble: element update op 0x5f (2026-10-25; spec ~/ffxi/lab/research/fx_shake_spec.md)
+From the research notes:
+- FUN_1003be10 (this = gen+0x30, out = gen+0xa4, from FUN_10053e60): mode = (gen+0x36 & 1) << 4 | (gen+0x34 & 0xf),
+  jump table 0x1003c650 (9 -> 0x1003c379, 0xa -> 0x1003c3c3, 0xb -> 0x1003c3ef, 0xc -> 0x1003c497). out is gen+0xa4
+  itself, not reset before the call (identity only when first allocated). Caster FUN_1003b6d0, target FUN_1003b700; pc
+  = (attach >> 18 & 1) << 6 | (attach >> 4 & 0x3f), pt = attach >> 10 & 0x3f; a null caster / target gives identity.
+  FUN_1003bd90's remap has no bounds check: every other point passes through (0x30..0x35 too).
+- vt+0x1d0 by class: the skeleton classes (CXiSkeletonActor 0x10330f40, XiSkeletonActor2 0x103313e8, XiChocoboActor2
+  0x1032d710, CXiDancerActor 0x1032f4f0, CXiMannequinActor 0x1032f0d0, CXiSklFurnitureActor 0x1032ecb0, CXiGeomActor
+  0x1032e890) FUN_100d49d0 (their point vt+0x1c4 FUN_100d4560); doll / control / collision / lift (0x1032f938,
+  0x1032dfc8, 0x1032db40, 0x10330288) FUN_10082180: out = out x T(vt+0x1bc()) (doll +0x404), out not reset, so the
+  translation accumulates on every rebuild (op 0x11, spin ops 0x0e..0x10); model / furniture (0x10330aa0, 0x103306a0)
+  FUN_100c4b50: Rz Ry Rx with the position, the point ignored; doors (0x1032fd58) FUN_100acb50: frame k of the door's
+  list (k > count -> 0), rows normalised.
+- FUN_1002a900: P = point table + 4 + 26k (no bound check; every skeleton has 128 records); with no skeleton resource
+  O stays as it was. FUN_1002c520 runs only when model+0x30 & 0x10 (FUN_1002c2d0 sets 0x12 once the skeleton is
+  posed). Bone_world: FUN_100cbde0 builds S(size) R(rot) T(pos) (actor+0x998) and FUN_100347d0 chains the bones onto
+  it, then pre-multiplies each by the cumulative motion bone scale, so its rows carry the size and any bone scale.
+- The skeleton update throttle behind +0xa00 / +0x6a8 (FUN_100cbde0 asm 0x100cc9b4..0x100ccabe): by DAT_10456c00
+  (FUN_101aa834: 3 - value, default 1) and the actor's frame slot +0x9fc against frame & 3, an actor skips its bone
+  recompute for one frame (never two in a row): +0xa00 = 0, and its draw (FUN_1002b6e0) reuses the old bones shifted
+  by +0x6a8, the frame's displacement (FUN_100c63d0). vt+0x1c4 has no such term, so retail's plain points lag one
+  frame's movement on skipped frames.
+- 0xb: B = O(caster, remap(pc)) into a pool scratch; p = FUN_1003ba20(pc, caster, target, 0); the heading
+  -atan2(B._33, B._31) (FPATAN, FCHS); out = RotationY (math vt+0x64 = FUN_1006e140), out.row3 = p. 0xc the same with
+  the target, pt and the caster as the other. RotY(-atan2(z.z, z.x)) turns the generator's +x onto the bone frame's +z
+  projected on the ground.
+- The not-yet-posed skeleton (not done; model+0x30 & 0x10 clear): out = I (plus T(move) on a throttled frame), the
+  world origin; the 0xb / 0xc heading is -atan2(1, 0) = -pi/2. Load edge only.
+- Mode-0xb files in the sweep: 3455 (weapon skill 55 and spell 655 share it), 50227, 60730, 60734, 87034, 87064,
+  87068, 87070, with pc 5, 0xa, 0x18, 0x17, 0x2b, 0x15, 0x15, 7. The remapped points matter for 12 Trust weapon skill
+  files (87053..87056, 87074, 87206..87210, 87218, 87265; mob animations 2310..2313, 2331, 2463..2467, 2475, 2522):
+  mode 9 with pc 0x36..0x39; on models 0xc1c / 0xc05, 0x7e / 0x7f are the hand bones.
+- Open: whether doll-attached mode-9 generators with op 0x11 really run away in retail (out accumulates as coded).
+
+## Camera shake and rumble: element update op 0x5f (2026-10-25)
 
 - Op 0x5f (FUN_1004a980 0x1004c0d9; words near, far, optional factor): skipped whole when "Screen shaking" is off
   (config 0x92 bit 17) outside events (FUN_10087070(0)); |sort key| > far skips; d = |element world position (+ the
@@ -7877,13 +11509,70 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   update stream at spawn); Effects::quakes (this frame's kicks) and Effects::rumble (kept for a pad backend; none
   exists); camera::Shake stepped in 2-tick retail frames, held between them (shake_step after camera::step), applied in
   App::camera after the event or game view, never written back; reset at zone-in. Test shake_follows_retail_frames
-  against the spec's table for 3445 gob_/vib1. fx-sweep --only prints the kicks: 3445 gives 49, the largest 0.055.
+  against the table below for 3445 gob_/vib1. fx-sweep --only prints the kicks: 3445 gives 49, the largest 0.055.
 - 1263 files carry a shake factor (mostly mob moves). Seen live 2026-10-25: Lnxtest (WAR, Bronze Axe) Raging Axe (WS
   64, anim 46, file 3446) on a Valkurm Snipper: quake elements near 2 / far 15 at d 6.15 from the eye, kicks 0.0227,
   x settling over about 30 two-tick steps. The kick and quake-element lines are debug level (client::camera needs
   RUST_LOG).
 
-## Distortion meshes: CMoDistModelElem (2026-10-25; spec ~/ffxi/lab/research/fx_dist_spec.md)
+From the research notes:
+- Addresses: FFXiMain 30261006_0.
+- Op 0x5f words: header (code, length bits 8..12 = 3 or 4, slot bits 13..18), near f32, far f32, the shake factor f32
+  only with length 4. Jump table 0x1004e03c. t = the life fraction op 0x0e stores (1 - life / maxlife, 0 when maxlife
+  is 0); every op-0x5f stream begins with 0x0e. The filter test is FUN_100adf70(FUN_10193850(0x92)); FUN_10087070(0) =
+  an event or cutscene (DAT_10487e48), player +0x128 bit 15, player +0x12c bit 13, or FUN_100956c0(0xff). Bit 0 of
+  0x92 (the battle limit) does not apply.
+- The sort key (+0x12c, FUN_100440d0) is the previous frame's (op 0x5f runs first); with bias 0 it never rejects what
+  the distance test keeps. The position is FUN_10044c40 (frame matrix x the scaled spawn position); the eye is +0x44
+  of the current camera (FUN_10015250, DAT_104568fc+0x50); the length via DAT_1047cf7c vt+0x94. d == far skips. key =
+  FUN_1004e530 (0 when S[s] is 0; eased by FUN_100547a0 when S[s+1] & 0xf, else linear FUN_10054500); keys may exceed
+  1 and v is not clamped above.
+- Op 0x82's player factor uses actor1 / actor2 = FUN_1003b8b0 / FUN_1003b900 (dolls replaced by their owners) and "is
+  the player" = vtable +0x304 (FUN_100a2cd0: the player, not the pet). Data (f32 @0x10, flags): (0.1, 2) 1155 times,
+  (0, 0) 995, (0, 1) 381, (0, 2) 225, (0.3, 2) 87, (0.2, 2) 81. *(inf: whether the pair is read at emission or at
+  instance start; it does not change over an instance.)*
+- Rumble: pad DAT_10455c20 +0xdb4 += v and +0xdbc = 1 (even for v 0). Consumer FUN_10007ae0 from the pad poll
+  FUN_10005a40, once a frame *(inf)*: level = +0xdbc ? max(+0xdb4, 0) + max(+0xdb0, 0) / 10 : 0 (+0xdb0 is only ever
+  cleared), the three cleared; x 2, < 10 -> 0, > 256 -> 256. Hold +0xdb8: while > 0 it loses the frame's ticks, and if
+  still > 0 the level is dropped; else +0xdb8 = 5 (the motors change at most every 5 ticks). level x 10000 / 256:
+  XInput (pad +0xc9a set, needs +0xc99 and DAT_10455c39) both motors min(level x 4, 0xffff) via FUN_10008ed0 *(inf:
+  XInputSetState)*; DirectInput force feedback (DAT_10455c28) SetParameters (vt+0x18, flags 0x20000140) with magnitude
+  = level (10000 full), skipped when it and the last level (+0xdc0) are 0. DAT_10455c39 is the second flag of the
+  gamepad settings string, the external gamepad tool's *(inf: "vibration on")*. Also added to +0xdb4: a sound task
+  FUN_100381d0 (60 a frame while its timer bit 0x20 and a flag are set) and FUN_10252ce0 (a sound level) *(inf: which
+  sounds)*. 2019: the same, the fields 4 lower.
+- The camera object DAT_10456d6c (0x118 bytes, vtable 0x1032a37c; FUN_1001e470 -> FUN_1001e600, made current by
+  FUN_10015100 -> FUN_100151a0). The cutscene camera task (CMoCamera, scheduler op 0x04, FUN_1003d220) writes the
+  pending eye +0x8c (flag +0x88), look +0x98 (+0x89) and roll +0xa4 (+0x8a), which FUN_10021900 copies to +0x44 /
+  +0x50 / +0x5c before the shake step: one shake for every view. Up vector +0xa8 = (0, -1, 0). Only FUN_1001e4f0,
+  FUN_10021ba0 and FUN_10021900 write the three shake fields; FUN_10021900, FUN_10021ae0 (dirty test) and FUN_10021c10
+  read them.
+- Constants: 0.125 = _DAT_1032a3bc, 0.86 = _DAT_1032a408. n = ftol(min(FUN_10014cf0(), 8)), FUN_10014cf0 = max(1,
+  DAT_104568fc+0x28) (a 4-frame average, at most 20). The new scale = FUN_1006bfd0(10) x 0.1 + 1 = (MT19937 % 200000)
+  x 1e-5. At n = 2 a steady feed a gives an alternating jitter of at most 0.86 x 2 a / 8 = 0.215 a a frame, times the
+  scale; with one element feeding, the speed is set to a / 8 every frame.
+- View build FUN_10021c10: d = look - eye; yaw = atan2(-d.x, -d.z); M = RotZ(roll) RotY(yaw); up = M (+0xa8); d
+  normalised, d.y += scale x, normalised again; LookAtLH(eye, eye + d, up) (FUN_102d8019), stored at cam+4 when valid
+  (FUN_1006ca60). Frame: FUN_10011a00 runs the tasks (the kicks), then near its end FUN_10015510: FUN_10021900,
+  FUN_10021ae0 (dirty when x != 0 or eye / look / roll changed), FUN_10021b70 -> FUN_10021c10, FUN_1000bd50(2, view).
+  FUN_1001ee60 also calls FUN_10021c10 directly.
+- Worked: 3445 gob_/vib1 (life 50, key vb01, near 7, far 20, factor 0.0003, inside 7, S[s+2] = 1, n = 2, the scale
+  taken as 1). Frame: v, x after the step, speed: 1: 239, 0.0538, 0.0090; 2: 239, 0.0359, 0.0090; 3: 239, 0.0179,
+  0.0090; 4: 224, 0.0011, 0.0084; 5: 197, -0.0117, 0.0015; 6: 170, 0.0009, 0.0001; 7: 150, -0.0089, 0.0011; 9 / 11 /
+  13: v 111 / 88 / 76, x -0.0066 / -0.0053 / -0.0042; 23 / 24: v 12 / 6, x -0.0007 / -0.0002; 29: stopped. One
+  3-degree nod down that relaxes over 4 frames, then a 15 Hz jitter that fades with the key and stops about 5 frames
+  after the element dies. With us as the target (S[s+2] = 0.8) all of it is 0.8 as large.
+- Data: op 0x5f sits on 3351 generators (NullProg 0x57 3215, D3m 97, D3a 39), none of which moves its element. The vib
+  elements are NullProg anchors placed by the attach word with no offset; a file pairs a rumble-only `vib0` (length 3
+  or factor 0) with a shaking `vib1`. Peak kick (max key x 255 x factor): median 0.032, p90 0.055, max 1.87 (50682
+  `ten_/vb02`, keys up to 2.44, so v passes 255). near / far mostly (2, 10); no op-1 flag bit 2 in the data.
+- Open: retail's element order within a frame (the 2|speed| < a rule depends on it; ours index order);
+  FUN_10087070(0)'s +0x128 bit 15 / +0x12c bit 13 against our event test; which consumers read the shaken matrix
+  (cam+4) and which the raw eye / look (sound pan, for one); the rumble sound sources and the pad flags +0xc99 /
+  +0xc9a / DAT_10455c39; above 30 fps retail runs n = 1 and so shakes faster, ours keeps n = 2 per 2 ticks; the lobby,
+  creator and title cameras are not the game camera and do not shake *(inf)*.
+
+## Distortion meshes: CMoDistModelElem (2026-10-25)
 
 - D3m + op-1 flag 0x100000 (1191 generators in 852 files, mostly weapon skills and spells): FUN_10043320 draws the
   mesh unshifted through +0xa0; each vertex's UV is the screen point of pos + (off, off, 0) in model space (off: op 0x32
@@ -7913,7 +11602,45 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
 - Not done: DistMorph (13 files; key mesh 0 only, geometry shifted, UVs unshifted, raw corner colours); the D3m
   loader's format-7 fallback (FUN_1003fee0; 4 meshes parse 6 bytes off).
 
-## Specular effect meshes: CMoD3mSpecularElem (2026-10-25; spec ~/ffxi/lab/research/fx_specular_spec.md)
+From the research notes:
+- Classes (IsType, vtable, size): CMoDist (1, 0x1032b298, 0x198), CMoVuDist (0xa, 0x1032b2f8, 0x1e0), CMoDistModelElem
+  (4, 0x1032b418, 0x198; op 0x32 FUN_10052f50), CMoDistRingElem (5, 0x1032b4d8, 0x1ba; FUN_10053000), CMoDistMorphElem
+  (6, 0x1032b358, 0x1c4; FUN_10052e50). Factory FUN_1004e8d0 op 1: a D3m tests 0x200000 (ground projection), then
+  0x100000, then op-1 byte +7 bit 0 (specular). Kind 0x22: FUN_1004e470 picks VuDist with gen flag 0x20000000. VuDist's
+  Exec is the batched FUN_10045ae0 (vtable +0x20 FUN_10052de0 -> +0x54).
+- The shared copy FUN_10042d00(verts, n, M, stage): projection FUN_1006eb70 with PROJ DAT_1047bfa8 +0xb10 and half
+  viewport +0xdc0 / +0xdc4 (written after each camera update, so the common draw's depth-bias projection does not touch
+  it); the returned box is replaced by the whole viewport; u = (sx + 0.5) / W, v = (H - 0.5 - sy) / H. Copy pass: 4
+  XYZRHW vertices into the 256x256 A8R8G8B8 target DAT_1047bb88 (shared with CMoDist and the ground projection), RS
+  0x1035322c (no blend, no z, TFACTOR 0x80808080), TSS 0x103531c0 (colour TEXTURE, alpha TFACTOR, MIRROR); then blend
+  and z on and the copy set on the given stage. Net: a vertex samples the scene at (0.5 + 0.5 c.x / w, 0.5 - 0.5 c.y /
+  w); the half-texel terms cancel. The copy's alpha is 0x80 everywhere.
+- Open: the RS list leaves FOGENABLE alone, so the copy's fog under vertex fog is driver-defined (ours copies unfogged);
+  whether device +0x194 is the 3D target in every mode (the +0x198 target and the after-image path are not traced);
+  retail's soft 256x256 look as an optional setting.
+- CMoDist pass 1's RS 0x103530d0 sets ZBIAS 0 and pass 2's RS 0x10353178 does not restore it, so the fan draws with
+  ZBIAS 0 (ours follows). Pass 1 TSS 0x10353028, pass 2 TSS 0x10353108.
+- DistModel steps: gen byte +0xde < 0 (weather) with density 0 draws nothing; N = u16 res +0x36; the alpha test (res
+  +0x32 bit 0) is set by no surveyed mesh. TSS 0x10352740: stage 0 MODULATE2X(CURRENT, TFACTOR) both, stage 1 colour
+  SELECTARG1(TEXTURE), alpha MODULATE4X(TEXTURE, CURRENT), WRAP; 0x10352848 makes stage 1 alpha MODULATE2X. The UV
+  scroll is texture matrix 1 (_31 / _32 = +0x120 / +0x124), 18 generators. The D3m-only blend 0x49 (FUN_10040220) is not
+  in this path: 0x49 is plain additive here.
+- Survey (1191): blend 0x44 1172; off 0.02 most often (0.001..0.32); fmt 6 A=0 B=1 870, fmt 6 A=1 B=0 264; 57 whose D3m
+  is not in their file. Example 3441 fs_i/md00: ring radii 0.65 / 1.6 / 2.0, alpha 0 / 0x80 / 0, scale 0.24, off 0.12 (a
+  0.0288-unit lookup shift turning with the ring).
+- DistRing: op 0x3a radii +0x194.., colours +0x1a4.. raw (R, G, B, A), S +0x1b4, R +0x1b5 = min(op byte 0x25 + 2, 4);
+  per pair a strip of 2S + 2 vertices; normals never written (LIGHTING by op-1 flag 16 would read heap bytes; not in
+  data). Survey (137): blend 0x44 121, S / R mostly 8 / 3 or 16 / 3. Example 3483 evw_/pr00: radii 1.4 / 2 / 2.4, S 12.
+- VuDist survey (102 / 79 files): N 20 (17 gens), 12 (15), 3 (11), 1 (10), 10 (10), 16 (8), up to 40; blend 0x44 70 /
+  0x48 32. Op 0x07 still offsets the element (moves the diamond); 0x06 / 0x08 skip in batched mode.
+- Op 0x6e writes +0x194 / +0x198 without an IsType check: on CMoDist / VuDist / DistModel it would overwrite off (no
+  generator does).
+- The D3m layout probe FUN_1003fee0 (not done): for format 5 / 6 with A == 0 it checks the first three vertices at the
+  format-5/6 offset (|normal| in [0.1, 2.0], pos and uv not NaN / inf / denormal); a failure, or for A != 0 group
+  triangles summing past 3N, rewrites the format to 7 (vertices from data + 8). Our D3m::parse does not: DAT 3559 /
+  50940 pil_/md, 51144 eve_/d2 and 3033 baio/br (all fmt 6, B 1) parse 6 bytes off.
+
+## Specular effect meshes: CMoD3mSpecularElem (2026-10-25)
 
 - A D3m with op-1 flag 0x1000000 and neither 0x200000 nor 0x100000 (FUN_1004e8d0 c:57183; 1104 generators in 554
   effect files, 1391 in zone DATs): its prep (FUN_10041160) turns lighting (flag 16) off and sets flag 25 (no fog)
@@ -7936,6 +11663,54 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   toad/hm00): the golden hammer with its sheen; not compared with retail. 3445 gob_/bm00 (no texture groups) runs as
   the class.
 
+From the research notes:
+- The class: element kinds 0x0b / 0x0c / 0x1f remapped to 0x1f; 0x200000 -> the ground projection (FUN_10052e90),
+  0x100000 -> CMoDistModelElem (FUN_10052f20), else op-1 byte +7 bit 0 -> 0x1c0 bytes, FUN_10041020; else plain D3m
+  (FUN_10052f00). Vtable 0x1032ad20: +0x18 dtor FUN_100410f0, +0x30 IsType FUN_100410e0 (== 7), +0x48 draw
+  FUN_100412b0, +0x4c prep FUN_10041160 (the plain D3m: 0x1032ad80, +0x48 FUN_10040ba0, +0x4c FUN_10036ab0). The D3m
+  -> MMB fallback still makes this class (+0x179 = 1). 2019: ctor FUN_100401e0, prep FUN_10040320, draw FUN_10040470.
+- FUN_10041020: +0x1a8 (texture handle) = 0, +0x198 &= ~8; the stage layout from the device caps (+0x1b8: 0 with
+  fewer than 3 textures, base stage 0 / specular 1; 2 or 3 with >= 3 (3 with D3DPMISCCAPS_TSSARGTEMP): base 0 /
+  specular 2); every current device takes the 3-stage path (the draw tests +0x1b8 & 2).
+- Prep FUN_10041160 (from the element draw FUN_10046070 before the common state FUN_100467e0): lighting off, fog off,
+  for MMB-backed ones too; no texture groups (res +0x34 == 0) -> stages 0 / 1. C = +0x1ac; with +0x198 bit 0 clear,
+  R, G, B = trunc(F x S / 128) & 0xff each (F = this frame's TFACTOR DAT_1047bc0c; 0xff x 0xff wraps to 0xfc), alpha
+  +0x1af. The texture: +0x1a8's TexInfo (+0x30) through FUN_100759c0(stage, C), else FUN_10044250 (the global
+  `cubemap spec` ref 0x1047bb90).
+- The tint copy FUN_100759c0: C == 0x80808080 binds the entry's texture (+0x40 2D, else +0x44 cube); else one shared
+  render target DAT_1047d158 of the entry's size (FUN_100755a0), a pre-transformed quad with stage 0 COLOROP
+  MODULATE2X(TEXTURE, TFACTOR), ALPHAOP MODULATE4X, TFACTOR = C, then that target on the stage: S' = sat(2 T C),
+  single mip, 8-bit *(inferred: a half-texel shift, not reproduced)*.
+- `cubemap spec` (FUN_10044270: "cubemap " + "spec    ", resolved by FUN_10075520 in the global texture list): DAT 0
+  `syst`, 4cc `spec`, 64 x 64 DXT3 (also `plig` = `cubemap plight`, `test` = `cubemap test32`). FUN_1001d940 sets
+  entry +0x2c low bits to 5 for the `cubemap ` prefix; FUN_10039a80 makes +0x40 a 2D texture when +0x2c & 7 == 0,
+  else +0x44 a cube; FUN_10039e50 blanks every face (rgb 0) and puts the image in face 5 (-Z) with box-filtered mips.
+- Op 0x55 (handler 0x10051835, jump table 0x1005247c), 10 dwords: +4..+0xc the angles -> +0x19c..+0x1a4; +0x10 the
+  4cc of a kind-0x0a TexInfo (the link step FUN_10048220 case 0x55 resolves it once into +0x14 -> +0x1a8; kind 0x0a
+  is the companion the loader FUN_10073430 makes beside every IMG); +0x18 / +0x1c -> +0x1b0 / +0x1b4 (10.0 / 30.0,
+  no reader in either build); +0x20 file RGBA -> +0x1ac; +0x24 bits 0..2 -> +0x198 (bit 2 unread). Bit 3 CLAMP: set
+  when the TexInfo's 4cc starts `!sp` (only 50261 `ban_/q000`), cleared with no handle.
+- Emission bases: 0x59..0x5b = the angles x 1/pi (0x1032b170), 0x5c..0x5f = bytes +0x1ae / +0x1ad / +0x1ac / +0x1af
+  / 255; per-frame (FUN_1004a980, table 0x1004e03c) 0x35..0x37 = wrap(fmod(kt, 2) pi), 0 with no key.
+- The draw: ZENABLE 1, TEXTUREFACTOR raw (no mode-0x44 tweak); bit 0 clear T = Ry(-pi/2), else Rz(-a2) Ry(-(a1 +
+  pi/2)) Rx(-a0) (math vt +0x58, FUN_1006dcf0), with bit 1 times rot(V) (camera +0xd4, the view without translation);
+  bit 1 is ignored without bit 0. State blocks: RS 0x103529b0 (NORMALIZENORMALS 1, SPECULARENABLE 0), TSS 0x103528f0
+  (no groups), 0x103529c8 (groups, 3 stages), 0x10352b40 (2 stages), 0x10352c78 (the untextured tail); stage-1 alpha
+  SELECTARG1 for mode 0x64 or flag 0x10000000, else MODULATE4X.
+- Texture coordinates: d = (n_c, 1) T with n_c the normalised camera-space normal; 2D (u, v) = (d.x, d.y) with no
+  scale or bias, so WRAP repeats twice across the hemisphere and CLAMP shows only the d.x, d.y >= 0 quadrant. Default
+  orientation d = (-n_c.z, n_c.y, n_c.x): the blob sits where n_c = (-1, 0, 0) (surfaces facing screen-left). Bit 1
+  clear: the highlight stays put on screen; set: the camera rotation enters twice and it swims as the camera turns.
+- Z: ZFUNC LESSEQUAL, ZWRITE = flag 0x1000, cull none, ZBIAS 15. 2-stage devices (reference): rgb = sat(sat(2 T0 D)
+  + a0 S'), no TFACTOR in rgb.
+- Data: effect files 1104 op 0x55 in 554 files: 2D direct 126, 2D tinted 433, cube direct 84, cube tinted 461 (no
+  sheen); 1009 meshes with groups, 90 without. Zone DATs: 1391 in 83 files (322: 224, 157: 162, 355: 102), 812 of
+  them on an MMB (only fog / lighting off). Update ops 0x4a..0x4d only in zone DATs (161: 10 generators).
+- Open: the cube's tint copy black on every backend (to confirm on retail footage of 3446 or DAT 109's `cry1`); the
+  effect stages' MIPFILTER is inherited; the copy's half-texel shift and 8-bit quantisation; stage 2 inherited by the
+  no-groups path *(inferred)*; camera +0xd4 taken as the same rotation as +0xb90; FUN_10075700's texture warp
+  (+0x140..+0x148) not covered.
+
 ## Emission op 0x46: the parent particle's drift (2026-10-25)
 
 - FUN_1004e8d0 0x1004fc85 (needs a parent element): k = the slot of element-update op 0x02 in the parent's generator
@@ -7944,24 +11719,53 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
 - Ours: the readback gets three words (BACK_WORDS 19, back::VEL) with the slot vector at E_OP2_SLOT; Parent::vel is
   that (at spawn, the element's own slot), set only when the parent's generator has update op 0x02.
 
-## Scheduler ops 0x3f, 0x88, 0xb1 / 0xb2 (2026-10-25; spec task_ops_rest_spec.md section 2 / 3)
+## Scheduler ops 0x3f, 0x88, 0xb1 / 0xb2 (2026-10-25)
 
 - 0x3f (FUN_10053a00, cur 66848): every running instance of generator A (4cc @8) on the task's pair ends, each of its
   live elements bursting generator B (4cc @0x10) once at its place (FUN_10052930, our Effects::burst with the element
   as the parent): travelling orbs turn into explosions where they are. 43 files.
-- 0x3f fully (spec fx_sched_misc_spec.md 3, 2026-10-25): an unattached (mode 0 / 0xe / 0xf / 0x14) static A (flags
+- 0x3f fully (2026-10-25; more below): an unattached (mode 0 / 0xe / 0xf / 0x14) static A (flags
   0x400, or op 1's life i16 @0x22 == 0; FUN_1005e0b0 / FUN_100539e0) morphs as its template: every instance, whatever
   the actors (661 ops in 55 files, mostly zone event scenery: file 110 `pks1` turns `yaa0` into `idy0`). Else
   FUN_10053a00: no actor1 -> every clone of A; else actor1's clones whose actor2 is none or the task's (ours had the
   exact pair). With no A running, retail runs B once on a fresh clone and deletes it with its elements in the same op
   (FUN_100543a0): nothing to show. Same rule for ops 0x1e / 0x2d (stop_generator) on an unattached static generator
-  (generators.md D.3). Tests morph_pair_match, morph_static_world_in_place.
+  (FUN_10052a50; "Effect generators"). Tests morph_pair_match, morph_static_world_in_place.
 - 0x88 (FUN_1005f320): a guard for dur x speed; when its scheduler task ends first (the guard dies with it, flag still
   set), actor1's model colour goes back to 0x80808080 at once. Effects::color_guards, swept with the live tasks.
 - 0xb1 / 0xb2 (FUN_100618a0): actor1 / actor2 dead (status 2 / 3): model colour 0x80808080 at once (Raise and the
   like). Actors::status (the client's placement status).
 
-## Effects: the ground projection (D3m + 0x200000, emission op 0x43) (2026-10-25; spec fx_groundproj_spec.md)
+From the research notes:
+- 0x3f record: `3f 07 | wait | dur | 4cc A @8 | cache @0xc | 4cc B @0x10 | cache @0x14 | 0 @0x18` (both kind 5, found in
+  scope, handles cached in the op). With A running, B's clone (FUN_100536c0(B, 0, 0, 1)) is linked to the task and given
+  the actors when B is an attached kind; FUN_10052930 per element: B +0xcc = 0, a reset, one emission at the element, a
+  soft stop, then the element is deleted.
+- 0x88: sub-task FUN_1005f320 (0x7c bytes) sets +0x78 = 1; its update FUN_1005f3c0 clears it when the ticks run out; the
+  dtor FUN_1005f3f0 resets the colour (vt +0x30) only while it is still set. 0xb2 is FUN_100618a0 on actor2 (0xb1
+  actor1).
+
+From the research notes:
+- Op 0x3f: case 0x10059e8e..0x1005a03b, A and B resolved in the scheduler's scope (kind 5); the static test at asm
+  0x10059f5d..0x10059f8b. The static path calls FUN_100538e0(A, B) on the template A and returns: no actors
+  consulted, B the template. Else B is cloned (FUN_100536c0(0, 0, 1)); an attached B is linked to the task with
+  (actor1, actor2) (FUN_1005e0f0 / FUN_1005e090) and attached (FUN_10053e60). Ours takes the A instance's actors,
+  the same by construction.
+- FUN_100538e0(gen, B) [2019 FUN_10052930], unless gen +0x1a bit 1: its +0xac children deleted, a clone's element
+  link (+0xf8) unlinked; for each live element (+0xb0 list): B's interval +0xd6 = ftol(frame ticks + 1.0), +0xcc =
+  0, restart (FUN_10053370), one emission with the element as parent (FUN_100496f0(B, element)), soft stop
+  (FUN_10053890(0)), interval restored, the element deleted. A static A has emitted (+0x9c > 0), so it does not emit
+  again until restarted.
+- No A: FUN_100496f0(clone, 0), then FUN_100543a0 deletes every element it made (asm 0x1005a010..0x1005a027);
+  sound elements start their voice only in the manager pass (FUN_10036230), so nothing is seen or heard
+  *(inferred: no element class acts in its constructor)*.
+- Data: 3,984 ops 0x3f in 542 files (`kill` 353, `st01` 110, `pstp` 96, `s001` 89, `stop` 87, `efon` 83, ...).
+  The static path (661 ops): files 109, 110, 116..123, 134, 135, 150..152, 154, 161, 172, 179, 195, 196, 202, 222,
+  238, 243, 249, 255, 260..262, 265, 266, 268, 271, 275, 279, 290..298, 300, 304, 305, 641 (zone = file - 100) and
+  51245, 51246, 51402, 70538, 83893, 83894; e.g. file 290 `kill`: `moj2` -> `moj3`, `yaz1` -> `yaz3`, `fut2` ->
+  `fut3`, `naz1` -> `naz3`, `mnt2` -> `mnt3`, `fuc2` -> `fuc3`.
+
+## Effects: the ground projection (D3m + 0x200000, emission op 0x43) (2026-10-25)
 
 - FUN_10040e70 / FUN_10054d70: the element's mesh is drawn with its local 3x3 only (no translation), scaled 0.25, seen
   from 2.0 above looking down (up (0, 0, -1)) through the scene's own projection (unchanged, so the image is mirrored
@@ -7977,11 +11781,54 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
 - Ours: Draw::GroundProj, dk 12, an Rgba8Unorm 256x256 array layer per projection this frame (render/effects.rs
   gp_layers, vs_mesh_rt with a second draw uniform without the gamma output), vs_decal / fs variant 13. The faces are
   gathered on the CPU (Ground::decal_tris) only when the element enters another cell, from the readback position
-  (a frame late), not per frame on the GPU as the spec's plan had it. Collision::decal marks the eligible faces.
+  (a frame late), not gathered per frame on the GPU. Collision::decal marks the eligible faces.
 - Seen offscreen: 3400 (weapon skill 0) ban_/po01, nam0, nam1, mjn0 / mjn1 (the magic circle) paint the floor of
   zone 230. fx-shot's stand-in actors now carry the zone's ground (ground_hit, decal cells).
 
-## Effects: DistMorph (D3b + 0x100000) (2026-10-25; spec fx_dist_spec.md section 4)
+From the research notes:
+- The target: one shared 256x256 texture DAT_1047bb88 (made in FUN_10044270: A8R8G8B8, falling back to A1R5G5B5,
+  X8R8G8B8, X1R5G5B5, the back buffer's format) with its own 256x256 depth surface; it is also the DistModel scene
+  copy (FUN_10042d00). Each 0x200000 element clears it, renders into it and consumes it in its own draw; nothing
+  carries over between elements or frames.
+- The camera FUN_10054d70: eye = the local matrix's row 4 with y - 2.0 (_DAT_10329990), D3DXMatrixLookAtRH
+  (FUN_102d8019) with up DAT_1047bc7c = (0, 0, -1), WORLD = S(0.25)·L; no projection is set, so the scene's (or the
+  element's depth-bias variant) stays. In column form, with ys = focal / 192 and xs = ys / aspect: q = 0.25 (L3 p),
+  the target's view (-q.x, -q.z, -2 - q.y), w = 2 + q.y, u = 0.5 - xs q.x / (2w), v = 0.5 + ys q.z / (2w). The target
+  shows |(L3 p).z| <= 8 / ys (4.39 at focal 350) and |x| <= 8 aspect / ys; parts more than 1.9 scaled units above the
+  element (local y < -7.6) fall behind the near plane. On the ground Δx = -0.625 xs (L3 p).x, Δz = 0.625 ys (L3 p).z
+  (focal 350: Δz = 1.139 z, Δx = -0.854 x at 4:3, -0.641 at 16:9).
+- The mesh draw is the ordinary D3m one (FUN_10040220) under +0x16c's states: with mode 'D' (0x44) a TFACTOR alpha
+  above 0x7e becomes 0xff; D3D8 blends alpha with the colour factors (0x48: alpha = Σ a·a). FUN_10040e70 returns at
+  once without a resource (+0x104); an MMB resource (+0x179) draws through FUN_10040c20.
+- Faces skipped: a pair whose object +0xbc == map+0x17c (the loaded sub-area id, 0xffffffff without one) or whose
+  geometry +0xe != 0 (see-through / camera-pass meshes; door boxes have +0xe = 1, FUN_10171930); the cell lists' bit
+  0x2000 is not tested. Cell = ftol((c.x + 2w) x 0.25), ftol((c.z + 2h) x 0.25); a centre off the grid still draws the
+  edge cells. Off the ±5 square CLAMP repeats the border texels over the whole 3x3 area.
+- Blend codes for +0x198 (FUN_100467e0, byte table 0x1004725c, jump table 0x10047234): 0x00 ONE / ZERO; 0x03, 0x44
+  SRCALPHA / INVSRCALPHA; 0x46, 0x47 ZERO / INVSRCALPHA; 0x48 SRCALPHA / ONE with FOGCOLOR 0; 0x49 SRCALPHA / ONE;
+  0x64 SRCALPHA / INVSRCALPHA and 0x68 / 0x8068 SRCALPHA / ONE, both computing a TFACTOR alpha byte; 0x41, 0x43, 0x62,
+  0x42 REVSUBTRACT SRCALPHA / ONE (FUN_10046550(1)); others keep the previous element's. The 'I' (0x49) DESTCOLOR rule
+  lives in FUN_10040220, not here. That TFACTOR byte never reaches the device on this path: the decal keeps the
+  TFACTOR the mesh draw set.
+- The decal's colour / alpha ops are left over from the mesh draw (list 0x103524a8 for every mesh in the data);
+  FUN_100467e0 only applies 0x10353598 (filters, TCI 0, TTFF 0). *(inf: an MMB resource would leave FUN_10183760's
+  lists, an untextured mesh 0x10352348 / 0x10352648.)* LIGHTING follows flag 16 (2 generators); without normals in FVF
+  0x142 the lit colour would be the ambient / emissive terms *(inf)*.
+- CMoD3aLightmapElem (D3a + 0x200000, FUN_1003ee70) uses the same camera and decal with WORLD = +0xa0 and the
+  view-space centre +0xd0; op 0x43 sets its +0x194. No generator of that class exists in the 5564 effect files
+  surveyed.
+- Data: 551 generators in 306 files, all D3m; each has one op 0x43: 0x48 466, 0x44 66, 0x8068 9, 0x42 6 (subtractive:
+  3016 pgur/rin0, 4136 og_a/en00), 0x46 4 (darken: 3923 suzu/po00); the z-write flag is never set; op 0x42 (ground
+  snap) in 31 moves only c's height. 22 name the library mesh 'hi17' (files 3019, 3080, 4278, 4305, 86999, 87262,
+  87263). Local xz radius median 1, p90 5, max 10 (3423 alex/sdz2). Typically 1..5 projections a frame, a few dozen at
+  worst (86840 bst_/gl12 keeps 24 alive). 3400 ban_/po00 (a ±1 quad laid flat, scale 4.1 growing 0.018 a tick)
+  outgrows the target window from about 16 ticks and is cut at its border.
+- Open: FUN_1003eb30's use of the D3a +0x194; whether 'hi17' is D3m or MMB; whether any MZB list carries bit 0x2000 at
+  load (our parser drops such lists); the lit decals' exact colour; the +0x198 ctor default (every generator sets op
+  0x43); objects with +0xbc 0xffffffff are skipped while no sub-area is loaded (map+0x17c = -1; ours keeps them; none
+  checked).
+
+## Effects: DistMorph (D3b + 0x100000) (2026-10-25)
 
 - CMoDistMorphElem (FUN_10043590): the morph's blended key drawn shifted by (off, off, 0) in model space (off = +0x1c0,
   emission op 0x32 / update op 0x24), each vertex sampling the scene copy (WRAP) at the screen point of its unshifted
@@ -7994,7 +11841,15 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
 - Seen offscreen: 2860 rej_/dis0 (a lens inside the bubble shifting the wall and floor behind it).
 - Also: emission op 0x56 on a VuDist is no longer counted as a gap (its count is read when the draw is chosen).
 
-## Scheduler op 0x7a: pin actor1 to actor2 (2026-10-25; spec task_ops_rest_spec.md section 3)
+From the research notes:
+- The blend buffer comes from FUN_1003f8a0 (weights from +0x194, previous +0x1a8): when the weights sum below FLT_MIN it
+  writes w[argmax(prev)] = 1.0 into the element, so the first draw sets key 0. FUN_1003f440 in distortion mode (last
+  argument 1) binds no texture: stage 0 keeps the copy, each corner's uv is its unshifted projection; the UV scroll is
+  texture matrix 0. Op 0x6e (not IsType-gated) could write the weights, but no DistMorph generator uses it.
+- The 13 generators (e.g. 2860 rej_/dis0: kind 0x1d 'mor1', keys bound by 0x33 / 0x34, updates 0x1e / 0x1f, off 0.15,
+  blend 0x44) were clearly authored as morphs; key 0 alone is the literal reading.
+
+## Scheduler op 0x7a: pin actor1 to actor2 (2026-10-25)
 
 - Record: `7a 0c | wait | dur`, offset vec3 @0x10 (w 1.0 @0x1c), point u32 @0x20. Seen: 4117 (1, 1.2, 0) point 2,
   50703 (1.2, 0, 0), 86913 (2, 0, 0), 86973 (1, 0, 0), 61017 (0, 0, 0) point 7; dur 50..212.
@@ -8006,7 +11861,13 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   player as actor1 (retail moves the actor itself, which for the player is the position sent to the server).
   Test pin_holds_actor1.
 
-## Effect scheduler screen ops 0x0f / 0x72 / 0x0e (2026-10-25; spec task_ops_rest_spec.md section 3)
+From the research notes:
+- The sub-task (0x78 bytes) writes actor1 +0x7a4 = the point, a reference to actor2 (the field is lost by the
+  decompiler; +0x7a8, inferred) and +0x7b4..+0x7c0 = the offset. Its dtor FUN_10061f50: +0x7a4 = -1, the reference
+  cleared, +0x5fc = +0x5c4, +0x608 = 1.0. FUN_100c63d0 reads it while +0x7a4 != -1 and actor2 exists and is not actor1;
+  special points 0x30..0x3c go through FUN_1003ba20 with actor2's height. The yaw + pi is DAT_1032df98.
+
+## Effect scheduler screen ops 0x0f / 0x72 / 0x0e (2026-10-25)
 
 - FUN_10057000 cases 0x0f, 0x51, 0x72 each keep one global task (DAT_1047bf28 / bf2c / bf30, vtable 0x1032b8bc, type
   +0x48); a new op kills the last of its type first, whose dtor FUN_10060750 sets its target at once, so the new lerp
@@ -8025,6 +11886,14 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   event::Screen::flash / blur; the ops reach it through Effects::screen_ops. Our copy is full size (retail's
   DAT_10456938 size not checked). Tests flash_adds, feedback_keeps_last_frame, fx_screen_ops.
 
+From the research notes:
+- Camera DAT_104568fc: 0x0e starts from +0x32c (RGBA) / +0x330 (zoom), update FUN_10060330, dtor FUN_10060450 (the
+  targets exactly). 0x72 starts from +0x328 with ticks - 1; FUN_100605e0 lerps through FUN_10015050. 0x0f starts from
+  +0x320 (FUN_10014f20). Each frame (0x10012e23..0x10012e41) +0x334 -> +0x31c (op 0x51), +0x338 -> +0x320, +0x328 ->
+  +0x324. The flash quad also carries the brightness setting when DAT_10350174 > 0x80 (0x10012e47).
+- Files: 0x0e 3718..3720, 87334, 87337 (on: 808080 1e, f 0.99; off: 808080 00, f 1.0); 0x72 87281, 87337, 3108, 3119,
+  3818, 56775, 56815 (ffffff80, 6464a064, 808080 00); 0x0f 3820, 3821, 56693, 56775.
+
 ## Eye blink, scheduler ops 0xb5 and 0x79 / 0x8c / 0xa4 / 0xa5 (2026-10-25)
 
 - FUN_100cdf90 (cur 152461, from the actor update 148501): actor +0x8b8 counts down by the frame's ticks; below 0 it
@@ -8038,7 +11907,7 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   u32 @8 (motion::MotionNames::apply, as dat/npc.rs does for a model's init); kept per actor (Actor::motion_names)
   until its model changes. Not done: the entity copies (+0x190..+0x1b4) the 0x8c / 0xa4 / 0xa5 setters also write.
 
-## Generator op 0x15: the view gate (2026-10-25; spec fx_stream_attach_spec.md 2.13)
+## Generator op 0x15: the view gate (2026-10-25)
 
 - FUN_100496f0 case 0x15 (cur c:54220): the box diag(f32 @0xc, @0x10, @0x14) (data `0 0 2 2 2 0`) at the op-1
   position (+ the path offset, FUN_10063b70), times the generator matrix +0xa4 and the view; FUN_1004a870 projects
@@ -8050,7 +11919,12 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   vtable +0x8c call; no occlusion query, no path offset)*. Zone 230 from a fixed camera: 12 fewer live elements
   (off-screen emitters); 3400's own elements unchanged frame by frame.
 
-## Emission ops 0x4e (batched) and 0x94 (2026-10-25; spec fx_stream_attach_spec.md 2.11 / 2.12)
+From the research notes:
+- The tested shape is the +-1 cube under diag(op[3], op[4], op[5]), then gen +0xa4, then the view DAT_1047bfa8 +0xb50;
+  op[6] >> 1 & 1 picks the corner source (FUN_10047b80). FUN_1004a870 also runs an occlusion query when one is free (not
+  reproduced).
+
+## Emission ops 0x4e (batched) and 0x94 (2026-10-25)
 
 - 0x4e / 0x4f on a batched D3a (0x1004ec2c): P+0x14 = the emission count for 0x4f, else -1; at draw each particle adds
   point[(P+0x14 >= 0 ? P+0x14 : rand % c) % c] of the Vtx list, the local generator reseeded with P+0x10 each frame
@@ -8060,7 +11934,11 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   first, then a 0x4e without a list of its own). Ours: emit::Parent::src, the list resolved in the parent's scope
   and used by this stream's 0x4e / 0x4f (plain and batched).
 
-## Weapon after-image: scheduler op 0x2c, Afb chunks (2026-10-25; spec ~/ffxi/lab/research/fx_afterimage_spec.md)
+From the research notes:
+- Handler 0x1004eaba: P = +0x194 for IsType 8 / 9 (VuAnm, VuLine), +0x198 for 0xa (VuDist), else a dummy; op 0x56 put
+  the list handle in P+0. Op 0x94 has no operands.
+
+## Weapon after-image: scheduler op 0x2c, Afb chunks (2026-10-25)
 
 - Op 0x2c (case at c:66561; 2322 ops in 1477 files, nearly all the PC weapon-skill motion files 33228.. per race, plus
   NPC swings and some mob moves): actor1's Afb (chunk 0x54) by the first three letters of the 4cc in its motion files
@@ -8079,22 +11957,91 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   frame with no point ages once; the tail is trimmed by the dead pairs (both edges < 0.005, no alpha or no RGB).
   Draw (0x1001c930, in the effects' depth list): world-space triangle strip, newest first, (A, B) or with split
   (mid, A) / (mid, B), vertex colours only, SRCALPHA / ONE, no z write, no fog.
-- Ours: fx/trail.rs (Afb, Trail: the points, spline and counters a retail frame of 2 ticks; the aging as the spec's
-  closed form, for the trim), Effects::trails / draw_items (trails among the elements by the newest tip's depth),
+- Ours: fx/trail.rs (Afb, Trail: the points, spline and counters a retail frame of 2 ticks; the aging as the closed
+  form below, for the trim), Effects::trails / draw_items (trails among the elements by the newest tip's depth),
   effects.wgsl vs_trail / fs_trail (group 3: 32-word header + 80 samples a trail; the closed form per vertex;
   retail's NaN rails (a zero-shrink rail meeting an equal sample) drop their triangles). Trail actors are posed while
   points are due. Tests parse_fast_blade, fast_blade_timeline (9 / 13 samples at ticks 28 / 30, done at 92, as the
-  spec's literal model). Seen offscreen (fx-shot --file 33228): the arc from 1.1 up behind the caster over its head
+  literal model below). Seen offscreen (fx-shot --file 33228): the arc from 1.1 up behind the caster over its head
   to the ground 2.8 ahead, the tip half flat grey, the grip half fading, narrowing.
-- Open (spec 7): whether retail finds the Afbs that sit only in mob-move effect files (ours does, once op 0x05 has put
+- Open (below): whether retail finds the Afbs that sit only in mob-move effect files (ours does, once op 0x05 has put
   the file on the actor); which callback the actor's removal fires (ours drops the trail with its actor).
+
+From the research notes:
+- Op 0x2c record (0x58 bytes, `2c 16`; asm 0x1005a432..0x1005a6b5): @2 0; @4 wait; @6 dur (raw, FUN_1005e200, < 1 ->
+  1; 10..210 in the data); @8 the 4cc (byte 3 is `?` in every op, masked off); @0xc a stale pointer, unread; @0x10 /
+  @0x14 the colours (rail A's alpha 0x40 in 2176 ops, rail B's 0 in 2312); @0x18 V18; @0x28 V28; @0x38 / @0x3c the
+  shrinks (A 0.001 in 2315 ops, B 0..0.05); @0x40 the RGB delay (20 in 1791); @0x44 split (1 in 372); @0x48 unread;
+  @0x54 0; @0x56 speed (100 or 0). CYyAfterImage fields: +0x14bc rate, +0x14c8 delay, +0x14cc / +0x14dc colours,
+  +0x14ec / +0x14fc V18 / V28, +0x150c / +0x1510 shrinks, +0x151c split, +0x1520 V48 (no reader).
+- Lookup FUN_100ce480(actor1, out, 0x54, name & 0xffffff, mask 0xffffff): the motion files (+0x7e4, newest first),
+  then vt+0x400 (the model's). Miss: vt+0x1e8 = FUN_100ceb00 walks the part files (+0x674) and the vt+0x1e0 resource
+  with name 0, mask -1 (its name argument is never read): the first Afb of any name. None of the install's Afbs sits
+  in an equipment file *(inferred, by id ranges)*. Nothing found: next op, no log (the only log, 残像用メモリの確保に失敗しました, is
+  an allocation failure).
+- Tasks: a 0x1550-byte CYyAfterImage (FUN_1005e800: no parent, vtable 0x1032a308, init FUN_1001b890) and a 0x7c
+  watcher (FUN_10060b30: no parent, vtable 0x1032bbc8, a CMoAttachments link on actor1, vtable 0x1032bbac; +0x74 = dur
+  x task speed, never read). The watcher's update FUN_10060b80 deletes both once the after-image's done byte +0x14a4
+  is set; the after-image's update never ends itself.
+- Afb details: bytes 2 / 3 unread *(inferred: exporter data)*; byte 0x11 = start + N - 1 in 4670 of 5054 (unread);
+  0x13, 0x1d, 0x1e fill 0xcd; 0x1c the relocated flag; rail A at 0x20, rail B at 0x20 + 8N; a version byte 0x1f != 0
+  gives "Afb Version Error(%d)". Data: 5054 Afbs in 1526 files, N 4..91, R 30 in 4856.
+- Frame: FUN_100d4a20(actor, 0, M) -> FUN_1002a900 (point 0 of the first skeleton): p_world = p . Ry(pi/2) . (point
+  0's Rx Ry Rz T) . Bone_world[point 0's bone]. Point 0 is (bone 0, no rotation, no offset) on every skeleton checked
+  and bone 0's rest quaternion is (0, 0.707, 0, -0.707), which Ry(pi/2) cancels. Bone 0 has no keyed track in the 2874
+  motions of the Afb files (7 constant non-identity tracks: those frames include it). Fast Blade's grip rail stays
+  within 0.01 of Hume M's hand bones 4..6 over the swing.
+- Per frame (FUN_1001bc80): T(j) = start + 30 j / R; of the consecutive points with T(j) <= t all but one are taken;
+  each goes into a 3-point control buffer; below 3 points an aging runs only when samples exist; at 3, the first push
+  writes the raw first point (no aging after it), then 4 spline samples, each followed by an aging (push FUN_1001b990:
+  head 79 -> 0, count + 1). N points give 1 + 4 (N - 2) samples; the largest live count in the data is 60, so the
+  80-sample ring never wraps (retail has no cap). Spline FUN_1001c8e0: f(u) = 0.5 u^2 p2 + 0.5 (1 - u)^2 p0 + ((1 - u)
+  u + 0.5) p1 for u = 0.25, 0.5, 0.75, 1 (u steps by the double DAT_1032a338).
+- Aging (FUN_1001c260), newest first: d = A - B, L = |d|, u = d / L; a = L - f38 < 0 ? L : f38, b = L - f3c < 0 ? L :
+  f3c; A -= u a; B += u b. Then a neighbour smoothing with factors +0x1514 / +0x1518, always 0: it adds nothing except
+  when two neighbours are equal (or one is NaN), where 0 x 1/0 turns that sample and every older one on the rail into
+  NaN for good. delay -= frame ticks (once per aging); alpha A -= V18.w, alpha B -= V28.w; once delay <= 0 both
+  colours' RGB -= V18.xyz (V18 for both, asm 0x1001c626..0x1001c65d); all clamped 0..255. The agings a frame depend on
+  the frame rate: stock 30 fps (2 ticks) is the reference.
+- Trim: from the newest, a pair (newer P, older Q) is dead when both edge lengths are < 0.005, or the four alphas sum
+  <= 0, or the RGB sums <= 0; count -= dead (a NaN length never counts as short). Done at count <= 1 (the hold +0x14c4
+  is only ever written 0). Constants: DAT_10329fd8 30.0, DAT_1032a334 0.005.
+- Draw (callback 0x1001c930): WORLD identity; COLOROP / ALPHAOP SELECTARG1 DIFFUSE, stage 1 off, LIGHTING 0, FOGENABLE
+  0, ZWRITEENABLE 0, NORMALIZENORMALS 1, ALPHABLENDENABLE 1, ALPHATESTENABLE 0, SRCALPHA / ONE, CULLMODE NONE
+  (ZENABLE, ZFUNC, BLENDOP inherited); FVF 0x42 {x, y, z, D3DCOLOR} (op bytes 0x10 R .. 0x13 A, truncated);
+  DrawPrimitiveUP TRIANGLESTRIP, 2 count - 2 a strip; then LIGHTING 1, ZWRITEENABLE 1, NORMALIZENORMALS 0,
+  ALPHABLENDENABLE 0, ALPHATESTENABLE 1. No per-actor fade, hidden test or effects filter. Key: the clip z of the
+  newest A, in DAT_1047bc94 with the effect elements and translucent actors.
+- The rate ignores the task speed (FUN_1005e200 reads @6 raw) while op 0x05 motions use dur x speed, so at another
+  task speed the ribbon and the swing drift apart (literal).
+- The closed form (exact against the literal model in all 89685 frames of the 2283 runs): n = agings since the
+  sample's birth, p / q the shrinks, s = p + q, L0 = |a0 - b0|, u0 = (a0 - b0) / L0, positions along u0 from b0: s <=
+  0 -> (L0, 0); n1 = floor(L0 / s); n <= n1 -> (L0 - n p, n q); else sa1 = L0 - n1 p, sb1 = n1 q, l1 = sa1 - sb1, x =
+  sa1 - min(p, l1), y = sb1 + min(q, l1), (x, y) when n - n1 - 1 is even, else (y, x) (after crossing the rails swap
+  every aging). A = b0 + u0 sa, B = b0 + u0 sb. Alpha A = clamp(CA.a - n V18.w), alpha B = clamp(CB.a - n V28.w); with
+  G the agings so far and D the first aging whose delay was <= 0, m = G - max(birth, D - 1) once G >= D (else 0) and
+  RGB = clamp(C.rgb - m V18.xyz); floor / 255 for drawing. L0 = 0 or l1 = 0 is retail's NaN case: the rails stay.
+- NaN rails: a zero-shrink rail (B in 1257 ops; A never) meeting three equal consecutive Afb points on a still actor:
+  23 Afbs have them, 10 of the 2283 runs hit it (33286 `032?`, 34054 `032?`, 34174 `112?`, 35631 `sea?`, 35648 `sda?`
+  ...). Their triangles are taken as not drawn *(inferred: D3D with NaN positions)*.
+- The literal model's Fast Blade (Hume M, file 33228 `main` op 7: colours 8a8a8a40 / 8a8a8a00, V18 = V28 = (0, 0, 0,
+  2), shrinks 0.001 / 0.05, delay 20, split, dur 70, n 45: rate 0.643 a tick): 0 samples at tick 24, 9 at 28 (8
+  agings), 13 at 30, 12 at 60, 9 at 62, 4 at 80, done at 92. Visible spans over the data: 20..190 ticks, 60..80 in
+  1308 runs.
+- Open: (1) the mob-move effect files (50287.., 51130.., 88040.., 4223..) hold their Afb only in the effect file;
+  FUN_100ce480 searches only the actor's lists, and neither the file's run callback (LAB_100a7640 in the 2019 build)
+  nor op 0x05 (FUN_100cd920 / FUN_100cd4e0 not traced for an append) puts the file there; footage of a trust or NPC
+  weapon skill (50288 Swift Blade) would settle it. (2) The watcher's CMoAttachments callbacks: FUN_10060ac0 (+0x10)
+  deletes itself and the after-image, FUN_10060af0 (+0x14) only itself (leaving the after-image updating with a dead
+  actor handle); which one the actor's removal fires is not traced. (3) ZBIAS during the draw (inherited) and the
+  WORLD in force when the key is computed. (4) D3D's handling of NaN vertices.
 
 ## Chat line: selection, copy, cut, paste (ours; 2026-10-25)
 
 - Retail has none of it: the chat line keeps a caret only; FFXiMain's reachable clipboard write is the party-request
   list's copy option (FUN_10001d20, CF_UNICODETEXT, from 0x10138e1d); the CF_TEXT writer's callers at 0x10001634 /
-  0x1000165c sit in unreachable debug blocks; there is no GetClipboardData. FUN_10188060 (2019; keys_spec's "Shift
-  selection") is a list widget whose Shift pages, not text. Added on the user's call, always on.
+  0x1000165c sit in unreachable debug blocks; there is no GetClipboardData. FUN_10188060 (2019; key function
+  0x35's "Shift selection") is a list widget whose Shift pages, not text. Added on the user's call, always on.
 - Shift + Left / Right / Home / End grow a selection from where the caret was (unit bounds: an auto-translate phrase
   is one unit); Ctrl+A selects the line; typing or a paste replaces it (when the result fits the 120-byte limits);
   Backspace / Delete remove it. While typing, Ctrl+C copies it (phrases written out) and Ctrl+X cuts it; Ctrl+X
@@ -8102,7 +12049,7 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   egui-winit's clipboard (arboard). Drawn as a blue box behind the selected text (fep::selection, World::chat_anchor;
   the copy goes out as egui's CopyText command after the frame).
 
-## The near-camera character fade (2026-10-25; spec camera_collision_spec.md 2.2)
+## The near-camera character fade (2026-10-25)
 
 - FUN_100cd040 every frame for every skeleton actor: P = posed attach point 12 (the head point first person uses),
   E = the eye; h = horizontal distance; with P above E the height is ignored, with the eye more than 0.5 above P no
@@ -8113,6 +12060,22 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
 - Ours: client/mod.rs near_camera_fade; the rest pose of point 12 screens actors first (0.5 + 2 x scale), a CPU pose
   only for an actor that close; actors under 0.0001 leave the draw list (they wrote depth before). Seen live in the
   Mog House walking toward the camera into the wall: the character goes see-through, then away.
+
+From the research notes:
+- FUN_100cd040 [FUN_100cb000], called from the actor update FUN_100c63d0 at 0x100c7d8d; the result goes to actor
+  +0x664. alpha0 = the model colour's alpha byte +0x663 / 128 (vt+0x44, FUN_100a2ee0).
+- Radii R 0.5, r 0.2. size = FUN_100aaef0 (0.8 x point 44's horizontal offset, bump::radius) x 1.2; when size > 0.5
+  and +0x85c (the model's first kind 0x5e chunk) != 0: R = size, r = size - 0.4. No PC skeleton has a 0x5e chunk; a
+  96-byte one is in garu 1321, cait 1328, carv 2091, ramu 2098, prom 2371, kusa 2777 (of 173 models sampled). Its
+  meaning was not traced.
+- After the cylinder (not done): vt+0x260 (actor +0x8ac bit 0) sets 0; in first person the actor whose entity
+  FUN_10096250 names on the player sets 0 (not traced further); while the local player is fishing (status 6,
+  0x26..0x2b, 0x32..0x35 or FUN_10093fa0) other characters (entity +0x1d0 & 0xffffff1f) within 2.5 of the player fade:
+  0 within 1, x (d - 1) x 2/3 up to 2.5; entity +0x130 bit 18 sets 0.5; then the Conflict team flag (+0xb2 bit 0x20)
+  and party highlight calls; capped at 1.0. In the update, entity +0x12c bit 26 (an 0x00E flag, not traced) forces
+  +0x664 = 1.0; +0x59c == 0 hides the actor (+0xb0 = 1, +0xb2 |= 1).
+- Draw (FUN_100cbde0 at 0x100cbef6): vertex colour = (ftol(128 k) << 24) | (+0x660 & 0xffffff). No easing: the fade
+  follows the eye frame by frame; with the defaults the drawn alpha is 0 at h <= 0.2 and 1.0 from h 0.44.
 
 ## The block list (blacklist): its readers and /blacklist add / delete (2026-10-25)
 
@@ -8134,7 +12097,7 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
 - Live (Lnxcsfix): `/blacklist add Nobodyhere` printed "Failed to add to blacklist."; `add Perrin` (a bot online)
   "Added to blacklist.", `delete Perrin` "Removed from blacklist." (char_blacklist empty again).
 
-## Alter Ego Points (2026-10-25; spec ~/ffxi/lab/research/status_rows_spec.md 5)
+## Alter Ego Points (2026-10-25)
 
 - statcom2 row 13 (enabled once main level > 98 with key item 0xd21 cipher bracelet): "menu    fp_cat  " (the
   categories of file 98 with an id and a first attribute: HP/MP, Attributes, Skills), "menu    fp_info " (s2c 0x08E's
@@ -8143,7 +12106,7 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   category's attribute ids, max from file 97 byte 3). fp_cat is in fp_cat2's window group: suspended (not drawn)
   while fp_cat2 is up.
 - FUN_1014bdb0's row cells take value + 1 (0 = no value): the level shown is upgrades[e], the max max, the cost
-  costs[e] (spec 5.2's "+1" is this encoding; LSB's zero costs show "NEXT 0 P"). Grey with no cost outside the Mog
+  costs[e] (LSB's zero costs show "NEXT 0 P"). Grey with no cost outside the Mog
   House (or before 0x08E); maxed: the level blue, no cost; unaffordable (costs[e] > points): the cost grey.
 - Enter on an attribute: outside the Mog House group 7 0xb2 + SE 0004; affordable: group 10 0x7b with (name,
   costs[e]) through merityn, Yes sends c2s 0x0C1 {u16 e}. Opening without 0x08E sends c2s 0x0C2 (LSB: no handler).
@@ -8152,7 +12115,18 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   0/1000, the three categories, Max HP / Max MP and STR..CHR at 0/60, grey in Southern San d'Oria. Not tried: a raise
   in the Mog House (LSB does not apply it).
 
-## The toggles' consumers (2026-10-25; spec ~/ffxi/lab/research/toggle_consumers_spec.md)
+From the research notes:
+- Records: file 98 (categories) 8 x 0x24: u16 @0 k, u16[16] @4 entry ids (1 HP/MP {8, 9}, 2 Attributes {10..16}, 3
+  Skills {17, 18}); file 97 (attributes) 128 x 4: u8 @0 k, @3 max (60). s2c 0x08E (FUN_100e5140) -> session +0x2d614
+  (points, upgrades) / +0x2d638 (costs), the +0x2d678 callback (fp_cat2 rebuilds), +0x40db5 bit 4.
+- fp_cat: 10 visible, row step 0x11 from (0, 4) while the layout's children are 16 apart (the rows drift 1 px a row
+  from the hand, as coded); Left / Right page only with Ctrl / Alt. fp_cat2: rows from (0, 0x11) under frames 208's
+  header band. A raise is asked only while DAT_1057844d == 0.
+- LSB: 0x08E at every zone-in and after 0x0C1, points from char_points, upgrades and costs always 0 (every attribute
+  "0/60", "NEXT 0 P" white in the Mog House); 0x0C1 checks the Mog House, the cipher bracelet and level 99, then
+  re-sends 0x08E unchanged (the upgrade is not implemented in LSB).
+
+## The toggles' consumers (2026-10-25)
 
 - /ignorepet (config 0x97), /ignoretrust (0xaa): FUN_10083430 steps 3 / 4 in every candidate scan (Tab, F8..F10,
   Enter, the mouse): skip a charmed non-PC (kind 0x100) without bits b30 / b31, not hostile (FUN_101cc220, ours
@@ -8175,7 +12149,64 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   did not run for Lnxcsfix), /ignorepet / /hidetrust (no other players' pets or trusts near).
 - Since done: /furcc ("Mog House furniture").
 
-## /autogroup, /recruit, /mentor, /itemsearch (2026-10-25; spec textcmds2_spec.md part C 1 / 2)
+From the research notes:
+- Readers (current [2019]): 0x97 / 0xaa FUN_10083430 [FUN_10081d40]; 0x99 bit 5 FUN_1008e4d0 [FUN_1008cdc0]; bit 0
+  FUN_10093e50 [FUN_100926a0]; bit 1 FUN_10057fb0 op 0xb3 [FUN_10057000]; bit 6 FUN_1016b1d0 [FUN_101643b0]; bit 8
+  FUN_10095630, the zone-in 0x11B [FUN_10093e80]; 0xae bit 0 FUN_10202530 / FUN_10202720 / FUN_10202960 (party,
+  alliance, pet rows) [FUN_101f9560 / FUN_101f9750 / FUN_101f99a0]; /displayhead and /autotarget have no client
+  reader. Getters FUN_10193850 / FUN_101938b0 / FUN_10193890 [FUN_1018c7d0 / FUN_1018c830 / FUN_1018c810]. The 0x0B4
+  mirror (session +0x2cfd8..+0x2cfe3) is read only by FUN_100e4520, FUN_100e47c0, FUN_100e48d0 (+0x2cfd9 bit 3) and
+  the /displayhead handler.
+- FUN_10083430(actor, own_pet, inc, exc, skip_self) callers: FUN_10083b40 / FUN_10083d00 (Tab / Shift+Tab, Num0),
+  FUN_10083620 (the nearest in front), FUN_10083f20 (nearest by kind: F8..F10 and /targetpc etc.), FUN_10083750 (the
+  mouse; skip_self 0 when inc has 0x200). own_pet = FUN_101cc510 = entities[own +0x1fa]; inc / exc = the target
+  object's +0x60 / +0x64 (0xffffffff / 0 with no prompt). Steps: kind & exc rejects; then kind & inc, or ally-like
+  (FUN_101cc1d0) with inc & 1, or hostile (FUN_101cc220) with inc & 0x10; then the two rules; then the usual (dead or
+  despawning, self, +0xb2, layout furniture +0xc0 == 2, FUN_10084580, +0x8c < 0). Others' +0x1fa (pet index) is 0x00D
+  u16 @0x3C (0 on a despawn); ours does not parse it.
+- FUN_101cc220 (hostile): in PvP (both kind 0x400) the same Ballista side {0x28, 0x2a} / {0x29, 0x2b} false, both 99
+  true, teams differ true; else, for an actor without 0x100 that is not an allied NPC (FUN_1008e150: non-PC, no 0x100,
+  +0x1ff == 1): MonsterFlag, a charmed PC (+0x12c bit 13) or a Monstrosity player (+0x210, not us); false for every
+  pet and trust outside PvP. FUN_101cc1d0 (ally-like, counts as a PC): not hostile, an allied NPC or kind 0x100,
+  +0x128 bit 3 and +0x130 bit 20 clear.
+- Packet bits: +0x12c b13 CharmFlag = 0x00E u8 @0x27 bit 3; b22 TrustFlag = u8 @0x28 bit 0; b30 = u8 @0x28 bit 6 (LSB:
+  trusts and every mob at normal status); b31 = u8 @0x2B bit 1 (LSB never); +0x120 b13 MonsterFlag = u8 @0x20 bit 0.
+  On LSB, BST-charmed monsters carry b30, so /ignorepet does not skip them; retail's charmed monsters are unknown here
+  *(inf)*.
+- /hidetrust: skipped for actors held by the current event (+0x120 bit 8, inf); bit 23 makes the model scheduler
+  FUN_10095900 call FUN_10092900 (the model actor destroyed) instead of FUN_1008f740; client-made furniture (+0x130
+  bit 3) is spared. It hides the other alliance parties' trusts too. It runs every frame (from FUN_1008e9a0, which
+  clears bit 23 first) and after a model is made (FUN_1008f740).
+- Music slots (FUN_10093e50, every frame and at the world start): 6 the Mog House (DAT_10482f44 and not DAT_1048098d),
+  5 KO, 4 mounted (when the zone has one), 7 fishing (own status 0x26 / 0x39, unless own +0x10c & 0xfff == 0xc;
+  nothing changes without a slot 7), battle (own status 1 or the party battle flag; FUN_100e8b80(0) counting 1 -> 2,
+  else 3, empty 3; the flag cleared first outside the field or with 0x99 bit 0), else 1 at night (hour < 6 or > 17),
+  0. DAT_10480aec is cleared every frame before the entity loop (FUN_10096640) and set (FUN_1008db40, asm:151886) for
+  a modelled monster or Ballista team 8..9 past the name colour's early returns (no event colour, not a door / lift /
+  ship, we not KO, not a team colour, GM level < 3), claimed (+0x188 != 0, not Ballista 0x28..0x2b; or FUN_1008e920),
+  with no owner (FUN_1008e180: no loaded non-trust actor with it as pet +0x1fa or fellow +0x2a0), its claimer in
+  FUN_100e8b80(5), +0x130 bit 22 clear and a 3D distance under 45.0 (_DAT_1032d6bc).
+- Op 0xb3 (200 ops) is only in the /bell emote schedulers em00..em07 of the race emote folders (hm_e, hf_e, em_e,
+  ef_e, tm_e, tf_e, mt_e, gl_e; ROM/220/42, 78, 103, 106, 109, 112, 115, 118 and ROM/223/84..107), sounds be01..be08
+  (Hume male: SE 6142..6149 and others); e.g. hm_e/em03: tick 0 op 0x05 `bel?` and op 0x89, tick 92 op 0xb3 `be04`.
+  The same in 2019. Only the local config matters: no party, distance or own-actor test.
+- /furcc's test (FUN_1016b1d0, after the zone mesh): FUN_1016c5d0 tests the furniture's mesh triangles, not a box: the
+  segment into the model frame (FUN_1016bdf0), 9-float vertices, u16 strip indices with alternating winding
+  (FUN_1016cb60), the inside test FUN_1016c390, a hit kept when <= the best. The same test serves the ceiling ray
+  FUN_10181370 and FUN_101815d0 (a segment, then a floor probe 100 down for surface 9; its caller FUN_10177730, inf:
+  the fishing cast check).
+- /partyinfo showtp: the TP at (+0x30, +10) through FUN_10202900, 0x80606060 or 0x802060d0 above 999; not on trust
+  rows (FUN_10201eb0), only on rows in our zone; the pet row's TP (DAT_10482f34, FUN_10087610) is skipped for pet
+  models 0xb22..0xb31 (FUN_10098320).
+- /displayhead with LSB: 0x051 when headgear is worn, 0x009 260 / 261, then 0x0B4 and 0x037; the head goes as
+  GrapIDTbl[1] = 0 in 0x00D / 0x00A / 0x051; others see it at their next look update (LSB sends UPDATE_HP only).
+  /autotarget (LSB CAttackState::UpdateTarget): while engaged, when the target becomes invalid and the flag is clear,
+  the first spawned monster that is attacking, in front (facing 64), within 10 and a valid enemy becomes the target
+  (s2c 0x058, battle message 234 "Auto-targeting the <target>"); else the target is cleared.
+- /jobmasterdisp toggles from our +0x13c bit 7 (0x037 u8 @0x58 bit 7; others 0x00D u8 @0x33 bit 6); LSB answers 0x037
+  + 0x067 to us only, and JobMasterFlag needs SUPERIOR_LEVEL 5.
+
+## /autogroup, /recruit, /mentor, /itemsearch (2026-10-25)
 
 - /autogroup (FUN_1007d740, solo only), /recruit (FUN_1007d870), /mentor (FUN_1007f320; a window up: group 7 0x45):
   exactly "on" / "off" set / clear c2s 0x0DC which 6 / 0xb / 8, another word sends nothing, other token counts flip
@@ -8187,8 +12218,22 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
 - Live (Lnxcsfix): "No instances of that item were found." for a Bronze Sword; "Instances of Hume tunics were found
   in the following systems:" and "Inventory".
 
-## Text commands: targets, linkshells, /fish, /automove, /follow, /returntrust, /volunteer (2026-10-25; spec
-## textcmds2_spec.md part D)
+From the research notes:
+- Ids and flags: /autogroup /ag 0x5e 0x41, /recruit /rec 0x5f 0x41, /mentor 0x94 0x111, /itemsearch 0x23 0x61.
+  /autogroup runs only when FUN_10201690() == 2 (a party object and no party; inf: solo). /recruit fails while the
+  party object exists and DAT_106643a6 is set *(inf: a party request pending)*. /mentor's window test is DAT_105781e4
+  +8; group 9 0xcc / 0xcd are the Help Desk window's rows, not printed here. The toggles read session +0x2cfd9 bit 7
+  (AutoParty), +0x2cfdb bit 1 (Mentor) and bit 5 (Recruit) (FUN_100e47c0 / FUN_100e4520).
+- LSB: 0x0DC clears InviteFlg when RecruitFlg is set and the other way round; MentorFlg applies only with
+  hasMentorUnlocked().
+- /itemsearch: c2s 0x02C built by FUN_100ec350 (0x48 bytes; Language from DAT_10456a28 +8, 2 / 3 -> 1 when +0x18 bit
+  7), the callback LAB_1007b0f0 kept at session +0x3c148. Flag != 0 puts the name into the input line buffer
+  DAT_1047d3a8 when DAT_103579ea == 0x11 *(inf: an auto-translate / completion request)*. The bag table 0x1032c9c8
+  {u16 bag, u16 7031 line}: 0 0x114, 1 0x115, 9 0x124, 2 0x116, 4 0x117, 5 0x118, 6 0x119, 7 0x11a, 8 0x11b, 10 0x12f,
+  11 0x130, 12 0x131, 13 0x13f, 14 0x140, 15 0x141, 16 0x142, 17 0x143 (to bag 0x12); a hit is tested with
+  FUN_101f01e0.
+
+## Text commands: targets, linkshells, /fish, /automove, /follow, /returntrust, /volunteer (2026-10-25)
 
 - /targetpc /targetnpc /targetbnpc /targetopp (FUN_1007a600..6c0): nothing while engaged; the nearest PC, non-PC or
   monster in front (opponents only in PvP: nothing). No line.
@@ -8236,7 +12281,49 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   param 689, LSB "Unable to use job ability." in town; an unquoted two-word name fails as /ja does.
 - Since done from part D: /monsterskill ("Monstrosity, part 9").
 
-## Text command /? (2026-10-25; spec textcmds2_spec.md part C)
+From the research notes:
+- Packets go through FUN_100fc3c0(id, key, ..) and thunk_FUN_100ddd20; 0x01A through FUN_100780a0 -> FUN_100780d0 ({id
+  @4, ActIndex @8, category @0xa, param @0xc, 3 x f32}).
+- /targetpc 0x18, /targetnpc 0x19, /targetbnpc 0x1a, /targetopp 0x1b (flags 0x51): the nearest in front within 50
+  (FUN_10083f20): pc FUN_10083ec0(-1), npc FUN_10083ee0(-1), bnpc FUN_10083f00(0x10), opp FUN_10083ec0(0x10) (PvP /
+  Conflict opponents, inf); then FUN_10157b40(actor, 1, 0), the key pick (nothing while locked).
+- /makelinkshell 0x48 / /makelinkshell2 0x49 (flags 0x41): trading is DAT_10578484 +0xc0 (refusal index 0x11); c2s
+  0x0C3 {u8 State @4, u8 Linkshell 1 / 2 @5}, 8 bytes; LSB requires State 0 and the pearlsack rank. /breaklinkshell
+  0x4a: the argument must pass FUN_10077c30 (3..15 letters), else nothing; c2s 0x071 {UniqueNo 0 @4, ActIndex 0 @8,
+  Kind 1 @0xa, Name[15] @0xc}, 0x1c bytes (the party kick layout); no LS2 form (id 0x4b FUN_1007d1a0 has no name).
+- /fish 0x36 (flags 0x01), in order: zone flag 0x100 without DAT_1048098d, or engaged or Conflict: silent; the status
+  gate 0x75 (costume 0xb1, sitting 0xa0, healing 0x51, mounted 0x4b, synthesis 0x4e); FUN_10177730 (DAT_10631f24 ->
+  FUN_101815d0; inf: water in front), the session and zone != 0xd3, else 7 0x49 "You cannot fish here." (refusal index
+  7); already fishing (DAT_10487e49): done; FUN_1009fb50: FUN_100956c0(0xff) *(inf: rod or bait missing, nothing
+  sent)*, else 0x01A 0x0E, then DAT_10487e49 = 1, the model's position / rotation copied into our actor and
+  FUN_101590a0 (the target cursor closed).
+- /automove 0x5a: FUN_100a6070(1) (DAT_10487f81, key 0x1c's flag). /follow 0x5b (flags 0x141): the target through
+  FUN_1007a1c0 -> FUN_1007e220; followable = FUN_10098210(1) (actor +0xee kind 0 / 1 / 2 / 6 / 7 / 8, not +0x120 bits
+  14 / 15 / 18, the mounted rules, not hidden by +0x130 bits; inf); the follow ref 0x10487f74; per frame the autorun
+  vector DAT_10487f64 toward the target (all.c 124380..124640); status 2 / 3 also cancels.
+- /returntrust 0x30 / /returnfaith 0x2f (flags 0x101): "all" = each actor 0x700..0x8ff with +0x12c bit 22, +0x124 bit
+  12 clear, +0x120 bits 7 / 8 clear and FUN_1008e240 (owner index +0x2a4 == ours); FUN_1007bf30(t, 1, k, 1, 0) is
+  refused mounted (7 0x4b) or with our +0x128 bit 6 (7031 0xac), has no distance test, skips a target in status 2 / 3,
+  and queues with key k *(inf: keeps the per-trust packets apart)*.
+- /volunteer 0x11 (flags 0xc3): the text is the line from argv[1] on; the target's name is +0x214 when +0x210 != 0,
+  else +0x7c; c2s 0x01E {Command[0x96] @4}; LSB only runs its OnPlayerVolunteer hook. /translate 0x15: the letters
+  come from group 12 0x5e..0x61, G / F only while config +0x18 bit 7 is clear; the reply callback sits at G+0x3c140;
+  other token counts than 2..3 fail.
+- /nominate 0xf (flags 0xc3): the text through FUN_1018fb30; c2s 0x0A0 {u8 Kind @4, Str (<= 0x97 + NUL) @5}; LSB reads
+  Str[128] as "question" "opt1" "opt2" ...; with no channel word the chat mode decides (FUN_101ad830: 3 shout 6, 5
+  party 1, 6 ls 2, 0xc ls2 3, 4 tell -> 0x69, else say 5). /vote 0x10: argc 2 with a number 1..8 votes for the last
+  proposer (DAT_104df910), else a name (<= 15, starting with a letter) with index 0; FUN_100e0a50(name) must be 0
+  *(inf: not blacklisted; 2, the list not loaded, also refuses)*.
+- s2c 0x078 {UniqueNo @4, AllNum @8, ActIndex @0xc, sName[15] @0xe, Kind @0x1d, Str @0x1e}: a blacklisted name is
+  dropped; the text's mode by Kind 1 0x0f, 2 0x10, 3 0x1c, 4 0x1f, 5 0x0d, 6 0x0e. s2c 0x079 {AllNum @4, VoteNumTbl[9]
+  u16 @8, Kind @0x1a, State @0x1b (0 active, 2 closed), QuestionNum @0x1c, sPropName[15] @0x1d, Str @0x2c}; " %d[%d]"
+  (0x10362320) for i = 1..QuestionNum - 1 while active.
+- /seacom 0x8f: N = atoi - 1 must be >= 0; FUN_101ddb30 stores line N (0x29 bytes, filtered). /seacomup 0x90: the type
+  words (table 0x1037f050) are English or Japanese. /befriend 0xd (FUN_1007a020; not done): a search-server lookup
+  (FUN_100e2990 -> FUN_100e1b90, kind 0x14) of the exact name; no result 7 0xa2; a match goes to the Friend List add
+  request FUN_101ffa20 (7 0x7a while busy).
+
+## Text command /? (2026-10-25)
 
 - FUN_1007ffa0: no word lists every command name with flag 1 or 4 and none of 0x1e00 (FUN_100800a0), "normal"
   (exact) those with flag 1, in the command table's order (0x10355408, 0x18-byte rows); each name a mode 0x9d line
@@ -8252,7 +12339,12 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
 - Live: "/? sit" printed the /sit help with its Subcommands block on separate lines, "/? lock" listed /clock
   /lockon /locker /blockaid /blockhelp /lockstyle /lockstyleset.
 
-## Riding: the chocobo / mount under the rider (2026-10-25; spec ~/ffxi/lab/research/mount_model_spec.md)
+From the research notes:
+- /? is id 0x103 (flags 0x2061): flag 0x2000 (name table byte +0x17 bit 5, only /?) makes the dispatcher FUN_10080dc0
+  echo the line ("%s", mode 0x9d) before the handler runs. Id 0x10b (no name, FUN_10078150) is a disabled-command stub
+  printing 9 0x67 "Cannot use yet." *(inf)*. The help text is decoded by FUN_10257bc0 / FUN_10257d00.
+
+## Riding: the chocobo / mount under the rider (2026-10-25)
 
 - Fields: 0x00D mask 0x04 ChocoboIndex u32 @0x20 bits 5..7 (asm 0x1009a1e7), the mount id u32 @0x44 bits 4..11
   (asm 0x1009aa8d -> entity +0x1db), CustomProperties @0x34 / @0x38; 0x037 ChocoboIndex u32 @0x28 bits 13..15 and the
@@ -8276,7 +12368,7 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   - the rider's point 0x6b, both read back from the GPU pose relative to their roots (keys bit 62, ride::points; one
   frame late as retail), and its facing turned by the yaw offset. Nothing on a chocobo (the riding motion lifts it).
 - Live (Lnxcsfix, Hume M, West Ronfaure): /mount Chocobo drew the chocobo with the rider (files [38603]), standing and
-  running; /mount Raptor files [38608], offset (-0.128, 0.383, -0.110) = 0.17 forward and 0.38 down as the spec's CPU
+  running; /mount Raptor files [38608], offset (-0.128, 0.383, -0.110) = 0.17 forward and 0.38 down as the frame-0 CPU
   check (0.17, 0.38, 0); from the side the rider sits on the raptor's back.
 - Transitions (FUN_1008b460, ride::Phase): on a mount the rider waits hidden (state 0xe) until the mount's model is
   in or 150 updates pass, then its load fade restarts; leaving (states 0xf / 0x10) a mount's rider goes to colour
@@ -8310,7 +12402,67 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   (+0x1bc) still runs, then clears the bit. Ours: EventState::status_lock; the wait while a bound actor still has a
   ride (riding or leaving).
 
-## The block list window (2026-10-25; spec ~/ffxi/lab/research/blklist_spec.md)
+From the research notes:
+- Statuses: entity +0x16c the server's, +0x170 applied (FUN_1008e9a0 copies it once the transition machine settles),
+  +0x174 the event's. The 2019 build has the same riding code; only entity offsets differ (applied +0x16c, mount id
+  +0x1d7, motion names +0x1a0 / +0x1a4).
+- Entity: ChocoboIndex at +0x120 bits 24..26 (FUN_10097a20 only stores it); the chocobo look at +0x250 (race) and 9
+  u16 from +0x252; +0x120 bit 10 = the second actor exists (entity +0xa4), bits 11..12 its type (0 chocobo / mount, 1
+  fishing rod, 2 chair); stand / walk / run names +0x1a4 / +0x1b0 / +0x1b4 -> actor +0x7c8 / +0x7cc / +0x7d0
+  (FUN_1008a2f0). Actor +0x768 links rider and animal both ways.
+- 0x00D @0x44 bits 0..3 go to +0x13c bits 24..27 (LSB GateId). 0x00E: ChocoboIndex u32 @0x20 >> 5 & 7, u8 @0x24 ->
+  +0x1db unless +0x12c bit 30 (then +0x294) (inferred: a riding NPC; LSB never sends it). Our ChocoboIndex at zone-in
+  comes from DAT_104dfd98 + 0x40dae & 7 (inferred: the 0x00A copy); the mount id with the first 0x037.
+- LSB: the mount id is m_mountId (the mount list index + 1, list d_msg 55681); status 5 for ids 0 (chocobo) and 34
+  (Noble Chocobo), else 0x55; ChocoboIndex 1 rental, 2 personal (CustomProperties[0] = the raised chocobo's bits), 4
+  noble (CustomProperties[1] = 1), other mounts (id % 8) + 1 (ignored by the client for 0x55). It keeps a mount across
+  zones that allow mounts, so a zone-in can come with 5 / 0x55 already set.
+- FUN_1008f740 gates: status 5 with a personal chocobo whose look race is outside 0x20..0x24 -> no model yet; 0x55
+  with mount id 0 -> return before anything (the rider is never drawn). Kind = DAT_1035b4d0[ChocoboIndex] = [1, 2, 3,
+  4, 3, 0, 61, 62] (2019 lacks row 4, the noble chocobo), a mount 0x54; kinds 3 / 4 are race-built (FUN_100a4430,
+  0xa34 bytes, vtable 0x1032d710; skeletons DAT_1035f410: races 32..36 -> 55295, 55329, 55363, 55397, 55431), the
+  rest FUN_100c59b0 (0xa0c bytes). Kind tests: vt +0x34c 1..4, +0x354 3..4, +0x358 0x54, +0x360 5..0x24 (rods),
+  +0x36c 0x3d..0x51 (chairs). Kinds 1 / 2 and 3 / 4 load the same files; no other difference found.
+- A status that no longer matches the type bits removes the animal (FUN_10092870: riding files off by FUN_100d44b0(7
+  / 8 / 9), the animal deleted, links cleared); FUN_10092900 (zone-out, despawn) does the same. The custom look
+  (FUN_1009ab40) runs only with status != 0x55 and ChocoboIndex 2..4; FUN_1009ab30 clears it on dismount. LSB colours:
+  0 yellow, 1 black, 2 blue, 3 red, 4 green.
+- Size: the chocobo's info[10..13] = 64 7d 64 64, so Elvaan and Galka (rider info[13] = 1) ride a 1.25 chocobo. The
+  draw uses +0x754 unless an event scale (+0x110) or the per-axis overrides +0x758..+0x760 are set.
+- Sync (FUN_100c8ed0 chocobo, FUN_100c9330 mount): each frame the rider's positions (+0x34 / +0xc4 / +0x5c4 / +0x5fc /
+  +0x9d8), rotations (+0x44 / +0xe4 / +0x61c), floor area, light blocks (+0x388) and event scale go to the animal, so
+  it stands at the entity's place and facing, never offset. Drawn position +0x678 = pos + +0x60c, rotation +0x688 =
+  rot + +0x62c.
+- Points: the rider's 0x6b is on bone 25 at (0, 0.15, 0.02); the raptor's (102706) saddles are on bone 2: (0.17,
+  0.33, 0) Hume / Elvaan, (0.35, 0.32, 0) Taru, (0.35, 0.35, 0) Mithra, (0.20, 0.33, 0) Galka; the chocobo skeleton
+  has them all at bone 0, (0, 0, 0). FUN_100d4800's status lift applies only to bone-0 points. The frame-0 CPU check:
+  Hume M on the raptor ('6hi0' / '6hi1', raptor size 0.85): saddle 0x30 at (0.11, -1.47, 0) x 0.85, so v = (0.17,
+  0.38, 0); on the chocobo the riding motion alone lifts the hip point 0x6b from 0.90 to 1.63 up.
+- Variant digits (Hume M poses, all facing +x): 6 the chocobo straddle (hip 1.63 up); 5 standing (Magic Pot,
+  Levitus); 3 seated, legs forward together; 2 seated low, legs forward; 1 seated low; 4 lying prone, head forward; 7
+  kneeling on one knee.
+- Not checked against retail footage: the surprising yaws (Tiger 0x40 for Hume F, Elvaan F and Mithra, with variant 3:
+  side-saddle; Crawler 0x7f for everyone; Buffalo 0x7f for all but Galka; Morbol 0x30 / 0xec).
+- Motions: the local player's ratio is x 1.25 while riding (double at 0x10331370); backing up (strafe state +0x598 =
+  3) 'mvb', sideways 'wlk'. A rider's switch starts the base name on the animal (FUN_100cd920, a 16-tick blend or
+  FUN_100d4b20); when the animal lacks it the rider's +0x7d8 is cleared so the switch retries. The riding files come
+  in per-race blocks of six: +0 chocobo, +1 / +2 fishing, +3 chocobo [S], +4 chairs, +5 mount.
+- Transition: state 0 for 0x55 hides byte 0 of wep0..wep8 (FUN_100d60c0(0)), sets rider +0xb2 |= 0x40 and counter
+  +0x1cc = 0; state 0xe counts to 0x96 (or jumps there once the animal is loaded), then +0x59c = 0 and bit 6 cleared
+  the next frame. Leaving 0x55, FUN_1008c6c0 runs FUN_100d5ef0(0) (every wepN byte 0 cleared) and FUN_100d60e0(2, 0)
+  (wep2 hidden again).
+- coff: the rider on a chocobo (38603) 180 ticks: holds 0x2f / 0x2e / 0x59, `ch1?` 104 then `ch2?` 76; on a mount
+  (38608) 80: the holds, `idl?`, op 0x29 colour to 0x80808080 over 80; the chocobo (39275) 174: `ch1?` 100, `run?` x 2,
+  op 0x6e (72 ticks, 12.0), op 0x29 to 0x80808000 over 24; the raptor 74: `run?` x 2, op 0x6e (72, 10.0), the fade
+  over 24.
+- cdam: the riding files and animals carry it (rider `chd?` + `bb1?`; animal `dam?`, `vdam` sounds, a fade); nothing
+  in FFXiMain names it (inferred: a DAT 0 scheduler starts it).
+- Draw: a mount kind skips the occlusion query and the 1-in-N frame skip (DAT_10456c00); a rider at 0x55 is never
+  frame-skipped. The shadow mode DAT_1045b77a is 3 for a rider with a linked animal (inferred).
+- Files: every mount file has chi0 / wlk0 / run0 / mvb0 / dam0, schedulers cdam / vdam / coff, sounds dam1..4; the
+  chocobo 39275 also ch10 / chh0, chor, generators chov / fmrk / cho1 / cho0 and sound 8077; none has `init`.
+
+## The block list window (2026-10-25)
 
 - Only /blacklist (/blist) with under 3 words opens it (FUN_1007c6c0 -> FUN_101def10; one caller); a second one
   closes and remakes it at the top. "menu    blklist" (frame (16, 48) 366 x 248, 15 rows): the names in list order,
@@ -8334,9 +12486,45 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
 - Not done: the wheel / scroll bar drag, the window groups (blklist group 0x1c suspends gaugewin and the other 0x1c
   lists; blkmain 0x81).
 
+From the research notes:
+- Objects: blklist DAT_10663494 (class vtable 0x10338f68, ctor FUN_101dedc0; open FUN_101def10, close FUN_101def70,
+  rows FUN_101decc0, frame hook FUN_101deef0, Enter hook +0x5c FUN_101dee40); blkmain's handler DAT_10663498 (vtable
+  0x10338f20, select +0x18 FUN_101defc0). Registry: blklist slot 182, layer 2, flags 0x00030000 (0x10000: the cursor
+  starts on child 1; 0x20000: showing it closes every 0x40000 window: mcr1pall, mcr2pall, mcr1long, mcr2long,
+  cnttime, prvdungp); blkmain slot 183, layer 2, flags 0x00200000 (read only at creation, FUN_101190f0; not traced).
+- The window groups (not done): blklist (0x1c) suspends what shares a bit: gaugewin, playermo, money, iteminfo /
+  chatctrl and any 0x1c list below it (scresult, msglist, friend, fulllog, the merit / quest / mission / config
+  lists); blkmain (0x81) suspends subwindo and the 0x81 menu pages below it, not blklist.
+- The wheel and the bar (not done): 0x16 / 0x17 = top - / + 1, SE 0001 when it moved, the hand stays on its child (so
+  the selection moves with the rows); the bar (`menu    scroll` at (374, 48, 248), only while count > 15): caps 0x16 /
+  0x17, track 0x18 / 0x19 (the Left / Right page code), thumb drag 0x1b (top = the bar's top, SE 0001 at each change).
+  A left release over the window off any row: SE 0004 (the window manager).
+- Bars: blklist focused: title 0xd 0x7e "Blacklist"; help slot 2 is set from the row's +0x4c on every move, 0 for
+  every row, so cleared. blkmain: help 0xe 0x251 "Delete from blacklist." (child 1), title 0x7e; 0xe 0x250 "Remove
+  registered person from blacklist." is only the frame's fallback.
+- The store (G = DAT_104dfd98): 300 slots of 0x1c at G+0x1a6a4 {i16 next, i16 prev, i16 used (-1 free), u32 ID @+8,
+  Name @+0xc (15 bytes)}, a doubly linked list (head G+0x1a6a0, tail G+0x1a6a2), appended with no duplicate check;
+  with all 300 used an add is dropped (FUN_100e0680 returns 0). State byte G+0x1a698: 0 not loaded, 1 loaded, 2 being
+  walked (FUN_100e0c70 / 0cf0), 3 inside the 0x042 handler; changed byte G+0x1a699 (only 0x042 sets it, FUN_100e0a20
+  reads and clears it); last ask G+0x1a694 (seconds). The session's open (FUN_100f9eb0) empties the list
+  (FUN_100e0560), its close (FUN_100f9e10) sets state 0 (FUN_100e0a00).
+- s2c 0x042 (LAB_100e0770): Mode 0 appends, 1 removes by name (the leading letters, up to 16: FUN_100e0800 /
+  FUN_100e09a0), other modes nothing; then state 1 and changed 1 whatever came before (the list update inferred in
+  "The block list (blacklist): its readers ..."); then the pending callback G+0x1c78c, if any, is called with
+  (G+0x1c790, Mode) and both are cleared. Only /blacklist sets one (LAB_1007c8e0 with 0x75 / 0x77); the window's Delete
+  passes (0, 0), which also overwrites a command callback still pending.
+- FUN_100e0bc0 returns 0 sent, 1 no packet buffer, 2 list not loaded (then it also asks with 0x03C); not 0 rebuilds
+  the rows at once.
+- c2s 0x03C: 0x1c bytes, zero after the header, only while state != 1 and more than 60 s after the last ask (none in
+  the session's first 60 s). c2s 0x03D {u32 ID @4, Name[16] @8, i8 Mode @0x18}; from the window the stored entry's
+  20 bytes. s2c 0x041 (FUN_100e0620): List[12] {u32 ID, Name[16]} @4, Stat @0xf4 (bit 0 empty first, bit 1 last
+  packet: state 1), Num @0xf5; it never sets the changed byte.
+- LSB (0x03D): blocked in events; resolves the name only (the ID is ignored); Mode 2 {0, ""} when the name is
+  unknown, already listed (add) or not listed (delete); no size limit (the client keeps 300).
+
 ## Event op 0xae subs 1..4: the name colour and the face motion (2026-10-25)
 
-- STATUS.md R11 read sub 3 as a walk speed: entity +0x168 is the face motion a spoken line plays (FUN_100846b0
+- Audit item R11 read sub 3 as a walk speed: entity +0x168 is the face motion a spoken line plays (FUN_100846b0
   returns it, 'mou4' without an entity; the entity init at all.c 107506 sets 0x34756f6d 'mou4'). FUN_100bb620 sub 3:
   actor@2 (id checked) +0x168 = DAT_1035d000[val@6] = {'mou4', 'kut4'}, values above 1 leave it; sub 4: 'mou4'.
 - FUN_100ce0e0 plays that motion (FUN_100cd4e0 params 16.0, 1.0, region 4), or 'mou6' (16.0, 8.0, region 6) when the
@@ -8346,7 +12534,7 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   (the entity init, all.c 107535) means the usual rules. Entity::name_ncol. Seen in zone 50: npc0ca gets 'kut4' (sub
   3 with 1) and 'mou4' back (sub 4).
 
-## Mog House furniture (2026-10-25; spec ~/ffxi/lab/research/furniture_spec.md)
+## Mog House furniture (2026-10-25)
 
 - The scan (FUN_101d2af0 / FUN_101d2b10, every frame): containers 1 and 9, slots 1..0x50, item types 10 / 12 / 14
   with exdata[1] bit 6 (installed) and exdata[1] & 3 == the floor (0x00A (u8 @0xa8 >> 1) & 3). Only in a furnished
@@ -8383,7 +12571,64 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
 - Since done: mannequins (client/mannequin.rs) and layout mode; the item-gated zone NPC is never spawned by LSB ("Mog
   House: the item-gated NPC").
 
-## Ground tilt (2026-10-25; spec ~/ffxi/lab/research/ground_tilt_spec.md)
+From the research notes:
+- The scan's caller is the myroom update FUN_101d4a20 (game mode 0x60, DAT_106631d0 == 0, zone != 280); myroom is
+  DAT_106631d4 ("YkMyroom"). A listed piece on another floor only sets its "has" bit (FUN_101d4ba0). Objects (0xf4
+  bytes, "YkFurniture") sit at myroom +0x4c [2][0x51] by (container == 9, slot). Exdata is read at creation and on a
+  layout cancel (FUN_101ccf50(6)) only: retail never re-reads a moved position. FUN_101d5120 -> FUN_101d5140(1), (9)
+  frees an object whose record is gone or whose installed bit went clear (FUN_101ce7a0 returns 0). No wait on 0x01D:
+  each container's pieces appear once its 0x020s are in (inferred).
+- Exdata besides the above: [1] bit 7 is LSB's dried pot bit (not read); [10..21] the signature; mannequins [10..17]
+  storage slots, [18] race, [19] pose. Any non-zero [0] on an installed piece makes FUN_101d3cc0 / FUN_101ce170 prompt
+  (group 0xc 0x35).
+- Object: +4 layout state, +5 slot, +6 floor, +8 item, +0xa type, +0xc storage slots, +0x10 container, +0x14 / +0x18 /
+  +0x1c / +0x20 x / level / z / rot, +0x54 / +0x56 / +0x5a entity index (furniture / skeleton / mannequin), +0x64 the
+  plant, +0x6c / +0x70 the pieces stacked on it, +0xf0 the 'furn' entry. Every actor gets +0xc0 = 2 (not targetable;
+  layout mode sets 1). In an unfurnished room the actor is hidden (+0xb2 bit 3) and object +0x30 hides it again once its
+  file is in. The furnished bit is +0x40db0 bit 12, set at zone load; FUN_101d5fe0 (clear) gates the hiding, the sweep,
+  the camera ray, layout mode and the item-gated NPCs.
+- 'furn' flags (FUN_101cebe0 / cebf0 / cec00 / cec10). Over the 869 used entries: 0 x495, 1 x55, 2 x94, 4 x215, 0xc x10;
+  LSB's placement enum (Floor / Surface / Wall / OnTable) matches. Furniture ids are all in 1..0x1ff or 0xe00..0xfff, so
+  the - 0xc00 fold never collides. FUN_101cce00 gives 0 for 0x200..0xdff and 0x809f from 0x1000.
+- Checked entries (item: flags, size, height -> file): 2 Simple Bed 0, 4x6, 70 -> 32929; 21 Desk 2, 3x3, 50 -> 32948; 24
+  Oak Table 2, 3x4, 100; 216 Porcelain Flowerpot 0xc, 1x1, 100 -> 33143; 120 Aquarium 4, 3x1, 120 -> 33047; 207 Fire
+  Lamp 4, 2x1, 50 -> 33134; 197 Clockwork Egg 4, 1x1, 80 -> 33124; 129 Imperial Standard 1, 1x1, 60 -> 33056; 0xe9f
+  Moogle Bed 0, 3x6 -> 62970 (index 0x29f); 264 Stuffed Chocobo -> 51447 (skeleton 'hina'); 277 Prishe Statue -> 51460.
+  Of 869 entries 606 have a file; 24 are skinned (exactly 264..299); 105 first MMBs start with '_'; 93 files have auto
+  model generators; 12 have 'init'.
+- Plants ('mode': u32 count 8, 8 offsets to {u32 12, 12 x u32 model}): kind 1 fruit, 2 herb, 3 grain, 4 vegetable, 5
+  cactus, 6 tree cuttings, 7 saplings, 8 wildgrass. Stages 0..1 have none; stages 2..4, 5..8, 9, 10, 11 take the kind's
+  five models in turn: 1 231..235, 2 241..245, 3 226..230, 4 236..240, 5 171..175, 6 161..165, 7 166..170, 8 156..160
+  (231 -> 33158). The plant is a plain XiModelActor without entity, rebuilt when exdata[0] changes.
+- Grid (FUN_101cce60): 1F 0..20 x 0..24, 2F 0..20 x 0..26; cells 8 bytes in a 20 x 26 array. 1F cells x 6..13, z 0..17
+  are blocked (0x80): the walkway from the door to the moogle. A surface piece writes its height into its cells; LSB's
+  c2s 0x0FA y = height / 10. Origins DAT_1037d7b4. World matrix as an MZB placement (FUN_100c4b50 / FUN_100c4c20).
+- Wall slots (FUN_101cce90): 1F 0x1037d9c8 (San d'Oria 0x1037da18), rotations 0x1037d960: slot 0 (6.5, -3, 4.55) rot 1,
+  1 (6.5, -3, -4.8) 1, 2 (-6.5, -3, -4.8) 3, 3 (-6.5, -3, 0) 3, 4 (-6.5, -3, 4.55) 3. 2F 0x1037da68 (rotations
+  0x1037d968, layout moves 0x1037d7f0); every row repeats y -5.6 / -3.2 / -2.5 / -1.8: slots 0..35 x -6.2, z +-6.2,
+  +-5.15, +-4.1, +-1, 0, rot 3; 36..47 x -4 / 0 / 4, z 8, rot 0; 48..83 x 6.2, as 0..35, rot 1; 84..91 x +-4, z -8, rot
+  2.
+- Rooms: furnished 0x121..0x123 (1F) and 0x267..0x26a (2F styles); not: rent-a-rooms 0x100..0x102 / 0x120, Adoulin
+  0x124, Whitegate and [S] (214 / 745 / 199 / 219), the Feretory 0x2d9. Geometry check: the 1F grid spans x +-6.0, z
+  +-7.2 on the y 0 floor; 289's wall at x 6.1..6.3 (its +-6.2325 slots), 290 / 291 a y -1.0 ledge to x 6.5; 2F (615) x
+  +-6, z +-7.8, walls by 6.3 and z 8.
+- XiFurnitureActor (FUN_100c3ec0, vtable 0x103306a0, 0x794 bytes, base XiModelActor): entity (FUN_1008a120) "Furniture",
+  +0xee = 3, +0x120 |= 0x200, +0x130 |= 8 (/hidetrust's destroy spares it). MMB 'fune' / '_fun' would take the ship path
+  (none in furniture). FUN_100c46b0 also starts type-7 schedulers marked self-starting (none in the sampled files,
+  inferred). Draw FUN_101844c0: lighting on, fog, material +0x3913c, no blending, alpha test GREATER 0x60 only with '_',
+  CULLMODE CCW. The colour method (vt +0x30) is the empty FUN_10081d30: layout tints do nothing to MMB pieces. 'init'
+  plays once (+0x77a = 1 after) from the update FUN_100c47f0, on the second update or later with the file in and +0xb2
+  == 0; a piece hidden then never plays it.
+- CXiSklFurnitureActor (vtable 0x1032ecb0, 0xcbc bytes, FUN_100ab360): entity +0xee = 2, +0x12c |= 0x400, +0x130 |=
+  0x200008; no box and no camera mesh. FUN_10085060 starts type-5 generators with flag 0x1000 and attach mode 1, 2, 4,
+  5, 7..0xc or 0x10..0x13, only while vt +0x124 == 0 and +0xb2 bit 1 is clear.
+- Visiting: LSB sends only the owner's installed furnishings, as containers 1 / 9 numbered from slot 1; 0x067 @0x20 is
+  the owner, @0x27 bit 0 2F unlocked. A floor change is a rezone (new 0x00A).
+- Test places (1F Bastok unless named): Simple Bed col 0 row 0 rot 0 -> (-4.8, 0, -5.4) yaw 0, rot 1 -> (-4.2, 0, -6.0)
+  yaw pi / 2; the pot col 17 row 5 level 5 -> (4.5, -0.5, -3.9); 2F col 10 row 13 1x1 -> (0.3, 0, 0.3); wall slot 3 ->
+  (-6.5, -3, 0), on 0x121 (-6.2325, -3, 0); 2F slot 40 -> (0, -5.6, 8). Plants: (1, 2) 231, (1, 0) none, (8, 11) 160.
+
+## Ground tilt (2026-10-25)
 
 - FUN_100cbde0: models of leg mode (0x45 info byte 0, `cib[0]`) 1 or 2, and every dead actor (status 2 / 3, PCs too),
   draw through FUN_100d54c0 instead of the Euler rotation (unless the event no-ground bits; not checked by ours). Leg
@@ -8395,12 +12640,13 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   frame into +0x82c (ours per tick: 1 - 0.8125^(ticks / 2)); the frame keeps the Euler model Z: X = down x Z, Y = down,
   Z = X x down. The next w: 1 for a status box ratio (b2 - b3) / (b4 - b5) in 0.6..1.4, else |fall line . long axis
   x scale| (a long body pitches up a slope and stays upright across it). Starts w 0, e up. client/tilt.rs; checked
-  against the spec's reference vectors (0, 3.711, 6.744, 9.218 degrees on a 20-degree slope; 30 on 60).
+  against the reference vectors (0, 3.711, 6.744, 9.218 degrees on a 20-degree slope; 30 on 60).
 - The normal: ours the player's walk normal (Ground::player_normal), else the face under the position each frame (the
   rider's for its animal) *(retail probes a far moving actor only every 121 frames)*. Quadrupeds with info[0] ==
   info[2] == 2 (behemoth, adamantoise, morbol, treant, wyrms ...) then take FUN_100a4d10's pitch-only normal: the
   front feet points 10 / 11 and rear 8 / 9 (ours from the rest pose through last frame's matrix *(inf)*), their
-  midpoints snapped, N = normalize(d x (d x up)) facing up (tilt::feet_normal; the spec's (-0.2425, -0.9701, 0)).
+  midpoints snapped, N = normalize(d x (d x up)) facing up (tilt::feet_normal: d = (-2, 0.5, 0) gives
+  (-0.2425, -0.9701, 0)).
   The tilted frame goes to the pose, attach_point and the effects (actor_frame).
 - Op 0xd8 (the plain path, FUN_100843b0): D3DX Scale . RotZ(z) . RotY(yaw) . RotX(x), i.e. glam T Rx(x) Ry(yaw) Rz(z):
   z about the model's Z, x about the world X after the yaw, both positive. Ours had z then x in the model frame with
@@ -8408,8 +12654,69 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
 - Live: the Tiger mount (key item 3074, file 102707, leg mode 2) on the East Ronfaure hill at (41, 170) follows the
   slope with the rider upright on its saddle.
 
-## Op 0xd4 sub 0: the map preview, and the teleport points on every map (2026-10-25; spec
-## ~/ffxi/lab/research/event_select_data_spec.md)
+From the research notes:
+- FUN_100cbde0 builds the world matrix (actor +0x998) at both of its sites (the drawn path, and the one for
+  occlusion-culled or alpha < 1e-4 actors): Scale, then the explicit matrix +0x5f8 when set (lift and door parts,
+  FUN_100600f0), else the tilt (FUN_100d54c0, t = 0x3e400000 = 0.1875) when FUN_10084640() == 0 and (signed MI[0] > 0
+  and != 3, or status 2 / 3), else RotX . RotY . RotZ of +0x61c plus the +0x62c offset (the rider's mount yaw), with
+  op 0xd8 on the drawn path; row 3 = +0x5fc + +0x60c. FUN_10084640 = entity +0x128 bit 14 | +0x120 bit 21 | +0x120 bit
+  20 (bit 21: op 0x33 / op 0x59 sub 5, cleared each frame outside events by FUN_1008cd90, which sets it for statuses
+  0x1a / 0x1b / 0x1d / 0x1e *(inferred: transport)*; bit 20 set by FUN_100ab9a0; +0x128 bit 14 not traced).
+- Leg modes over every NPC model id: 0 (859), 1 (51), 2 (166), 3 (296), 0xff (362, -1 signed). Leg mode 1 families:
+  beet, blac, coel, craw, eys, kpd, kumo, name, para, pois, sand, shel, slim, utub; 2: adam, alex, arij, arma, basi,
+  beas, behe, bigp, blil, buff, buta, came, cer, chim, crys, d_dr, ele, gold, hell, hopp, hora, hydr, inos, kiri,
+  krak, laff, mand, mant, moru, muka, odin, ogre, omeg, owm, pil, qr, ryu_, seiu, shad, shee, ston, tige, tren, uni,
+  utur, ware, zuu. The feet normal (MI[2] == 2 too): adam, behe, buff / buta, moru, tren, cer, hydr, ryu_, shad, zuu,
+  ele, basi, crys, d_dr, alex, blil, arij.
+- Mounts that do not tilt: chocobos, Raptor / Red Raptor, crabs, Fenrir, Goobbue, Doll, Iron Giant, Ixion / Alicorn,
+  Craklaw (leg mode 0); bomb, Moogle, Magic Pot, Tulfaire, Xzomit, Spectral Chair, Spheroid, Omega, Levitus, Phuabo
+  (3). A mount never takes the feet normal (it never probes, and its rider is a PC).
+- FUN_100d54c0 runs once a drawn frame for each actor on the draw list (FUN_100cbd60 guards double draws with +0x8d4 /
+  +0x8e8); an actor culled before the list is not stepped and its eased normal freezes. The model must be loaded
+  (FUN_1002b5a0).
+- The ground normal: vt+0x210 = FUN_100a4590 reads +0x160; vt+0x20c = FUN_100aa820 takes a normal only with |n.y| >
+  0.7 (0x1032d698 / 0x1032e838: faces steeper than 45.57 degrees never replace it); initial (0, -1, 0, 1)
+  (FUN_100a89e0, FUN_100a4c20). It is the MZB face's stored normal whichever side the ray hit (FUN_101693b0 stores
+  -(face normal) x the object matrix, the probe negates it again). FUN_100d59a0 negates vt+0x210 for down: the sign
+  MODLOG "Emission op 0x8e" marked inferred is right.
+- Who probes (FUN_100a4ed0, from FUN_100c63d0 every frame; skipped while FUN_100a57f0 is nonzero): attached kinds
+  never (mounts, rods +0x360, chairs +0x36c, +0x378). A probe runs when not grounded, moved more than 1e-7, or on the
+  first update (+0x5ec): our player and pushed actors through the sweep and the floor ray; others only with an attach
+  sync (+0x5e1), a view depth +0xbc <= 10.0 (0x10329cec), the first update or an event, by the mode-1 snap. Without a
+  probe a counter +0x5f0 (starting at rand() % 120) runs a mode-0 probe on the 121st frame. A lift box sets (0, -1, 0,
+  1) (FUN_10181560, DAT_1035bb7c). A mount animal copies its rider's normal each frame (FUN_100c8ed0 / FUN_100c9330).
+- The feet normal (FUN_100a4d10; vt+0x3fc = FUN_100d6760: MI[0] == 2 and MI[2] == 2), after a probe hit: points 10 /
+  11 (front) and 8 / 9 (rear) through vt+0x1c4 (posed, last drawn frame; tiger 1608: 10 / 11 at x +0.71, 8 / 9 at x
+  -0.56), each midpoint snapped (mode 1); a miss or equal x and z changes nothing; N = normalize(d x (d x up)) with d
+  = rear - front, flipped to face up, set through FUN_100aa820.
+- FUN_100d54c0's constants: 0x103313a4 cos 30, 0x3f060a92 pi / 6, 0x103313a0 1.4, 0x10329a30 0.6. The clamp turns up
+  30 degrees about up x n (a zero axis gives up). The frame always uses +0x61c as X, Y, Z (not +0x62c). The next
+  weight: g = normalize(nc x normalize(up x nc)) (the fall line); box = vt+0x3c8(0) (FUN_100cfad0 -> FUN_100cfb40, the
+  status box: 0 / 4 / 7 / 0x1c / 0x1f box 0; 2 / 3 box 2; 1, 5, 6, 0x26..0x2b, 0x32..0x35, 0x38..0x3e, 0x55 box 1;
+  others 0; no box DAT_1048a390); ratio = (b2 - b3) / (b4 - b5) = width / length (b2 / b3 span the posed Z, b4 / b5
+  the X); 0.6 < ratio < 1.4 -> w = 1, else w = |g . v M| with v the long axis ((0, 0, 1) for ratio >= 1 or NaN, else
+  (1, 0, 0)) and M carrying the scale.
+- So w can pass 1 with the scale: a long box facing up a 20-degree slope settles at 22.9 degrees at scale 1.15 and
+  27.4 at 1.4, and past 30 on steeper slopes (34.1 / 40.2), since the clamp acts on n, not on the blend. One frame of
+  lag (w comes after the matrix). Initial w 0, e up (FUN_100c5d60); e is never reset, so a model that tilts only when
+  dead eases from upright at death. Flat ground with any yaw gives exactly RotY(yaw).
+- Box ratios: mounts (box 1) Tiger 0.65, Crawler 0.86, Beetle 0.80, Morbol 0.88, Warmachine 0.85, Raaz 0.81,
+  Adamantoise / Wivre 0.62 -> w = 1; Sheep 0.47, Hippogryph 0.33, Coeurl 0.44, Dhalmel 0.37, Buffalo 0.55 -> the long
+  axis. Dead actors (box 2): PCs 0.67..0.80, most monsters 0.7..0.95 -> w = 1.
+- Easing at 30 fps on a 20-degree slope (w = 1 from the second call): 0, 3.71, 6.74, 9.22, 11.23, 12.87, 14.21, 15.29,
+  16.18, 16.89, 17.47, 17.95 ... 19.97 at frame 40 (half-way in 3.3 frames, 90 % in 11). Per tick 0.098612 (3.703
+  after 2 ticks); per tick and per frame differ by under 0.04 degrees.
+- Reference vectors: a 60-degree slope converges to 30.000 and never passes it with w = 1; tiger box 0 [-2.52, 0,
+  0.94, -0.81, 2.51, -3.07] on 20 degrees: facing uphill w 0.940 -> 20.0, across w 0 (stays 0.0), at 45 degrees ->
+  14.33, uphill at scale 1.15 -> 22.88; tiger mount box 1 [-3.76, 0, 1.89, -2.41, 3.53, -3.07] (ratio 0.65) across ->
+  20.0 (roll); feet front (1, -0.5, 0), rear (-1, 0, 0) -> (-0.2425, -0.9701, 0), equal x and z -> none.
+- Side finding: FUN_100c63d0's frustum box (c:148617..148650) and FUN_100cfc10's pick box take x from b2 / b3 and z
+  from b4 / b5, turned 90 degrees against long bodies; ours copies that (not checked against footage).
+- Open: the writers of +0x128 bit 14 and +0x120 bit 20, and what statuses 0x1a / 0x1b / 0x1d / 0x1e are; whether
+  vt+0x1c4's bone matrices include the tilted +0x998 *(inferred: likely)*; the across-slope no-roll of long bodies and
+  the scale overshoot, not seen in footage.
+
+## Op 0xd4 sub 0: the map preview, and the teleport points on every map (2026-10-25)
 
 - Teleport point table: item records 0xf600..0xf613 (file 55504, every language), 32 points of 20 bytes from record
   + 4: u16 id, u16 kind, u16 zone (0 empty), u8 sub-map key, u8 mask bit, i32 x / z / height (x 0.001). 576 points in
@@ -8463,7 +12770,34 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   list reopened the preview on Ru'Lude Gardens (243, not owned): hidden, "You do not possess a map of Ru'Lude
   Gardens." once; Escape ended the event with the map gone.
 
-## Scheduler op 0xac: the death scheduler pick (2026-10-25; spec ~/ffxi/lab/research/fx_op_ac_attach14_spec.md 1)
+From the research notes:
+- Op 0xd4's handler is FUN_100b2280 (dispatch FUN_100bc280); "Op 0xd4 option entries" above names it FUN_100b2290. The
+  select window never draws the entries (no grey option, icon or price): they are data for the one callback. The
+  constructor FUN_1014dd30 fills +0x13c..+0x53b with 0xff; FUN_1014e020 (from vtable +8, the window's reset, inferred)
+  clears all 32 and the callback +0x53c. Over all zone dumps the 148 zones with sub 0 are exactly those with sub 1, the
+  42 with sub 2 exactly those with sub 3.
+- The points' i32 height is not read by these functions (inferred). Per type in 30261006_0: 0 121, 1 9, 2 98, 3 51, 4
+  20, 5 156, 6 18, 7 29, 8 24, 9 18, 10 23, 11 9; types 5 / 7 / 8 are per-floor points of multi-map zones. Samples: id 0
+  type 0 zone 230 (-85.468, -66.454); id 97 type 0 zone 230 (-165, 11); id 152 type 2 zone 231 bit 24; id 631 type 11
+  zone 291 map 1. Escha portals (event 0x238c in 288 / 289 / 291) use type 10 (11 in 291), id 608 + slot.
+- Type -> mask: Home Point +0x00 (FUN_101cbc70), Telepoint +0x30 (FUN_101cbcb0), Survival Guide +0x10 (FUN_101cbcf0),
+  Waypoint +0x20 (FUN_101cbd30), Atmos(S) +0x34 (FUN_101cbd70), Eschan Portal +0x38 (FUN_101cbdb0); the other types have
+  none (always open). s2c 0x063 type 6 goes to DAT_104858c4 (handler LAB_10099270, jump table 0x100993dc); @0x3c is
+  unknown.
+- The image request test in FUN_101f9a20 reads map +0x6c4 as null or *ptr == 0 (inferred: a load handle). Key -1 takes
+  the sub-map under the player (FUN_101811d0); on a lift group 7 0x61 "You cannot view maps while riding on elevators."
+  and nothing opens.
+- Draw order: "menu    mapframe" is layer 0 (flags 0x20042), "menu    query" layer 2 (0x11012), so the menu draws over
+  the map (inferred). The backdrop's 4 cells were read from an HD-scaled dump: to be re-checked with the stock file
+  53442; that it darkens what the widened bounds expose is inferred.
+- A reopen on another zone (close callback LAB_101faff0, game state 0x60) happens only if a region record exists for
+  (zone, map), else the preview stays closed; each reopen sends c2s 0x114 and loads the table again. Repeated menus
+  (Home Point loops) reopen the map each time.
+- Markers: flags 0x89 when unnamed; label colour index 2 is 0x606070 (table 0x10382084), times alpha; the named
+  (followed) point is drawn last, so on top (inferred).
+- dat/items.rs Kind::Kf600 keeps +0x1580 as a u32; it is a pointer to record + 4 (unused).
+
+## Scheduler op 0xac: the death scheduler pick (2026-10-25)
 
 - FUN_10057fb0 case 0xac (asm 0x1005c1cb..f4; 2019 FUN_10057000): `ac 03 | wait | dur (unread) | u32 @8`, actor1 with
   dolls unwrapped (FUN_10062770), any actor kind; actor vtable +0x130 = FUN_10084ad0 in all 9 vtables: entity +0x130
@@ -8477,7 +12811,24 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   scheduler without a motion plays none: no `ded` fallback). Tests death_pick_op, death_pick_data, death_schedulers.
   Not seen live (no Ghrah near the test characters).
 
-## Geomancer Indi aura, and an actor's deletion unlinking its effects (2026-10-25; spec ~/ffxi/lab/research/fx_indi_aura_spec.md)
+From the research notes:
+- Layout `ac 03 00 00 | i16 wait @4 | i16 dur @6 | u32 value @8` (12 bytes). No CXiSkeletonActor check (unlike ops
+  0x40..0x55). Vtable +0x130 = FUN_10084ad0 (2019 FUN_100833e0) in CXiActor 0x1032cfe0, CXiAtelActor 0x1032e3c8,
+  CXiControlActor 0x1032dfc8, CXiDancerActor 0x1032f4f0, CXiDollActor 0x1032f938, CXiGeomActor 0x1032e890,
+  CXiMannequinActor 0x1032f0d0, CXiSkeletonActor 0x10330f40, CXiSklFurnitureActor 0x1032ecb0; an actor without an
+  entity (+0x70 = 0) is left alone.
+- The reader (FUN_1008c6c0, asm 0x1008cb06..0x1008cb3f): new status 2 / 3, model kind +0xee not 3..5; the name runs
+  through model vtable +0x298(name, model, 0), then model +0x7d8 = '    '. Only reader in either build.
+- FUN_1008a350 (`+0x130 &= 0xffff7f00`, bits 0..7) runs from the entity constructors FUN_1008a120 / FUN_1008a140,
+  FUN_10099a40 (another slot with the same server id), and the 0x00E handler at asm 0x10099b80 (a new entity in the
+  slot) and 0x10099dec *(inferred: the despawn branch, mask @0xa & 0x1f != 0x1f)*.
+- 50713 is mob TP move animation 1066 (LSB mob skill 1442, skill list 122). 2461..2469 are models 1161..1169
+  (folder `guar`, *inferred: the Ghrah forms*); their `1ead` = op 0x57 `kill` (soft-stops gc00 / gp00 / gp01), wait
+  262, op 0xac 0, wait 10; their `dead` = op 0x57 `kill`, wait 6, op 0x57 `dsel` (picks `dea0`..`dea3` by a
+  scheduler variable). Core Meltdown's op 0x59 holds the caster's status 254 ticks, so `1ead` runs when that ends.
+- Not the event VM's op 0xac (sub 1: the event actor's status +0x174): another opcode space and field.
+
+## Geomancer Indi aura, and an actor's deletion unlinking its effects (2026-10-25)
 
 - Value: s2c 0x00D u8 @0x42 (General mask bit 2) and 0x037 u8 @0x58 (bit 7 the job master flag): element (+8 enemy
   spells) bits 0..3, size 4..5, on bit 6. 0x00E writes only the low nibble, so NPCs never show it. Setter FUN_1009ad20:
@@ -8501,7 +12852,51 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   its generators (oya1, fla1, gl01..05, yr01 / yr02, rg02..04, sen2 / sen8 / sen9, pk01 / pk04): the light intro
   burst around the body, then the faint bubble; at expiry dead / stop and the actor gone. Not compared with retail.
 
-## The actor refraction pass: scheduler ops 0x48 / 0x49 (2026-10-25; spec ~/ffxi/lab/research/fx_refraction_spec.md)
+From the research notes:
+- Handlers, all calling FUN_1009ad20: 0x00D FUN_10099ae0 (PCs, ActIndex 0x400..0x6ff, ours included; asm
+  0x1009aa11..0x1009aa37), 0x037 FUN_1009d0f0 (asm 0x1009d8e9..0x1009d904), 0x00E FUN_1009b550 (asm
+  0x1009c820..0x1009c855). The 0x00E site stores u8 @0x26 & 0xf as a byte and decodes size and on from that byte,
+  so on is always 0 (2019 the same): NPCs, trusts, pets and monsters never show an aura, even with COLURE_ACTIVE.
+- Entity fields: +0x130 bits 26..29 element, 30..31 size; +0x134 bit 0 on, bit 17 shown [2019 bit 1]; +0x202 u16
+  the dying countdown [2019 +0x1fe]; +0xa8 the aura actor (its +0x88 |= 8). Setter quirk *(from the code, not
+  seen)*: off then on with a new element before the entity's next frame keeps the old aura.
+- The countdown is whole ticks, at least 1 a frame (ftol(FUN_10014cf0)); ours counts 90 ticks of real time.
+  Deletion FUN_10092800 (owner actor +0x76c, +0xa8, +0x202 and shown cleared), also from FUN_10092900 (zone-out,
+  despawn, the character-model cap: an aura goes and comes back with its model).
+- The filter (FUN_100adee0, config 0x92) is checked every frame: toggling a Config row, or engaging with bit 0 set,
+  deletes the aura at once (no `dead`) or rebuilds it (`init` again). Rows that hide one: you (0x11) bit 1, party
+  (0x44) bit 11, another PC (0x88) bit 16, a monster-flagged PC (0x22) bit 6. The aura's schedulers start without an
+  action, so op 0x02's filter never applies to them.
+- FUN_100c59b0 links kinds 0x25..0x34 through slot 1 (+0x76c both ways; the mount uses +0x768); with no owner actor
+  it logs and stays unlinked. Kind predicate vt +0x378 = FUN_100828b0 (0x24 < kind < 0x35). File: FUN_100d2f60's
+  +0x378 branch, kind + 0xcbce (asm 0x100d36d0), loaded as the mount kinds are (FUN_100730e0, callback
+  FUN_100d0d70).
+- Files 52211..52226: nibbles 0..7 fire, ice, wind, earth, thunder, water, light, dark for allies (folders gfar gice
+  gwin ggro gele gwat glig gdar), 8..15 the same for enemies (gjfa gjic gjwi gjgr gjel gjwa gjli gjda). `star`
+  sounds: t70 7195 (allies) / 7196 (enemies), t120 7198 + (n & 7). Each file: an effect rmp `geo_` (19..22
+  generators, all attach mode 2, word 0x04100002, life 0; schedulers eff0 / star / kill / stop; sounds 7195..7198),
+  a motion rmp `geo_` (sdep spop dead ldam damg chit gurd sway sdam pop0 init corp), skeleton `toum` (2 bones), mesh
+  `hf_t` (one tiny triangle, texture `blac`: nothing visible), motions idl0 / btl0, info
+  `030000ffffffffffffff254b7097ffff` (size bytes 10..13 = 37, 75, 112, 151).
+- `star` (length 120): t0 op 0x03 `kill` (op 0x5f `eff0`, op 0x1e on every generator: the model clones stop, so
+  nothing shows for 70 ticks); t70 the sound and op 0x03 `eff0` (length 179..208: op 0x02 starts the generators
+  staggered, the loops restart on (aura, aura)). `stop`: six op 0x2d, then sound 7197. `sdep` is `dead`'s twin;
+  nothing plays it on an aura.
+- Placement (FUN_100c63d0 asm 0x100c7262 -> FUN_100c9810) runs before the saddle code, so a mounted owner's aura
+  sits at its ground position; only while the owner's model is loaded and the owner is a plain actor, else the aura
+  stays put. Scale FUN_100cf210 (asm 0x100cf624..0x100cf64d): FUN_10022120(info, size) = info[10 + size] x 0.01,
+  0xff -> 1.0, size > 3 -> 0.
+- LSB (facts): 0x00D Flags5 @0x42 / 0x037 Flags4 @0x58 = GeoIndiElement:4, GeoIndiSize:2, GeoIndiFlag:1; size 1 by
+  default, 2 while WIDENED_COMPASS (LSB changes it at once, which restarts the aura; retail keeps the size until a
+  recast). Element = indiVisualEffect in the order above, +8 for enemy spells (Indi-Regen 6, Indi-Poison 13). The
+  bits go out with the next 0x00D (mask 0x04) / 0x037 after any status effect change.
+- The same code's other second-actor kinds: 0x52 range (entity +0x134 bit 20 / 18, actor +0xcc, file 52743), 0x53
+  ground target (file 52743).
+- *Inferred / open*: whether a hidden owner (+0xb2 bits, GM hide) hides the aura (FUN_100c9810 only places it; ours
+  hides it with its owner); `kill`'s op 0x5f `eff0` may stop another PC's `eff0` of the same file (the actor match
+  not checked for this case).
+
+## The actor refraction pass: scheduler ops 0x48 / 0x49 (2026-10-25)
 
 - Ops: FUN_10061240 (0x48 actor1, 0x49 actor2, dolls unwrapped, CXiSkeletonActor only): +0x734 |= 2 at once, the
   level +0x744 (0.1 from the skeleton constructors) linearly to f32 @8 over trunc(dur x speed) (update FUN_100612b0);
@@ -8513,8 +12908,8 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   (FUN_1002dc10) FUN_10025330 draws it again: the copy through D3DTS_TEXTURE0 = PROJ x T + (L P11, L P22) on _41 / _42
   (CAMERASPACEPOSITION, COUNT4 | PROJECTED): the pixel's screen uv shifted by (L P11, L P22) / w, right and down;
   colour the copy, alpha sat(4 sat(2 copy.a r) r), SRCALPHA / ONE, z tested not written, fog on, WRAP. An opaque
-  model (alpha 0x80) adds nothing; an actor at alpha 0 is not drawn at all (0x100cbf51). (task_ops_actor_spec.md 3's
-  FUN_10024a40 is the copy; the pass is FUN_10024500, cur FUN_10025330.)
+  model (alpha 0x80) adds nothing; an actor at alpha 0 is not drawn at all (0x100cbf51). (The 2019
+  FUN_10024a40, first read as the pass, is the copy; the pass is FUN_10024500, cur FUN_10025330.)
 - Uses: 4025 (mob anim 125, a warp-in), 4119 (Terror Touch, Ghost / Bhoot), 50703 (mob anim 1056, a jump), 5022 /
   5030 (abilities 610 / 618).
 - Ours: Shine.refract / level (default 0.1), ShineKind::Refract, Effects::refractions; ActorGpu.refract (Refract
@@ -8525,7 +12920,46 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   refract_drive, refract_tf_alpha. Offscreen (zone 230 noon): alpha 0x80 identical to the plain frame; 0x40 / 0x3c /
   0x0b glassy with the shifted background added. Not seen live (no Ghost near the test characters).
 
-## Weapon glows, `!in?` / `!kl?`, timed hides (2026-10-25; spec ~/ffxi/lab/research/fx_sched_misc_spec.md 2)
+From the research notes:
+- The ops (2019 in brackets): case 0x48 / 0x49 in FUN_10057fb0, asm 0x1005b447..0x1005b4ac [FUN_10057000]; the task
+  ctor FUN_10061240 [FUN_10060290], update FUN_100612b0 [FUN_10060300], end FUN_100611e0 [FUN_10060230], countdown
+  FUN_10061110, vtable 0x1032bce8. Record: i16 wait @4, i16 dur @6, f32 target @8 (16 bytes). The actor must be a
+  CXiSkeletonActor (IsKindOf 0x10330ebc) and the 0x84-byte allocation succeed, else nothing (the stream goes on).
+  Task: +0x74 remaining, +0x78 start (+0x744 at construction), +0x7c target, +0x80 total = trunc(dur x speed).
+- Dur 0 ends at the first step and writes the target: "0x48 dur 0 -> 0.0" is a reset (5030 uses it). Two drives on one
+  actor both write +0x744 every frame, the later-stepped winning *(inf: task-list order)*; each writes its own target
+  at its end.
+- Actor fields: +0x734 bit 1 set by vtable +0x4c(2), cleared by +0x50(2), all bits by +0x54, read by +0x70
+  (0x100a49e0); +0x744 written by +0x5c (0x100a4910), default 0.1 (0x3dcccccd in the skeleton ctors). The other +0x744
+  writes in the binary are XiModelActor's (a sibling class with its own vec3 there).
+- The sort (FUN_100c63d0): bit 1, a load fade +0x59c x +0x664 < 1, or a loaded +0x710 texture puts the actor in
+  DAT_1047bc94 (FUN_100553c0) with key +0x8c8 = z' x 512 + [+0x8ec] (z' = the clip z / w of +0x5fc, >= 0; +0x8ec 0, or
+  4.0 for model flags bit 7 / 8): about 460..510 for actors 1..50 away, above most element keys.
+- Draw alpha k = min(1, (f < 0.8 ? 1.25 f : 1) x +0x59c), f = +0x664 = colour alpha / 128 x the near-camera fade; k <
+  1e-4 skips the draw. A translucent actor draws into its own target (FUN_1001d390 / FUN_1001d240), composited by
+  FUN_1001d3b0 (MODULATE2X(TEXTURE, DIFFUSE), SRCALPHA / INVSRCALPHA, alpha test GREATER 0, z off), so the pass adds
+  rgb' x α x k.
+- The copy (FUN_10025870): the copy as render target, no depth, alpha test and z off, POINT, SELECTARG1 colour and
+  alpha, an FVF 0x144 quad (0, 0)..(W, H) at rhw 1 with no half-texel offset. DAT_10456e60 / 54 (the L values) are
+  written, never read. The copy texture (FUN_10025260) has the 3D resolution (cfg +0x18 / +0x1a), A8R8G8B8 with the
+  usual fallbacks; released on device loss (FUN_10025220), reset on restore (FUN_10025200). It is not the CMoDist
+  256x256 targets (DAT_1047b958 / 5c).
+- Pass states (FUN_10025330): ALPHAFUNC ALWAYS, ZWRITE 0, SHADEMODE FLAT, WRAP, ALPHABLENDENABLE only when the TF
+  alpha != 0x80, SRCALPHA / ONE, TTFF 0x104 (COUNT4 | PROJECTED), TCI 0x20000 (CAMERASPACEPOSITION); stage 0 COLOROP
+  SELECTARG1 with the batch's ARG1 (TEXTURE, or DIFFUSE for a mesh's untextured head, asm 0x1002defa), its alpha left
+  from the base pass (MODULATE2X(TEXTURE, TFACTOR)); stage 1 MODULATE2X / MODULATE4X with TFACTOR; Z LESSEQUAL, fog
+  left on; restored by FUN_100255c0. With ALPHAFUNC ALWAYS hair and cape cut-outs are covered whole.
+- The shift at L 0.1, fov 50 degrees, 5 units away: about 2 % of the width, 4 % of the height. Visible α x k with
+  copy.a 1: alpha 0x62 0.106, 0x40 0.315, 0x20 0.3125, 0x0b 0.107. *(inf: copy.a is about 1 nearly everywhere, opaque
+  scenery writing sat(4 tex.a diffuse.a); the pass colour is fogged like the base's.)*
+- The files: 4025 trg0 (mob anim 125) on actor2: t198 0x49 -> 0.22 over 72, t240 -> 0.0 over 40, visible t248..280 as
+  the target reappears; 4119 cef0 (Terror Touch, Ghost / Bhoot) on actor1: t37 0x48 -> 0.12, t89 -> 0.0 over 25,
+  visible t59..114 during the lunge, α x k peaking about 0.36; 50703 (mob anim 1056, a jump): L 0.1 throughout, bit 1
+  left on; 5022 (ability anim 610): 600 ticks -> 0.01, left on; 5030 (ability anim 618): the dur-0 reset at t230, then
+  0 -> 0.5 over 330 ticks. Which retail move uses anim 125 is not confirmed (LSB lists penta_thrust, fire_shot,
+  stink_bomb).
+
+## Weapon glows, `!in?` / `!kl?`, timed hides (2026-10-25)
 
 - FUN_100cef00 (name, target): vtable +0x1ec = FUN_100ce9b0 looks the scheduler up in every mesh's resource file
   (the part files), then vtable +0x1e0 (the model's own files); no motion files, no DAT 0; started on (actor,
@@ -8573,7 +13007,28 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   emote and chair hides (no chair state here; trusts' emotes), the hide bytes reset when a look change rebuilds a
   mesh.
 
-## Actor flow: skill files, the +0x80 hold, op 0x2e's end, op 0x7a on us, the battle message queue, the dismount stand (2026-10-25; spec ~/ffxi/lab/research/fx_actor_flow_spec.md)
+From the research notes:
+- A mesh draws while all its hide bytes are 0; FUN_100d60e0's hide goes through FUN_1002c730 -> FUN_1002b430 (mesh
+  +0xc + b); FUN_100d6240(N) = the first `wepN` mesh's byte +0xc != 0.
+- FUN_1008c6c0 (applied status change): chair statuses hide all; leaving a mount shows all and hides wep2. A fresh
+  actor out of battle runs `!w02` / `!w12` and sets the bits; one already engaged runs nothing (its bit is clear).
+- A glowing weapon: model ready (not engaged) -> `!w02`; engage -> the battle stand starts, FUN_100c83c0 shows wep0 /
+  wep1 while status 1 -> `!w01` (the glow loop); casting engaged (DAT 0 `hwmg`, gate 1) hides them -> `!w02`; the
+  next swing's `hwat` shows them -> `!w01`; disengage -> the idle stand -> `!w02`. FUN_100c83c0 shows wep0 / wep1
+  again at every status-motion start, so a timed hide can end early when the stand is picked again.
+- 8875 `!w01`: t0 op 0x85 `lop0` (stop), op 0x02 `glwc` `glwa` `bld1` `bld4`, op 0x0a SeSep `6191`; t12 `glwd`,
+  `glwb`; t20 op 0x73 `lop0` (the looping child: glw0..glw9, bld0, bld3); end t52. 8875 `!w02`: op 0x85 `lop0`, op
+  0x02 `bld2` `bld5` `glwe` `glwf`, SeSep `6192`, then op 0x1e stops glw9..glw0, bld3. 66475 `!w11`: op 0x85 `lop1`,
+  op 0x73 `lop1`; `!w12`: op 0x85 `lop1`, op 0x2d `dis3` `dis2` `bou3` `bou2`. `!w00` / `!w10` / `!f00` are
+  referenced by nothing (leftovers).
+- Glow part files: Hume M mains 8870 (model 478), 8875 (483), 8890 (498) and the same ids per race (12046, 15222,
+  18398, 21574, 24974, 28150), the second range 63659.., later 72643.. / 81960; Hume M subs 66475, 66483, 66485, ...
+  Op 0x75: 3,414 ops in 982 files (`main`, `long`, `hide`, `show`); 0xa3: 1,513 in 312 (`ids0` / `ids1` / `init`:
+  model forms).
+- Entity model kinds (+0xee): 0 PC (0x00D) / an equipped look with PetFlag, 1 equipped-look NPC, 2 model id, 3 door,
+  4 lift, 5 ship, 6 misc (Fomors), 7 automaton-like, 8 chocobo.
+
+## Actor flow: skill files, the +0x80 hold, op 0x2e's end, op 0x7a on us, the battle message queue, the dismount stand (2026-10-25)
 
 - Skill files (FUN_100d25e0, cur tables 0x1035f484..0x1035f550): file A per race for WS < 0x100, WS >= 0x100, dances
   (0xe), runes (0xf); the skirt file B for each when body info byte 9 > 0 (the pair's first when it is 1), the high WS
@@ -8585,7 +13040,7 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   Live (Lnxtest Combo, Hume M): `[33243, 33755]` added, dropped 2.6 s later as `main` ended.
 - FUN_100a9500 (the wait task of the 0x028 starts for categories 3..6 / 0xb / 0xd..0xf): returns 0 until the caster's
   vtable +0x1e4 (FUN_100d12d0: the model and every list entry loaded); no caster actor ends it with no `main`. Then
-  every target once: one with no actor or not ready and `main` does not start at all (the side note in the spec said
+  every target once: one with no actor or not ready and `main` does not start at all (an earlier reading said
   it waits; it does not). Ours: Actors::ready (character, no pending files, no skill files waiting).
 - +0x80 (ops 0x07 / 0x08 / 0x59, ours w.noreact): FUN_100c83c0 returns at once (asm 0x100c844b), so no status
   motion start, no rate change, +0x7d8 kept. Ours: the pose loop keeps the current motion and rate (a counted one on
@@ -8612,10 +13067,60 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   stand motion, the riding idle "chi " on letters 2..3) before `coff`; riding goes on meanwhile. Ours: ride
   Phase::Stopping (applied status, offset and plate lift as riding). Live (Lnxcsfix, Raptor): ran after /dismount
   with status 0 on the riding run `6un`; `coff` 7 ms after `6hi`.
-- Left as the spec found: op 0x6e for actors other than a leaving animal (no data reaches it), `cdam` (only through
+- Left (details below): op 0x6e for actors other than a leaving animal (no data reaches it), `cdam` (only through
   s2c 0x038 on the rider, which ours routes), ops 0x9c / 0x9d (no file), the 0x038 handler's filters.
 
-## Colour drives: op 0x88's lock, op 0xa0, drives with their scheduler (2026-10-25; spec ~/ffxi/lab/research/fx_sched_misc_spec.md 1)
+From the research notes:
+- Skill file A (FUN_100d25e0, race code r = FUN_10084420): u16 [0x1035f4bc + 2r] + anim for WS < 0x100, u16
+  [0x1035f484 + 2r] + anim - 0x100, dances u16 [0x1035f4f4 + 2r], runes u32 [0x1035f52c + 4r]. FUN_100d4410(res, slot
+  1 / 2, id, kind 6) appends to +0x7e4 (entry +0xc kind, +0x10 slot, +0x14 id, +0x1c resource); lookups go newest
+  first. The caller FUN_100a9230 (the 0x028 start) makes a wait task (vtable 0x1032e7c0, 0x3c bytes) for a
+  CXiSkeletonActor and categories 3 / 0xe / 0xf; no timeout (a caster that goes away kills it).
+- 0x100a8db0 walks actor +0x68 (objects holding it as actor1, linked by FUN_10085d50, next at +0x2c) for another
+  CMoSchedularTask with that callback. Only kind 6 drops (battle 1, event 2, riding 7 stay); the model dtor's
+  FUN_100d44f0 clears the whole list. Children started by `main` carry no +0xac and may outlive the files *(inf:
+  their motions are not from the skill file)*.
+- +0x80 writers: vtable +0x160 (FUN_100832d0, +1) / +0x164 (FUN_100832e0, -1, floor 0) from the ops 0x07 / 0x08 /
+  0x59 sub-tasks' ctor / dtor; knockback (FUN_100aa940 / FUN_100aab70); the engage machine FUN_1008b460 state 0 -> 2
+  (one frame while the battle files load). FUN_100c63d0 (asm 0x100c716f) with +0x80 up also skips FUN_100c9810 /
+  FUN_100c9c10 / FUN_100ca310 / FUN_100ca730 (linked-actor syncs, not traced) but keeps the per-status placement
+  (dead, riding, fishing, chair) and FUN_100ca8c0 (knockback). When it ends, FUN_100c83c0 starts the status motion
+  (16-tick blend) if the name differs from +0x7d8 or +0x79c is set.
+- Op 0x2e's ctor raises +0xfc (vt+0x30c(1)), the dtor lowers it; the sub-task ends when its counter goes below 0.
+  FUN_100ca9b0 takes the name from FUN_100c8bb0(+0x824). It hits `wlk` `run` `?lk` `?un`, riders (`chi` / `?hi`),
+  fishing `fh1`, sitting `si1`, chairs `ci1`: a looping last scheduler motion is cut, and the status motion restarts
+  from frame 0 even when the same one was playing.
+- Op 0x7a: P = actor2's point +0x7a4 (vt+0x1c4) + RotY(actor2's yaw) x the offset +0x7b4; the facing only for points
+  < 0x30. Inferred: the actor -> entity copy for c2s 0x015 (2019 FUN_10096c00) is not traced in cur; keys do nothing
+  while pinned (FUN_100a5ec0 runs, the pin replaces its delta). End (dtor FUN_10061f50): +0x7a4 = -1, ref cleared,
+  +0x5fc = +0x5c4, +0x608 = 1; the player stays where the pin left it *(inf)*.
+- Message queue entry (100 bytes, FUN_100c3060): +0x40 text object (due only at its state 2), +0x48 target index,
+  +0x4a caster index (each our player's index DAT_10485f7a when FUN_10086fc0 says invalid), +0x50 message, +0x54 state,
+  +0x58 i16 counter. 0x02D sets DAT_10482f40 / DAT_104855aa from @0xc / @0xe. Dead = target +0x170 2 / 3. The effect
+  needs the caster with +0x120 bit 9; the Monstrosity test is caster +0x210 (u16 from 0x00D @0x3E / 0x037 @0x54,
+  FUN_1009acb0). DAT_1035d570's four language columns are equal. 0x388 = file 3704 (the same `main` as 3310), 0x389 =
+  3705. LSB: a level down (on our death) waits for our death, + 60; `!takexp` as `!givexp`. Ours drops retail's i16
+  truncation (at 300 fps it would count a tick a frame).
+- FUN_100d65b0(0): true when one of the 5 motion regions plays a motion matching the model's idle name +0x7c8 under
+  mask 0xffffff, or 0xffff00 while riding (FUN_10084370); a rider's +0x7c8 is "chi " (FUN_1008a1a0 sets entity +0x190
+  = 0x20696863, FUN_1008a2f0 copies +0x1a4). Argument 1 (dig, chair) also needs the frame past DAT_1032c9a4. No
+  timeout; other riders go on at once.
+- Op 0x6e: in 102 schedulers, all animals' `coff` / `cdam`: 39275 / 39276 (chocobo), 55295..55432 in pairs (the
+  personal-chocobo race files), 102705..102743 and 102768 (mounts); no effect file. `coff`: u16 @6 72, f32 @8 12.0
+  (chocobos) / 10.0 (mounts); `cdam`: wait 90, then 120, 8.0. FUN_100aad40: +0x101 = 1, +0x118 ticks, +0x11c speed,
+  +0x120 = RotY(yaw) (1, 0, 0) x speed. FUN_100aadf0, from the movement update FUN_100a57f0 (any actor; the local
+  player's before its input, FUN_100a5ec0): pos += +0x120 once per whole tick (5x fast at 300 fps; ours continuous).
+  +0x101 also makes FUN_100c63d0 take the goal directly and an animal pick its motions itself.
+- `cdam`: no code names it (no 4cc 0x6d616463, no string, no op). The only path is s2c 0x038 (LAB_1009dee0, asm
+  0x1009dee0..0x1009e088): indices @0x10 / @0x12 valid with ids @4 / @8, both +0x120 bit 9, neither +0x124 bit 29,
+  not filtered by (DAT_104808fc | DAT_1047fb40) & 0x800 with DAT_10487e48 or by bit 7 with flag 0x20, `hov1` through
+  the 0x92 filter (FUN_100adee0); then actor1's model (entity +0xa0) vt+0x298(4cc, actor2's model, 0). The animal
+  (+0xa4) is never addressed: a sent `cdam` plays the rider's (38603: holds 45, `chd?` 6, `bb1?` 36); the animals'
+  `cdam` is unreachable. Ours runs every 0x038 without these filters.
+- Ops 0x9c / 0x9d: a following doll, then FUN_100ac290(f32 @8): y fixed at that value, x / z follow. No audited file
+  uses them.
+
+## Colour drives: op 0x88's lock, op 0xa0, drives with their scheduler (2026-10-25)
 
 - CMoActorColorDriveTask (FUN_1005f6c0, 0x88 bytes): ops 0x29 (actor1) / 0x2a (actor2) / 0xa0 (actor1) channel 0
   (model colour), 0x46 / 0x47 channel 1 (overlay colour); a child of its scheduler task. The constructor walks the
@@ -8631,7 +13136,27 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   target, snap) and the locks; the client steps the fades as before, Freeze clears the fade, Snap sets the colour.
   Tests color_lock, color_drive_ends, blocked_drive_stops_running_fade.
 
-## Model hide / show and the part files' generators (2026-10-25; spec ~/ffxi/lab/research/fx_sched_misc_spec.md 5)
+From the research notes:
+- Constructor sites (asm `CALL 0x1005f6c0`, arguments from the pushes): 0x29 case 0x1005bd1c (actor1, channel 0),
+  0x2a 0x1005bd7a (actor2, 0), 0x46 0x1005b22b (actor1, 1; CXiSkeletonActor only), 0x47 0x1005b2a4 -> 0x1005bda4
+  (actor2, 1; CXiSkeletonActor), 0xa0 0x1005b2ee (actor1, 0, snap 1). Channel 0 = the model colour (vt +0x2c /
+  +0x30, actor +0x660), 1 = the overlay colour (vt +0x40c / +0x60, +0x74c).
+- CMoActorColorDriveTask [2019 FUN_1005e710], vtables 0x1032ba7c / 0x1032ba60: parent (+0x10) = the scheduler task
+  (FUN_10074790); +0x84 channel, +0x85 blocked, +0x86 snap; the walk is the actor's task list (+0x68, link +0x2c);
+  the lock class is 0x1032b7c8, both classes derive from 0x1032c960 (a lock is never taken for a drive); +0x74 =
+  +0x78 = ticks, +0x7c the channel's current colour, +0x80 the target u32 @8; k = rem < 0 ? 1 : 1 - rem / total. A
+  blocked drive still deletes the running drive of its channel (that fade stops where it is); a blocked 0xa0 snaps
+  to its target at once.
+- Op 0x88's task (FUN_1005f320 [2019 FUN_1005e370]): 0x7c bytes, vtables 0x1032b9ec / 0x1032b9d0, class getter
+  FUN_10056960; +0x74 ticks, +0x78 flag 1, attached as actor1 and actor2 of the actor; update FUN_1005f3c0 (timed
+  out: flag 0, deleted), destructor FUN_1005f3f0.
+- Data: 0x29 in 3,062 files (`pop0` 4,620 ops, `main` 555); 0x2a in 756 (`tgt0` / `tgt1` hit tints, DAT 0
+  `hit7`..`hi10`); 0x46 980 ops / 286 files; 0x47 574 / 219. Op 0x88: 493 ops in 173 files (`main`, the model files'
+  `jh01 jh02 js01 js02 maix`, spells' `cst0`). 3096 `cst0`: 0x88 for 130 ticks at t0, op 0x29 to 0x80000000 over 30
+  at t10, back to 0x80808080 over 30 at t82: the caster's colour is locked for the cast, so a monster's hit tint
+  (0x2a from the attacker's `tgt?`) does not flash it. Also 2454 `ini2` / `ini3`, 50713 `main`.
+
+## Model hide / show and the part files' generators (2026-10-25)
 
 - FUN_1008e4d0 decides the model's hidden state each frame (bound to the running event: the script hide; else the
   server hide bits, the event's filter of non-participants, /hidetrust): ours event::hidden, now what
@@ -8653,7 +13178,23 @@ Spec: `~/ffxi/lab/research/camera_collision_spec.md` (FUN_1001ee60 [2019 FUN_100
   part files. Not done: the skeleton's `fvib` clone made (not started) at the show; the +0x764 / +0x814 clones.
   Tests model_gens_unhide (model 1526 `g000`), part_file_gens (8700).
 
-## Time-of-day lighting: the eased sun / moon light, retail's key blend, the weather chain (2026-10-25; spec ~/ffxi/lab/research/day_lighting_spec.md)
+From the research notes:
+- FUN_1008e4d0: bound to the running event (+0x120 bit 7, DAT_104807f5): hidden iff +0x120 bit 17 (the script hide,
+  event ops 0x22 / 0x4e); otherwise hidden iff +0x120 & 0xc000 (bit 14 = 0x00E u32 @0x20 bit 1; bit 15 from
+  FUN_100a17f0, not traced).
+- The hide's vtable +0x48 on a skeleton (FUN_100d6370) also deletes the +0x764 and +0x814 (`fvib`) clones; the
+  show's FUN_100856f0 clones `fvib` (vt +0x1ec lookup) on (actor, actor) for a skeleton without a +0x814 clone, not
+  started.
+- FUN_10085060 [2019 FUN_10083970] runs only with vt +0x124 (entity +0x130 bit 1) and model +0xb2 bit 1 clear; it
+  kills the generator's clones on the actor (FUN_10053a00(gen, actor, 0, 0, 0)), then clones each onto (actor, none)
+  and starts it (at most 128). It runs as each file comes in: the model file and each part file (FUN_100cfa50,
+  FUN_100d1450, FUN_100c4290, when the resource kind byte is 1).
+- Data: 463 NPC model files (1300.., 51795.., 99907.., 101239..) have looping attached generators (e.g. 1526 `g000`,
+  mode 1). Hume M part files with them: 7419 (`eye1 grw1 eye2 grw2`, mode 9), 7575 / 7576 / 7577 / 7581 / 7596
+  (body), 8372 (feet: `fr00..fr06 dis0 tub0`, mode 1), 8700 / 8708 / 8926 / 41221 (mains: `gm01..gm06`), 63434,
+  71567 (`wil0 wir0`), 71593 (`wa00 han0`).
+
+## Time-of-day lighting: the eased sun / moon light, retail's key blend, the weather chain (2026-10-25)
 
 The user saw the lighting change abruptly at dawn and dusk. Retail eases only the directional light; everything else
 interpolates between the hour keys in both clients.
@@ -8690,7 +13231,38 @@ interpolates between the hour keys in both clients.
 - Not traced: the light yaw world+0x1cc (a scheduler op at 0x100580a4), DAT_1047bf18's override of @0x50 / @0x54 /
   @0x5c / @0x5d, the eased light positions' consumers, the D3D light's ambient DAT_1065ca34.
 
-## Motion name bases, `sdep`, event-reserved silence, the sound start cap, one-at-a-time loops (2026-10-25; spec ~/ffxi/lab/research/fx_sched_misc_spec.md 4, 6, 7, 8)
+From the research notes:
+- Per frame FUN_101874a0 walks the env objects (E+4: the zone object DAT_1065cb04, then its areas; FUN_101889c0 finds
+  an area's by the 4cc at E+8): FUN_10187600 (no weather object E+0x10 and flags bit 0 clear: the light is a plain
+  copy of the sun, no ease; else FUN_10187720(E, DAT_1065cb18)), the weather chain (thunk_FUN_1018ade0 ->
+  FUN_1018a340), then FUN_101880c0: E+0x18 = the payload (default DAT_1065ca58), fog to the device, floats @0x50 /
+  @0x54, and FUN_10188190 unpacks the colours as floats / 255: E+0x64 / +0x74 / +0x84 / +0x94 actor sun / moon /
+  ambient / fog, E+0xe4 / +0xf4 / +0x104 / +0x114 the background's; with flags bit 0 E+0xa4 / +0x24 = the signed
+  directions, E+0x74 / +0xf4 = the constants DAT_103779a4 / DAT_103779b4 and E+0x14c.. are set directly. So the ease
+  reads last frame's colours (one frame of lag; ours does not copy it).
+- Eased state per env object: E+0x148 init, bg E+0x14c dir / +0x15c pos / +0x16c colour, actor E+0x17c / +0x18c /
+  +0x19c. Positions: moon_pos = eye - moon x 900 (E+0xd4 / +0x54), sun_pos = eye - sun x 1000 (E+0xb4 / +0x34), eased
+  0.1 a frame; no consumer traced. Constants: 6.283 at 0x10329d2c, 3.1415 at 0x10329d30, 0.5 at 0x10329a08; a
+  zero-length normalize multiplies by 1e7; the turn test uses the unscaled delta against the new direction (asm
+  0x10187f15).
+- The light yaw world+0x1cc (i16 degrees x 0.0174528) turns both sun and moon when non-zero (FUN_10027b80, axis not
+  traced); written by a scheduler op (u16 @8) at 0x100580a4; the zone-load reset (0x1018b62a) sets world+0x1c8 = -1
+  and world+0x1cc = 0. Ours ignores it.
+- DAT_1047bf18: while set, FUN_10189980 takes @0x50 / @0x54 / @0x5c / @0x5d from DAT_1065ca54 / ca50 / ca4c / ca48
+  instead of the lerp; written by scheduler-op code around 0x10059273 / 0x100604d7 (not traced).
+- D3D: FUN_10188ca0 builds a directional light (type 3), Diffuse = the eased colour x FUN_10186fd0 (env +0x44) for the
+  background, E+0x19c x FUN_10186f60 (env +0x24) for actors; Ambient = DAT_1065ca34 (source not traced). The
+  render-state ambient FUN_10188e00 = E+0x104 / E+0x84, not eased; fog and sky are not eased either.
+- The clock in game (FUN_1018c2b0): s = local seconds + the server offset DAT_104e0af8; hour = (s % 3456) / 144, e =
+  ms + (s % 144) x 1000, minute = e / 2400, second = ftol((e % 2400) / 60) (0..39), sixtieth 0; hour unit 216000, day
+  5184000. Out of game FUN_1018c270 advances it by the frame time.
+- Keys: refreshed when now passes next (or a pointer is null); with no key at or before now the last chunk in file
+  order (only `thd1` in zones 58 / 59 lacks a 0000 key); t in integer clock units (FILD / FIDIV), 0 for a zero span.
+  Only 2 of 988 area x weather envs have flags bit 0 clear.
+- Inferred: the slerp's sense (toward next) and FUN_10313820 = acos, from use; mode 0x60 = in game; the step rate of
+  30 fps (a retail client at 60 fps would ease twice as fast).
+
+## Motion name bases, `sdep`, event-reserved silence, the sound start cap, one-at-a-time loops (2026-10-25)
 
 - Ops 0x8c / 0xa4 / 0xa5 (FUN_1005e740 / 760 / 750) write actor1's current idle / run / walk names and, with an
   entity, its copies and bases (FUN_1005e6b0..6f0: +0x1a4 / +0x1a8 / +0x1ac / +0x190, +0x1b4 / +0x19c, +0x1b0 /
@@ -8718,7 +13290,53 @@ interpolates between the hour keys in both clients.
   clear, and take it; a voice of either stopping or its sound going clears it (FUN_10036b90 / FUN_10036af0). Ours:
   Effects::solo, voice_ended at every stop. Tests start_cap_per_pass, one_at_a_time.
 
-## Lit D3b / D3m effect elements, element-update op 0x6e, the CMoDist fan's ZBIAS (2026-10-25; spec ~/ffxi/lab/research/fx_element_render_spec.md)
+From the research notes:
+- The interpreter FUN_10057fb0: jump table 0x1005dc1c, index op - 2; op record `u8 op, u8 len/4, u16, i16 wait @4,
+  i16 dur @6, operands @8..`; ticks = dur x task speed (FUN_1005e590). Sub-tasks are children of the scheduler task
+  (task +0x10 = parent, FUN_100747d0) and die with it (FUN_10074ad0 -> FUN_10074890 kills the child list +0x24 /
+  +0x28).
+- Name tables: op 0x79 battle (actor +0x7d4, FUN_1005e770; no entity copy) DAT_1032b804 `btl 1tl 2tl 3tl`; 0x8c idle
+  (actor +0x7c8) DAT_1032b814 `idl 1dl 2dl 3dl`; 0xa4 run (+0x7d0) DAT_1032b824 `run 1un 2un 3un`; 0xa5 walk (+0x7cc)
+  DAT_1032b834 `wlk 1lk 2lk 3lk`. The entity copies are written only with an entity (FUN_1005e2e0).
+- Bases (FUN_1008a160): +0x190 idle `idl`, +0x194 `si1` (sitting), +0x198 walk `wlk`, +0x19c run `run`, +0x1a0 `ci1`
+  (chair); current: +0x1a4 idle, +0x1a8 / +0x1ac the idle variants, +0x1b0 walk, +0x1b4 run. FUN_1008a1a0: idle =
+  status 0x2f ? +0x194 : +0x190 (chair statuses: +0x1a0 or +0x194).
+- FUN_1008da00 runs every frame from FUN_1008e9a0 (and the event idle ops 0x6b / 0x5e, FUN_100b7070 / FUN_100b71e0)
+  for a non-PC (id & 0xff000000 != 0), status 0, kind not 3..5, not bound, +0x120 bit 13 clear, outside the special
+  NPC ids: the idle timer +0x1ba runs down *(inferred: by frame ticks)*, re-armed to rand() % 600 + 600; then actor
+  +0x7c8 = +0x1a4 every frame, so without the entity copy an op-0x8c idle would last one frame on an idle monster.
+  FUN_1008d980 (entity init, bind / unbind FUN_100bd1a0, FUN_1008cd20, FUN_100983f0): +0x1a4 = +0x1a8, the timer
+  re-armed. Event unbind (FUN_100ae3f0, FUN_100bd5f0): +0x1a4 = +0x1a8 and actor +0x7c8 = +0x1a8, so an op-0x8c idle
+  comes back after an event idle. Op 0xab: 4 uses (models 2451 / 2452 `ded0` / `ded1`).
+- Data: 0x79 605 ops / 204 files, 0x8c 615 / 210, 0xa4 401 / 150, 0xa5 403 / 151, mostly NPC model files (`ids0..2`,
+  `ini1..3`, `init`: multi-form monsters, e.g. 1561, 1563, 2454).
+- `sdep`'s bits come from the 0x00E handler (asm 0x1009a891..0x1009a8af, 0x1009a795..0x1009a7c1); LSB sets u8 @0x28
+  |= 0x45 for every trust and 0x08 for a mob with HP > 0 in its death animation. DAT 0 `sdep` = op 0x19 0x269 (file
+  3417 `main`: ops 0x59 / 0x07 / 0x2e 108, generators `ln00` `ds00` `gp00`, SeSep `7089`, the colour to alpha 0 over
+  55 at t77: the dematerialise; no motion, so a trust keeps its pose). Trust model files 99907.. carry `sdep` = op
+  0x19 0x39a (file 3722); model files 1308..1315 op 0x57 `dead`; 1316..1330 / 2091..2098 op 0x19 0x260..0x275.
+- The hide skip covers sound ops 0x0a / 0x0b / 0x53 / 0x4a / 0xb3 (path 0x1005b61c..0x1005b7ef; 0xb3 = 0x0a gated
+  by config 1, /bellsw, case 0x1005b601), after the SeSep is resolved; the tests are FUN_1005e700 (+0x138 bit 31) and
+  FUN_1005e2f0 (+0xb2 bit 1). Event op 0xac (FUN_100bb180, dispatch 0x100bc960[0xac]) is the only writer of +0x138
+  bit 31; sub 2 is 6 bytes, the actor named @2 (sub 2 at 1,377 sites, sub 3 at 53). Other readers: FUN_1008e4d0 (a
+  hidden entity with +0x120 bit 18 and the bit clear is not drawn: +0x120 bit 23), FUN_1008ee30 (unbind: the
+  position restored from +0xd4 when set).
+- The start cap: 2019 FUN_10035640 refused at count > 11; cur FUN_10036460 at DAT_1046390c > 19, checked before the
+  repeat scan. The list fills from FUN_10036f50 (every SeSep voice start: scheduler sounds through FUN_100370d0 ->
+  FUN_100363b0, generator sounds, footsteps FUN_10036fa0) and is cleared at the end of FUN_10036230, which
+  FUN_10011a00 runs once a frame *(inferred: FUN_10011a00, called from the main loop at 0x10001b74, is the frame)*. A
+  refused start leaves the handle 0 and FUN_100364e0 calls FUN_100363b0 again each pass (the grace back to 3) while
+  in range; a start refused for busy voices (-1) deletes the sound.
+- One at a time (FUN_10038330 [2019 FUN_10037510]): below the busy limit (DAT_10456a94, or 20 when FUN_10087060()
+  and DAT_10463924), se 0x8bf / 0x80f take the flag or are refused (handle 0, retried each pass). The flag clears at
+  a voice stop of either (FUN_10036b90 from FUN_10036420: voice over, out of range, persistent re-trigger), at the
+  sound's destruction (FUN_10036af0) and at init. Both SeSeps loop (@0xc bit 31: 2063 0x8000004c, 2239 0x80000110).
+  2239 is in files 277 / 278 (zones 177 / 178); 2063 in zone scenes 109, 110, 114, 202, 208, 214, 217, 224, 230,
+  238, 239, 244, 246, 249, 255, 257, 258, 261, 262, 266, 268, 269, 270, 278, 279, 280, 284, 287, 292, 304, 306, 308,
+  339, 351, 527, 643 and 2639, 52613, 52614, 52742, 57021, 57022, 83931. The next one in range starts the pass after
+  it stops (a persistent one takes the flag again at its re-trigger if it comes first in the pass order).
+
+## Lit D3b / D3m effect elements, element-update op 0x6e, the CMoDist fan's ZBIAS (2026-10-25)
 
 - Op-1 flag 16 lights a D3b (FUN_1003f440) or a plain D3m (FUN_10040670): both keep LIGHTING from the common draw
   FUN_100467e0 and carry normals (FVF 0x152). D3a and CMoDist turn it off; specular D3m clears the flag. Light
@@ -8746,7 +13364,51 @@ interpolates between the hour keys in both clients.
   ZBIAS 15 (to_clip_z without it for variant 9).
 - Tests lit_cases, ambient_bytes, crossfade_6e (CPU references in fx/elem.rs), gpu_morph_crossfade (DAT 129).
 
-## Self-starting schedulers: end loops, the load-time start, op 0x52 time windows, op 0xa2, update op 0x64 (2026-10-25; spec ~/ffxi/lab/research/fx_sched_autostart_spec.md)
+From the research notes:
+- CMoD3bElem vtable 0x1032ac90: +0x18 dtor FUN_1003fb50, +0x20 Exec FUN_10045a40, +0x2c common draw FUN_10046070,
+  +0x30 IsType FUN_1003fb40 (== 0xf), +0x44 camera distance FUN_10045d00, +0x48 draw FUN_1003fbb0 -> FUN_1003f440
+  (weights FUN_1003f8a0), +0x50 screen rect FUN_1003fc30; ctor FUN_1003fb70. The D3b vertex buffer is DAT_1047bbb0
+  (FVF 0x152).
+- Light matrix: the element's view by op-1 bits 13 / 14 (0 rot(V) = DAT_1047bfa8+0xb90, 1 +0xd10, 2 +0xd50, 3 +0xc10;
+  bit 3 identity); the parent is the +0x108 snapshot, else generator (+0x100 or +0xfc) +0xa4; FUN_10045800 inverts
+  the whole 4x4. Generator +0xdf bit 0 (file 56885) is a screen-space depth clamp in FUN_10044f10, unrelated.
+- Env: the zone env DAT_1065cb04, or the area env keyed by generator +0xc4 when non-zero (FUN_101889c0, falling back
+  to the zone; the writer of +0xc4 not traced). Env not ready (the state word at ECX - 0x1c != 1): Diffuse = Ambient
+  = 255.0, direction (0, 1, 0). The light's Ambient DAT_1065ca34 has no writer (0). LightEnable(2..7, 0), SPECULAR 0.
+- Two-light mode (zone+0x3949c == 0: bump mapping off; zone 0xb6 always): FUN_1018b960 -> FUN_10188b70: L0 = the raw
+  sun direction env+0xa4 with env+0xe4 (bg sun colour) x the bg light scale, L1 = the raw moon direction env+0xc4 with
+  env+0xf4 (bg moon) x the scale; both through B and both on, so the one below the horizon lights downward faces.
+- The boost: FUN_1000bf30 / FUN_1000be50 reject a directional light with a zero direction; with DAT_10456a7c set and
+  every channel < 0.8 the colour is multiplied by FUN_10017100's factors and clamped to 1; FUN_10188e00 does the same
+  to the ambient.
+- Ambient and material are set when flag 25 is clear or flag 16 set. SetMaterial(DAT_1047bc28, built by
+  FUN_10046380): diffuse 1, ambient 0.7 (unused: both sources are COLOR1), specular 0, emissive 0, power 50. Device
+  init: COLORVERTEX 1, LOCALVIEWER 0, NORMALIZENORMALS 0, SPECULARMATERIALSOURCE 2, EMISSIVEMATERIALSOURCE 0;
+  NORMALIZENORMALS goes on only around actor and specular draws (0x1001cf27, 0x1002bfdb, 0x10041972).
+- Worked numbers (Cv 0x80 / 255, bg ambient 0x50 -> Ga 40 / 255, light 0xc0 / 255 x scale 1.4, one light, V = I, no
+  parent): up-facing at noon 0.60786; scaled 1.5 (N.L 0.66667) 0.43149; facing away 0.07874; parent T(100, 0, 0):
+  dir' (-0.99995, 0.0099995, 0), 0.08403 (with +0xdf bit 1: 0.60786); orientation 1 + bit 0 (flags 0x41), dir (1, 0,
+  0) -> (-1, 0, 0). Ambient bytes: 0x50 / 255 -> 40 / 255, 1.0 -> 128 / 255, 0.999 -> 127 / 255.
+- Survey: lit D3b 599 generators in 83 files (432 in zone DATs 100..399), attach mode 0 for 501, all view selection 0
+  (so the orientation override never applies to a lit D3b). D3a (1,301) and CMoDist (104) carry the flag but draw
+  unlit; DistModel 2 (no visible change); one ring (83908 d_pi/effe/iccl/gr00: FVF 0x42 has no normal, ambient only,
+  inferred).
+- Op 0x6e: record `6e 06 | a | b | c | e | 0` (the last word unread). FUN_10045d00 returns 0 when +0x190 > 0 (behind
+  the camera), else |+0x188|, written by FUN_10044f10 in the Exec (this frame's or the last one's: not pinned). Users:
+  files 125, 129, 130, 131 (`1wps` K 2; (11, 14, 100, 120) and (11, 13, 60, 70)), 168, 83905, 83906 (`kmo1`, (11,
+  13, 22, 28)), 230 (`geem`, (12, 16, 50, 60), lit), 52786 / 52787 (`gra0`, `wa70`, (11, 13, 60, 70)). Test values
+  (11, 14, 100, 120): d 5 -> (w0, w1) = (0, 1), 12.5 -> (0.5, 0.5), 14 and 50 -> (1, 0), 110 -> (0.5, 0.5), 120 and
+  130 -> (0, 1); (11, 13, 22, 28): 12 -> w0 0.5, 20 -> 1, 25 -> 0.5, 30 -> 0.
+- The warp FUN_10075700 tests +0x144 (the amplitude, asm 0x10075713); the CMoElem ctor FUN_10044890 zeroes +0x140 /
+  +0x144 and nothing else stores to +0x140..+0x148.
+- CMoDist pass 1 (RS 0x103530d0) sets ZBIAS 0; pass 2 (RS 0x10353178) does not restore it.
+- DistRing (not done): retail squeezes the viewport into the 256x256 copy (FUN_10042d00) and reads it back, so the
+  band shows the scene blurred over about W / 256 px and shifted about (-0.5 - W / 512, -0.5 + H / 512) px (content
+  right and up; at 1920x1080 (-4.25, +1.61)). Copy texel (i, j) samples u = (i W / 256 - 0.5) / W, v = (H - 0.5) / H -
+  j / 256 (linear, MIRROR); a ring pixel u = (px + 0.5) / W, v = (H - 0.5 - py) / H (inferred from the D3D8
+  rasterization rules). Our full-size copy shows nothing there.
+
+## Self-starting schedulers: end loops, the load-time start, op 0x52 time windows, op 0xa2, update op 0x64 (2026-10-25)
 
 - Scheduler chunk (type 7): @0x10 an unused stream, @0x14 the main stream, @0x18 the end stream, @0x1c the length
   (overwritten at link by FUN_10056ae0 with max(start + dur), op 0 included). An op 0x01 in the end stream (a bare
@@ -8777,7 +13439,58 @@ interpolates between the hour keys in both clients.
 - Not traced: which emission op fills update op 0x64's slot; whether the weather object comes in the zone parse's
   frame; the sub-area weather; who starts the 32 op-0xa2 schedulers.
 
-## The bone-0 drop, the wade point 0x35, the wading ripple, op 0x99 (2026-10-25; spec ~/ffxi/lab/research/fx_point_specials_spec.md)
+From the research notes:
+- Units: Vana'diel time in 1/60 Vana'diel second: hour 216000, day 0x4f1a00 = 5184000; 1500 a real second, 25 a 60 Hz
+  tick. FUN_1018c2b0 each frame: DAT_1065cb1c the full timestamp (from the server clock when logged in, else
+  free-running), DAT_1065cb18 its time of day, DAT_1065cb0c = cb1c - cb10 (last frame's). Ours rounds the day fraction:
+  from f32, 11:00 lands on 10:59:59.98 and misses the window.
+- Op record (both streams): u8 code, u8 len (low 5 bits, in u32s), u16, i16 wait @4, i16 dur @6, operands @8. Every end
+  loop's end stream is 01 01 00 00 00 01 00 00. Over all 304116 schedulers the end stream is op 0 alone in 300447, 69 6a
+  00 in 3104, 37 00 in one. Stream @0x10 is op 0 alone in 301009 and 69 6a 00 in 3104; no reader was found (unused,
+  inferred). The recomputed length equals the header in 298918.
+- Task (CMoSchedularTask, 0x14a bytes, vtable 0x1032b860): +0x18 owner key, +0x1c 'Ms', +0x80 resource, +0x84 parent,
+  +0x88 op, +0x90 action wrapper, +0x94 / +0x98 elapsed / countdown, +0x9c speed, +0xa0 early-resume, +0xac / +0xb0 end
+  callback, +0x140 Vana'diel clock, +0x141 loop, +0x145 ended. Step FUN_10057e10: an op returning 2 stays on that op.
+  FUN_100573e0 with n > 1 sets speed = n / +0x7c (the event op 0x45 family; ours uses the sum of waits).
+- The auto-start path: FUN_10056a50 runs once per resource (the relocation test res +0x70 < 0x10000); FUN_10056b80(0, 0)
+  takes a reference on the resource and every folder up to the file (the file stays loaded while the task lives), then
+  FUN_10056ce0 and FUN_100748c0 step it at once inside the load with the last frame's delta. Loaders FUN_10072fd0
+  (cached by file id: a file still loaded is not parsed again), FUN_100731b0, FUN_10072a70. Actor modes 1 / 9 with no
+  actor attach to the identity (jump table 0x1003c650); op 0x0a with no actor1 is silent, op 0x60 plays.
+- Not auto: the 32 op-0xa2 schedulers sit in 1627 hana/b_ha/han1, 33015 m_ob/effe, 33123 m_wa/san1, 33126 m_wa/win1,
+  51503 m_gi/pian, 51555 m_ev/suzu, 62870..62872 m_ev/bels / belb / belw, 62927 m_bt/show, 62933 m_ev/toke (always 01 a2
+  52 ...); who starts them with actors is not traced. All 562 end-loop schedulers are auto ones.
+- Op 0x52 record (24 bytes): wait @4 becomes the clone's first countdown (0 in most; 29 have one: 5 .. 7430, e.g.
+  weat/thdr/kmi1/s000 claps 10, m_ev/bels/s002 80). Handler: s == e means the whole day; n = now - s, len = e - s (each
+  + day when negative); n >= len: countdown day - n; else p = n % P, clone when p < tol or (n + tol) % P < tol,
+  countdown P - p. A first evaluation in [P - tol, P) spawns early and the boundary spawns again; tol >= P spawns at
+  every evaluation; P 0 would divide by zero (none in the data).
+- The clone (FUN_10074920, FUN_10057d60, inserted by FUN_100750b0 after the running task): +0x140 / +0x141 /
+  +0x143..+0x146 cleared, actors re-linked, the wrapper's count +1, the parent link +0x84 kept (its dtor decrements a
+  parent wait count it never raised). A clone that reaches another op 0x52 becomes a spawner and stays parked there (124
+  f_ta/effe/ptel: one more parked clone per Vana'diel day; harmless). Ops before op 0x52 run once at the start (341
+  t_wi/effe/tobi/s001 starts tob2 / tob1 at load only).
+- Windows: 202 f_la/mode/hato 09:00-09:50 P50, 11:00-12:00 P60, 14:00-14:58 P58, 15:00-16:00 P60, 16:00-16:50 P50, tol 3
+  min (one flight a window; spline paths line / lin1 / lin2); 103 s_pa weat/fine and suny/kamo 07:00-07:36 and
+  16:00-16:36 P36, 12:30-13:24 P27, tol 5 min (ducks); 223 / 224 f_yu weat/suny butterflies (flag-0x1000 generators, so
+  op 0x02 soft-stops the weather's running instance first); 83901 f_ma/weat/thdr/sb01 00:00-23:54 P12 tol 6 (lightning,
+  spawns on any first evaluation); 62927 m_bt/show/p6on 18:00-18:59 P1 min tol 2.
+- By folder (scene DATs): weat/thdr 100, suny 55, fine 49, clod 13, dryw 8, bolt 7 (all windows; 232 in weat); mode/hato
+  35, wasi 34, inse 32, bird 28, 'cyo ' 26, tobi 20, kamo 13; effe/dor1..3 168, smok 24, umi0..3 33, the crystal loops
+  of 641 (134). Files: zone maps 3..250, the area maps 516 / 541 / 545 and maps 700..743; event files 56783, 56784,
+  56787, 56790, 56795, 57670, 67439.
+- The schedulers and their 37 op-0x03 children use only ops 00 01 02 03 0a 1e 52 5f 60: no path drives, dolls, motions
+  or models. Op 0x5f kills by name (FUN_10056eb0: every task of the resource, clones too). A sub-area left and entered
+  again is parsed again, so its auto schedulers start again.
+- Update op 0x64 (table 0x1004e03c; 153 zone-DAT generators, none zone-auto: kamo ducks, d_ri/effe/kumo): k = (op word 0
+  >> 13) & 0x3f; d = element pos - S[k..k+2]; a = -atan2(S[k+5], S[k+3]); t = atan2(d.x sin a + d.z cos a, d.x cos a -
+  d.z sin a); each non-zero factor @4 / @8 / @0xc gives rot x / y / z = wrap_pi(t x factor). The emission op that fills
+  the slot is not traced (inferred: the one sharing slot k).
+- Open: whether the weather object runs in the zone parse's frame (a weat op-0x52 clone spawned at load would be killed
+  with it unless stepped in between); the sub-area weather (their chained environment, inferred the same); retail's file
+  slots on event op 0x34 area swaps (ours starts the auto schedulers again there; inferred).
+
+## The bone-0 drop, the wade point 0x35, the wading ripple, op 0x99 (2026-10-25)
 
 - CXiSkeletonActor vtable +0x1c4 = FUN_100d4560: after the point, a record on bone 0 (also k >= 0x80, no skeleton)
   gets y += size x d by the applied status: 0x55 by the linked mount's variant k (FUN_10022340: moun[8 + t(race)]):
@@ -8805,11 +13518,56 @@ interpolates between the hour keys in both clients.
 - Tests bone0_drops, point_drop_is_world_y, water_heights, east_ronfaure_water, wade_on_type9, wade_point,
   wading_ripple.
 
-## Timers (an Extra): recasts, our effects and the ones we put on others (2026-10-25; spec ~/ffxi/lab/research/timers_durations_spec.md)
+From the research notes:
+- FUN_100d4560 (asm 0x100d456d..0x100d47d9): the record's bone is FUN_1002c5c0(k, 0) -> FUN_1002a9b0 (word 0 of point
+  record k, table + 4 + 26 k, skeleton entry 0; 0 also for k >= 0x80, no point table, no skeleton). The status is
+  FUN_10084390 (entity +0x170, the applied status, held at 5 / 0x55 while `coff` runs); the kinds vt+0x34c / +0x358 /
+  +0x36c (FUN_100827a0 / 7f0 / 860) test actor +0xa4. Race FUN_10084420 (vt+0x3bc for a custom look, else entity
+  +0xef); the variant FUN_10022340 on the mount's info block (+0x878): moun[8 + t(race)], t = DAT_1032a41c [0, 0, 1,
+  2, 3, 4, 5, 6, 7], 0xff -> 0. Mount id FUN_10084720 = the mount entity's +0x1db (LSB m_mountId; 0x1d Buffalo, file
+  102733; 0x25 Craklaw, 102741). A status-0x55 rider's point off bone 0 gets d = 0.
+- Actor +0xa4, the kind (set once by the constructor FUN_100c59b0): 0 a main actor, 1..4 chocobo, 5..0x24 fishing rod,
+  0x3d..0x51 chair, 0x54 mount. +0x768 is link slot 0 (rider <-> its second actor; 0x25..0x34 use slot 1, 0x35..0x3c
+  slots 2..9, 0x52 / 0x53 slots 10 / 11), cleared at the dismount's unlink (FUN_1008b460 state 0xf) and at removal
+  (FUN_10092870). +0x75c the y size override (-1.0 except rods, chairs and the vt+0x394 kind); +0x754 the size (a main
+  actor's info[10 + GraphSize] / 100, an animal's from its rider's).
+- d by mount (status 0x55, linked), -1.3 for every race: quest raptor 1, Raptor 2, Crab 4, Red Crab 5, Sheep 7, Fenrir
+  10, Beetle 11, Xzomit 16, Hippogryph 17, Coeurl 21, Raaz 23, Wivre 30, Red Raptor 31, Noble Chocobo 34 (an empty file:
+  k 0), Ixion 35, Alicorn 38, Bubble Crab 39; -0.5 for every race: Morbol 8, Moogle 12, Magic Pot 13, Spectral Chair
+  18, Goobbue 22, Levitus 24, Adamantoise 25, Doll 27, Iron Giant 32, Phuabo 36; by race 1..8: Tiger 3 (-1.3 -.5 -1.3
+  -.5 -.5 -.5 -.5 -1.3), Bomb 6 / Golden Bomb 28 / Spheroid 19 (-1.3 x 6, -.5 -.5), Crawler 9 (-1.3, -.5 x 7),
+  Tulfaire 14 (-1.3 -1.3 -1.3 -.5 -1.3 -1.3 -1.3 -.5), Warmachine 15 (-.5 -1.3 -.5 -1.3 -.5 -.5 -1.3 -.5), Omega 20 /
+  Dhalmel 26 (-1.3 x 7, -.5), Byakko 33 (-1.3 x 4, -.5 -.5, -1.3 -1.3).
+- PC bone-0 records (Hume M 7072, small differences by race): 0, 2, 4, 0xc..0x15, 0x17, 0x19, 0x27, 0x29, 0x2a, 0x2c,
+  0x2e, 0x2f, most of 0x30..0x5e, 0x6c..0x6f; not 1, 3, 5..0xb, 0x66..0x6b, 0x7e, 0x7f. Hume M: 2 (0, -2, 0), 0xc (0,
+  -1.81, 0), 0xd..0x14 the body ring at y -1.1, 0x15 (0, -1.24, -0.04), 0x17 (0.08, -1.2, -1.2). Modes 9 / 0xa (vt+0x1d0
+  = FUN_100d49d0) have no drop; doll creation (FUN_100abea0, vt+0x1c4(i) for i < 0x30) stores the dropped points. By
+  point: 0x15 43623 generators, 0 34592, 0x31 31735, 0x17 5849, 0x30 3555 (120018 of 335704 in 7414 files).
+- Point 0x35's users: 7278 generators in 306 files, all mode 1 in the zones' fses/fefs and fser/fefr: 0900 / w900
+  (attach 0x04400351, the water step splash, template 'asi2') with their rings a901 a902 a904 / b901 b902 b904, i900
+  and ai90 (0x04000351), a801 / b801 (children of the surface-8 dust 0800 / w800). No spell, ability or mob file uses
+  0x35 (0x34: 10401 generators, the other surfaces' dust).
+- i900 (zone 101's file 201, f_ro/fses/fefs): attach mode 1 point 0x35, life 0, not auto-start; generator ops 11
+  (0x3fd), 0a (32, 0, 0); template 'asi1', rotation x pi / 2, scale 0.6, growth op 0x12 0.008, colour 0x2e3232, op 0x2d
+  'ka01', op 0x44 'ai90' (the 'dist' template, velocity y 0.004, op 0x72 -0.05, op 0x32 0.04).
+- The ripple's start (FUN_100d64d0) sets +0x9e8 even when the folder +0x800 is 0, so an actor already in water on its
+  first near frame gets no ripple until the flag clears (retail quirk). The stop (FUN_100d6550) runs at any distance;
+  FUN_100543a0 -> FUN_100538e0 destroys the elements at once.
+- The type and the water come from FUN_100a4ed0 (the gravity / floor step; not for the animal, rod and chair kinds)
+  after FUN_101814d0, and every 121 updates for the actors it skipped: FUN_10181a60 -> FUN_10168f40 (r[0] = coll
+  +0x34148, r[1] = coll +0x3414c / 256, r[6] covered, r[7] map key, r[0xd] area); a lift (FUN_10181560) sets only the
+  type (record +0xec). The riding sync copies both from the rider to the animal. The object flags' other bits: 0
+  mirrored, 1 resolved late, 2 covered, 3..5 and 26..27 the map key.
+- Water data: zone 101 objects 0x03fe4000 -7.0, 0x03fbc000 -17.0, 0x03f6d340 -36.69921875, 0x03f18000 -58.0, and 0 over
+  a bed at -6.5; zone 232 0x00006640 1.59765625. Windurst 238..240: every type-9 object has 0 over beds at y 2..3; zone
+  230 has 16 such faces at -0.9, Bastok Mines (234) 24 objects. Type 9 is about 1.6 % of the faces of zones 0..11 and
+  6 % of the towns' (230..241).
+
+## Timers (an Extra): recasts, our effects and the ones we put on others (2026-10-25)
 
 - Not retail: the user's Ashita "Timers" add-on built in (Extras rows Timers and Timers Position; /timers [in | out]).
   client/timers.rs (rows, the window, the drawer, the tracking), client/durations.rs (LSB's lengths), tables
-  data/timers/*.tsv made by ~/ffxi/lab/tools/timers_data.py from the spec's research tables (ids and numbers only).
+  data/timers/*.tsv made from LSB's scripts and data (ids and numbers only).
 - Retail's charge abilities (/recast's "[%s] %s (%d)", now done too): FUN_10222c90 maps an ability (or the sub-list
   row opening it, record +0xe 9 / 0xf / 0x12, via FUN_10222c10) by its kind (+2): 9 Quick Draw (COR main or sub;
   2 charges from level 0x28; full 0x78 s), 0xf Stratagems (SCH main or sub; (level - 10) / 0x14 + 1; full 0xf0 s),
@@ -8824,10 +13582,10 @@ interpolates between the hour keys in both clients.
 - Recasts: the 0x119 timers named by the ability we know on them (a sub-list row such as Phantom Roll over its
   moves), spells from our own casts; the list icons of the magic / ability lists; the gauge fills toward ready over
   the longest time seen. Our effects: 0x037 / 0x063's end times (exact), named by what we cast when it was ours.
-- Others' effects (spec 1.1): our 0x028 (and our pet's: categories 11 / 13, a pet's spells without our inputs)
+- Others' effects: our 0x028 (and our pet's: categories 11 / 13, a pet's spells without our inputs)
   looked up by (spell / ability / weapon skill / pet move, id); a row lands on its own messages with the value its
   param kind expects (the effect, damage for Dia / Bio / helix, a roll total, a step level); several effects in one
-  result land together when the value names the action's first. Lengths: the formulas of spec sections 10-75 over
+  result land together when the value names the action's first. Lengths: LSB's formulas (below) over
   our job, levels, merits (0x08C; the main job at 75, the level's cap), job points (main 99), gear mods (equipped
   items' rows, standard augment slots 0..3, none above our level, two latents by zone), our effects (and those that
   wore off in the last 1.5 s: the action that used them reports after their wear-off), working skills (0x062),
@@ -8867,6 +13625,116 @@ interpolates between the hour keys in both clients.
   effects, hidden ancient magic / elemental ninjutsu debuffs, charm timers (need the mob's level) and Spirit Link's
   copies are not timed (the server never shows them landing); TP Bonus from traits (Fencer) is not known.
 
+From the research notes:
+LSB's rules as read from its scripts and C++ (facts only; the labels are what client/durations.rs and timers.rs cite).
+- Event flow: LSB runs the whole action before it queues the 0x028, so effects the action consumes (Saboteur, Stymie,
+  Marcato, Elemental / Dark Seal, Divine Emblem; inferred for Presto and Snake Eye) send their 0x029 wear-off before it:
+  take our state at the start, or count an effect lost in the same tick.
+- Lookup: category 4 -> the spell id (an automaton / Light Spirit casts with its own stats); 6 / 14 / 15 -> the ability
+  id (a pet command's own category 6 carries nothing timed: wait for the pet's packet); 3 -> a weapon skill when the
+  message is 185 / 188 / 189 (later AoE targets 264 / 282 / 283), else one of the 18 actionType-3 abilities (Jumps,
+  Steal, Mug, Shield Bash, Shadowbind, Weapon Bash, Tomahawk, Blade Bash, Angon, Despoil, Bounty Shot, Larceny,
+  Intervene, Eagle Eye Shot), whose ids collide with weapon skills (their messages 110 / 125 / 127 / 129 / 153 / 158 /
+  593..599 / 608 tell them apart); 11 -> a mob skill id (jug pets and luopans send pet_skills.mob_skill_id, e.g. Foot
+  Kick 672 -> 3840); 13 -> an avatar / wyvern ability id (512..970, 639..654). Then the target type, and the param
+  checked where it should be the effect id.
+- Units: seconds as floats truncated to ms, then raised to the effect's min_duration (1 s for most debuffs); expiry is
+  checked every 400 ms tick; 0 means no expiry (resist rate 0 under Magic Shield). Merits count only for the merit's job
+  as main at 75+ (general ones always, WS merits at 96), job points only as main at 99. At most 15 targets per action
+  are written.
+- Replacement: timers keyed by (target, effect), the caster a field; ignore_duplicate effects (songs 195..223, maneuvers
+  300..307, runes 523..530, Bust 309, 233 / 234, 287, 162) by (target, id, caster, tier), a 0x029 for the icon ending
+  the copy that ends first. Our landing ends our older same effect (Double-Up, Quick Draw boosts and Modus Veritas keep
+  the end) and every timer for its remove / negative effect and its exclusion group (silent on the server), plus the
+  family rules: Dia / Bio tiers, the elemental DoT cycle Burn > Frost > Choke > Rasp > Shock > Drown > Burn, helix, the
+  stat Boosts' and storms' exclusivity, song slots, rolls per Corsair, step dazes shared by every Dancer, runes, the
+  Indi colure. Other players' landings that we see apply the same rules.
+- ENH (useEnhancingSpell): d = base; Deodorize / Invisible / Sneak + 60 x randomInt(0, 2); a WHITE-group spell on a
+  target with Embolden: d x (0.5 + its EMBOLDEN_DURATION 1019 / 100); + d x ENH_MAGIC_DURATION (890) / 100; RDM main: +
+  merit 2320 (6 s each) + job points 169 (1 s each); Regen + REGEN_DURATION 339 + 3 x WHM job points 104; Invisible /
+  Sneak / en-spells + the target's 947 / 946 / 938; Composure (419) on ourselves x 3 (not Protect(ra) / Shell(ra));
+  Perpetuance (469) on WHITE spells x 2; a target below the spell's level x level / spell level. No rounding. Player
+  enhancing spells never land on pets; AoE buffs reach the party (with trusts), not the alliance.
+- Other buffs: Reraise I-III 3600 s, self (I fails silently under II+ yet reports message 0, param 113); Arise: once
+  accepted the server adds Reraise power 3 for 3600 s with no origin, right after the raised player's category-4 Arise
+  action; Klimaform, Enlight, Endark 180 s fixed; Cure under Afflatus Solace adds a 25 s tier-1 Stoneskin when the
+  target has none (not in the packet); Absorb-* boost the caster for floor(clamp(180 + floor((dark skill - 490.5) / 5),
+  0, 10000) x (1 + DARK_MAGIC_DURATION 1072 / 100) x (1 + ABSORB_EFFECT_DURATION 1138 / 100)) + ENHANCES_ABSORB_EFFECTS
+  1136.
+- Resist rate: R = 1, 1/2, 1/4 or 1/8 (calculateResistRate: hit rate clamped 0.05..0.95, up to 3 rolls); a debuff lands
+  when R >= 1 / 2^n: n 0 for any effect not listed (R 1 only); 1 sleep, poison, paralysis, blind, silence, weight,
+  flash, inhibit TP, elegy, threnody, requiem, nocturne, mute, charm; 2 petrification, curse, stun, bind, amnesia,
+  addle, terror, plague, the elemental DoTs; 3 attack / evasion / defense / magic evasion down, helix; always Dia, Bio,
+  Haste. No packet shows a partial resist: predict R = 1 as an upper bound.
+- ENF (useEnfeeblingSpell): d = base; Bind randomInt(13, 60); Stun randomFloat(2, 8) (2..7 after the floor); the
+  elemental DoTs + BLM merit 2258 (12 s each); Enfeebling Magic (skill 35) only: Saboteur x 2 (x 1.25 on an NM; only the
+  AoE's first target), RDM main + merit 2316 (6 s each) + job points 167 (+ job points 162 under Stymie), then floor(d x
+  (1 + ENF_MAG_DURATION 1151 / 100)); floor; R (Stymie forces 1, Fealty 0) must pass the effect's n; floor(d R); Bind
+  clamped 5..60; then min_duration. Example: RDM 99, 5/5 merits, 20 job points, 1151 = 20, Saboteur, Slow 180 s -> 492 s
+  (246 on a half resist). Same-tier recasts never refresh, only a higher tier replaces; Dia / Bio land with no roll even
+  when the nuke is resisted.
+- Hidden debuffs: ancient magic (204..215) puts ninjutsu_ele_debuff (793, MEVA down 30) for 10 s, elemental ninjutsu
+  (320..337) for 15 + its NIN merit (1154..1164, 2 s each); icon 0 and no_loss_message: never a message or an icon; the
+  latest replaces silently.
+- Songs: d = floor(120 x (1 + 0.1 B + SONG_DURATION_BONUS 454 / 100)), B = the family's song mod + ALL_SONGS_EFFECT 452;
+  Clarion Call + 2 x job points 322, Marcato + job points 328, Tenuto + 2 x job points 326; Hymnus, Scherzo and the
+  Mazurkas: Soul Voice x 2, else Marcato x 1.5; Troubadour x 2. Job points only as BRD main at 99; the 1200-JP gift adds
+  SONG_DURATION_BONUS 5. Songs carry origin 0: no wear-off reaches the bard for songs on others. Example: B 3 -> 156 s,
+  312 with Troubadour.
+- Song slots: per caster on a target 2, 1 without a string / wind instrument in the ranged slot, + MAXIMUM_SONGS_BONUS
+  453 (Clarion Call + 1); the same id and tier from any bard is replaced silently (all tier-1 Etudes, all Carols and
+  both Mazurkas share one); at the cap the bard's song ending first goes, silently; replaced copies still count, so
+  re-singing at the cap can evict a second song.
+- Blue magic: Diffusion with merit level m > 0: d + (m - 5) x d / 100 (Occultation, Regeneration d + m x d / 100), for
+  the caster only (Diffusion is deleted in the caster's onSpellCast: party members get the base); no other blue duration
+  mods. Added effects of damage spells: only after damage, none when R <= 0.25, floor(base R), no message: not timed.
+- Geomancy: the Indi colure lasts 180 + INDI_DURATION 960 (on a party member through Entrust); the newest Indi replaces
+  silently. A luopan: at most 600 s; max HP floor(250 x level / 15) (+3 % per Bolster job point under Bolster); drain
+  per 3 s floor(level / 4) (- the Bolster job points with Bolster at the cast; + floor(level / 16) after Ecliptic
+  Attrition; - floor(level / 14) with Lasting Emanation); Blaze of Glory at the cast: HP = max / 2 + max x its job
+  points %; estimate min(600 - age, ceil(HP / drain) x 3).
+- Charm (not a status effect): t = floor(1.25 x CHR + 150) x mult(d), d = our main level - the target's: 1/24 below -6,
+  6 from 9, else 0.9997336 + 0.3652882 d + 0.02097742 d² - 0.004106429 d³ + 0.000007231037 d⁴ + 0.00005102634 d⁵; t += t
+  x CHARM_TIME (360) x 0.05; floor. Familiar adds 25..30 min (+ FAMILIAR_BONUS 1169 min) once per pet. Spirit Link
+  copies up to merit EMPATHY (2884) of the dragoon's empathy-flag effects to the wyvern with their remaining time,
+  chosen at random.
+- Pet casters: automaton and Light Spirit spells run the same scripts with the pet as caster: no Composure, Perpetuance,
+  Embolden, RDM merits / job points or Saboteur, the pet's own (zero) mods; the level penalty still applies; origin the
+  pet, so no wear-off reaches the master.
+- Weapon skills: the effect is added (origin us) when the damage on that target is > 0 and it has no copy of the effect
+  at all (never a refresh); no resist floor. tp = min(3000, TP spent + TP_BONUS 345 - the off-hand's (for a ranged WS
+  also the main hand's, for a melee WS the ranged slot's) + FENCER_TP_BONUS 903 when single-wielding a one-handed
+  weapon); R is the element-only resist. Floored keys: floor(D R), floor(f(tp) R), floor(a + b(tp) R) (Weapon Break,
+  Full Break: R scales only the TP term); chance-gated ones are tried only if randomInt(1, 100) <= tp / 30 x R1. E.g.
+  Armor Break 120 + 6 tp / 100, Full Break 60 + (3 tp / 100) R each, Viper Bite 30 + 6 tp / 100, Blade: Retsu fTP 30 /
+  60 / 120 at 1000 / 2000 / 3000, Shijin Spiral floor(15 + 3 tp / 1000) with no R.
+- Weapon procs: duration = floor(ITEM_ADDEFFECT_DURATION 953 of the weapon that procced x R), R 1 or 1/2 (no proc below
+  1/2); proc message 164, proc value the effect id, reported even when the container then refuses the effect; no proc
+  from an item above our level.
+- Messages: landed with the effect as param 230, 236, 237, 268 / 271 (magic burst), AoE 266 / 277 / 278 (abilities 100 /
+  101 and their own; rolls 420 / 421 / 424 carry the total); landed with damage as param 2 (Dia, Bio, helix), 252, 110,
+  185, 317, 522, 593..599 (Despoil: the item); not landed 75, 85, 114, 156, 158, 188, 189, 282..284, 323, 324, 422, 423,
+  425, 523, 655. A partial resist shows nowhere.
+- Wear-off: 0x029 206, or 204 for 40 effects (ko, weakness, sleep, poison, paralysis, blind, silence, petrification,
+  disease, curse, stun, bind, weight, charm, doom, amnesia, ...), Data = the effect's icon; sent only for a non-silent
+  removal of an effect with an icon and no no_loss_message flag, to the owner and to an origin character in the zone
+  with the owner in its spawn list (for a mob owner only to the origin, while it lives). Dispels (Dispel, Finale, Dark
+  Shot, Despoil, Blank Gaze, Geist Wall, ...) and overwrites are silent; -na, Erase, Healing Waltz and steals are not.
+- getMod: equipped items' mods and their augments, all zero while our level is below the item's (sync); item latents
+  (Millennium Horn ALL_SONGS_EFFECT + 2 in Dynamis, Storm Fife BALLAD_EFFECT + 1 in Assault); our effects: Light Arts /
+  Addendum: White REGEN_DURATION + 2 x 3 x floor((SCH level - 10) / 10) (SCH main 20+), Tabula Rasa its own term; Dark
+  Arts / Addendum: Black HELIX_DURATION + 72, Tabula Rasa + 108; Dark Seal DARK_MAGIC_DURATION; Saber Dance
+  SAMBA_PDURATION; Naturalist's Roll ENH_MAGIC_DURATION; Clarion Call a song slot; and the BRD 1200-JP gift. Skills come
+  from 0x062 (working skills, gear and merits included).
+- Augments: at every character load, slots 0..3 of every non-charged equipment item's extdata (bytes 2..9, u16 each: id
+  bits 0..10, value bits 11..15) are read as standard augments whatever bytes 0..1 say; per SQL row of that id: (value >
+  0 ? value + v : value - v) x max(multiplier, 1). Mezzotint, bundled and evolith augments apply nothing.
+- Not knowable from packets: R; the random terms (Bind, Stun, the bashes, Holy II 20..25 s, Charm's bind 1..5 s, ...);
+  whether a mob is an NM; other players' SNEAK / INVISIBLE / ENSPELL / EMBOLDEN duration gear (the only target-side
+  mods); silent add-ons (WS debuffs, blue and pet damage moves' added effects, Feint, the bash stuns, Solace's
+  Stoneskin). Not worked out: charmed pets' moves (about 1,790 mob skill scripts), item-script added effects, whether an
+  always-overwrite recast's 0x029 always arrives before its 0x028 *(inf)*.
+
 ## Remember password on the login screen (2026-10-25)
 
 - Ours (retail's PlayOnline kept the password): a row under the login window's fields, the game font's box (U+25A1,
@@ -8882,7 +13750,7 @@ interpolates between the hour keys in both clients.
 - Live (test config): typed, ticked, logged in (the config then held 88 hex digits and no plaintext, the key file
   0600); the next start filled the password and Enter reached the title menu; unticking emptied it.
 
-## Ship voyages: the moving world (2026-10-25; spec ~/ffxi/lab/research/ship_voyage_spec.md)
+## Ship voyages: the moving world (2026-10-25)
 
 - The ship stands still, the world moves: a voyage zone DAT holds the world MZB (header byte 0x1c = 2, scene slot
   type 3, no collision) and the ship MZB (byte 0 = 0, the grid). FUN_1017b510 draws a type-3 slot's instances through
@@ -8903,11 +13771,58 @@ interpolates between the hour keys in both clients.
   eye included; voyage-mode generators (0x14 / 0x15) take V (its rotation) as their matrix at the start
   (FUN_100531d0), so those without op 0x11 sit right too.
 - zone-shot --voyage T[r] renders a ship zone at t T. Tests: ship_data_parse, voyage start / step / wrap / hold, the
-  spec's paths and poses (files 101, 147, 320, 326), world slot counts, route fallback, the sun at t 0.5.
+  reference paths and poses (files 101, 147, 320, 326), world slot counts, route fallback, the sun at t 0.5.
 - Live (Lnxcsfix, !pos onto zone 220 while LSB's Selbina leg ran): ship data and `c000` (18 keys) at t 0.059; on deck
   Mhaura's coast receded over 35 s while the deck and sails stayed. LSB never sends a route (the barge's and
   Manaclipper's other legs show c000) and has no data for the pirates' run (227 / 228). Not done: ship actors (0x00E
   SubKind 4: the pirate ship, the port-side ships; MODLOG "Doors").
+
+From the research notes:
+- State besides the globals in client/voyage.rs: V in DAT_10631ed0 (read by FUN_101773f0 -> FUN_1003be10 modes 0x14 /
+  0x15 / 0xe / 0xf) and zone +0x38e1c (the renderer's copy; identity in FUN_1017b1e0 at unload and in the ctor);
+  zone +0x158 = V applied (FUN_10178b30; read only by FUN_1017b510, asm 0x1017c23c); zone +0x3959c the path holder
+  (vtable 0x1032b6d8: +4 resource, +8 t, +0xc spline A's chord total, 0 = none, +0x10 reverse, +0x14 CMoPathObject).
+  The asm has no other writers.
+- 0x00A (asm 0x100fb3a7..0x100fb3e8): +0x40dcc start, +0x40dd0 start + duration, +0x40db2 bit 5 reverse, byte +0x40db3
+  route. t = (now - start) x 60 / ((end - start) x 60), now = FUN_101039e0 (the synced clock, whole seconds). Then
+  FUN_1018b3a0 -> FUN_1018b500 -> FUN_10178df0 loads the zone, the path last, so the new route picks the path. A
+  negative t (now < start) keeps rising; the frame's pose uses max(t, 0) from before the frame's step.
+- The `c00N` fallback is by name only: a `c00N` with one key is taken and gives no path (chord 0, V identity).
+  Single-key `c00N` chunks in `effe` / `weat` folders of other zone DATs (170, 222, 600, 700, 702..706, ...) are effect
+  paths (FUN_10055a60, also called from 0x1003d4b2).
+- Key word bits 19 / 20 (FUN_10055780) put the camera (eye, target) in as key 0 / add one more key: clear in every
+  voyage path. A third CMoSpline over (c0 @+0xc, c1 @+0x1c, key index) is built and evaluated (FUN_10055a60), never
+  used by the pose; c0 = 350, c1 = 0 throughout. Key bytes +0x20..+0x2f are unread. Airship paths sit at y -51.7..-75.4.
+- Exactly 15 DATs have a type-3 slot (scan of every zone and sub-area scene file; the other 640 MZBs are type 1, none
+  type 2): zones 1, 3, 46, 47, 58, 59, 60, 220, 221, 223..228, world MZB first, ship second. The ship MZBs hold the
+  ship's doors and the groups `ent0` / `shaf` (the engine, drawn by the ship's mode-0 generators); the airships' hold
+  `sky_ship`, a dome that stays with the ship.
+- Paths (keys / spline A chord): zone 1 c000 57 / 2530.348, c001 60 / 2136.954, c002 41 / 2202.018, c003 28 /
+  1665.571; zone 3 c000..c003 39 / 57 / 21 / 26; 46 / 47 (one path) 27; 58 36; 59 33; 60 26; 220 / 227 18; 221 / 228
+  19; 223 9; 224 16; 225 9; 226 11. Only zones 1 and 3 have four.
+- Their routes *(inf, from the endpoints against the docks)*: zone 1 c000 / c001 South -> Central landing (two
+  variants), c002 South -> North, c003 North -> Central, Central -> South a reversed c000 / c001; zone 3 c000 / c001
+  the Bibiki Bay tours (they end where they start), c002 Bibiki -> Purgonorgo, c003 back. Which variant retail sends
+  for each run is unknown (no captures).
+- The flagged draw: zone +0x38edc = V x view x proj (else +0x38fdc = view x proj) culls the spatial tree's nodes
+  (FUN_1017c8b0, FUN_10181bb0) and the instances; FUN_1017de20 does the same for the shader path (+0x3949c == 2);
+  blended instances are queued with the flag and drawn after the loop; the inverse world is computed on the fly.
+- Not touched by V: sky and clear colours, fog, area environments, actors and shadows, camera, collision, the ship's
+  generators (mode 0), weather particles (camera-relative), sounds other than those of mode-0x14 effects, and the light
+  direction of scenery and actors (FUN_10187720 env +0x24.., FUN_10188ca0): as the ship turns, the sun disk travels
+  round while the deck's light keeps its direction *(as coded)*.
+- Mode-0x14 generators: zone 1 282 (weather, the landing lights `effe/ship/lw04..09`), 3 229, 46 / 47 118, 58 / 59 43 /
+  41, 226 3; mode 0x15 only in zone 1 (15 clouds and star domes, op 0x11 0x3fe: rotation only). The Selbina / Mhaura
+  ships have none: only the scenery and the sun / moon show the voyage there.
+- Sun / moon: the point (FUN_10187720) is rotated whole, eye included, a parallax of a few degrees on a deck *(as
+  coded; neither this nor the unrotated light compared with retail footage)*. Every sun / moon generator has op 0x11
+  (0x3ff / 0x3fd); lens flares (CMoLfdElem) take their parent's translation.
+- LSB: 0x00A only, flags4 always 0x0100 (no route bits: zone 1's and 3's other legs play c000); nothing during the
+  ride; outside every leg's window nothing is sent (the stale state stays). At start + duration DisembarkAll starts
+  event 255 (zone 220: 7357 "We are now docking in Selbina.", a fade); t reaches 1 then, so a zone change later than a
+  frame shows the wrap, the world back at its start pose under the fade *(as coded)*. Durations: the boats 944 / 945 s
+  of 1152, Nashmau 704 / 706, the airships 263..293 of 864, the barge 266..840 of 3456, the Manaclipper 426..588 of
+  1728. The Ashu Talif (60) and the pirates' run (227 / 228) have no leg.
 
 ## Listed-only NPCs: s2c 0x077 and TargetOffFlag (2026-10-25)
 
@@ -8919,8 +13834,8 @@ interpolates between the hour keys in both clients.
   stays as it was (ours keeps `unlisted`).
 - s2c 0x077 (LAB_10098f30): Flags u8 @4 bit 0, then UniqueNo[32] @8 copied to DAT_10480900 (FUN_10087ae0; zeroes kept,
   LSB's enableEntities({}) sends all zeroes). The zone load clears it (FUN_10093720 -> FUN_10093b10). LSB sends it from
-  three scripts only (ROTZ 1 in Norg, CoP 1-1 in Lower Delkfutt's, Full Speed Ahead); ~/ffxi/lab/research/
-  radar_dots_spec.md's "LSB never sends 0x077" is out of date.
+  three scripts only (ROTZ 1 in Norg, CoP 1-1 in Lower Delkfutt's, Full Speed Ahead); "LSB never
+  sends it" under "Compass radar dots" is out of date.
 - About 103 LSB NPCs carry name_prefix bit 0x80 (@0x27): every town's Tales' Beginning (model 2433, the book) and its
   model 2478 glow (an invisible stub mesh with endless kir0 / cil0 / pou0 generators), the model-1525 "???" sets in
   Bastok Markets, Southern San d'Oria and Windurst Waters, Batallia Downs' Raptor's Food, Valhallan Rift, Talos and
@@ -9001,7 +13916,7 @@ interpolates between the hour keys in both clients.
 
 ## The page modifier (0xa8) in the other lists (2026-10-25)
 
-Spec `~/ffxi/lab/research/page_modifier_spec.md`. The 0xa8 tests (FUN_10123a70(0x3e, 0xa8, 4, -1)) outside the item
+The 0xa8 tests (FUN_10123a70(0x3e, 0xa8, 4, -1)) outside the item
 lists and the storage view:
 - FUN_1022e760 is miss00 (Missions), not magic: plain Right / Left cycle the 15 mission logs (expansion bits
   DAT_10386984 tested against the lobby and the installed content by FUN_1022dad0; log 11, The Voracious Resurgence,
@@ -9021,6 +13936,45 @@ lists and the storage view:
   rows_abs.
 - Not done: the arrows' hover state (message 9 disables the paged list until a row is hovered, so a Ctrl-click on an
   arrow does nothing in retail; ours switches).
+
+From the research notes:
+- Every 0xa8 test is FUN_10123a70(0x3e, 0xa8, 4, -1) (Ctrl or Alt; pad 0x200 / 0x2000); 17 call sites in FUN_1014aae0
+  jbpcat, FUN_101a5f40 mcrbedit, FUN_101db690 the storage view's sides, FUN_101f6c70 the row-list base (when +0x47 ==
+  0), FUN_1022e760 miss00, FUN_102330b0 quest01 (its vt+0x18: modes 0 / 1 itself, 2..4 jump to FUN_10232b80, 5 / 6 to
+  FUN_10231ac0) and FUN_10234370 guide01. Registry (flags, group): jbpcat 0x00030002 0x1c, miss00 0x00030002 0x1c,
+  quest01 0x0001000a 0, guide01 0x0001000a 0, guide00 0x00030002 0x1c.
+- The paged list FUN_10222150 (miss00, quest01, guide01; magic FUN_1022ca30, ability FUN_10224460, evitem's categories
+  and guide00 FUN_10233e30 resend plain 3 / 4 as 0x19 / 0x18 when the step +0x58 < 2 and flag bit 0 is clear): +0x30
+  cursor, +0x38 top, +0x3c max top, +0x40 total, +0x48 visible, +0x5c flags (bit 1 disabled, bit 3 silent); nothing at
+  total 0 or with bit 1. 0x19: max top 0 -> cursor = total - 1; else, unless the cursor is last, top = min(top +
+  visible, max top) (FUN_10221e10) and cursor = min(cursor + visible, total - 1). 0x18: max top 0 -> cursor 0; else d
+  = min(top, visible) (top 0: d = cursor), cursor -= d, top -= d. SE 0001 when the cursor changed, unless bit 3.
+- The row list FUN_101f6c70 (jbpcat, fp_cat, fp_cat2, inventor, bank; +0x1e top, +0x20 count, +0x18 visible, +0x24 the
+  hand's child, +0x22 max top): 0x19 at max top moves the hand to the last row (SE 0001) unless it is there; else top
+  = min(top + visible, max top) with the screen row kept, SE 0001; 0x18 the mirror. Then the class hook +0x58. Plain 3
+  / 4 go to the hook when +0x47 == 0 and 0xa8 is not held, or when vt+0x6c(msg) is true (FUN_10148fa0, false, in the
+  base and in jbpcat / fp_cat / fp_cat2); else they page. The default +0x47 is 1 (FUN_101f67c0: meritcat, merit2ca,
+  scanlist, link5 ...).
+- The disabled bit (the open item above): FUN_10221cd0 sets it while the pointer is on the arrows (children 9 / 10,
+  message 9) and while a description is up (FUN_10221c90); FUN_10221ce0 clears it when a row is hovered, and every
+  rebuild clears it (FUN_10221920: u16 +0x5c = 0, the bar on, cursor and top 0). While set the list ignores every
+  message, keyboard pages too. A click on an arrow is Enter on child 9 / 10, resent as Left / Right through vt+0x18,
+  which tests 0xa8 again: with Ctrl / Alt held it is a page on the disabled list (nothing); without, the log / area /
+  week / category changes. RoE's arrows and jbpcat's page areas skip the 0xa8 test.
+- miss00 (FUN_1022e760; +0x64 0 waiting for the s2c 0x056 store, 1 the list, 2 a description): log titles (group 0xd)
+  0x15 San d'Oria, 0x16 Bastok, 0x17 Windurst, 0x18 Zilart, 0x83 Promathia, 0x86 Assault, 0x87 Aht Urhgan, 0x8f
+  Campaign, 0x90 WotG, 0x9f Adoulin, 0xb7 RoV, 0xbc TVR, 0x98 ACP, 0x99 AMK, 0x9a ASA; name file codes 0x49..0x51,
+  0x55, 0x56, 0x57, 0x52, 0x53, 0x54; DAT_10386984 = 00 00 00 01 02 03 03 04 04 0b 00 00 05 06 07. The TVR skip tests
+  the log index left in EDX (0x1022e8a2), not the table value 0xb (log 9's). FUN_1022e710: a silent page, a header row
+  -> cursor + 1 clamped (FUN_10221b90), SE 0001 when the cursor ended on another row.
+- quest01's areas (FUN_10233060, DAT_10386998, 4 bytes an area, a negative byte ends): area 5 bit 1, 6 bit 3, 7 bit 4,
+  8 any of 8 / 9 / 10, 9 and 10 bit 0xb. Unity ranking (FUN_10231ac0) switches only when FUN_102319c0(week) holds:
+  DAT_10485824 bit 0 (s2c 0x119 seen) and both week tables complete (FUN_10087c90(0) and (1)).
+- jbpcat (FUN_1014aae0; open FUN_1014a8c0 sets +0x47 = 0, close FUN_1014a920 back to 1; visible 10): Ctrl / Alt +
+  Right / Left do nothing while the hand is on a page area (children 0xb / 0xc through message 9: window +0x62 = 0);
+  the hook FUN_1014acc0 stores the cursor row (+0x60 page 0, +0x62 page 1); a page switch rebuilds (FUN_1014b0d0 /
+  FUN_1014b300) ending with FUN_101f7080(saved row, 0). fp_cat / fp_cat2 (FUN_1014b670 / FUN_1014ba60) have vt+0x18 =
+  FUN_101f6c70 and hooks that take only 5 / 6.
 
 ## Weapon skills from NPCs and trusts: the per-race files (2026-10-25)
 
@@ -9061,7 +14015,6 @@ lists and the storage view:
 
 ## Event actor toggles, first batch: mouth, blinks, targeting, generators (2026-10-25)
 
-Spec `~/ffxi/lab/research/event_toggles_spec.md` (items 1, 2, 7, 11).
 - Op 0x7c (FUN_100b8a80, 4,908 sites): actor@2's entity +0x128 bit 17 = u8@1. FUN_10087e80 runs every frame: with the
   bit clear it cancels the mouth (FUN_10087e40: region 4 stopped with an 8-tick blend), so a line spoken meanwhile
   never moves the lips; scripts wrap silent "..." lines in 0x7c 0 / 0x7c 1. Ours: Entity.mouth_off drops Actor.mouth
@@ -9076,9 +14029,31 @@ Spec `~/ffxi/lab/research/event_toggles_spec.md` (items 1, 2, 7, 11).
   model load / un-hide.
 - Checked headless (event-run 230 0x17): "op 7c [Int(0), Actor(npc0ed)]" around its silent line.
 
+From the research notes:
+- Op 0x7c's reader FUN_10087e80 runs from the entity update FUN_1008e9a0. Bit set: the mouth countdown (+0x14e
+  left, +0x150 -= frame ticks; below 0 on a CXiSkeletonActor FUN_100ce0e0 plays 'mou4' / 'mou6', +0x150 = 0x8e). Bit
+  clear: FUN_10087e40 -> FUN_100ce160 stops region 4 with an 8.0-tick blend out (FUN_1001b170(8.0)), +0x14e = +0x150
+  = 0. Entity init sets +0x128 = 0x20001 (mouth and footsteps on).
+- Op 0x81's reader is the actor update FUN_100c63d0 (asm 0x100c759f): with +0x8b4 set and the status in {0, 1, 4, 6,
+  0x1c, 0x1f, 0x26..0x2b, 0x2f, 0x30, 0x32..0x35, 0x38..0x53} or FUN_10084350 / FUN_10084370 true, FUN_100cdf90 runs
+  the blink timer ('eye3').
+- TargetOffFlag readers: FUN_10083430 -> FUN_10084580 (target candidates), FUN_10157d60 (the claimed auto-pick).
+  Op 0xb6 0x12 / 0x13 have no sites. +0x130 bit 1 is read by actor vt +0x124 (FUN_10084a10) in FUN_10085060 (the
+  0x1000 generator start at load and un-hide) and FUN_100c4290 (XiModelActor).
+- Event end (FUN_100ae3f0, entities with +0x120 bit 7): +0x128 |= bit 17 and bit 0; +0x13c bit 19 cleared; +0x20c =
+  0; +0x12c bits 3, 11, 26 and +0x124 bits 29..31 cleared; +0xdc / +0xe0 = 100; with a model +0x1a4 = +0x1a8, model
+  +0x7c8 = +0x1a8, +0x7d8 = "    ", model +0x8b4 = 1, vt +0x150(0); DAT_10489900 = 0. Not reset: +0x120 bits 1 / 3 /
+  6, +0x128 bits 1 / 24, +0x130 bit 1, model +0x798 (until the script clears them or FUN_1008a350 re-initialises the
+  entity: +0x120 &= 0x1fb0, +0x128 = 0x20001, +0x13c bit 19 cleared, +0x20c = 0). A new model resets +0x8b4 = 1 and
+  +0x798 = 0 (FUN_100c5d60, asm 0x100c6228).
+- Op 0xab 0xf / 0x10 (DAT_10489900; 16 sites in 8 zones): read only by the 0x00D handler (asm 0x10099e89). With mask
+  0x01 it normally casts down from y over 50.0 (FUN_10181290) and takes the floor y; with the flag set, an event
+  running and the PC not bound (+0x120 bits 7 / 8 clear), it keeps the packet's y. Ours never snaps 0x00D positions,
+  so the flag changes nothing (the missing snap is a separate gap).
+- Unused by the data: 0xab 0x14..0x18 (DAT_1047d6a8[idx] bits) and 0xb6 0x12 / 0x13.
+
 ## Event op 0xab 0x11: every model built again after the event (2026-10-25)
 
-Spec `~/ffxi/lab/research/event_toggles_spec.md` item 3.
 - FUN_100bac90 0x11 sets DAT_1035af3c = val@2 (1,079 sites, at the end of cutscenes before the fade-in); zone load
   resets it to -1. FUN_10095900 (the per-frame model loader), once no event runs: every entity's model but ours goes
   (FUN_10092900: its riding animal, attached actors and sub-objects with it) and loads again, the load fade from 0, so
@@ -9087,6 +14062,13 @@ Spec `~/ffxi/lab/research/event_toggles_spec.md` item 3.
   ANIMAL actor; ride.rs asks for the animal again) and queues its look; the cached model returns at once with appear
   0. Furniture and auras are not entities and stay *(inf: retail keeps XiModelActors with +0x778 set)*.
 - Checked headless: event-run 230 0x3d1 (npc 0x153) emits "op ab.17 [Int(0)]" before its end. Not seen live yet.
+
+From the research notes:
+- FUN_10095900 (from FUN_10096640) acts when DAT_1035af3c != -1 and no event runs (FUN_10087060 = DAT_10487e48): every
+  entity index 0..0x8ff but ours (DAT_10485f7a), unless its model is an XiModelActor with +0x778 set. FUN_10092900
+  also clears +0x120 bit 9 / +0x128 bit 2, turns ride state 1 / 2 into 3 and asks for the sub-animation again
+  (FUN_1008f1d0). The loader rebuilds up to 50 a frame (DAT_1035af30), walking the DAT_10486020 bucket lists
+  (inferred: by distance). The op's value is unused (anything but -1).
 
 ## Collision grids past 512 cells, and the grid scale (2026-10-25)
 
@@ -9156,8 +14138,7 @@ Spec `~/ffxi/lab/research/event_toggles_spec.md` item 3.
 
 ## Event toggles, part 2 (2026-10-25)
 
-Spec `~/ffxi/lab/research/event_toggles_spec.md` items 4, 5, 6, 9, 10, 12 and op 0x61 (1, 2, 3, 7, 11 were done
-before). Not seen live yet (each needs its cutscene).
+Ops 0xab 1 / 2, 5 / 6, 7 / 8, 0x19..0x1c, 0xae 5..8 and 0x61. Not seen live yet (each needs its cutscene).
 - 0xab 1 / 2 (event actor, +0x120 bit 1): Entity.status_held; 0x00D / 0x00E statuses are not written while set.
 - 0xab 5 / 6 (+0x120 bit 3): Entity.quiet_status; a status change plays no death motion, no status schedulers, and a
   door takes its new state without its open / close scheduler or box change *(inf: FUN_100ad1e0 / 270 own both)*.
@@ -9169,6 +14150,27 @@ before). Not seen live yet (each needs its cutscene).
 - 0xae 5 / 6 (model +0x798, FUN_100cb400): Actor.motion_link; after the clock advances, a leader frame in (0, ours]
   becomes ours. Ours compares the current motions only (retail: each of the 7 regions) and reads the leader's frame
   from the frame before (one frame behind at most). A new model drops the link, as FUN_100c5d60 does.
+
+From the research notes:
+- 0xab 1 / 2 readers that skip the +0x16c write: 0x00D (asm 0x1009a4e2, @0x1f), 0x00E (0x1009c13b, @0x1f), 0x037
+  (0x1009d477, @0x30), 0x030 synthesis (FUN_1009f990, @0xd). Sites: zones 36 / 78 (`ab 01; ac 01 #1 ... ac 01 #0; ab
+  02`).
+- 0xab 5 / 6: FUN_1008c6c0 (on every applied-status +0x170 change from FUN_1008e9a0) returns at once with the bit, so
+  it skips doors' FUN_100ad1e0 (8 / 0x1a / 0x1d / 0x2d open) and FUN_100ad270 (9 / 0x1b / 0x1e / 0x2e close), lifts'
+  FUN_10097a80, and the 'btid' / 'ntob' / 'bton', 'dead' / '1ead'..'3ead' / 'sdep', 'idle', 'inte' / 'ntoe' / 'eton'
+  (0x22) and 'fsh0'.. motions. Data: door scripts in zones 50, 72..77 (`ab 06; 4c; wait; ab 05`).
+- 0xab 8 / 7: FUN_100d4bc0 skips step detection when there is no op 0xbc counter (+0x8ab), leg mode != 3 (+0x878),
+  the status motion is the idle one (+0x7d8 == +0x7c8), +0x128 bit 1 is clear and there is no landing step (+0x8b6).
+  +0x128 bit 0 clear returns at once. Data: event walks (`ab 08; set_speed; walk_to; wait_timer; ab 07`).
+- 0xab 0x1b..0x19: the reader is FUN_10083240 in FUN_100a4ed0 (the CXiCollisionActor update): after a floor hit,
+  unless bit 19, area = entity +0x20c when non-zero (FUN_10083290), else the floor object's 4cc, -> vt +0x184
+  (FUN_100a4700: actor +0x5e4). Users of +0x5e4: the actor's lights (FUN_100a57f0 -> FUN_1018b9a0 -> vt +0x224), the
+  rider -> mount copy (FUN_100c8ed0 / FUN_100c9330), effect op 0x8f. 0x19 / 0x1a have no sites; 0x1b / 0x1c are in
+  zones 36 and 72; 0xae 7 / 8 in zone 290 ('evc1'). The 2019 build has +0x208 / bit 12 for these.
+- 0xae 5 / 6 (FUN_100bb620) reader FUN_100cb400, at the end of FUN_100c63d0: for each of the 7 motion regions, L =
+  the leader's region entry (else its region 0 entry), F = ours (FUN_1001b1a0 on motion object +0x674, +0x24 + 0x14
+  i); when both exist and 0 < L.frame <= F.frame, F.frame = L.frame (inferred: vt +0x30 returns +0x24). Data: before
+  paired motions ('jmp0', 'tuk4' / 'tuk0', 'fut0', 'pro0').
 
 ## The control lock: event ops 0x20 / 0x30 (R9, 2026-10-25)
 
@@ -9197,7 +14199,7 @@ before). Not seen live yet (each needs its cutscene).
 
 ## Mog House layout mode, part 1: entering, selecting, the camera (2026-10-25)
 
-Spec `~/ffxi/lab/research/layout_mode_spec.md` 1.2..1.5, 2.2..2.4 (client/layout.rs).
+Ours: client/layout.rs (more detail at the end of this entry).
 - `/layout` (id 0x7f, FUN_1007e630; myroom row 5 runs it): own house (7 0xbc visiting), status gate 0x44, the
   job-change cooldown, a furnished room (7 0x47), not open to visitors or asked to be (SE 0004), the moogle home
   (7 0x48), then the moogle's line 0x36 and FUN_101d3380(1): the action menu, target, main menu and the moogle's
@@ -9212,17 +14214,58 @@ Spec `~/ffxi/lab/research/layout_mode_spec.md` 1.2..1.5, 2.2..2.4 (client/layout
   a frame every 3 ticks, tint 0x80808080.
 - Live (Lnxcsfix in its San d'Oria house via chars.moghouse = 5, five installed test pieces): /layout selected the bed,
   Right the desk with its pot, Num5 the three views, Escape back with the moogle's menu. Rows removed after.
-- Not yet: Enter's windows (rmlo1 / rmlo2 / rmlo4, bankmenu, the furniture list), holding and moving (3.x), the grid
+- Not yet: Enter's windows (rmlo1 / rmlo2 / rmlo4, bankmenu, the furniture list), holding and moving, the grid
   overlay, c2s 0x0FA / 0x0FB for moves and removals, the link-999 ceiling hidden in view 0, the 7 0x50 refusal.
+
+From the research notes:
+- Myroom object DAT_106631d4: +0x1c mode, +0x1e previous mode, +0x24 view, +0x48 object count, +0x4c objects [2][0x51]
+  (containers 1 / 9 by slot), +0x7e4 "holding", +0x7e6 the selected piece's entity index, +0x7f4 saved focal, +0x818
+  cursor frames, +0x858 / +0x859 / +0x85a cursor tick / frame / count.
+- Other entries: s2c 0x02E or event op 0x85 while in layout mode open rmlo1 instead of myroom (FUN_101d6110(0));
+  closing the mannequin's equipment screen re-enters with FUN_101d3380(1, slot, container), the mannequin selected.
+  The Mog Safe storage view has no Place / Remove row.
+- The /layout gate in order: zone flag 0x100 (FUN_101cc070), a Mog House scene (FUN_100f9680), visiting -> 7 0xbc,
+  the myroom object, status gate 0x44, the job-change cooldown, the window manager busy (FUN_10160c80, +0xae), the
+  emote or mount list open (Err), not furnished (session +0x40db1 bit 0x10) -> 7 0x47, an Open Mog House request
+  pending (myroom window +0x16) or open to visitors -> SE 0004, the moogle away (FUN_10097b40) -> 7 0x48.
+- FUN_101d3380(mode, slot, container): returns for mode > 4; a mode != 0 also needs FUN_10097b40, no event and the
+  player actor; ends with +0x1e = +0x1c, +0x1c = mode. Mode 1: every object state 1 (actor +0xc0 = 1), the door
+  actor +0xc0 = 2, cursor sprites from lib slot 6, target system DAT_1057876c +0x74 |= 0x10 (reader not found), the
+  lock released (FUN_10157660(0)). Mode 0: objects state 0 (+0xc0 = 2), door +0xc0 = 1, context 0xffff, the myroom
+  menu reopened when not open (also after a typed /layout), the all-zero 0x0FA only when the mode was 1; an
+  unfurnished room plays the moogle-return animation (FUN_101d55d0(1)) instead.
+- FUN_101d4d90 on a mode change (except 0 -> 2): to non-zero, FUN_100842d0 (inferred: the player camera off), player
+  +0xb2 |= 0x10 (not drawn), the position DAT_1037eba8[floor], focal saved (+0x7f4 = camera +0x2f4) and set from
+  DAT_1037eb94[mode] (1: 250, 3: 350, 4: 300); to 0, FUN_10084210 (the camera behind the player, focal config 0x49),
+  then the saved focal and one FUN_101d4080(0) step.
+- The camera FUN_101d4080: B = DAT_1037ebc8[floor] = {4, 7, 5} 1F, {4, 9, 6} 2F. L = the selection (else the origin),
+  L.y = sel.y - 0.3 in views 1 / 2, else -0.3; L.x / L.z clamped to +-B[0] / +-B[2]. Eye target: view 0 (L.x, -5.0,
+  L.z - 0.1), 1 (0.7 L.x, -4.5, max(L.z - 4, -5.2)), 2 (0.7 L.x, -4.5, min(L.z + 4, 5.2)). Look and eye ease 0.3 a
+  frame; view 0 then keeps the eye B[1] from the look (FUN_1001ecb0). The axis reads are passed but unused: no manual
+  camera. The view resets per house visit (myroom ctor, asm 0x101d2d8d).
+- Pick FUN_101d5710: view 2 negates dx / dz. A wall piece's point moves its height toward the room (d = -pos.y; rot 0
+  z += d, 1 x += d, 2 z -= d, 3 x -= d). Extents: half the turned footprint (0 when pieces stand on it). From a floor
+  piece, one within |rel.x| + |rel.z| < 0.1 is taken at once. Right needs rel.x > ex and |rel.x| >= |rel.z| (the
+  others likewise; two keys pass only exact diagonals). The nearest floor piece wins over the nearest overall when
+  their squared distances differ by < 0.1. SE 0001 even when nothing changes.
+- Link 999 (FUN_1017a590): byte +8 of every instance whose MZB record +0x50 is 999 (instances start at 2; 0 = not
+  drawn, inferred). 389 / 390 / 391 have one each (m_san01_b / m_bas01_b / m_win01_b, the ceiling, y -7.40); 2F
+  83806 none.
+- Blocked in mode 1: flag-0x10 text commands -> 7 0x50 (FUN_10081230; /lastsynth FUN_1007f990); the main menu
+  (FUN_1015ee40), the macro bar / palette (FUN_101a33e0), window shortcut keys (FUN_101adf20 -> FUN_101ae010) and
+  FUN_101585f0 need mode 0. Key masks: 0x31..0x34, 0x8d..0x90, 0xa7 have 0x40 (dead in any other context and while
+  typing); 0x0f 0xffff; 0x8b 0x3e.
+- Not traced: what reads target system +0x74 bit 4 and myroom +0x7e4. The 0x8b click is only "Enter": no picking by
+  pointer.
 
 ## Mog House layout mode, part 2: the rmlo windows, moving, turning, removing (2026-10-25)
 
-Spec `layout_mode_spec.md` 2.3, 2.5, 3.0..3.4, 4.1..4.3, 5.2, 5.3 (client/layout.rs).
+Ours: client/layout.rs (more detail at the end of this entry).
 - Enter / a click (0x8f / 0x8b) in select mode opens rmlo2 on the selection (rmlo4 for a mannequin, rmlo1 with no
   piece; rmlo1 also at entry with none), SE 0002; the windows take Up / Down / Enter / Escape (context 0x3e while
   one or a prompt is up). Dim rows (FUN_101f44f0 / 4540 / 45d0): Clear All while Storage (container 2) holds anything;
   Clear away when Storage's free slots are fewer than the storage slots the piece and those on it give (item DAT
-  +0x10, extra 0xd14 *(inf: the spec's item info +0x2a)*); Enter on a dim row buzzes.
+  +0x10, extra 0xd14 *(inf: FUN_101ce130 sums item info +0x2a)*); Enter on a dim row buzzes.
 - Move holds the piece (FUN_101d37e0) with the pieces on a surface; its keys (FUN_101ce360): Enter places it when it
   fits (Grid::fits) and sends c2s 0x0FA for it and every piece on it (SE 8060), else SE 0004; Escape (0x90) puts it
   back or drops a new one (SE 0003); the arrows in the order Left, Right, Up, Down through /layoutctrl's flip
@@ -9240,6 +14283,59 @@ Spec `layout_mode_spec.md` 2.3, 2.5, 3.0..3.4, 4.1..4.3, 5.2, 5.3 (client/layout
 - Not yet: Place (bankmenu and the furniture list), the mannequin's equipment row, the grid overlay, the link-999
   ceiling in view 0. Known: each furniture reload adds its textures to the GPU again (31 -> 75 over five moves): the
   held piece should move its instance matrix instead.
+
+From the research notes:
+- Object states (FUN_101ce1e0): 0 off (+0xc0 = 2), 1 select (+0xc0 = 1), 2 held (its cells and those of the pieces on
+  it freed; +0x7e4 = 1), 3 plant view (+0xc0 = 2), 4 mannequin view (re-placed at y -0.001).
+- Windows (rows 88 x 16 at (21, 5 + 16 (n - 1)), cursor anc_s; open stores +0x14 = 0x42 and sets context 0x3e, close
+  restores it; element 0 strings are -1, so the title bar keeps "Layout"): rmlo1 DAT_10663784 (vt 0x1033a6d0), (16,
+  240) 112 x 56, windowps 52 / 53 (dim 526) / 59, help 0xe 409 / 410 / 411; rmlo2 DAT_10663788 (0x10338290), (16, 224)
+  112 x 72, 55 / 56 (525) / 52 / 53 (526), help 412 / 413 / 409 / 414; rmlo4 DAT_1066378c (0x10338248), (16, 208) 112
+  x 88, 547 (548) / 55 / 56 (525) / 52 / 53 (526), help 604 / 412 / 413 / 409 / 414; bankmenu DAT_106631e4
+  (0x10338540), (384, 48) 112 x 42, windowps 65 / 769 (770). rmlo3 is in the DAT but nothing opens it. Dim rows:
+  FUN_101f44f0 / FUN_101f4540 / FUN_101f45d0 (Storage = container 2 view DAT_10666e34; "holds anything" = count > 1,
+  inferred). Enter: FUN_101f4750 / FUN_101f47f0 / FUN_101f48e0; rmlo4's Clear away does not close it.
+- Held keys (FUN_101ce360): every arrow that is down runs FUN_101cd0a0 once, in the order Left, Right, Up, Down; the
+  last call decides the sound. 0x8e (rot + 1) has no default keyboard binding (inferred: pad only). A floor piece's
+  turn re-centres by FUN_101cd150(w0 / 2 - w1 / 2, d0 / 2 - d1 / 2) (integer halves) and moves the pieces on it
+  without turning them (they may end off the top; each still sends its 0x0FA). A wall piece's turn changes only +0x20
+  (sent in 0x0FA); the next move resets it from ROT.
+- /layoutctrl (FUN_101cd060): config 0xc1 != 1 and look.z <= eye.z -> dir = {2, 3, 0, 1}[dir]; type 2 never remaps;
+  with the layout camera only view 2 flips (inferred: +x is screen right looking toward +z).
+- Moves (FUN_101cd0a0 / FUN_101cd150): bounds DAT_1037d7d4 = {x0 0, x1 20, z0 0, z1 24} 1F, {0, 20, 0, 26} 2F; x =
+  max(x, x0), x = x1 - w when x + w >= x1 (z likewise); unchanged -> no sound. A surface (flag 2) carries its pieces;
+  a stackable (flag 4) takes level = cell height / 10 of the last footprint cell with one. No overlap test until
+  Enter. Wall moves: MOVE (PTR_DAT_10337de4: 0x1037d7dc 1F, 0x1037d7f0 2F) and ROT (PTR_DAT_10337dec: 0x1037d960,
+  0x1037d968), always "moved" (SE 8058). 2F ROT: slots 0..35 3, 36..47 0, 48..83 1, 84..91 2.
+- Grid (FUN_101cecf0): 20 x 26 cells of 8 bytes, index x * 26 + z: [0] / [1] floor / top piece slot, [2] / [3] their
+  containers, [4] flags (bit 0 floor free, bit 1 top free once bit 0 is clear, 0x80 blocked), [6..7] u16 surface
+  height (0.01 units); init flags 3, 1F x 6..13 x z 0..17 blocked. Wall records 92 x 5 bytes at +0x1040 {slot,
+  container, state}, 4 = free. Occupy FUN_101ced80, free FUN_101ceef0, fits FUN_101cf0a0 / FUN_101cefd0 (mask 2 also
+  needs bit 0 clear and the same [0] / [2] under every cell). Links FUN_101cec50: top pieces join their floor piece's
+  list (+0x6c / +0x70, at most 0x20); occupy clears every list first, free does not, so a held surface keeps its list.
+- Confirm FUN_101ccf50(5): occupy and +0x2c = 1 on the piece, recursively on a surface's pieces; the object update
+  FUN_101ce7a0 sends 0x0FA while +0x2c is set, the next frame, in object order (container 1 slots 0..80, then 9), so
+  children may go before their parent (LSB relies on it). Cancel (6): the exdata place again, a surface's pieces too;
+  no packet.
+- c2s 0x0FA (FUN_100f0cc0; LSB GP_CLI_COMMAND_MYROOM_LAYOUT) from object +8 item, +5 slot, +0x10 container, +6 floor,
+  +0x14 x or wall slot, +0x18 level, +0x1c z, +0x20 rot; the all-zero end body (FUN_100f0c80) is rate-limited per id;
+  LSB runs UpdateMoghancement on it. 0x0FB (FUN_100f0d40) is sent from +0x2d.
+- Object update after the record: record gone -> object 0; installed -> +0x2e = 1; not installed with +0x2e set ->
+  freed (FUN_101d5140: cells freed, lists relinked, actors destroyed). Then +0x7e6 = (+0x7e6 != n) ? n : 0 with n the
+  piece nearest the old selection (FUN_101d5cd0): removing the selected piece selects its neighbour, and freeing
+  another piece while one is selected clears the selection (retail quirk).
+- LSB's answers: 0x0FA -> s2c 0x0FA {item, result 0, slot, container} (handler LAB_100f0c70 = `MOV AL,1; RET`), 0x020,
+  0x01D, plus 0x01C for a new install; 0x0FB -> 0x020 (pots emptied), 0x01C, 0x01D, a mannequin 0x026 + 0x01F. It
+  refuses silently: wrong container / slot / item, 2F without mhflag 0x20, a footprint on the 1F walkway (x 6..13, z
+  < 18) or z > 23, a floor overlap, an OnTable piece without its Surface parent (height / 10 == y, footprint over (x,
+  z)), a wall slot out of range or taken, a wall with y / z != 0, a pot on 2F, moving an installed piece to the other
+  floor, the house open to visitors, an event; 0x0FB when not installed or Storage would overflow.
+- Sounds: SeSep in file 32922 (0x809a): "8058" move, "8059" rotate, "8060" place (FUN_101d56a0(0 / 1 / 2)).
+- Tints: XiFurnitureActor's colour method is empty (0x10081d30), so MMB furniture never tints; skinned pieces and
+  mannequins (+0x660) use 0x80808080, 0x80606060 while a piece is held, 0x20202020 for pieces between the camera and
+  a pot / mannequin in modes 3 / 4 (FUN_101d4310). Blink FUN_101ce900: high byte 0x40 in states 1 / 2, 0x80 in 3 / 4
+  or for mannequins; v from 0x80 by -+8 x frame ticks, bounced at 0x20 and 0x100; the count +0x28 drops at each pass
+  through 0x80 (-1 forever).
 
 ## Event op 0xb6 subs 0 / 1 on a model NPC (2026-10-25)
 
@@ -9303,7 +14399,7 @@ Spec `layout_mode_spec.md` 2.3, 2.5, 3.0..3.4, 4.1..4.3, 5.2, 5.3 (client/layout
 - Still open: the user's first report, a glowing square at Nine's left hip while Shantotto II was out (not reproduced:
   in ours her model generators are killed by `efon`'s `efkl` right after the summon). The F12 dump is for that.
 
-## Auction house (2026-10-26; spec ~/ffxi/lab/research/auction_spec.md)
+## Auction house (2026-10-26)
 
 - Packets: s2c 0x04C / c2s 0x04E share a 0x3c-byte layout (cmd @4, slot @5, result @6, stat @7, price @8, item /
   inventory slot @0xc, @0xe, @0x10, parcel @0x14..: stat, name @0x18, item @0x28, qty, category, price, market, lot,
@@ -9320,7 +14416,7 @@ Spec `layout_mode_spec.md` 2.3, 2.5, 3.0..3.4, 4.1..4.3, 5.2, 5.3 (client/layout
   (16, 48); moneyctr for the bid and sell prices, shopsell, the comyn prompts (10 0x1e bid, 0x1c / 0x1d fee, 0x1f
   place, 9 0x3a Stop Sale). auc1 closes past 6.0 from where it opened. A bid result prints 180..299 ticks later
   (7031 0xb1 / 0xbc bought, 0xb2 / 0xbd not), at once when the windows close.
-- Sorting (3.3): auc3's Sort is wepsort for categories 1..0xf and 0x30, armsort for 0x10..0x1a, else a name toggle
+- Sorting: auc3's Sort is wepsort for categories 1..0xf and 0x30, armsort for 0x10..0x1a, else a name toggle
   whose label is windowps 151 "Reset List" with a saved sort, 537 "Sort" without (FUN_101d9200 -> FUN_1011ae50,
   another library's sprite: GameUi::lobby_window_lib_swaps). Sorts: Damage 5, Delay 6, Defense 7, Resistance 8,
   Level 2, Name 9 (2 / 5 / 7 / 8 descending, 6 / 9 ascending; param bit 1); Job 4 (needs s2c 0x119; our main job)
@@ -9334,6 +14430,47 @@ Spec `layout_mode_spec.md` 2.3, 2.5, 3.0..3.4, 4.1..4.3, 5.2, 5.3 (client/layout
 - Inferred / not compared with retail: the date column's width (the sprite font's "26/10/25" fills its 65 px), the
   stack rows' name colour, the old 0x550-byte AUCSORT.DAT (cleared instead of converted).
 
+From the research notes:
+- Search payloads (0xa8 bytes at request +0x10; wire = payload + 0x10): +2 u16 param count (<= 20; history: ItemNo),
+  +4 u8 market, +5 u8 (history: 0 single, 1 stack), +6 u16 category 1..0x41, +8 + 8 i {u32 type, u32 bits}. Wire type
+  0x15 when +6 != 0, else 5 (+5 == 0) or 6. Param bits: bit 0 value present, bit 1 descending, bits 2..16 the value.
+- 0x95 (FUN_10106cd0): @0x0e u16 total; entries from 0x18, 10 bytes, up to 20 per packet. 0x85 (FUN_10106de0): head
+  @0x18 {u16 item, u32 count on auction, u16 category}; sales from 0x20, 40 bytes {u32 price, u32 unix date, seller[16],
+  buyer[16]}, up to 10. Rows go to DAT_106644dc (capacity 0x284) for the list, DAT_106644e0 (14) for histories.
+- Market table 0x1037ed68 ({u16 zone, u16 market}): zones 230, 231, 232, 234..236, 238..241, 243..247, 250, 252, 26,
+  48, 50, 53, 256, 257, 80, 87, 94 -> 4. LSB always reports MarketNo 4 and ignores the request's market.
+- s2c 0x04C (FUN_100a3ac0) first: Result -1 -> 9 0x3e and auc1 closed (every AH window); Result -0xb -> 7 0xba. Then
+  by command: Open Result -10 -> 9 0x2d, other non-1 -> 9 0x3e; 3 closes auc1; AskCommit -0xd -> 7 0x6d; Info -10 -> 9
+  0x2d; LotIn 1 -> 9 0x36, 2 nothing, else 9 0x37; LotCancel 0xe4 / 0xe5 -> 7 0x6f; LotCheck -10 -> SE 0004. LSB never
+  sends cmd 3, 0xf, 0x10 or Result -1 / -0xb (not seen live).
+- Parcel store S+0x2cc64 (0x168 bytes): +0 last cmd, +4 last Result, +0xc parcel-received bits, +0x10 non-empty slot
+  count, +0x14..+0x24 the last AskCommit (ResultStatus, fee, inv slot, item, stacks), slot k at +0x28 + 0x28 k {Stat,
+  3 bytes (not copied), Name[16], u16 item @0x14, qty @0x16, cat @0x17, price @0x18, market @0x1c, lot @0x20, time
+  @0x24}. Nothing clears it on zoning (inferred: kept with the session; not traced).
+- Parcel Stat in Sales Status (FUN_101d7e50 / FUN_101d8580), tint and help (group 14): 0, 6, 7 not listed; 3 on
+  auction (green 0x80509050 on our market, else grey 0x80404040; Enter auc4); 0xa sold (yellow 0x80909040, 0x3e); 0xb
+  returned (orange 0x80804020, 0x3f); 0xc / 0x15 sold, collected (yellow, 0x40); 0xd / 0x16 returned, collected
+  (orange, 0x41); 0xe being returned (grey, 0x3d) and 0xf sale in progress (grey, 0x3c): Enter does nothing. Enter on
+  sold: 7031 0xad / 0xba (qty > 1); on returned: 0xae / 0xbb; both send c2s 0x10(slot). The first row build that sees
+  Stat 3 or 0xc..0xf sends LotCheck(slot). LSB never sends 0xa..0x16: sold or expired items vanish from the list and
+  come as "AH-Jeuno" delivery box mail.
+- auc4 (FUN_101d9080): Stat != 3 disables Stop Sale; a parcel on another market disables both rows, help 14 0x44.
+- Bid reply (FUN_101d79e0): Result 1 bought, 2 silent, 0xe4 / 0xe5 -> 7 0x70, else 7031 0xb2 / 0xbd; delay =
+  (item * price, u32) % 120 + 180 ticks.
+- Sell list tint (FUN_101d9690): grey for the augment check (FUN_101cb960 / FUN_101cba20 bit 0), ids 0x201..0x203,
+  bazaar lock byte 0x19, equipped, item flag 0x40 (NoAuction; Rare / Ex items carry it); orange for the slot being
+  sold. Enter (FUN_101d9850): a charged item (record +0x2d, inferred) whose extdata fails FUN_100feb80 -> 7 0xb0; a
+  partial stack -> 10 0x1b, then sold as a single; no free slot of 0..6 -> 7 0x6d.
+- LSB: drops c2s 0x10; slots only 0..6 for LotIn / Bid / LotCancel / LotCheck (a bid whose free slot is 7 gets no
+  reply and stays pending until auc1 reopens); the LotIn and Bid replies carry slot 0 with an empty parcel, so the
+  client empties slot 0; WorkCheck replays its cached listings as cmd 0xc; Info within 5 s -> Result 0xf6. Fee:
+  single 1 + 1 %, stack 4 + 0.5 %, at most 10,000.
+- Not traced: the menus' +0x24 (FUN_101da710, resets the remembered cursor row) runs when the menu is active again
+  (inferred from the bazaar); auclist's English column 2 (width -122) puts the stack size over the icon (read from
+  the table, not seen); iteminfo +0x370 / +0x371 (the bid prompt's stack flag); which help shows on shopsell while
+  14 0x38 sits in helpwind slot 2; retail's parcel replies (which commands carry the listings, the LotIn reply's
+  slot) and other Result values.
+
 ## The raise prompt's frame, larger (ours, 2026-10-26)
 
 - The user found the prompt cramped: framesus 90 bakes "Allow yourself / to be revived?" into the window's sprite,
@@ -9345,7 +14482,7 @@ Spec `layout_mode_spec.md` 2.3, 2.5, 3.0..3.4, 4.1..4.3, 5.2, 5.3 (client/layout
 
 ## Mog House layout mode, part 3: Place (2026-10-26)
 
-Spec `layout_mode_spec.md` 2.5 (bankmenu, the furniture list), 3.5, 5.1 (client/layout.rs).
+Ours: client/layout.rs (more detail at the end of this entry).
 - Place (rmlo1 row 1, rmlo2 row 3, rmlo4 row 4; FUN_101d6c90) opens bankmenu over the rmlo window: Mog Safe / Safe 2
   (row 2 dim until the second floor is unlocked, `mh_floors`), titles 0xd 3 / 0xd 0xb5, help 938 / 939. Enter opens
   the furniture list on container 1 or 9 and closes the rmlo window; Escape closes bankmenu only.
@@ -9362,9 +14499,19 @@ Spec `layout_mode_spec.md` 2.5 (bankmenu, the furniture list), 3.5, 5.1 (client/
   matrix instead of reloading: part 4.
 - Not yet: the mannequin's equipment row (the grid overlay and the link-999 ceiling: part 4).
 
+From the research notes:
+- FUN_101d6c90 returns 0 while a callback is pending. bankmenu (FUN_101d6d10): Enter -> callback(row 1 ? 1 : 9),
+  Escape -> callback(.., cancelled). Layout's callbacks (LAB_101f4a00 / 4a50 / 4aa0) set the list source
+  DAT_10663790's container (vt +0x58) and open FUN_101f23a0(DAT_10663740, source).
+- List source vt 0x1033a668: open FUN_101f4130 (FUN_1021c7e0(0, 3, 0x12, 0), inferred: view 3 rebuilt), close
+  FUN_101f4160, count FUN_101f4190 (installed pots, type 12, and mannequins, type 14, in both containers on any
+  floor). Enter FUN_101f42e0: the caps also refuse an already installed piece; else FUN_101d39e0(item, slot,
+  container, 0) (creates the object or returns the existing one, so this also moves an installed piece), context
+  0x42, hold, close the list, SE 0002. Escape: back to select mode, no rmlo.
+
 ## Mog House layout mode, part 4: the grid overlay (2026-10-26)
 
-Spec `layout_mode_spec.md` 3.7; FUN_101cf110 (c:359035) and its quads FUN_101cf350 / FUN_101cf410 / FUN_101cf4d0 /
+FUN_101cf110 (c:359035) and its quads FUN_101cf350 / FUN_101cf410 / FUN_101cf4d0 /
 FUN_101cf510 (client/layout.rs `overlay`, render/lines.wgsl, ZoneRenderer `set_lines` / `render_lines`).
 - Drawn only while a piece is held. Render state FUN_101779c0: world identity, LIGHTING off, FVF 0x142, colour and
   alpha SELECTARG1 CURRENT (the vertex diffuse). FUN_10177b40 draws each quad as DrawPrimitiveUP(LINESTRIP, 4, 24-byte
@@ -9387,10 +14534,10 @@ FUN_101cf510 (client/layout.rs `overlay`, render/lines.wgsl, ZoneRenderer `set_l
 - Live (Lnxcsfix, San d'Oria house): the held bed red-pink with its inset over blue free cells (the walkway none); in
   the walkway grey, no inset; a held Timepiece green over the Desk's 3 x 3 top and grey on the bed; an Imperial
   Tapestry red-pink at wall slots 0, 1 and 3 with the other slots blue.
-- The link-999 placements (spec 1.6, FUN_1017a590: the house's ceiling beams, m_san01_b and kin) are hidden while
+- The link-999 placements (FUN_1017a590: the house's ceiling beams, m_san01_b and kin) are hidden while
   layout mode is in view 0 and shown again in views 1 / 2 and after it (render show_link999, the zone instance zeroed
   as the sub-area stand-ins are). Live: the beams over the San d'Oria room's east side gone top-down, back after.
-- Moves in place (spec 7.5, as retail moves the actor): when only exdata 6..9 of the same pieces changed and the set
+- Moves in place (as retail moves the actor): when only exdata 6..9 of the same pieces changed and the set
   on screen is the last one asked for, furniture::changed re-places each drawn piece (and a pot's plant, 0.3 up) with
   FUN_101cdd90's matrix instead of loading again; the renderer finds the instance drawn with the old matrix in that
   file's CPU copy and rewrites it (move_furniture); the effects' matrices, skinned pieces' places and the ground's
@@ -9457,7 +14604,7 @@ FUN_101cf510 (client/layout.rs `overlay`, render/lines.wgsl, ZoneRenderer `set_l
 
 ## Trade with no target: the target prompt (2026-10-26)
 
-- The main menu's Trade (FUN_10140400 case 7 -> FUN_1013fe70; trade_spec.md): a waiting request or a current target
+- The main menu's Trade (FUN_10140400 case 7 -> FUN_1013fe70): a waiting request or a current target
   that is not us goes straight to FUN_1013fd30 (as before); otherwise the target prompt FUN_10159440 with filter 0x5c
   (PCs, party, alliance, NPCs), title group 0xd 10 "Trade", help group 0xe 0x2d "Select target to trade with."; no
   candidate prints group 7 0x7f "No trade targets in range.". The pick runs FUN_1013fd30 on it after the saved
@@ -9509,7 +14656,7 @@ FUN_101cf510 (client/layout.rs `overlay`, render/lines.wgsl, ZoneRenderer `set_l
 
 ## Mog House mannequins, part 1: the look and the poses (2026-10-26)
 
-Spec `~/ffxi/lab/research/mannequin_spec.md` (1, 2, 4, 7.1..7.4); client/furniture.rs `mannequins`, actmotion.rs,
+Ours: client/furniture.rs `mannequins`, actmotion.rs,
 dat/motionfile.rs, net.rs (s2c 0x026).
 - s2c 0x026 (LAB_100ec730) keeps packet bytes 4..0x1b per (container @5, slot @6); is_used 1 stores, else drops
   (`World.mannequin_looks`; retail's 16-record inbox only matters for stale records).
@@ -9524,11 +14671,61 @@ dat/motionfile.rs, net.rs (s2c 0x026).
 - Live (Lnxcsfix, its San d'Oria house; Safe 5 a Mithra mannequin with exdata head = Storage 1, body = Storage 2,
   pose 0; Safe 6 a Galka, main = Storage 6, pose 1, rot 1; Storage 1..8 the Bronze set): LSB's two 0x026 records at
   zone-in, the Mithra standing in the Bronze Cap and Harness, the Galka seated with the Bronze Sword.
-- Not yet: dressing (layout mode 4, c2s 0x03B), the worn Storage rows greyed, the cap of 8 (spec 5, 6).
+- Not yet: dressing (layout mode 4, c2s 0x03B), the worn Storage rows greyed, the cap of 8 (part 2).
+
+From the research notes:
+- Mannequins are items 256..263 (0x100..0x107), item type 14. Exdata: [1] flags (installed 0x40, floor & 3), [6..9]
+  column, level, row, rotation, [10..17] the Storage slot worn in main, sub, range, head, body, hands, legs, feet (0
+  none), [0x12] race 1..8 (FUN_100fe990), [0x13] pose (FUN_100fe9c0). FUN_100fe860 maps an equipment slot to that
+  index: 0..2 -> 0..2, 4..8 -> 3..7, anything else -> 8 (none); LSB's 0x03B ContainerIndex uses the same 0..7.
+- s2c 0x026 (LSB ITEM_SUBCONTAINER): @4 is_used, @5 container (1 / 9), @6 slot, @7 unknown, @8 u16 an item id whose
+  class picks pose 8's motion *(inf: retail's main weapon; LSB sends 0)*, @0xa race_hair (overwritten with 0x1e),
+  @0xc..@0x1a head, body, hands, legs, feet, main, sub, range with the slot nibble 0x1000..0x8000; the race and pose
+  bytes LSB adds at @0x1c / @0x1d are never read.
+- Retail's inbox: G + 0x198d0 + 0x18 i, i < 16, count u16 G+0x19a50; the same key overwrites, else appended (even
+  is_used 0); full: the last free record noted, only when is_used != 0. FUN_1021c380 (the view sync, run when the item
+  counter G+0x198c8 moves: 0x01D @4 == 1, or 0x01F / 0x020) hands each record of containers 1 / 9 whose slot holds an
+  item to that slot's object (a copy, FUN_1021bc30; freed when is_used != 1) and deletes it; a record for an empty slot
+  waits. The scan (FUN_101d2b10) passes FUN_1021cbf0's record to FUN_101d39e0 (new) or compares object +0x3e with the
+  record's +6 (FUN_101cdd60) and rebuilds (FUN_101d3a70). So a cleared record never rebuilds a mannequin, a mannequin
+  built before its record is rebuilt when the record lands, and race / pose are read only at creation.
+- LSB sends 0x026 at zone-in into any Mog House (charutils updateMannequins: the installed mannequins of Safe and Safe
+  2, before the inventory), after each 0x03B, and on removal (naked); an install or `!posemannequin` sends nothing (a
+  naked mannequin in mq0 until the next zone-in). Race 0 (LSB's default exdata) reads every per-race table's entry 0,
+  Hume male *(inf)*.
+- The face 30 files (7110, 10286, 13462, 16638, 19814, 22982, 23214, 26390) hold only the head mesh 'hm_h' and its
+  'hh_h': no voice schedulers. The client never maps an item to a model; LSB fills the model ids from the Storage
+  items' MId.
+- Footprints (file 32922 'furn'): Hume 256 / 257, Elvaan 258 / 259, Mithra 262 3 x 2; Tarutaru 260 / 261 2 x 1; Galka
+  263 4 x 4; floor pieces, height 1; the furn entry's model is never loaded. LSB: size 1 x 1, storage 28 (each
+  installed on 1F adds 28 Storage slots).
+- The entity (FUN_100ab750): the highest free index <= 0x3ff of DAT_10480af0, id 0x04000000 | index; kind +0xee 0,
+  GraphSize 0, name "", status +0x16c = +0x170 = 0x31, +0x130 |= 8 (client furniture: spared by /hidetrust's destroy);
+  actor +0xc0 = 2 (not a target; 1 while laying out).
+- CXiMannequinActor (vt 0x1032f0d0, 0xcb8 bytes, FUN_100ab4b0) differs from CXiDancerActor (vt 0x1032f4f0) only in
+  +0x404 = FUN_100ab680 returning 1: FUN_100cbde0 then hands FUN_10033ea0 the shadow direction (0, -1, 0), straight
+  down, instead of the zone light (not done in client/shadows.rs). No 'init' play and no unfurnished hide in its class
+  (the statue class has them); FUN_101ce7a0 hides it in unfurnished rooms. No furniture box, no camera-ray mesh; the
+  character bump applies (kind 0, id high byte 0x04, status 0x31) *(inf: not seen)*. GraphSize 0 makes a Hume 0.95
+  *(as read; compare with retail footage)*.
+- Poses (DAT_1037e028 "mq0?".."mq7?"): 0 normal, 1 sit, 2..4 the nation salutes (LSB's names), 5..7 not in bank 0's
+  file; 8 bank 1 by item info +0x2c (FUN_1015bc40; no info: 6); 9..15 bank 1; 16 bank 2 mq0; n >= 17 bank n >> 3; no
+  look record: mq0. Bank 1's mq0..mq6 are the /hurray poses by weapon class *(inf)*. The names go to +0x7c8..+0x7d4,
+  the bank to +0x8a0; status 0x31 is not a case of FUN_100c8bb0 (the idle name at rate 1.0 x +0x7e0). A pose missing
+  from the files plays nothing new *(inf: the rest pose; not seen)*.
+- Files: FUN_100d1190 (status 0x31 -> request 5, +0x8a4), run by FUN_100d1070 once all nine parts are in, for kinds 0 /
+  1 / 6: FUN_100d1f70 (race > 8 -> 1; the skirt is body info[9] at +0x881; the bases 10088.. per race in
+  dat/motionfile.rs). Banks 3..31 repeat bank 0 for Hume M *(the other races not checked)*. Headers (Hume M): mq0 2
+  frames speed 1.0, mq1 1 frame 0.2, mq2..mq4 1 frame 0.5, bank 1 1 frame 0.4.
+- No client path changes a pose (no text command, nothing writes exdata) *(inf: an NPC event, server side)*. LSB's
+  `!posemannequin <race> <pose>` writes the first item 255 + race it finds and the DB, no packet; seen at the next
+  zone-in.
+- Not checked: whether a mannequin shows its range weapon (PCs hide it through 'init' / hwpc; FUN_100d0fc0 plays
+  'init' only in some +0xa4 states).
 
 ## Mog House mannequins, part 2: dressing (2026-10-26)
 
-Spec `~/ffxi/lab/research/mannequin_spec.md` 5, 6; client/mannequin.rs, layout.rs, items.rs.
+Ours: client/mannequin.rs, layout.rs, items.rs.
 - rmlo4 row 1 (FUN_101f48e0 case 1) closes rmlo4 and starts mode 4 (`Layout.dress`): "menu    inspect" in mannequin
   mode plus the Storage list "menu    inventor" at (200, 48). Context 0x3e; the layout cursor (anc_l) is mode 1 only
   (FUN_101d5680). rmlo4's Place closes rmlo4 too (case 4).
@@ -9536,8 +14733,8 @@ Spec `~/ffxi/lab/research/mannequin_spec.md` 5, 6; client/mannequin.rs, layout.r
   Storage pieces' icons (exdata[10..17]); child 17 "Remove all" = windowps 545 with anything worn, else state 5 with
   windowps 546. FUN_10119c00 settles a child's state sprite first and then lets the FUN_1011ae50 override (+8) win,
   with +0x48 = 1 from the matched kind-4 ref: so the dim one draws 546 at full tint (cursor 0x80805020 at +1 px), not
-  the layout's kind-4 431 (closes spec 8.4). 545 / 546 are the same 88 x 17 button at alpha 169 / 97.
-- Keys (5.6, FUN_10134250 / FUN_10130e40), as the Equipment screen: mode 2 (slot first) Enter on a slot lists its
+  the layout's kind-4 431. 545 / 546 are the same 88 x 17 button at alpha 169 / 97.
+- Keys (FUN_10134250 / FUN_10130e40), as the Equipment screen: mode 2 (slot first) Enter on a slot lists its
   pieces, Enter on a row equips; Num+ to mode 1 (item first): a row is picked (orange) and the grid walks its slots
   (Left / Right in 0x1036f744 order); Escape closes from the grid in mode 2 or the list in mode 1, back to mode 1 with
   the mannequin selected. The list keys as the Equipment list: Up / Down no wrap, Left / Right a page (vt +0x1c is the
@@ -9555,15 +14752,56 @@ Spec `~/ffxi/lab/research/mannequin_spec.md` 5, 6; client/mannequin.rs, layout.r
 - Bars: title slot 2 "Layout" (0xd 4), help slot 2 0xe 0x25c, the list's 0xe 3. Item info mode 0: the cursor slot's
   worn piece or the list row. Mouse: hover / click on the grid children and the rows, the pointer over the other
   window moves the focus (message 8), right click Escape; the list's bar and wheel.
-- Storage views (6.2, FUN_101db220 case 2 and FUN_101dbdb0): a Storage piece any mannequin wears is grey; Manual also
+- Storage views (FUN_101db220 case 2 and FUN_101dbdb0): a Storage piece any mannequin wears is grey; Manual also
   greys installed furniture (dark red on the other floor) and refuses grey rows (SE 0004).
-- The cap (6.3, FUN_101f42e0): 10 installed flowerpots / 8 mannequins refuse every row of that type, installed or not.
+- The cap (FUN_101f42e0): 10 installed flowerpots / 8 mannequins refuse every row of that type, installed or not.
 - Live (Lnxcsfix, the Mithra in Safe 5, the Galka holding Storage 6's sword): keys and mouse; Sub lists the sword grey
   and the shield, the shield goes on (kind 1, LSB's 0x026 back, the actor rebuilt); the sword refused (SE 0004); item
   first (Num+) the mittens onto Hands; Remove all (prompt, kind 5) leaves her bare and child 17 dim; Escape back to
   mode 1. The Storage view (moogle, Storage) shows the Galka's sword grey. Num+ also cycled the log focus (key
   function 0x78) until the dressing windows joined log_cycle's blockers (/check's inspect too: main-class).
-- The see-through tint and the 4 pulses: section "Layout mode: piece colours and pulses". Retail's saved-focal quirk (8.3) not copied.
+- The see-through tint and the 4 pulses: section "Layout mode: piece colours and pulses". Retail's saved-focal quirk (below) not copied.
+
+From the research notes:
+- FUN_10134670 (rmlo4 case 1): inspect (DAT_105781b8, vt 0x103337e0) +0x14f = slot, +0x150 = container; Storage view 2
+  rebuilt with 0xffff; the list source DAT_105781b4 (vt 0x10333778): +8 slot, +0xc container, +6 race; FUN_101f23a0
+  opens the list, then "menu    inspect" (focused). Open hook FUN_10133560: playermo closed, Ammo 13, Neck 6, Ear 10 /
+  14, Ring 11 / 15, Back 4, Waist 8 disabled, then FUN_101d3380(4, slot, container); layout hook FUN_101335e0 (child
+  17 state 5 with windowps 546, the cursor on child 1, help +0x140 = 0xe 0x25c, title +0x144 = 0xd 4); focus hook
+  FUN_101337d0 (slot 2). Frame FUN_10133d70 (child 17 state 0xb with 545 when anything is worn), draw FUN_10134180 (the
+  worn icons, scale 1), cursor hook FUN_101338f0, close hook FUN_101336d0 (iteminfo closed, slot 2 cleared, the views
+  reset FUN_1021c7a0(0, 1), FUN_101d3380(1, ..)), close FUN_10134760.
+- The list source vtable 0x10333778: +0 0 (iteminfo mode 0), +4 1 (place (200, 48)), +8 row help 0xe 3, +0x24 open
+  (unpick), +0x2c no Ctrl compare, +0x30 tint FUN_10130d30, +0x34 FUN_10130e40 (messages 5 / 6 / 8), +0x44 default (no
+  Storage Options row), +0x54 container 2. The tint drops rows with no level, races or slots, or slots & 0x1f7 == 0;
+  race 0 greys every row; "worn by another" counts only mannequins with a look record (FUN_101334c0 walks the Safe's
+  view, exdata[10..17]).
+- Mode 4 (FUN_101d3380 case 4, FUN_101d4d90): furnished: context 0x42, every object state 0, the mannequin state 4 with
+  4 blinks (FUN_101ce9e0(4)), +0x7e6 its entity index; unfurnished: FUN_101d55d0(0); targetwi, menuwind, roommenu and
+  mogpost closed. Each frame the record FUN_100eb490(+0x150, +0x14f) feeds the camera; mode 4 takes no keys.
+- The saved-focal quirk (not copied): 1 -> 4 saves camera +0x2f4 (the layout's 250) at +0x7f4 and sets 300
+  (DAT_1037eb94[4]); 4 -> 1 runs the same branch, saving 300 and setting 250, so leaving layout afterwards restores
+  300, not the player's focal *(as read; not seen: check retail footage before copying it)*.
+- Leaving state 4 (FUN_101ce1e0, any new state): y -0.001 and the rotation again (FUN_101cdf50). The camera's h is kept
+  per (container, slot) at myroom +0x2d4 + (slot + 0x51 (c == 9)) x 4; D = (-P.x, -0.3, -P.z) normalised (no camera
+  that frame when 0), k = (h + 0.3) x -2.5 (DAT_103384c4), E = (P.x + k D.x, h + k D.y, P.z + k D.z), L = (P.x, h, P.z).
+- Keys: Up / Down off child 17 land in the remembered column. FUN_10133410 checks neither slot nor race, so in mode 1
+  an Up / Down move can put the picked item on any slot *(as read)*; it returns 1 whatever the queue says.
+- c2s 0x03B (0x20 bytes; FUN_100ed450 / FUN_100ed4c0 / FUN_100ed530): u32 kind @4 (1 / 2 / 5), u32 the mannequin's
+  container @8 (1 / 9), u8 its slot @0xc, u8 index 0..7 @0xd (0 for kind 5), u32 @0x10 2 (equip) or 0x12, u8 the
+  Storage slot @0x14 (0 unless equipping), u32 0x12 @0x18, u8 0 @0x1c. Queue keys: slot << 8 | storage slot, slot << 8
+  | idx + 1, slot << 8.
+- LSB 0x03B: dropped outside the player's Mog House, in an event, with a bad kind or index, or Category1 9 without 2F;
+  the item must be 256..263. An equip whose slot already holds ItemIndex2 unequips it; else 0x01F lock 0x1B and the slot
+  set; no check that the Storage item exists, fits, or is on another mannequin, and the replaced item gets no unlock.
+  An unequip unlocks ItemIndex2, which the client sends as 0 (nothing unlocked until the next zone-in). Then 0x020,
+  0x026, 0x01D. Zone-in sends Storage items with lock 0, so worn ones are not 0x1B after a re-zone.
+- Removal (c2s 0x0FB): refused when Storage would overflow (its 28 slots go); else a naked 0x026, 0x01F lock 0 for each
+  worn item, exdata[10..17] zeroed, 0x01C, 0x020, 0x01D; the naked record stays on the slot and is used when it is
+  installed again.
+- The cap (FUN_101f42e0; FUN_101f4190 / FUN_101f41d0 count Safe and Safe 2, any floor, exdata[1] & 0x40): moogle line
+  7031 0x63; LSB has no cap. An event or a zone change ends layout mode as usual; the inspect broadcasts 0x838 close the
+  window.
 
 ## Zone-in ends autorun and first person (2026-10-26)
 
@@ -9578,7 +14816,7 @@ Spec `~/ffxi/lab/research/mannequin_spec.md` 5, 6; client/mannequin.rs, layout.r
 
 client/layout.rs (`Pulse`, `frame_colors`, `see_through`, `walk`); furniture.rs `pulses`, `actor_pieces`.
 - Only actor pieces change colour (skinned furniture, mannequins): XiFurnitureActor's colour method (vt +0x30) is the
-  empty FUN_10081d30 (furniture_spec 4.1). FUN_101cea80 sets one piece, FUN_101d39a0 every piece.
+  empty FUN_10081d30 (section "Mog House furniture"). FUN_101cea80 sets one piece, FUN_101d39a0 every piece.
 - Pulse (FUN_101ce9e0 sets +0x24 level 0x80, +0x26 step -8, +0x28 count; FUN_101ce900 each object update while the
   piece is the selected one, states 1..4): level += ticks x step; under 0x20 back to 0x40 rising, at 0x100 to 0xff
   falling; one pulse counted when the level lands on 0x80 (so rising: whole 8-steps from 0x40); count -1 = for ever.
@@ -9737,8 +14975,8 @@ client/macroedit.rs (`pointer`, `generic`, `child_under`, `hit`), esmenu.rs, ese
 
 ## Fishing (2026-10-26)
 
-Spec: `~/ffxi/lab/research/fishing_spec.md` (the 2013 mini-game: statuses 0x38..0x3e, s2c 0x115, c2s 0x110; the old
-PS2-era system, statuses 6 / 0x26.. and 0x081 / 0x066, is not done: LSB never sends it).
+The 2013 mini-game: statuses 0x38..0x3e, s2c 0x115, c2s 0x110. The old PS2-era system (statuses 6 / 0x26.., 0x081 /
+0x066) is not done: LSB never sends it (below).
 
 - client/fishing.rs:
   - /fish (FUN_1007abf0, after the status gate 0x75): the water test FUN_101815d0 (Ground::water_ahead: no wall within
@@ -9787,6 +15025,73 @@ PS2-era system, statuses 6 / 0x26.. and 0x081 / 0x066, is not done: LSB never se
 - Left: FUN_10127ea0 (drops queued text after a mode-3 send *(inf)*); other anglers not seen live.
 - Test tooling: `~/ffxi/lab/scratch/fishing/responder.py` answers arrows from the client log (RUST_LOG
   `vana_client::client::fishing=debug`), `cast_loop.py` casts until a bite.
+
+From the research notes:
+- The old (PS2-era) system, not done: statuses 6, 0x26..0x2b, 0x32..0x35; s2c 0x081 (handler 0x1009fbf0, globals
+  DAT_10487edc / DAT_10487ee0); c2s 0x066 (FUN_10088320, the 0x110 layout); controller FUN_100883e0, tick
+  FUN_10088bd0; timers +0x1dc / +0x1e0 and DAT_10487eb4. LSB takes 0x066 only as an alias of 0x110. The 2019 build's
+  names for the new one: 0x115 handler LAB_1009e3d0, 0x110 builder FUN_10086ca0, tick FUN_10088150.
+- /fish before the water test: silent in the Mog House (FUN_101cc070(0) && !FUN_101cc1b0()), engaged (FUN_101cbdf0(1))
+  or in Conflict (FUN_101cc350(1, 1)); it needs the session (FUN_100fc510). FUN_1009fb50 frees DAT_10487edc / ee0 /
+  ee4 / ee8 before the send; after it DAT_10485a70 = 0, FUN_10092c20 snaps the model to the entity's place and yaw,
+  and FUN_101590a0 closes the target cursor. The water test returns true while DAT_1065ca30 is set *(inf: debug)*; the
+  face type is bit 15 of the face's four u16s (+0x34148).
+- s2c 0x037 sets the bite wait only with +0x120 bit 1 clear, the previous server status (+0x16c) not 0x38, @0x30 ==
+  0x38 and u16 @0x4a > 0 (LSB writes a u8, pad @0x4b); the old 0x32 goes to +0x1dc. FUN_1008f740 sets +0x1e4 = rand %
+  601 + 900 only while it is <= 0, +0x1e8 = 180 (the 3 s lockout before Escape or an early press counts), DAT_10487ec8
+  = -1, DAT_10487ecc = 0.
+- s2c 0x115 (size 0x18, handler LAB_1009fd30; ignored while DAT_10487ee4 is set: one fish a game): u16 @4 stamina ->
+  G[0] max = G[1] current = G[2] shown; @6 arrow delay G[3] (0 -> 1); @8 regen, G[4] = v - 0x80 a tick; @0xa move
+  frequency, G[5] = v x 20 (0 -> 1); @0xc arrow damage G[6]; @0xe arrow regen G[7]; @0x10 time, G[8] = v x 60 ticks;
+  u8 @0x12 sense (bit 0 large G[10], bit 1 keen G[11]); u32 @0x14 special (I[0], the gold odds, echoed by mode 3). G =
+  DAT_10487ee8 (14 ints: [9] warning sent, [12] arrow direction, [13] hit-motion timer), I = DAT_10487ee4 {special,
+  gold}. Keen: effect 3705 `main` on (us, us). LSB sends the hook line, the sense line (0x02A with the fish when
+  keen), 0x038 'hitl' on us, status 0x39, then 0x115.
+- c2s 0x110 (FUN_10088380, size 0x14): u32 UniqueNo @4, i32 para @8, u16 ActIndex @0xc, u8 mode @0xe, 0 @0xf, u32
+  para2 @0x10; mode 5's para = G[8] / 60. LSB checks mode 3 para 0..300, mode 5 para 0..10. FUN_10127ea0 after a
+  mode-3 send empties two message lists on DAT_10578158 (FUN_10126a00) and sets DAT_10488208 = 2 *(inf: so the result
+  line is not held behind queued text)*.
+- FUN_10089100 runs for our player only (+0x1d0 bit 9) and only once the fishing model is set (+0x120 bit 10 and
+  (+0x120 & 0x1800) == 0x800). Sub-state in +0x13c bits 8..10, the arrow clear counter in bits 12..17; bit 11 (a
+  forced end) has no setter in this build *(inf: dead)*. Off fishing: gauge off (party window u16 +0x3a = 0xffff), I /
+  G freed. Sub-state 1 waits while no 0x115 came (a miss arrives as status 0x3e); sub-state 2: 0x39 waits, another
+  non-result status stops fsh7..9; sub-state 4 is not in the jump table (nothing until the status leaves fishing).
+  +0x1ea = 1800 is read only by dead code.
+- The tick FUN_10089850 (s DAT_10487ec8, w DAT_10487ecc, t DAT_10487ed0, good / bad DAT_10487ed4 / ed8; k = whole
+  ticks, at most 4): stamina 0 -> the arrows cleared, no arrows and no regen; s -1 -> music slot 7 (DAT_10485ff2) =
+  table 0x1035b578[large] (129 / 136), s 0; s 0 -> counters reset and the gold roll FUN_10089ee0 (gold when special >=
+  r1 + r2, r = rand % 51 with 0 -> 1), s 1.
+  - s 1: t += u; t > 30 with an axis press: G[1] += trunc(u x G[7] x 0.5). w += u x G[5]; at w >= 6000 a new arrow:
+    dir = rand & 1, window w = (rand % (2 G[3]) + 2) x 10 ticks (x 0.7 gold), the pull from table 0x1035b57c (dir 0
+    fsh9, 1 fsh8) on the model and the rod, s 2.
+  - s 2: hits / hitl (table 0x1035b570) at the arrow's start, then every (rand % 6 + 5) x 60 ticks; the window out ->
+    fsh7, s 0, cleared; the axis (+ right) counts good for dir 0, bad for dir 1; good > bad: G[1] -= G[6] (x 2 gold)
+    and the hit effect; bad > good: G[1] += max(1, G[7]) (G[7] / 4 gold) and the clear effect.
+  - Then G[1] += G[4] x k, clamped to [0, G[0]]; G[2] eases by 0.15 of the difference (all of it when that is <= 1);
+    party window u16 +0x3a = G[2] x 100 / G[0].
+- Arrows: FUN_1008a080(n < 12) starts effect 3727 `maiN`, then the clear counter = 1; n = ((gold x 2 - dir) + 1) x 3 +
+  k (FUN_10089f80; k 0 show FUN_10089f50, 1 hit FUN_10089fa0, 2 clear FUN_10089fc0): mai0..2 left, mai3..5 right,
+  mai6..8 gold left, mai9..b gold right; hits play SeSep 0047 (gold 0048); a wrong key only clears. FUN_10089ff0(c)
+  decrements the counter; at 0 it runs all four clears and, with c, sets it to 30.
+- LSB catches only at <= 4 % left (then rolls its own lose / snap / break chances); 5..20 % is lack of skill (bait
+  lost), 21..100 % the line breaks.
+- Statuses and schedulers (FUN_1008c6c0, names indexed status x 4): 0x38 fsh0 (fh0? 136 ticks, then fh1? held), 0x39
+  fsh7 (fhb?), 0x3a fsh2 (fh3? 168, fh4? 124), 0x3b fsh3, 0x3c fsh4, 0x3d fsh5, 0x3e fsh6; fsh1 is in no table *(inf:
+  unused)*; hits / hitl run vib0 / ase0 and vib1 / ase1 (rod shake and sweat). Leaving a fishing status stops
+  fsh0..fsh9 (vtable +0x29c); entering starts the table's on the model and the rod (vtable +0x298), +0x7d8 = four
+  spaces on both. The status motion is `fh1 ` unless DAT_104568fc +9 *(inf: an event pose flag)*.
+- Files: Hume M 38604 (fsh0..fsh9, hits, hitl, fh00..fhd1), skirt 38636, basket 38605 (fsh0..fsh6 only). The rod
+  actor: FUN_100c59b0(pos, entity, kind = look + 5; look >= 0x55 -> 5), kinds 5..0x24 are rods; its file
+  DAT_1035f598[race] + look, bases {39307, 39307, 39339, 39371, 39403, 39435, 39435, 39467, 39499}; skeleton `sao`,
+  mesh `hf_s`, motions fh00..fhd0 / idl0, fsh0..fsh9, SeSep 8231..8236 / 6095 *(inf: cast / reel)*; looks 14 / 15 add
+  `!f00..!f02`, fgl0..7, mfs0 / mfs7, flp0, fkla. Hume willow (look 10) 39317, basket (12) 39319 (`hum_` skeleton,
+  kt00 / kt01). The line: mode 1 (`!f01`, FUN_100cf180 -> FUN_100d6060) clears model +0x840 bit 18 once it starts or
+  with config 0xbe == 1; mode 2 (`!f02`, FUN_100d61f0) sets it; +0x81c mode, +0x820 delay. Leaving fishing drops the
+  files and the rod *(inf: the FUN_1008a2f0 path, as for a mount)*.
+- The gauge also needs FUN_10087070(3) false (no event lock DAT_10487e48, no +0x128 bit 15).
+- Open: how the plain rods draw their line *(inf: a mesh in `hf_s` animated by the fh motions)*; LSB drops a blocked
+  0x01A without an answer, so the latch would stick until a status change (the status gate 0x75 keeps it from being
+  sent).
 
 ## Op 0xab 0x12 / 0x13: the old fishing's forced end (2026-10-26)
 
@@ -9886,7 +15191,7 @@ PS2-era system, statuses 6 / 0x26.. and 0x081 / 0x066, is not done: LSB never se
 - Not seen live: no LSB shop sells attachments (Whitegate's Ghatsad / Tateeya run quests; Al Zahbi's Chayaya sells
   dice, kind 2, which needs Monstrosity data).
 
-## The Adventuring Primer (2026-10-26; spec ~/ffxi/lab/research/primer_spec.md)
+## The Adventuring Primer (2026-10-26)
 
 - /guide and /primer (0xa0 / 0xa1, FUN_1007fcb0, flags 0x51 through the state gate) and the Help Desk's row 1
   (FUN_10212aa0: SE 0002) open "menu    guide00" (FUN_10233b80; nothing while open). Its open hook closes the main menu
@@ -9917,6 +15222,50 @@ PS2-era system, statuses 6 / 0x26.. and 0x081 / 0x066, is not done: LSB never se
   FUN_10221f50 has no "covered" test, unlike quest00); guide01 drawn above the page image (registry layers); the page's
   first view (ours eases from the image's top-left corner).
 
+From the research notes:
+- Unchanged from 2019 (2019 FUN_10229360 opens guide00, FUN_10229380 guide01, FUN_101eebb0 = FUN_101f7ad0).
+  Registry: guide00 0x10374fb4, holder DAT_10668ed4 (vt 0x1033c720, ctor FUN_10233c00), flags 0x00030002, layer 2,
+  group 0x1c (zoom-animated; suspends faqsub, gaugewin, playermo / money); guide01 0x10374fe0, DAT_10668ed8 (vt
+  0x1033c788, ctor FUN_102340c0), 0x0001000a (flag 8: no open / close animation), layer 2, group 0 (never in the
+  window walk); mapframe 0x10374564, group 0x5e, layer 0 (it suspends guide00 and faqsub, not guide01).
+- Records: categories (parser FUN_1015d310): r+0 id, r+4 u16 (1..6, unused), r+6 u16 count, r+8 u32 topic ids (at
+  most 64), strings at r+0x108 ([name, 0, ".", ".", desc]; desc unused); topics (FUN_1015d1c0): r+0 id, r+4 number,
+  r+5 image count (39 topics have 1, 42 have 2, 22 have 3), strings at r+8 (the description unused). The record sits
+  at object +0xb0 (FUN_1015b9e0). 0xf626..0xf62f are empty (count 0, name "."); 0xf628..0xf62f are never read.
+- Layouts (file 39542): guide00 frame (16, 48) 366 x 248, windowps 72, no title or help strings, rows 1..8 at (39, 31
+  + 27 (k - 1)) 320 x 18 ("menu    quest" 0), links wrap. guide01 the same frame, rows at (39, 40 + 25 (k - 1)),
+  links clamp, child 9 at (9, 11) 18 x 9 ("menu    frames" 25, the left arrow), child 10 at (343, 11) (frames 26);
+  both arrows have links 255 (no cursor stop). The row colours (FUN_102225f0, table 0x103860fc): 0x80808080 /
+  0x80404040 / 0x80803040 / 0x80804020.
+- guide00's open hook FUN_10233c50 closes menuwind / socialme when open (+0x64 / +0x65) and clears help slot 2; its
+  close FUN_10233e90 reopens them (a fresh open of the social page). Escape (FUN_10234080) clears faqsub's help slot
+  2 and title slot 2. Event start (bit 0x800): guide00 FUN_10233ed0 / guide01 FUN_102344c0 set a flag and the next
+  frame closes them; the map in mode 7 closes too (FUN_101fa8e0, bits 0x820). Busy: the map's FUN_101fa900 closes in
+  mode 7 and clears its close callback (window +0x7c), so nothing comes back.
+- guide00 keys (FUN_10233e30; the paged base FUN_10222150 with total = visible = n): Down / Up wrap on a fresh press,
+  but a held auto-repeat stops at the end (FUN_10222110's memory +0x60); Right / Left go to the last / first row; no
+  0xa8 test. Enter during the first 10 frames reaches FUN_10233ba0 with the default cursor child 1, so it opens Basics
+  *(inferred)*.
+- guide01 keys (FUN_10234370): plain Right / Left SE 0001 always, then FUN_10233f90 / FUN_10233fd0 (k + 1 / k - 1
+  wrapping, skipping empty slots) and a rebuild even when k' == k; Ctrl / Alt (0xa8, FUN_10123a70(0x3e, 0xa8, 4, -1))
+  a page of 8 with SE 0001 when the cursor changed; Enter on children 9 / 10 sends Left / Right (0xa8 tested again,
+  so a Ctrl-click pages); hovering an arrow (msg 9) sets list bit 1 (the hand hides, list messages ignored) until a row
+  is hovered. Escape (FUN_10234230(1)) gives guide00 its hand and bar back (FUN_10221c70 / FUN_10221c60).
+- Mode 7 (FUN_101f9a50(-100, 0, 7, ...)): the gate FUN_101f9a20(7) needs no map image up and FUN_10087650 *(inferred:
+  "key items arrived")*; no record lookup (+0xfc = -1), no lift refusal, no place name, points, markers or player
+  arrow; +0x14 |= 3 (scroll and zoom keys); zoom min = fit = W / 512, max 4 fit; the view is not reset (the last map
+  session's, clamped). The close FUN_101fa420 writes config 0x8a = zoom x 1000 / fit, so the primer's zoom carries to
+  the next page and to /map. Enter is also every left-button release (0x8b mode 5, FUN_101fa900); with one image
+  Enter only plays 0002. The rest is mode 0's update FUN_101ef0a0 (zoom 0xa4 / 0xa5, reset 0x7d, axes 0x79 / 0x7a,
+  the left-drag); no wheel zoom.
+- Bars: guide00 / guide01 focused: title slot 1 9 0xc5; slot 2 faqsub's 9 0xdd from the Help Desk, empty from
+  /primer; help slots empty. A page up: title slot 2 cleared (FUN_102342c0; mapframe's close FUN_101ee580 again). Back
+  from a page: slot 2 9 0xdd (LAB_101f7b40). guide00 closed: slot 2 cleared by FUN_10234080 *(inferred: faqsub sets it
+  again only in its open hook)*.
+- Open: whether the 8 empty row bars show for the first 10 frames *(inferred: yes, about 1/3 s)*; whether a drag's
+  release also flips the page; /primer while it is already up (re-raise or nothing); whether a guide01 arrow click
+  plays the generic 0002 as well as 0001.
+
 ## Mog House: the item-gated NPC (FUN_101d4c80) (2026-10-26)
 
 - Table 0x103383d8 (rows of 0x84 bytes: up to 32 item ids, then a u16 model at +0x80); this build has one row: items
@@ -9928,7 +15277,7 @@ PS2-era system, statuses 6 / 0x26.. and 0x081 / 0x066, is not done: LSB never se
   the layout view.
 - LSB spawns no NPC with model 0x737 (npc_list looks): nothing to show or hide there, not built.
 
-## The generic press on every window (2026-10-26; spec ~/ffxi/lab/research/select_buttons_spec.md 2d)
+## The generic press on every window (2026-10-26)
 
 - The generic handler FUN_10118260 sets window +0x5e = 9 on Enter (message 5); the generic draw FUN_101177d0 then
   draws the cursor child at (+1, +1) instead of (-1, -1) and FUN_10119f80 (N = 0x14, scale 1) its two gold rings
@@ -9942,6 +15291,18 @@ PS2-era system, statuses 6 / 0x26.. and 0x081 / 0x066, is not done: LSB never se
 - Live: Status's Profile row in the Enter frame sinks two pixels with the ring around it, and is back at (-1, -1)
   after.
 
+From the research notes:
+- Addresses: FFXiMain 30261006_0, 2019 ones in brackets.
+- FUN_10118260 sets +0x5e only when the cursor child exists and is not disabled (state 5): child state 1,
+  FUN_1011b2a0, +0x5e = 9; before the holder's handler, whatever the holder then does. Counted down each frame by
+  FUN_10014cf0's whole ticks, clamped at 0: 9, 7, 5, 3, 1, 0 at 2 ticks a frame (0.15 s). The cursor child's rect
+  (FUN_10118900 [101155e0] with its last argument set) is +1, +1 while +0x5e > 0; a disabled cursor child is at +1, +1
+  always. The generic draw FUN_101177d0 [101144b0] calls FUN_10119f80(sprite, x + 1, y + 1, N 0x14, c) = FUN_10119fb0
+  at scale 1.
+- N = 20 frames (c: ring k0, ring k1): 9: s 1.264 a 15, s 1.174 a 53; 7: none, s 1.222 a 33; 5: none, s 1.270 a 12; 3
+  and 1: none; 0: back at -1, -1. Windows that close on the press (ok, ptc6yesn) show no ripple: while closing only
+  the frame draws *(inf)*.
+
 ## Event text: the other codes of FUN_100c1650 (2026-10-26)
 
 - A census of every zone dialogue file (0..299) found codes ours dropped: 18 (2953 lines: synergy furnaces "in use by
@@ -9950,7 +15311,7 @@ PS2-era system, statuses 6 / 0x26.. and 0x081 / 0x066, is not done: LSB never se
   table 0x100c2a90, byte index 0x100c2b38 + sub - 0x31; formats 0x1035d62c / 624 / 0x10350958 / 0x1035d61c / 618 /
   610).
 - 7f 93: msg+0xc10, the name FUN_100c2e20 gets (arg 5): for 0x036 / 0x02A the speaker entity's name, else sName; for
-  0x027 none (chat_audit c027_SPEC.md).
+  0x027 none (FUN_100ad660 with no name; "s2c 0x027 / 0x043, zone text colours, 0x009 keys").
 - A missing point name makes FUN_100c1650 return 0 (the line waits for FUN_101c8450's cache to load); ours loads
   synchronously.
 - Ours: dat/dialog.rs expand takes `Texts` (kinds 2 / 3 / 7 from BattleText::kind_name, the point names, slot 0x21)
@@ -9960,7 +15321,7 @@ PS2-era system, statuses 6 / 0x26.. and 0x081 / 0x066, is not done: LSB never se
   being researched); 0x17 (a player emote motion), 0x1d (the speaker's compass direction), 0x13 (Japanese).
 - `vana-client dmsg-dump SLOT [IDS]` prints a language slot's d_msg file (this build's slot numbers).
 
-## Mog House furniture: the l_01 light (2026-10-26; spec ~/ffxi/lab/research/furniture_light_spec.md)
+## Mog House furniture: the l_01 light (2026-10-26)
 
 - Correction: XiFurnitureActor is lit as scenery, not as an actor. Its draw FUN_101844c0 (from FUN_100c4c20 with the
   zone renderer DAT_10631f24) sets the directional light, ambient and fog with FUN_1018b9a0 / b9e0 / ba20 mode 0 (the
@@ -9974,11 +15335,47 @@ PS2-era system, statuses 6 / 0x26.. and 0x081 / 0x066, is not done: LSB never se
 - Live (Lnxcsfix in the San d'Oria house, Simple Bed / Desk + Porcelain Flowerpot / Fire Lamp / aquarium / Imperial
   Standard; before / after shots, ~/ffxi/lab/scratch/furnlight/cmp_*.png): the bed's top, the banner and the aquarium
   frame warm slightly; walls, rug and actors unchanged. Pieces near the walls change little (our point-light falloff,
-  spec 8.2).
-- Open (spec 8): the scenery ambient may be twice retail's (D3DRS_AMBIENT = ftol(ambient x 128)); the 3 blended pieces
+  below).
+- Open (below): the scenery ambient may be twice retail's (D3DRS_AMBIENT = ftol(ambient x 128)); the 3 blended pieces
   keep z writes in retail *(inf)*. Neither changed.
 
-## Log lines: in-line colours and indents (2026-10-26; spec ~/ffxi/lab/research/log_colour_codes_spec.md)
+From the research notes:
+- FUN_100c4c20 (XiModelActor draw, vt +0x288): a 0x16c-byte instance record at actor+0x5c8 (+0x18 the MMB, +0x40 the
+  world matrix, +0xd4 mirror 0); +0x774 > 0 (a ship's 4-frame delay) counts down without a draw; then
+  FUN_101844c0(inst, the '_' flag +0x770) with ECX = DAT_10631f24. Ships ('fune' / '_fun') draw through it too.
+- FUN_101844c0 states: LIGHTING 1; one-light mode (zone+0x394a4 == 0): FUN_1018b9a0(light, 0, 0) into +0x394a8;
+  two-light mode (bump mapping off): FUN_10188b70's bg sun and moon into +0x394a8 / +0x394ac ('l_01' then is D3D
+  light 2); AMBIENT from FUN_1018b9e0; FOGENABLE 1 (table fog LINEAR with device +0x92d, else vertex fog, RANGEFOG
+  +0x92f); SetMaterial zone+0x3913c (diffuse 1, ambient 0.7, emissive 0, power 50; with the COLOR1 sources only the
+  emissive 0 counts); stage 0 MODULATE2X / MODULATE4X, WRAP; ZBIAS DAT_10632038 = 0; '_' -> alpha test GREATER 0x60;
+  SRCALPHA / INVSRCALPHA; cull CCW (CW when mirrored). Per 0xc0-byte piece: light 0, ambient and fog set again;
+  piece+0x24 (MMB bit 29) -> CULL NONE (148 of 658 pieces); ALPHABLENDENABLE = piece+0x20 (MMB bit 31). Exit: AMBIENT
+  0, ALPHATEST 1, CULL NONE, the 'l_01' slot off; light 0 stays on.
+- FUN_1018b9a0 / b9e0 / ba20 (out, mode, area); a non-zero area swaps to FUN_101889c0(area). Mode 0 (bg group):
+  direction env+0x14c, diffuse env+0x16c x [env+0x18]+0x44, ambient env+0x104, fog end / start [env+0x18]+0x3c /
+  +0x40. Mode 1 (actor group): env+0x17c, env+0x19c x +0x24, env+0x84, +0x1c / +0x20. Callers: the scenery frame mode
+  0, area 0 (per instance its area, FUN_1017c9c0); the actor update (0x100a5d1c) mode 1 while actor+0xa8 == 0, else
+  0, area actor+0x5e4 (the writer of +0xa8 not traced; setter 0x10082374); furniture mode 0, area 0. AMBIENT bytes =
+  ftol(min(c, 1) x 128.0) in both modes; the light's Ambient (DAT_1065ca34) is never written (inferred 0).
+- Light table in this build: DAT_10632040 (256 x 0x70), cleared by FUN_101784e0; the zone load FUN_1017a6d0 ->
+  FUN_10178720 (find or allocate), DAT_1065c4d8 the index map. The element (FUN_10056400, dtor FUN_10056390): the
+  first draw FUN_10178610 writes I 0 (Att2 1, Theta 0: one frame at "I = 1"; ours writes the full I at once, not
+  visible); later draws FUN_10178530.
+- 'l_01' generators (attach 0, flags 0x1000, one kind-0x47 element, op 0x58 (range, I, 0, 0), no update ops):
+  389 San d'Oria (-0.028, -4.832, -0.078), bytes 99 73 3d, range 9, I 25; 390 Bastok (-0.028, -3.174, -0.078), f2 b7
+  63, 11, 10; 391 Windurst (-0.028, -3.051, -0.078), 99 73 3d, 12, 25; 83806 2F (0, -4, 0), 80 67 46, 11, 24; 83807
+  (two identical) 94 75 40, 11, 24; 83808 (0, -5.3, 0), 80 67 46, 32, 24; 83809 (0, -4, 0), 36 36 36, 11, 10 (flags
+  0x40001000, update op 0x2e (40, 50)). Collision objects naming it: 389 9 of 10, 390 / 391 6 of 7, 2F all.
+- The blended pieces (bit 31: items 113 Cleaning Tool Set, 203 Bomb Lantern, 221 Arcane Flowerpot): retail keeps z
+  writes on and bias 0 (inferred), unsorted, in the actor pass; ours uses the scenery blend pipelines (no z write,
+  bias -8).
+- Open: retail's scenery AMBIENT (set at 0x1017bd24 from FUN_1018b9e0 mode 0) is ambient x 128 / 255, about half;
+  ours lit_zone adds bytes / 255 unhalved (lit_actor halves), so scenery and furniture shadow sides may be twice as
+  bright; to be checked against a retail screenshot first. Our point lights fade by (1 - (d / R)^4)^2 where retail
+  cuts hard at R: San d'Oria at d 7.3 (R 9) retail adds 0.47 C, ours 0.47 x 0.32 C. The two-light mode is not
+  modelled for scenery or furniture.
+
+## Log lines: in-line colours and indents (2026-10-26)
 
 - `1e xx` stays in the line through the expander (FUN_100c1650) and is drawn by FUN_10162140 (both logs, rem4line,
   spoolmsg, the op 0x24 options): the running colour becomes FUN_10161fd0(xx), xx < 0x11 from the 17-entry table
@@ -10006,7 +15403,32 @@ PS2-era system, statuses 6 / 0x26.. and 0x081 / 0x066, is not done: LSB never se
   add's mode-2 flag (every line indented).
 - Live (Lnxcsfix): "Obtained: Potion." with Potion in the code-2 green; the Home Point's line white as before.
 
-## arealist modes 1 / 2: the event's area pick (op 0xcc 0x10 / 0x11) (2026-10-26; arealist_spec 1.9)
+From the research notes:
+- The 1e palette 0x103353c8 (u32 x 17, no other reader): 00 / 01 / 09..10 = 0 (the line colour); 02 0x4040c000
+  (green), 03 and 04 0x604040a0 (blue), 05 0xffa02080 (magenta), 06 0x60108080 (cyan), 07 0x60c09060 (pale yellow),
+  08 0x80804020 (orange); alpha bytes are ignored.
+- The expander copies `1f xx` through too and sets msg +4 = xx. FUN_10128ce0 stores each wrapped line in a 0x800-byte
+  ring record: a 0x3c-byte header (byte 0 = the mode, u16 count @0x10, time @0x38), then u16 glyphs at +0x3c from
+  FUN_101284f0: a char >= 0, `1e xx` -0x100 - xx, `1f xx` -0x200 - xx, `7f xx` -xx (2 bytes long for 31 / 32 / 33 / 37
+  / fb / fc, 3 for 34 / 35 / 36, 4 for 38, else 1).
+- Draws: the small log FUN_10162510 and the full log FUN_10138020 -> FUN_101622e0 -> FUN_101620f0 (the line colour
+  FUN_10129c70(mode byte), recomputed every draw, so old lines follow a text colour change too, against "new lines
+  only" in the config notes; worth a retail check) -> FUN_10162140. Gaiji (0x2115..0x2143) draw 0x80808080 whatever
+  the colour; `7f` entries are skipped with no advance; a `CMP AX,0x200` at 0x101621e0 can never match (dead).
+- Width: FUN_10128950 moves every `1e / 1f / 7f` code into a side list (8 bytes each) and leaves one 0x04 a byte;
+  the wrap (FUN_1012a4f0 -> FUN_1025b6e0, fit FUN_1011d380, width FUN_1011cf70) treats 0x04 as zero width;
+  FUN_10128ae0 puts the codes back. The wrapper state (+8 = 0x1e, +9 = the colour, 1 from FUN_1012a360 /
+  FUN_1012a3b0, or the caller's pair via FUN_1012a420) is prepended to each line. On raw text an xx >= 0x20 would
+  measure as a character.
+- The same rules in rem4line / rem4li2 (FUN_10136670 builds, FUN_10136b40 draws), spoolmsg / splmsg2
+  (FUN_10136fd0 / FUN_101370f0, up to 5 lines) and the event query window (vtable 0x10334dc0: title FUN_1014df50,
+  rows FUN_1014df90, draw FUN_1014e220, the line colour mode 0x99's, id 0x5b).
+- The colour-id table 0x1036e6e8 ({u8 id, 3 pad, u32}, ends at id 0, first match wins) is overwritten for ids
+  0x54..0x6a / 0x6c / 0x6d / 0x6e / 0x70 / 0x71 by the config text colours (callback 0x1012a260, registered by
+  FUN_101aa300 for configs 0x1b..0x31, 0x9b, 0xb0, 0xb3, 0xcb, 0xcc). Mode -> id: table 0x1036e888 ({u16 mode, u8
+  id, u8 flag}).
+
+## arealist modes 1 / 2: the event's area pick (op 0xcc 0x10 / 0x11) (2026-10-26)
 
 - Op 0xcc 0x10 {val@2 tier, val@4 flat} (FUN_1020f1d0): mode 2 if val@4 else 1, the pick flag +0x6d set, +0x70 = tier;
   rows: no top rows, zones that pass the usual filter and are in the level table (DAT_1033b430) with tier <= the
@@ -10034,7 +15456,7 @@ PS2-era system, statuses 6 / 0x26.. and 0x081 / 0x066, is not done: LSB never se
   the mouse reaches it only as the right click, message 6 = Escape (commit, close, send when changed). Ours:
   seacom::right_click; the results window's pointer waits while the editor is open.
 
-## The Linkshell Concierge (event 6100, s2c 0x048, link5 mode 1, lscswin) (2026-10-26; spec ~/ffxi/lab/research/ls_concierge_spec.md)
+## The Linkshell Concierge (event 6100, s2c 0x048, link5 mode 1, lscswin) (2026-10-26)
 
 - s2c 0x048 (0x100a0180), one form: per entry k (0..3) index @4+k: 0xfe clears the 16-slot table (FUN_10093b50, the
   entries before it in the packet too), a signed 0..15 fills slot b = {u16 @8+2k the row's item (its icon; 0 = no
@@ -10062,6 +15484,56 @@ PS2-era system, statuses 6 / 0x26.. and 0x081 / 0x066, is not done: LSB never se
 - LSB issues to report (not ours to change): the posted date shows 9 hours early (LSB counts from 2002-01-01 00:00
   UTC, the client adds 0x3c307d70 = 2002-01-01 00:00 JST); shell names are letters only (LSB encodes a space as code 0,
   which shows as a backtick in retail too).
+
+From the research notes:
+- 0x048 handler registered at 0x10094571; slot = DAT_10488b08 + b x 0x20: +0 u16 item, +4..+0x1b the 24 extdata bytes
+  (`u32 GroupId; u16 GroupKey; u16 Color (R, G, B, A nibbles, low first); u8 Flag; u8 Name[15]`), +0x1c attrs; +2..+3
+  never written. FUN_10087cb0(n) = &slot n (n < 16), FUN_10087cd0(p) its index or -1, FUN_10087d10 copies the
+  extdata. No size or state check; the list rebuilds its rows every frame. Attrs bit 0 (LSB "Active") is never read;
+  bits 3 / 4 would show " ". No new c2s packet: every answer is c2s 0x05B.
+- Event 6100 (zones 231 / 234 / 239, the same code; message ids below are zone 231's): start params (LSB
+  `startEvent(6100, 0, gil, 0, 0, 0, caps, #rows, ls1GroupId)`): L0 the list title index, L1 gil, L5 = Z7 bit 0
+  (debug: option 4 and a 4-number line), L8 = Z7 bit 1 (registration allowed: LSB after 45 days of character age), L6
+  shell count, L7 our LS1 GroupId. Main menu 19291: 0 Nothing (end 0x40000000), 1 recruiting linkshells, 2 hand out
+  linkpearls, 3 Tell me more, 4 the linkshell window (debug).
+- Server ops (c2s 0x05B mode 1, option = op | payload << 8, each answered by 0x052): 0 (0x048 x 5); 5 / 6 the picked
+  GroupId low / high 16 bits; 15 (0x05C: Z2 time zone 0..1 / days 2..9 / times 10..29, Z3 the posted date, Z9 1 =
+  error); 7 receive a pearl (0x05C Z9 0 given, 1 refused + "one per day"); 10 (debug, ignored by LSB); 11 language
+  8..9, members 10..13, active 14..15; 12 characteristics 8..23; 13 time zone 8..9, days 10..17; 14 times 8..27 (4 x
+  5 bits: weekday start, stop, weekend start, stop; 0 none, 1..24 = 12 a.m. + h - 1). End option (Z1 bits 0..1): 1
+  register, 2 pearl received, 3 delist.
+- Show list: op 0; no shells -> 19301. `71 40` opens the list, `71 41 L30, L31, L33` = slot, GroupId, attrs; L31 0 =
+  cancelled. 19321 "{7f81 num1}, correct?", ops 5 / 6 / 15; L43 language from attrs bits 1 / 2 / 5, L44 bits 6..9,
+  L45 14..15, L42 16..31. Choice 19350 "Information for ...": rows 0..8 info, 9 characteristics (read-only choice
+  19341 masked by L42), 10 the date, 11 Receive linkpearl / 12 Delist (L31 == L7: our own LS1 shell -> Delist shown,
+  Receive hidden), 13 Back. Hand out pearls: 45 days (19316), LS1 must be a shell or sack (19308), 500 gil (6610),
+  then plain choices for language, members (1..10), active members, days, times (x 4), time zone, characteristics,
+  and a review (11 Post -> ops 11..14, Z1 = 1). All plain choices: no window.
+- Op 0x71 (FUN_100b7e10): sub 0x40 (4 bytes) sets DAT_10489940 = 1 (busy) and clears DAT_10489934 / 38 / 3c, then
+  link5 FUN_101e4470(1, LAB_100b8460, val@2) (ECX DAT_10663520); sub 0x41 (8 bytes) waits while busy. LAB_100b8460
+  stores (index, GroupId, slot +0x1c) only when the slot's GroupId != 0 and always clears busy; the close hook's (0,
+  0) call only clears busy.
+- link5 mode 1 (DAT_10663520): FUN_101e4570 first closes link5, link6, link1..4 and link13; cursor windowps 75, 10
+  visible rows of 0x12, inset (3, 3), cb at +0x6c, filter +0x78; then lscswin, the rows, link6 FUN_101e5b50(1, n), link5
+  last. Registry: link5 0x30000 (0x10000 opens on child 1, the header), group 0; lscswin 0x80002, group 1. Layout
+  (16, 106) 366 x 190, frame windowps 721, title 0xd 0x47, help 0xe 0x126, children 1..10 at (0, 5 + 18k) 356 x 16.
+  Rows: header windowps 718 (358 x 16); the icon tint 0x80000000 | (R x 13 + 0x38) << 16 | (G x 13 + 0x38) << 8 | (B
+  x 13 + 0x38) (FUN_101f4bb0 case 0x44); the name (FUN_101c8fb0, 20 chars) fitted to the column - 8 (FUN_101ca250),
+  0x80509050 for our LS1's group (FUN_100e9730(.., 1)); the language letters FUN_101e36b0; row help 0xe 0. Enter
+  FUN_101e48c0 -> FUN_101e4690; Escape -> FUN_101e4380 (cb(0, 0), lscswin closed); Num+ FUN_101e4440 (SE 0013 by
+  FUN_10037e90); the pointer over lscswin (FUN_101e4610 with pointer mode 2, FUN_10118c10 *(inferred)*) sends Num+.
+  Event 0x800 (FUN_101e43f0) closes link5 only in mode 0: the concierge list survives an event start.
+- lscswin (DAT_10663554, vtable 0x10339530, ctor FUN_101e48f0): (384, 48) 112 x 93 anchored right, frame windowps
+  714, help 0xe 0x374; children 88 x 16 at (16, 22 / 38 / 54 / 70): windowps 715 View All, 92 Japanese, 93 English,
+  574 Other, a ring of links. Open FUN_101e4950 (cursor child 1); its draw FUN_101e4970 marks nothing, so the active
+  filter is not shown; select FUN_101e49e0 (jump table 0x101e49cc); no sounds of its own; closed only with link5.
+- link6 mode 1 (DAT_1066352c, draw FUN_101e5b20 -> FUN_101e5a80): (16, 48) 366 x 56, frames 3; text group 9 0x119 + n
+  at (x + 0x40, y + 0x14), item 0x200's icon at (x + 10, y + 0xc). n = val@2 (LSB 0): 0x119 "Linkshells Seeking
+  Members"; 0x11a..0x11e other titles (no use seen).
+- `7f 81 n` (FUN_100c1650 asm 0x100c2164 -> FUN_100bda90 -> FUN_101cbac0(slot + 4)): the decoded name, no colour; a
+  missing slot (n >= 16, Flag 0) makes the expander return 0 (asm 0x100c298c) *(inferred: the line never shows)*.
+- Not traced: what a focus change between link5 and lscswin does beyond FUN_1015db80; whether anything closes the
+  list when the server cancels the event (0x052 mode 2; link5 has no hook for it, LSB never does it).
 
 ## Item use in the Mog Garden; the status gate's bits 0x40 / 0x80 (2026-10-26)
 
@@ -10101,7 +15573,7 @@ PS2-era system, statuses 6 / 0x26.. and 0x081 / 0x066, is not done: LSB never se
 
 ## Creator: the Register prompt and the name check (2026-10-26)
 
-Spec `~/ffxi/lab/research/creator_confirm_spec.md` (FUN_10239720, the prompt FUN_1023e370 / FUN_1023d050, the lobby op
+Retail: FUN_10239720 (the prompt FUN_1023e370 / FUN_1023d050, the lobby op
 FUN_1023b550). client/mod.rs (the creator block, `CreatorNext`, Task::NameChecked / Created), net/lobby.rs
 (`check_name`, `Refused`, `refusal`), select.rs `register_text`.
 - The creator has one yes / no: ptc6yesn type 5 after the nation, `Register "Name"` / `and begin play?` (8 0xaf /
@@ -10126,9 +15598,35 @@ FUN_1023b550). client/mod.rs (the creator block, `CreatorNext`, Task::NameChecke
 - Not done: child 3's element state 0x10. Since done: netwait / netbar ("Lobby: netwait and netbar"), chmkserv /
   chmkpass ("Creator: the world step").
 
+From the research notes:
+- Addresses (current / 2019; the creator matches call for call): the creator FUN_10239720 / FUN_1022ef00; ptc6yesn
+  open + modal FUN_1023e370(type, 0, text, default) / FUN_10233b50, modal wait FUN_1023e4d0 / FUN_10233cb0, draw
+  (vtable 0x10335670 +0x10) FUN_1023c750 / FUN_10231f50, handler (+0x18) FUN_1023d050 / FUN_10232850, open callback
+  (+4) FUN_10164580 / FUN_1015d900, cursor init (+0x14) FUN_10164610 / FUN_1015d990; line join FUN_1023c040, text
+  block FUN_1011d7f0; "menu    ok" FUN_1023e0c0 / FUN_102338a0; the error popup FUN_1023e4a0 / FUN_10233c80; the lobby
+  op FUN_1023b550 / FUN_10230d50; chmktown handler / draw FUN_102390d0 / FUN_10238fd0; the nation emblem FUN_10238f50;
+  chmkname FUN_10238500; logging in the new character (op 1) FUN_1023fbf0 / FUN_102353d0.
+- FUN_1023e370's four callers: 0x1023a8d0 the creator (type 5), 0x10243be2 the select screen's rename loop (type 5),
+  0x10243a47 the select screen's login prompt (type 0xd), 0x1023b2e8 the delete prompt (type 4). ptc6yesn texts with
+  a5e0 == 0: type 4 = 10 0x29 + 8 0xae, 5 = 8 0xaf + 8 0xb0, 0xa = 0x1b 6, 0xd = 10 0x52, 0..3 / 6..9 fixed lines (8
+  0xa4..: debug and virtual-mode prompts), 0xb / 0xc set a5e0 = 1 (the settings files).
+- Step variable DAT_10668fe8: 0 race, 1 face, 2 hair, 3 size, 4 jobs, 5 name, 6 world and Gold World Pass, 7 leave the
+  step loop; the chmktown loop after it holds the prompt.
+- Child 3's element state 0x10 (not done): the open callback FUN_10164580 calls FUN_10118b60(0x10, 3) (->
+  FUN_10119970) for every prompt; what the state does was not traced. The same callback hides child 3 only for a5e0 ==
+  1 (the chswin prompts) and children 1..3 for a5e0 == 3. Escape acts only with +0xa5e1 set, which FUN_1023e370 clears
+  and the callback sets only for a5e0 == 1.
+- Yes: FUN_10114b10(1, 0, 0, name), then op 3 = FUN_1023b550(0, 1, 0, 3, 0); the new slot is polled up to 5 times; the
+  caller then logs in with FUN_1023fbf0(1) (the slot at PTR_DAT_103601bc + 0x80). A refusal -2 or 0x14b (FFXI-3331)
+  leaves the creator; any other clears the name, world and pass and restarts at the race step.
+- During the prompt the help keeps +0x2c = 0x1a (8 0x72), or 0x1f (8 0x77) when DAT_10669050 + 0x24 != 1; chdummy
+  stays (the flyover runs on); the emblem closes only at the next FUN_10238f50 or the teardown FUN_1023ac60. Escape on
+  chmktown: FUN_1023df00(slot) sets the slot's name to " ", FUN_1023dbb0 rebuilds the slot table, FUN_10037a70(0x1e)
+  *(inf: a music fade)*.
+
 ## Monstrosity, part 1: the look, the predicate, the music (2026-10-26)
 
-Spec `~/ffxi/lab/research/monstrosity_spec.md` (sections 1, 4.1, 4.2). client/mod.rs `look_source`, client/monstrosity.rs.
+client/mod.rs `look_source`, client/monstrosity.rs. More at the end of this entry.
 - FUN_1009afe0 (every player look: 0x00A @0x44, 0x00D mask 0x10 @0x48, 0x051 @4): GrapIDTbl[8] == 0xFFFF makes the
   actor a single-model one (+0xee = 2), its model the whole u16 slot 0 (an 0x00E kind-0 model id), every other slot
   0, the race byte untouched. Ours: `look_source` -> Source::Npc(NpcLook::Model(t[0])); `my_race` kept on such a
@@ -10140,9 +15638,61 @@ Spec `~/ffxi/lab/research/monstrosity_spec.md` (sections 1, 4.1, 4.2). client/mo
   plate still shows "Lnxcsfix" with the 0xab glyph (the species name is part 2). Her rows were restored from a
   snapshot afterwards (chars by UPDATE only; ~/ffxi/lab/scratch/monstrosity/restore.py).
 
+From the research notes:
+- Who: the 0x00A word is G+0x40db6 (handler 0x100fb45c; LSB IsMonstrosity = 0x1F; G = DAT_104dfd98), the main job
+  DAT_10485640. An actor is a Monipulator when +0x210 != 0 (FUN_10084bc0; 0x00D u16 @0x3E at 0x1009a979, 0x037 @0x54 at
+  0x1009d882). The data is in once DAT_10483158 is set (FUN_10087b20).
+- LSB: the Feretory (285) zone-in (feretoryOnZoneIn) makes the job MON (23) before the 0x00A is built (look,
+  IsMonstrosity, LoginState 1, MyroomMapNumber 0x2D9); after GAMEOK it sends 0x01B, 0x037, 0x044 (MON, main and sub),
+  0x061, 0x062, 0x063 types 9 / 2 / 3 / 4 / 5, 0x051, 0x0AA, 0x0AC, 0x0DF, 0x119, then a full 0x00D. Starters: Rabbit
+  (look 0x010C), Lizard (0x0148), Mandragora (0x012C); a new Monipulator is a level-1 Rabbit.
+- FUN_1009afe0: each changed slot sets its bit in +0xf4 / +0xf5 (model rebuild). Without the marker +0xee = 0 only when
+  +0x120 bit 5 is clear and +0x210 == 0, so a Monipulator keeps kind 2; every 0x00D (0x10099c29) and the zone-in reset
+  +0xee under the same test. The 0x00D call (0x1009a0de) runs before the mask-0x04 part sets +0x210; 0x00E kind 1
+  (0x1009c98a) passes from_npc = 1, which skips the marker test. LSB's costumes (m_Costume2) use the same marker; its
+  0x00D form puts race << 8 | costume in t[0], read as a model id (an LSB quirk).
+- The client has no species -> model table: the model comes only from the server. LSB's data/monstrosity.yaml has look
+  0x0000 for many species (dhalmel, coeurl, opo-opo, manticore, gnole, crawler, spider, ...): model 0 is file 1300, an
+  Orc (an LSB data gap). Fighting Stance: LSB changes only the displayed species (+0x210 = 0x8000 | stance species) and
+  keeps the Look *(inf: retail sends the stance form's model id)*.
+- Species records (items 0xf000 + code, parser FUN_1015cdb0; English file 55669 = ROM/288/67.DAT, 0x1400 records, rotr
+  5): raw +0 u32 item id; +4 u16 species code (variants 0x101.., e.g. Alabaster Rabbit); +8 char[32] name; +0x28 u16
+  record type 0x0d; +0x2a u16 family (FUN_10142770); +0x2c / +0x2e / +0x30 u16 unclear (Rabbit 1 / 1 / 0, Behemoth 5 / 2
+  / 2, Gnole 0x18 / 0 / 1; +0x2c *(inf: icon or sort)*); +0x34 16 x {u16 move id, u8 unlock level (copied to
+  DAT_10483138, never read), u8 form mask (tested against actor +0x124 >> 1 & 7)}; +0x74 the string table. No model id,
+  size or motion field. Rabbit's moves 0x101 L1, 0x102 L10, 0x103 L20, 0x13a L30 (LSB foot_kick, dust_cloud,
+  whirl_claws, wild_carrot).
+- Size: GraphSize applies to any model through its info chunk; LSB sends the character's own size, not the species'
+  *(inf: retail sends the species')*. Hitbox: 0x00D u8 @0x43 x 0.1 -> +0x208 (0x1009aa40); LSB modelHitboxSize x 10,
+  from the species.
+- Motions: the model's own; status changes on a kind-2 / 7 actor play bton / ntob (FUN_1008c6c0 cases 0 / 1); the riding
+  idle 'chi ' is not set on kind 2 (0x10090b22). The state machine FUN_1008b460 skips kind 2..5 actors unless +0x210 !=
+  0, so a Monipulator keeps the player states (sit, heal, events) on its monster model.
+- Music: FUN_10094190 copies MusicNum[5] (0x00A @0x56) to the slots and sets slot 5 to 0x6f before the Monstrosity
+  override.
+- Packets: 0x00D mask 0x08 (name): FUN_10093430 writes +0x7c only while +0x210 == 0; mask 0x04: @0x3E -> +0x210, @0x40 /
+  @0x41 -> +0x212 / +0x213, @0x33 bits 2..3 -> +0x13c bits 4..5 (Monstrosity rank) and bits 4..5 -> bits 2..3 (gladiator
+  rank); 0x037 @0x5a bits 0..1 -> +0x13c bits 4..5. 0x01B, 0x0AA, 0x0AC and 0x0DD have no Monstrosity branch. 0x044's
+  MON block (job byte 0x17): species u16 @8 (FUN_100fd480), u8 @0xA (FUN_100fd4a0; the instinct cost tier in
+  FUN_100fda60, meaning unclear), 12 instincts u16 @0xC + 2 i (FUN_100fd4c0), u8 @0x24 + i the two prefix ids *(inf)*
+  (FUN_100fd4f0); read only by the Feretory editors. /check on a Monipulator (0x009): the checker gets 263 "This monster
+  is currently possessed by <string2>!", the target 264 (file 7031).
+- Plates and the rest: glyph 0xab after POL 0x8e and link dead 0x8f; in Belligerency (+0x1ff 8 / 9) {0xc8, 0xc9,
+  0xca}[+0x13c >> 4 & 3] (rank stars) in front, gladiators {0xcb..0xcd}[+0x13c >> 2 & 3]; the target window's glyph at
+  (R - 24, T - 8): 0xab, 0xa9 in Belligerency. The name colour ignores +0x210; the radar draws a Monipulator as a
+  monster; level-up effect 0x388 / 0x389.
+- LSB mismatches (reported, not patched): look 0x0000 draws an Orc; 0x0DF's name ids truncated into a u16; 0x00D's
+  Monstrosity fields only in the Model block, so a General-only update carries @0x3E = 0 and observers drop the name and
+  glyph *(inf: +0xee may fall back to 0)*; @0x33's ranks never set; 0x063 t3 flags 0x0B44 for everyone (the profile
+  shows race 1); prestige t3 @0x14 = 0; GraphSize from the character; 0x044 @0xA and @0x24 / @0x25 left 0
+  (Customization's pending buffer starts from them).
+- Unclear: whether a reused party slot clears +0x4c; job 23's icon / name in party rows and /check (group 0x12 job 0x17
+  is "???"); how mp_dead closes after Enter; FUN_101cc220 for other Monipulators; whether +0xee falling to 0 after an
+  LSB General-only 0x00D rebuilds the model as a PC.
+
 ## Monstrosity, part 2: the names (2026-10-26)
 
-Spec section 3.1. client/monstrosity.rs (`names`, `refresh`, `name`, `my_name`, `name_of`, `row_name`), dat/tables.rs
+client/monstrosity.rs (`names`, `refresh`, `name`, `my_name`, `name_of`, `row_name`), dat/tables.rs
 `mon_prefixes`.
 - Prefixes: the DLL's English table at 0x10370480 (FUN_10142070; one table for both ids), 16-byte slots, id 0 empty,
   0xf9.. empty; found by signature (MD5 over 0xf9 slots).
@@ -10165,7 +15715,7 @@ Spec section 3.1. client/monstrosity.rs (`names`, `refresh`, `name`, `my_name`, 
 
 ## Monstrosity, part 3: the data and the move bits (2026-10-26)
 
-Spec section 2.1. client/monstrosity.rs (`on_data`, `zone_reset`, `moves`, `ability_bits`, `is_move`), magic.rs
+client/monstrosity.rs (`on_data`, `zone_reset`, `moves`, `ability_bits`, `is_move`), magic.rs
 `ability_rows`.
 - 0x063 type 3 -> G1 (212 bytes from @8), type 4 -> G2 (172) and DAT_104804ce; both cleared at every zone-in
   (FUN_10093b30 from FUN_10093720) with the 16 moves and DAT_10483158; LSB re-sends them after each GAMEOK (to every
@@ -10182,9 +15732,22 @@ Spec section 2.1. client/monstrosity.rs (`on_data`, `zone_reset`, `moves`, `abil
 - Live (Lnxcsfix WAR 21 in 230): the trait list still fills (Defense Bonus, Resist Virus): LSB's login type 4 opens
   the gate.
 
+From the research notes:
+- The blocks (packet offset = G offset + 8). Type 3: @0x08 u16 G1+0 species (& 0x1ff); @0x0A u16 G1+2, bits 2..5 the
+  race the profile shows (u32 @8 >> 0x12 & 0xf); @0x0C u8 G1+4, bits 0..1 the Monstrosity rank ("Mon" / "NM" / "HNM",
+  table 0x10371594), 2..3 the gladiator rank ("Gla" / "CG" / "HCG"); @0x12 u16 G1+0xa infamy; @0x14 u32 G1+0xc prestige;
+  @0x1c [64] G1+0x14 2-bit instinct counts per family (FUN_10087c30); @0x5c [128] G1+0x54 the level per species code <
+  0x80 (FUN_10087b30; 0 = not owned). Type 4: @0x08 [128] G2+0 the levels of codes 0x80..0xff (LSB: only Slime 254 and
+  Spriggan 255); @0x88 [12] G2+0x80 bought instincts (single bits); @0x94 [32] G2+0x8c variants owned (FUN_10087b70).
+  FUN_10087bc0 counts owned species and variants.
+- The move arrays: DAT_10483118 move + 0x600, DAT_10483138 unlock level, DAT_10483148 form flags; the ability bitfield
+  G+0x2cde8 (0x0AC's 0xe0 bytes; G+0x2cf49 once in, G+0x2cf4a once the moves are).
+- 0x0DF (0x100e9cc0): the party slot by @4 (G+0x57d8, 20 x 0x70): u16 @0x1c -> +0x4c, @0x1e / @0x1f -> +0x4e / +0x4f,
+  slot +0x50 = 0 (the short name, rebuilt by FUN_10099730).
+
 ## Monstrosity, part 4: mp_pmode, the monster skill lists, the main menu (2026-10-26)
 
-Spec sections 3.3 / 3.4. client/combat.rs (`mon`, `mon_items`, `mon_help`), magic.rs (mp_abisc / mp_mnabi rows, kind 9),
+client/combat.rs (`mon`, `mon_items`, `mon_help`), magic.rs (mp_abisc / mp_mnabi rows, kind 9),
 render/invwin.rs `push_tp_cost_box`, game_ui.rs `child_sprite`.
 - mp_pmode replaces playermo in Monstrosity (registry flag 0x4000000; every opener and the engage broadcast). Layouts
   (FUN_10141070, table 0x103701a8): engaged 3 {Switch Target, Magic, Abilities, Disengage, Treasure, Check}, another
@@ -10210,7 +15773,7 @@ render/invwin.rs `push_tp_cost_box`, game_ui.rs `child_sprite`.
 
 ## Monstrosity, part 5: mp_stat and mp_dead (2026-10-26)
 
-Spec sections 3.5 / 3.7. client/status.rs (MP_STAT), render/invwin.rs `push_mon_stat`, client/mod.rs (`mon_dead_pick`,
+client/status.rs (MP_STAT), render/invwin.rs `push_mon_stat`, client/mod.rs (`mon_dead_pick`,
 ko_step), net.rs `NetCommand::HomePoint(status)`.
 - Main menu Status in Monstrosity (FUN_10144d10(0)): "menu    mp_stat" (windowps 641, labels baked) at (16, 16) where
   persona would be, with level and statcom2. Contents (FUN_10144830) only with party record 0, the 0x119 and the
@@ -10231,7 +15794,7 @@ ko_step), net.rs `NetCommand::HomePoint(status)`.
 
 ## Monstrosity, part 6: the refusals (2026-10-26)
 
-Spec section 3.8 (each read in the decompile).
+Each read in the decompile.
 - Text commands (FUN_10081230 -> FUN_10080d20, table 0x10357bb8): in Monstrosity /pcmd /acmd /join /decline /invite
   /autogroup /help /pet /item /heal /sit /sitchair /jump /fish /lastsynth /prcmd (ids 0x56..0x59, 0x5d, 0x5e, 0x21,
   0x2c, 0x22, 0x32..0x36, 0x9d, 0x61) are dropped without a line; /heal still runs while healing (status 0x21 / 7).
@@ -10284,7 +15847,7 @@ Spec section 3.8 (each read in the decompile).
   FUN_10140270: state 5, else 0xb) are off, answered or not. Ours tested the request state, which ends with the answer;
   now synth::menu_off reads the send time (kept over zones), and menu_disabled adds row 10.
 
-## Lobby: netwait and netbar (2026-10-26; spec ~/ffxi/lab/research/lobby_netwait_spec.md)
+## Lobby: netwait and netbar (2026-10-26)
 
 client/netwait.rs, net/lobby.rs (`replies`), game_ui.rs (`netwait_window`, `netbar_window`, `bare_window_off`).
 - FUN_1023b550 runs a lobby op under "menu    netwait" (the status line) and "menu    netbar" (progress): op 0 connect
@@ -10309,7 +15872,66 @@ client/netwait.rs, net/lobby.rs (`replies`), game_ui.rs (`netwait_window`, `netb
   below); op 5 is one Task with the log-in (retail: op 5, then op 1); the 3600-frame timeout (FFXI-3113); FFXI-3115
   after a failed refresh.
 
-## Creator: the world step (2026-10-26; spec ~/ffxi/lab/research/creator_world_spec.md)
+From the research notes:
+- Ops (callers; steps; total): 0 FUN_1023e610, the lobby entry, and again at asm 0x102457d5 on a re-entry (0, 1; 21);
+  1 FUN_1023fbf0 (1, 3; 43); 2 FUN_1023b230 (1, 5, 0x13, 2; 31); 3 FUN_10239720 Register (1, [0x14], 4, 0x13, 2; 39 /
+  49: 0x14 only when the lobby link is not alive, thunk_FUN_100ed7a0() != 0); 4 FUN_10239720 the name check (1, 0x14;
+  31); 5 FUN_102435f0 rename (1, 0x16, 0x13, 2; 39), then op 1 as its own run; 6 FUN_10244c30 the world transfer (1,
+  0x17, 0x13, 2, 3; 53; only with the lobby state +0x98 == 3). N per step (FUN_100dbac0) also 0x17 -> 2, 0x11 -> 4,
+  0x12 -> 2, else 1; steps 0x11 / 0x12 have no caller. Every caller passes param_3 = 0, so a leading [0x13] never
+  runs.
+- Ops 3 / 4 fill a free slot first (FUN_1023df20; none: both windows close, FFXI-3103); FUN_1023df00 frees it after
+  step 0x14 and on any error. Op 5 stores the new name in the slot (FUN_100db810) before the run; on failure the
+  caller puts the old one back.
+- State object PTR_DAT_103601bc (= DAT_1048fe10): +0x88 the current step, +0x8c the step just finished (-1 while one
+  runs), +0x90 100 running / 0x65 done, +0xc the sub-step counter (reset by FUN_100db170), +0x80 the step argument
+  (the slot). FUN_100db140 above 200 (0xc9..0xcb) is an error. The step function (FUN_10001b50 -> FUN_100daf30 ->
+  FUN_100da750) returns 0 go on, 1 done, -1 error (state 0xcb). The text is the last string any step stored
+  (DAT_104ca438, FUN_100f0000).
+- The timeout (not done): FUN_100edeb0 counts the step-function calls; past 0xe0f (3600) the step fails with code 0x71
+  = FFXI-3113 "Protocol time out error.". Step 1 counts only from sub 14, step 3 only while sub < 10, the others every
+  call; 3600 calls are 2 minutes at 30 fps *(inf)*.
+- Step 1 (FUN_100ed7e0) by sub (group 8 ids 0..7): 0 "Searching for lobby server." (a DNS lookup, skipped when
+  connected), 3 "Initializing connection." (a live link jumps to 21 at sub 5), 7 "Resetting connection.", 9
+  "Connecting to lobby server.", 11 "Setting up PlayOnline active content." (a PlayOnline wait at 12), 13 "Setting up
+  connection." (view 0x26, wait 0x05), 15 "Acquiring player data." (0x1F, wait 0x20), 17 "Acquiring FINAL FANTASY XI
+  server data." (0x24, wait 0x23).
+- Step 2 (FUN_100edfb0): "Acquiring character list.", 0x1F, wait 0x20. Step 3 (FUN_100ee160): 0xc4 "Notifying lobby
+  server of current selections." (0x07, wait 0x0B; error 0x68 when 0x0B +0x144 == 0), 0xc5 "Disconnecting from lobby
+  server." (waits for the server to close the view socket), then the map address (FUN_100e1790); subs 10..21 are
+  PlayOnline handle steps (8 0xc..0x15). Steps 4 / 0x14 / 0x16 (FUN_100ee690 / FUN_100ee900 / FUN_100eeb70): 8 0x16 /
+  0x17 / 0x18, requests 0x21 / 0x22 / 0x28, wait 0x03 (0x04: subs 6..9, then -1). Step 5 (FUN_100ef020): 0x1c
+  "Deleting from Lobby Server.", 0x14, wait 0x03. Step 0x17 (FUN_100eede0): 0x19 "Transferring character.", 0x2B. Step
+  0x13 (FUN_100ee0a0): 9 "Acquiring PlayOnline character list.", no LSB traffic. Group 8 0xa, 0xb and 0x1a are set
+  nowhere.
+- Windows: netwait registry handler 0x10669058, flags 0x10006, layer 3; netbar 0x1066905c, flags 0x10026, layer 3;
+  both handlers (vtable +0x18 FUN_1012ac60) empty, no children. netwait's draw FUN_102408a0: windowps 99, one line
+  (DAT_10669060). netbar (FUN_10240a70) at (128, 224) + c; drawn when 0.01 < p < 1.1 (0x10329a18 / 0x1033cb1c) by
+  FUN_1011fc80(x0 - trunc((0.5 - p) x 128), y0, 2p, 0.99, centred): the quad (x0, y0)..(x0 + 256p, y0 + 15.84). The
+  track is lobbywin 81 (caps 8 x 16 at -8 and 256).
+- Backdrops (not done): op 0 ptcbgwin (lobbywin 85: a dark 640 x 480 backdrop with the small logo; frameless, not
+  animated), lobyhelp open with no text, the 2D layer faded in ('sfin', 24 frames). Op 1 (FUN_1023fbf0): the select
+  screen fades out ('sfot' / 'ffot', 34 frames), hnbackwi (the same sprite 85) opens and lobyhelp closes, FUN_1023e510
+  fades in 'sfin' + 'ffin' (8 frames), the run, 10 more frames; on success the hn* windows close, FUN_1023fde0, a
+  fade-out, hnbackwi closes, 2 frames, the world. Op 2: the delete screen stays (help 8 0x6a); op 5: dbnamese stays
+  (help 8 0x69).
+- Errors: code = thunk_FUN_100ef920: the link's (view 0x04's u32 @0x20, or 0x65 -> 3101 "Transmission error with lobby
+  server.", 0x67, 0x68), else +0x136ac, else 0x71 (3113). In step 1, the main step or op 6's final step 3
+  (LAB_1023bb06): one popup, -1. In the 0x13 / 2 refresh after the change (LAB_1023ba96; not done): that popup, then
+  FFXI-3115 "Connection to the FINAL FANTASY XI server lost. / Returning to the PlayOnline FINAL FANTASY XI top
+  page.", -2. Callers: -2 or 0x14b (3331) leave the lobby; op 1 -1 back to the title menu; op 2 -1 stays on the delete
+  screen; op 5 remembers a refused name for 0x139 / 0x142; op 0 also 8 0xd9 "Valid Content ID not found." with no
+  slot, and 8 0xd7 after an expansion bit check.
+- Another user: FUN_10244aa0(handle, text) opens both with a fixed text and p = PlayOnline FUN_10310934(handle) x
+  0.01, closing at 100 with no hold: the chfwin / chswin "Server" slot's settings load (FUN_10244990: 8 0xf1, then
+  0xf3) and save (FUN_10244b60: 0xf2). It needs PlayOnline storage.
+- Unclear: what the PlayOnline calls return under xiloader (step 3 sub 14's flag 0x8000 branch; ours takes 14 -> 15 ->
+  22 *(inf)*); the step rate (one call per frame, taken as 30 fps); netbar above netwait and the input block (open
+  order and focus, not traced); error 0x68's 0x0B field +0x144 and the 0x6c / negative path of FUN_1023be30; the 0xd7
+  expansion bit; which dbnamese key sets +0x2c (op 6) and FUN_1023fde0's role; ptc8lice (the licence before op 0) and
+  ptc9dele (the second delete confirm) are not done in ours.
+
+## Creator: the world step (2026-10-26)
 
 client/creator.rs (`WorldStep`, `WorldAct`, draw_ui), game_ui.rs (`WorldView`, `world_step`, `window_bare_frame`,
 `name_entry`'s active flag), mod.rs (`creator_world` / `creator_passed` / `creator_refused` / `creator_checking`,
@@ -10340,7 +15962,35 @@ client/creator.rs (`WorldStep`, `WorldAct`, draw_ui), game_ui.rs (`WorldView`, `
   FFXI-3339 (LSB: the account has characters) -> list; empty pass -> op 4 -> nation; Escape, the steps again, the same
   triple -> nation at once.
 
-## Monstrosity, part 10: Customization (2026-10-27; spec ~/ffxi/lab/research/monstrosity_custom_spec.md)
+From the research notes:
+- Objects: chmkserv (DAT_10668fcc, 0x54, no handler: +0x14 done, +0x18 error (-1 no worlds, 1 full), +0x1c the world
+  text, +0x2c the table's spelling, +0x3c result 1 go / -1 back); chmkpass (DAT_10668fd0, 0x3c: +0x18 pass, +0x28
+  result, +0x34 caret frames, +0x38 text input FUN_101c5be0(0xb, 10)); worldsel (DAT_1066901c, 0xa5fc, on the list
+  base FUN_101f67c0: +0x50 mode, +0x54 count, 200 rows of 0xd4 at +0x5c {id (-1 empty), name, grey flag (always 0)}).
+- The shuffle (FUN_1023d6c0 mode 0): for each world in id order DAT_10669020 = (DAT_10669020 + rand() % n) % n (a
+  static that persists), then forward to the first empty row; with more than one row, the row of the first existing
+  character's world (char list slot u16 @6) moves to row 0 (LSB writes 0 there: never fires). Mode 1 (back from the
+  pass) keeps the rows; the cursor row then is inferred row 1.
+- Pass input: FUN_101c69c0 class 1 for mode 0xb = isdigit (FUN_101b6d50: 0 alpha, 1 digit, 2 / 3 alnum, 4 >= 0x20, 5
+  any), the IME forced off, 10 characters. Right / Left = input ops 5 / 4; no Num+ random name, no Up / Down. Paste
+  not traced.
+- 0x22 (0x60 bytes): +0x1c the free slot's content id, +0x20 name, +0x30 16-byte key, +0x40 world (chmkserv +0x2c),
+  +0x50 pass (DAT_104df770 +0x140e4); the pass is "" unless the world text and the pass are both set; the world id is
+  never sent. 0x21 carries neither.
+- Popups: 3118 (7 0xe "The world server you specified does not exist..."), 3119 (7 0xf "World name not specified."),
+  3111 (7 8), 3110 (7 7). chmkserv +0x18 == 1 (SE 0004, 7 0x34, the population limit) needs a row id < 0: dead in this
+  build. Op 4 = FUN_1023b550(0, 1, 0, 4, 0), netwait status 8 0x17; on a failure it has shown the popup itself; -2 or
+  331 leaves the creator.
+- LSB (facts): 0x22 reads the name @32 and the pass @0x50 and ignores +0x1c / +0x40; 314 creation off, maintenance or
+  no free content id, 313 an invalid name; a non-empty pass: 316 (not 10 digits, unknown or used; 7 0x2a), 339 (the
+  account has characters; 7 0xb4), 317 (expired; 7 0x2b); the pass is used after 0x21.
+- worldsel: 14 rows 16 apart from (16, 4); row ref kind 0 = 170 (an invisible cell), kind 1 = 171 (a translucent bar;
+  which row state shows it is not traced); a scroll bar only past 14 worlds; multi-world paging (Left / Right by 14)
+  not exercised on LSB.
+- Not traced: FUN_101ba240 (the local name filter, 3322), the right click and the mouse on chmkserv / chmkpass,
+  whether retail sends 0x24 again later.
+
+## Monstrosity, part 10: Customization (2026-10-27)
 
 client/moncustom.rs; status.rs `draw_mon_custom`; mod.rs (main menu row 2, keys, mouse, Num+, bars, prompts); items'
 info window mode 3; scrollbar Owner::MonCustom.
@@ -10377,6 +16027,33 @@ info window mode 3; scrollbar Owner::MonCustom.
   takes only the first of species / instincts / descriptors (else-if), so two changes inside one commit window lose
   the later ones.
 
+From the research notes:
+- Registry (flags 0x00020002 for the Customization windows: their handler closes them): mp_stat (16, 48) 112x210,
+  group 0x10; mp_cstm (130, 48) 182x210; mp_mncst (384, 48) 112x58 and mp_invnt (314, 48) 182x210, group 0x81 (with
+  menuwind: the list suspends mp_mncst and the main menu); mp_mnnm, mp_mntp2, mp_kncst at (384, 48); level mode 2 at
+  +0x34; bluehelp resized to level's rect. mp_stwin, mp_cost and mp_help have no registry row (dead layouts).
+- Help (group 0xe) / titles (0xd): mp_mncst rows 0x2bd / 0x2be / 0x2bf, title 0xa5 "Customization" (mp_invnt, mp_cstm
+  and mp_mnnm too); mp_mntp2 0x2c3, title 0x69 "Refine by Type"; mp_kncst rows 1..3 0x328, row 4 0x17b, title 0x69
+  (sic); main menu row 2 0x2bc.
+- 0x044 MON block (valid when @4 == 0x17): @8 species, @0xA rank (the cost cap tier), @0xC 12 x u16 instincts (item
+  0x7400 + n), @0x24 / @0x25 descriptors. Cap FUN_100fda60 = level + 10 / 30 / 50 for rank 0 / 1 / 2 (any other:
+  level); used = the 0x044 slots' costs (0 and 0xffff cost 0).
+- Owned instinct n (FUN_100fdad0): n < 0x300 when the 2-bit count of species n / 3 (0x063 t3 @0x1c, dword[s >> 4] >>
+  (s & 15) x 2) > n % 3; 0x300..0x35f the bought bit (t4 @0x88); else not. A species is owned when its level (t3 @0x5c
+  / t4 @8) is non-zero; variants (>= 0x100) by the t4 @0x94 bit.
+- Records: species 0xf000 + code: +8 the name ("Rabbit" for every variant), +0x2a the base species, the first string
+  the help line ("Lapinion (Rabbit)"); instincts 0x7400 + n: +0x1c cost (0xff when the record is not in); catalogues
+  0xeff8..0xeffe {u16 count, u16 0, count x {u16 item, u16 cost}} (cost 255 unused) give the list's order. Species
+  types 1..19: DLL 0x10370280, 0x200 bytes just before the prefix table 0x10370480.
+- Equip FUN_10141cc0: the same instinct on its slot -> 0xffff (remove); one already in any 0x044 or pending slot
+  fails; then the effective set must cost <= the cap, else the pending slots are restored. Remove All: 0xffff where
+  the 0x044 slot is set.
+- mp_kncst while a field is edited: Down -1, Up +1, Right -10, Left +10 (sic); min 1.., max ..50; silent.
+- LSB validates slots 3..799; retail lists bought instincts up to 0x35f (863): an n >= 800 fails the whole packet.
+- Unclear: the list's +0x5c tag (5 / 9 / 7, never read); whether per-frame hooks run for a suspended window; the texts
+  on the sprite labels; iteminfo's rows for instinct records (item type 0x1e); whether other servers fill 0x044 @0xA
+  and @0x24 / @0x25.
+
 ## Model radii (+0x208) in the prompt arrow's range (2026-10-27)
 
 - Actor +0x208 = u8 x 0.1 (0x1032a378): 0x00D mask 0x04 @0x43 (asm 0x1009aa40), 0x00E mask 0x04 @0x25 (0x1009c7cb),
@@ -10396,7 +16073,7 @@ info window mode 3; scrollbar Owner::MonCustom.
   Say, Party, Linkshell, Linkshell 2 and Unity as the default; tells, shouts and emotes do not stick.
 
 ## The full log's tabs and the log filters (2026-10-26)
-Spec: ~/ffxi/lab/scratch/chatfilters/SPEC.md (agent decode of 30261006_0; tables read raw from the unpacked DLL).
+Decoded from 30261006_0 (tables read raw from the unpacked DLL).
 - Tab list .data 0x1036f940 (built by FUN_10138700, filtered at each open by FUN_10138800): eleven (filter, fep pair)
   entries; English order Window 1 (filter 0), Window 2 (8, only with config 0xb4), Say (3), Tell (4), Party (1),
   Linkshell (2), Linkshell 2 (7), Assist E (10), Assist J (9), Unity (6), Shout (5); Japanese swaps the Assist pair.
@@ -10413,6 +16090,39 @@ Spec: ~/ffxi/lab/scratch/chatfilters/SPEC.md (agent decode of 30261006_0; tables
 - Key function 0x11 (Num+, Ctrl / Alt + F) is the full log's next tab (message 8, wrapping, SE 0002); no previous;
   it opens on Window 1. Channel tabs gather about 50 rows back from the store *(inf: wrapped rows)*.
 - Resolves "filters 1..8 not decoded" above (the 2019 FUN_10125940).
+
+From the research notes:
+- Window 1's filter (FUN_10129b40): everything while config 0xb4 is 0 (no second window; the window-2 object's +0x4d,
+  set by the config apply FUN_101aaa90 case 0xb4), else GM lines (record byte 1 bit 7, from s2c 0x017 Attr bit 0 by
+  FUN_100d9b20), else FUN_10129bb0(mode, default shown, 0xb9, 0xba). Window 2's (FUN_10129b80): GM lines hidden, else
+  FUN_10129bb0(mode, default hidden, 0xbb, 0xbc).
+- FUN_10129bb0: the mode's row of 0x1036e888 {u16 mode, u8 colour id, u8 indent flag} (FUN_10129cd0, first match),
+  colour id -> bit (FUN_1012a120), bit -> the 64-bit mask {low 0xb9 / 0xbb, high 0xba / 0xbc} (FUN_10193a10). No row,
+  or a colour with no bit: the default. Defaults (FUN_10195460): 0xb9 = 0, 0xba = 0xffffffff, 0xbb = 0xffffffff,
+  0xbc = 0, so a second window takes chat and window 1 battle, system, unmapped modes and GM lines.
+- The bits are the Config > Log page (conf11s) rows (tables 0x10379ef8 / 0x10379f68 / 0x10379fd8 / 0x1037a048
+  {group 0xb label, bit}). Bit: label (colour id): modes. 0 Say (0x54): 1, 9. 1 Tell (0x56): 4, 12. 2 Party (0x57): 5,
+  13, 0xd2. 3 Linkshell (0x58): 6, 14, 0xcd. 4 Linkshell 2 (0x6e): 0xd5, 0xd6, 0xd9. 6 Unity (0x6d): 0xd3, 0xd4. 7
+  Emotes (0x59): 7, 15, 0xd0. 8 Messages (0x5a): 17, 18. 9 NPC conversations (0x5b): 0x8e..0x99, 0xbe. 10 Shout
+  (0x55): 2, 10. 11 Yell (0x6c): 3, 11. 12 Assist J (0x70): 0xdb, 0xdc. 13 Assist E (0x71): 0xdd, 0xde. 33 HP/MP you
+  recover (0x5c): 30, 31. 34 HP/MP you lose (0x5d): 28. 35 Beneficial effects you are granted (0x5e): 56, 81, 101. 36
+  Detrimental effects you receive (0x5f): 57, 82, 102. 37 Effects you resist (0x60): 59. 38 Actions you evade (0x61):
+  29, 70, 84, 104. 39 HP/MP others recover (0x62): 22, 23, 24, 27, 34, 35, 42, 43, 162, 165, 187, 188. 40 HP/MP others
+  lose (0x63): 20, 25, 32, 40, 163, 185. 41 Beneficial effects others are granted (0x64): 60, 64, 86, 91, 106, 111,
+  175, 178, 183. 42 Detrimental effects others receive (0x65): 61, 65, 87, 92, 107, 112, 174, 176, 182. 43 Effects
+  others resist (0x66): 63, 67, 68, 69, 170, 189. 44 Actions others evade (0x67): 21, 26, 33, 41, 71, 72, 89, 94, 109,
+  114, 164, 173, 181, 184, 186. 45 Battle Messages (0x68): 50..52, 55, 58, 62, 66, 80, 83, 85, 88, 90, 93, 100, 103,
+  105, 108, 110, 113, 122, 168, 169, 171, 172, 177, 179, 180. 46 Calls for help (0x69): 8, 16. 47 Basic system
+  messages (0x6a): 121, 127..140. No bit (the default): 36..39, 44, 53, 54, 123..126, 141, 154..161, 166, 167, 191,
+  200, 201, 204, 206, 207, 209, 215, 216, 218 and any mode not in the table. Bit 5 and bits 14..32 are never produced.
+- The small windows only use filters 0 and 8 (FUN_10128ce0 picks by the window's vtable +0x58; FUN_10129980 maps 0 ->
+  FUN_10129b40, 8 -> FUN_10129b80, else FUN_101299f0). Every row also goes to the buffer's history store
+  (FUN_10128740 -> FUN_1018ed80): pages of 50 rows in 20 rotating files "%d_%d.log" *(inf: about 1000 rows)*.
+- The full log (vtable 0x10333b68: open FUN_101376a0, draw FUN_10138020, messages FUN_10138230, update FUN_10137840)
+  rebuilds its view with FUN_101295d0: Window 1 / 2 page through the whole store; a channel tab scans at most 121
+  store entries a frame and stops past 49 rows; its row count (capped at 100, FUN_101281f0 / FUN_10129490) is the
+  scroll bar's total. Tabs have no mouse hit test *(inf: none found)*; the mouse only scrolls; no key goes back a tab;
+  the list is rebuilt at each open, so a change of 0xb4 shows on the next open.
 
 ## Modern UI sweep fixes (2026-10-26)
 
@@ -10629,7 +16339,7 @@ texpack.rs (`tex-export`, `tex-pack`), the user's pick of model (upscayl-standar
   +0x20 (the step) runs there and then, before the creator's next op.
 - Ours: Effects::run_new steps a new task at once (fx/tasks.rs: ops 0x03 / 0x73, 0x09 / 0x57, 0x3b, 0x3c, 0x24 / 0x5d
   and run_pending's starts), then marks it `stepped` so the frame's own step passes it by once *(inf: one step a frame,
-  which keeps triggers.md 2.2's T+5 for the hit sparks; test fist_hit_sparks)*; `stepping` is a stack of the slots
+  which keeps the hit sparks at T+5 ("Effect schedulers"); test fist_hit_sparks)*; `stepping` is a stack of the slots
   being run. Live: Shantotto II summoned in West Ronfaure, 36 live elements of 100017, the orbs circling her.
 
 ## Dolls made before the actor's first pose (Shantotto II's summon sparkle, 2026-10-27)
@@ -10694,7 +16404,7 @@ texpack.rs (`tex-export`, `tex-pack`), the user's pick of model (upscayl-standar
 
 ## Buying from a player's bazaar: View Wares (2026-10-27)
 
-Spec `~/ffxi/lab/research/bazaar_spec.md` (current build; 2019 cross-reference in its section 9).
+Current build; packet layouts, the store and the 2019 cross-reference at the end of this entry.
 - Enter on an enabled View Wares (SE 0002, c1 cleared) opens the shop list with the bazaar source (vtable
   0x10338ea4): the wares store is cleared and c2s 0x105 {UniqueNo, ActIndex, 0} goes out; LSB answers one s2c 0x105
   per priced item. The store (G+0x3aeb0, 81 records of 0x30 by the seller's slot) keeps item, index, count, unit price,
@@ -10724,6 +16434,56 @@ Spec `~/ffxi/lab/research/bazaar_spec.md` (current build; 2019 cross-reference i
   net.rs (s2c 0x105 / 0x106 / 0x107 / 0x109), modern/shop.rs ("Bazaar", no tabs, the tax cell). Test
   wares_records_and_tax. Not done: the per-id 1000 ms send refusal (FUN_100fc3c0). Not seen live: it needs a second
   player with a bazaar.
+
+From the research notes:
+- Packets (offsets with the 4-byte header). c2s 0x105 (FUN_100e0160, 0xc bytes): u32 UniqueNo @4 (inspect store
+  G+0x19d20), u16 ActIndex @8 (G+0x19d1c), u16 0 @0xa; both kept at G+0x3bde0 / G+0x3bde4; the store is cleared even
+  when the send is refused. c2s 0x104 (FUN_100e0110): header only, the store cleared first. c2s 0x106 (FUN_100e01d0):
+  u8 index @4, u32 quantity @8.
+- s2c 0x105: u32 price @4, u32 count @8, u16 tax rate @0xc (hundredths of a percent; LSB the zone tax x 100), u16 item
+  @0xe, u8 the seller's slot @0x10, 24 extdata bytes @0x11. Record = G+0x3aeb0 + slot x 0x30 (no range check): +0
+  item, +2 index, +4 count, +0xc price, +0x10 extdata, +0x2c tax rate. The kept tax G+0x3bde6 lies outside the cleared
+  range (0x3aeb0..0x3bddf). LSB sends a sold-out slot with only its index (the row empties).
+- s2c 0x106: u32 State @4 (LSB 0 OK, 1 ERR; 2 never sent), name[16] @8 (the seller). s2c 0x107: name[16] @4. s2c
+  0x109: u32 buyer UniqueNo @4, u32 count @8, u16 ActIndex @0xc and u16 bazaar ActIndex @0xe (both 0 from LSB),
+  name[16] @0x10, u8 slot @0x20; @0xe as the bazaar owner is inferred from its two comparisons; a count underflow
+  keeps the record (as decompiled).
+- Handlers: primary FUN_100e0040 (0x105 FUN_100e0370, 0x107 LAB_100e0400, 0x109 LAB_100e0430, 0x10A LAB_100e0500),
+  secondary FUN_1020f530 (0x106 LAB_101dcc90, 0x107 LAB_101dcd10, 0x108 LAB_101dcd80).
+- The per-id send refusal (not done): all four c2s go through FUN_100fc3c0(id, 0, 0); key 0 means a second packet of
+  the same id within 1000 ms of the last is not built and silently dropped (table DAT_104dfd94 + 0x43e34, filled with
+  1000). A 0x104 dropped this way leaves LSB's BazaarID set, and LSB refuses the next 0x105 until a later 0x104.
+- The bazaar source DAT_10663488 (0xe4 bytes, FUN_101ddf90): +4 row count, +6 capacity 0x51, +8 rows (0x54 each, +0x48
+  the record index), +0xc resized, +0xd tax column, +0xe the widest tax text, +0x10 busy, +0x11 busy record, +0x12
+  busy row, +0x14 the seller's ActIndex. Vtable 0x10338ea4: +0 FUN_101ddfb0 free rows, +4 FUN_101de030 open (0x105),
+  +8 FUN_100e0110 close (0x104), +0xc FUN_101de1a0 item info and reach, +0x10 FUN_101ddfe0 title 0xd 0x0e "Bazaar",
+  +0x14 FUN_101de0c0 help (group 10 0x13 with tax / 100 when that is non-zero, else 0xe 0x2f), +0x18 FUN_1020f6c0
+  width, +0x1c FUN_101de290 rows, +0x20 FUN_101de120 tint, +0x24 FUN_101de4a0 Enter, +0x28 FUN_101ddfd0 Escape. The
+  purchase in progress: DAT_10663478 item, DAT_1066347a quantity, DAT_1066347c the unit price with tax.
+- Columns (DAT_10385b7c): icon 0..0x12, name 0x12..0xb4, price 0xb4..0x102 (English; window 274); with a tax column of
+  width w the window is 274 + w + 0xf and the tax cell ends at 0x102 + w + 0xf + 8 (FUN_10210880 asm
+  0x1021095c..0x10210988). A record without an item record shows its icon and price, no name. Item info: the cursor
+  row's item with its 24 extdata bytes (FUN_1013e200: augments, charges).
+- Tax (FUN_100fd710) is worked in base-100 digits; a carry is dropped when it outlives the partial product (only rates
+  with two non-zero base-100 digits, e.g. 150, can lose it). FUN_100fd820 = that + price x n. With a tax the total
+  shown can be below LSB's charge. Reach: (dx^2 + dz^2) <= 2500.0 (_DAT_10338ed0).
+- LSB (facts): c2s 0x105 is refused in an event and while BazaarID is set, needs the same Mog House id, and sends
+  0x108 Enter to the seller; no bazaar packet has a distance check. c2s 0x106: BuyNum 1..99; ERR when buying from
+  ourselves, no free slot, price 0, too few left, gil short, or a Rare item already held (0x009 ItemEx first); OK: the
+  buyer gets a new slot (0x020 + 0x01D), 0x106 to the buyer, 0x10A + 0x020 + 0x01D to the seller, 0x109 and the slot's
+  0x105 to every other customer, 0x107 to all when nothing priced is left. c2s 0x10B (the seller pricing) sends 0x107
+  to every customer.
+- 7031 0x5f "Bazaar closed due to {name}'s settings change." has no client caller *(inf: a server 0x053 line)*. Group
+  9 0x29: "%s's bazaar was closed midway through your transaction.".
+- Open / inferred: the flag FUN_10210880 passes to source +0xc, taken as "the list is live"; the windows hidden while
+  the list is up come from the group walk (money 4 and iteminfo 8 take the comment window's bits 0x0c), not watched;
+  the list's Escape sound (the generic close) not traced; "menu    shopbuy" has registry flags 0x00000002 (no 0x1000,
+  unlike shopmain 0x00021002) while ours stacks the confirm on the log: to check against its layout position (16,
+  256).
+- 2019 build: the same logic with G = DAT_104cd388: registration FUN_100dd700 / FUN_10205d50 (0x106 LAB_101d5010,
+  0x109 LAB_101d5080, 0x107 LAB_101d5090, 0x108 LAB_101d5100); the store FUN_100dda40 at G+0x350fc (the kept fields
+  +0x3602c / +0x36030 / +0x36032); c2s 0x104 / 0x105 / 0x106 FUN_100dd7d0 / FUN_100dd820 / FUN_100dd890; vtable
+  0x1032e2a4 (reach 0x1032e2d0); tax FUN_100fa7a0 / FUN_100fa8b0; rows 0x50 bytes, the item name at record +0xcc8.
 
 ## Clones belong to their task by uid, not by slot (Shantotto II's frozen orbs, 2026-10-27)
 
@@ -10777,7 +16537,7 @@ Spec `~/ffxi/lab/research/bazaar_spec.md` (current build; 2019 cross-reference i
 
 - Before: every zone draw (one per MMB model, all of its mesh's placements instanced) went in every frame, wherever the
   camera looked; placements outside their LOD band were collapsed in vs_main after their vertices ran. Retail culls on
-  the CPU with the MZB's tree (FUN_1017c8b0; research spec culling_spec.md for its draw distance and tree).
+  the CPU with the MZB's tree (FUN_1017c8b0; the tree below).
 - render/cull.rs, zone.wgsl cs_cull_vis / cs_cull_compact: per instance its mesh's box (model space, over every model
   drawn) and the draws' runs (a mesh's normal, mirrored or both placements: instance range, where the visible copies
   go, the draws' indirect argument slots). Each frame, from the uniforms render() writes: pass 1 marks each instance
@@ -10797,6 +16557,49 @@ Spec `~/ffxi/lab/research/bazaar_spec.md` (current build; 2019 cross-reference i
   (FFXI_BENCH=N on the offscreen tools, now timed by GPU timestamps too) 0.83 -> 0.32 ms looking along the ground in
   Qufim Island, 1.51 -> 0.81 ms in a Southern San d'Oria street, 0.80 -> 0.49 ms in La Theine, unchanged top-down
   (everything in view).
+
+From the research notes:
+- Names: scene S = DAT_10631f24 (this of FUN_1017b510), env E = DAT_1065cb04 (0x1dc bytes, ctor FUN_1018b170), camera
+  C = DAT_104568fc. An instance (a placement at run time) is 0x16c bytes, an array per scene slot at slot +0x28 (slots
+  at S+0x60 + 0x78 k, k = 0, 1).
+- FUN_1017b510 each frame: view V -> S+0x38d9c, render projection C+0x154 -> S+0x38ddc; D (FUN_1018b8f0(E, 0)) ->
+  S+0x39420, D^2 -> S+0x39424, K (FUN_101892b0(E, 0)) -> S+0x39428; cull projection Pc = FUN_10182490(S+0x38e5c, w, h,
+  focal, 0.2, D), M = V x Pc -> S+0x38fdc (a voyage slot: (Vvoy x V) x Pc -> S+0x38edc, Vvoy = S+0x38e1c); the eye
+  C+0x50 -> +0x44 -> S+0x390f0. Then per slot: the candidates (a camera list, else the tree, else every instance),
+  each tested and drawn, the slot's deferred list, then the door groups (FUN_1017ade0 -> FUN_10183da0).
+- MZB header (FUN_10179430; offsets from the MZB start): 0x03 version (0x1b in every current zone), 0x04 record count
+  (low 24 bits), 0x08 collision table, 0x10 tree root (version >= 0x15; 0 = no tree; below 0x15 the camera-list
+  count), 0x14 camera-list pool (below 0x15 the first list), 0x18 light list (version > 0x11). File order in 230:
+  header, records (0x64 each), the list pool at 0x20 + 0x64 x count, tree nodes, leaf index lists, lights, collision.
+- Tree node, 0x80 bytes (walk FUN_1017c8b0, relocation FUN_1017c820): +0x00..+0x5f 8 world corners (f32 x, y, z;
+  axis-aligned boxes in practice); +0x60 the offset of u32 idx[count] (0-based record indices; nonzero = a leaf, its
+  children ignored); +0x64 count; +0x68..+0x77 4 child offsets (0 none, filled from the first); +0x78..+0x7f zero. On
+  230, 193 and 102 every leaf is at depth 6 and every placement in exactly one leaf; an interior box is the union of
+  its children's, a leaf's the union of its placements' world boxes from the record's named MMB (not the _h sibling)
+  *(inferred: a quadtree over x / z built offline)*. 230: 990 nodes / 549 leaves; 102: 2331 / 1547; 193: 545 / 199.
+- The walk starts at the root's 4 children (the root box is never tested); a culled node skips its subtree; no
+  distance test on nodes and no fully-inside shortcut. A leaf's instances with state > 1 go to FUN_1017c9c0 (render
+  mode S+0x3949c == 2: FUN_1017de20, the same tests) or to the deferred list. Child boxes lie inside their parents'
+  and the test is per plane, so the tree drops only what the per-instance tests drop: the GPU pass stands in for it.
+- Records carry no bounds: the instance box (inst +0xf4..+0x153, 8 world corners) is built at load (FUN_1017a710) from
+  the high LOD model's (inst +0x18) MMB box (payload +0x24..+0x3b: x0, x1, y0, y1, z0, z1) through the instance matrix
+  (inst +0x40). No model: no box, nothing drawn. Ours boxes each LOD mesh itself (a tiny difference).
+- Record fields culling reads: +0x10 translate -> inst +0x1c (the distance origin); +0x34 group id -> +0xc0 (nonzero:
+  state 0, not drawn by this pass; '_' / '@' groups go as door groups); +0x38 / +0x3c -> +0xc8 = r38^2, +0xcc =
+  max(r38, r3c)^2 (the LOD bands); +0x40 -> +0xd0 = r40^2 (the own distance, used when +0x46 bit 0 -> inst +0xb);
+  +0x46 bit 2 -> inst +0xf (drawn deferred, after the slot's other placements: list S+0x37540, 12-byte entries, at
+  most 0x200, extras dropped; its counter S+0x38d40 is zeroed once a frame, not per slot, so slot 1 redraws slot 0's
+  deferred entries, as read; one record in Whitegate has the bit; not modelled); +0x50 == the loaded sub-area S+0x17c
+  -> state 1 (hidden). State inst +8 (FUN_1017a630): only state > 1 draws.
+- Frustum test FUN_10181bb0(M, 8 points): clip = (p, 1) x M, a = |w|; outcode bits 1 x > a, 2 x < -a, 4 y > a, 8 y <
+  -a, 0x10 z > a, 0x20 z < -a; culled when the AND of the 8 outcodes is nonzero (corners behind the eye always set
+  0x20). Our box-against-planes test gives the same answer for boxes in front.
+- Cull projection FUN_10182490(out, w, h, s, n, f): Pc = diag(1, 1, -1, 1) x
+  [[2s/w,0,0,0],[0,2s/h,0,0],[0,0,(n+f)/(f-n),1],[0,0,-2nf/(f-n),0]] (the scene is right-handed). n = 0.2 (render near
+  0.1); f = D; s = focal C+0x2f4 (350, zoom 242..900); w = 512 / C+0x2f0 (C+0x2f0 = h / (0.75 w) of the aspect entry:
+  1.0 at 4:3, 0.75 at 16:9); h = u16 C+0x1a, set once at scene init (FUN_10178f90), the 3D target height (default 512)
+  *(inferred: the background resolution's Y)*. It holds the render frustum whenever h >= 384, so it removes nothing on
+  screen but by its near (0.2) and far (D) planes.
 
 ## Two-factor sign-in (ours, 2026-10-27)
 
@@ -10823,7 +16626,7 @@ Spec `~/ffxi/lab/research/bazaar_spec.md` (current build; 2019 cross-reference i
 
 ## Draw distance: retail's, and the Draw Distance setting (2026-10-28)
 
-- Retail (research spec culling_spec.md sections 3..5; FUN_1017c9c0, FUN_101892b0, FUN_1018b8f0, FUN_10189120):
+- Retail (FUN_1017c9c0, FUN_101892b0, FUN_1018b8f0, FUN_10189120; more below):
   - D = max(K x env@0x58, 43) (map 0xc1: @0x58 itself; 100 before an env is up).
   - K = X, halved when @0x58 > 500 and the Clipping flag F is 0.5 (map 0x32: K >= 0.7).
   - X = (config 0x3e + 25) x 0.02, F = 0.5 below X 0.99. At the default Clipping (25), K = 1 and D = @0x58
@@ -10850,9 +16653,33 @@ Spec `~/ffxi/lab/research/bazaar_spec.md` (current build; 2019 cross-reference i
   - Qufim: about 1000 pixels differ; San d'Oria: none.
   - Live in Qufim at Retail: scenery, actors and plates draw.
 
+From the research notes:
+- Per placement (FUN_1017c9c0), in order: the origin inst +0x1c (a voyage's through Vvoy), d^2 = |origin - eye|^2;
+  inst +0xb clear: drawn when d^2 <= D^2, set: when d^2 <= K x inst +0xd0 (K not squared, so the own distance scales
+  by sqrt K; `<=` at asm 0x1017cab4); the frustum (FUN_10181bb0 with M or Mv on inst +0xf4); the LOD: d^2 > +0xcc low
+  (+0x10), > +0xc8 medium (+0x14), else high (+0x18), a null model skipped; then only state setup (no per-piece
+  bounds, no alpha or fog skip). S+0x39448 counts the drawn placements.
+- Door groups (FUN_10183da0): origin distance against min(D^2, K x inst +0xd0) when inst +0xb, else D^2; the frustum
+  with M; always the high model. Other users of D: effects without their own range (FUN_100496f0 at 0x10049851) and
+  door actor visibility (FUN_100ac5a0 at 0x100ac649).
+- D's source: the 0x2f environment's f32 @0x58, lerped between hour keys like every field (FUN_10189980); E+0x18 the
+  work struct, E+0x1c = work + 0x4c (FUN_101880c0), read by FUN_10187020 (E+0x1c -> +0xc = work @0x58). Units: yalms.
+  The FUN_101848d0 of the zone weather entry is an old-build address.
+- K = FUN_101892b0(E, p) (p 0 scenery and fog, 1 actors): 1.0 while the env allocation is not live (heap header E-0x1c
+  != 1); else r = 1.0, halved when an env is loaded, @0x58 > 500 and F != 1.0, then r x= X; E+0x1d4 > 0 -> max(r,
+  E+0x1d4), < 0 -> min(r, -E+0x1d4). D = FUN_1018b8f0(E, p): raw = @0x58 (100 without an env); E+0x1d0 > 0 -> max(K x
+  raw, E+0x1d0), else raw (K ignored). E+0x1d0 = 43 and E+0x1d4 = 0 at construction; map 0xc1 sets E+0x1d0 = 0, map
+  0x32 E+0x1d4 = 0.7 (FUN_1018b3a0).
+- Config 0x3e (apply 0x101aa650 case 0x3e): X -> DAT_10456ab8 and DAT_10456aa8 (scenery and actors, always equal), F
+  -> DAT_10456a5c / DAT_10456a6c.
+- D is not in the render projection (near 0.1, far C+0x2e0 = 65535, FUN_10015490). Fog (FUN_10189120): FOGEND = fog
+  end x K, FOGSTART = fog start x K (start + 1 when end <= start); fog end can pass D (230: up to 450 against 302).
+- @0x58 by zone (current DATs): 193 120; 26 130; 149, 191 203; 100, 104 252.5; 102, 115, 126, 230, 231, 241 302; 288
+  361; 50 600; 245 1000 (500 on one key). Mostly constant per zone; a few weather keys differ.
+
 ## Camera lists (retail's visible sets) in the GPU culling (2026-10-28)
 
-- Retail (research spec culling_spec.md, "Camera lists"):
+- Retail:
   - MZB +0x14 (version >= 0x15): u32 n, then n lists of { u32 count; u32 placement[count] }.
   - Each collision object's +0xa8 is the MZB offset of one list (0 none). Checked on 230, 100, 193 and 231: every
     nonzero +0xa8 lands on a list start. No file cell list carries flag 0x800 or 0x2000, and none is chained.
@@ -10881,6 +16708,19 @@ Spec `~/ffxi/lab/research/bazaar_spec.md` (current build; 2019 cross-reference i
   - Southern San d'Oria gate: GPU 0.96 -> 0.23 ms, 7442 pixels differ (the battlements beyond the inner wall).
   - Street: 0.71 -> 0.41 ms, 1146 pixels (rooftops over the wall). Square: 0.83 -> 0.49 ms, identical.
   - Windurst Waters: 0.31 -> 0.27 ms, 1349 pixels.
+
+From the research notes:
+- Below MZB version 0x15 the header's 0x10 is the list count and 0x14 the first list (no pool count). FUN_1017af30
+  turns list indices into instance pointers; FUN_10167f50 relocates each collision object's +0xa8. The object count
+  equals the record count in every zone checked.
+- The probe runs every frame before the draw (FUN_101813f0, then FUN_10179390, from the game update at 0x10013cbb /
+  0x100144d9); constants 0x10336788 = 0.51, 0x1033678c = 15. FUN_1016a2d0 resets coll+0x1807c first, skips cell lists
+  with head flag 0x2000, and needs the object's y range (+0xb4 / +0xb8) and sub-area (+0xbc) checks. The result goes
+  coll+0x1807c -> S+0x3912c; a slot uses it only when it has lists (slot +0x34), with no tree walk, and the list is
+  cleared for the second slot.
+- Data: 230 44 lists (179 of 1675 placements on average; 666 objects name one); 100 65 (1010 of 8177); 193 32 (24 of
+  220); none in 102, 26, 256. A list can leave out placements that are in the frustum and in range *(inferred: an
+  offline visible set per floor region)*.
 
 ## GM prompts: "menu    gmtell" (2026-10-28)
 
@@ -10935,7 +16775,7 @@ Spec `~/ffxi/lab/research/bazaar_spec.md` (current build; 2019 cross-reference i
 
 ## Automaton customization: automato, statpup, pupsibor (2026-10-28)
 
-Spec `~/ffxi/lab/research/pup_automaton_spec.md` (addresses, layouts, flows, packets). Ours client/pupset.rs, the modern
+Ours client/pupset.rs, the modern
 view modern/pupset.rs.
 - pupequip's Automaton row (FUN_10207670): 0x119 seen and PUP main or sub, else 7 0x57. Opens statpup (16, 48),
   automato (130, 48; cursor remembered), BLU's bluinven / bluehelp fed by the automaton rows, pupsibor on the Element
@@ -10956,9 +16796,62 @@ view modern/pupset.rs.
   LSB's stats follow), Strobe in, Strobe out, Mana Booster under the Ice filter, Remove All, Escape back to pupequip
   on Automaton. Not seen: the activated-automaton refusal (7 0xb8; Activate needs an Animator), the mouse.
 
+From the research notes:
+- s2c 0x044 PUP block (job 0x12; block +n = packet @(n + 4)): +4 head (item - 0x2000, 1..6), +5 frame (0x20..0x23),
+  +6..+0x11 the 12 attachments (item - 0x2100, 0 empty), +0x12 / +0x13 unknown (LSB 0); +0x14..+0x33 owned heads /
+  frames (FUN_100fcc50(side, 0x1201, n): bit n = item 0x2000 + n); +0x34..+0x53 owned attachments (0x1202: item 0x2100 +
+  n); +0x54 the name (FUN_100fcdc0; 16 bytes, inferred); +0x64 / +0x66 HP / max, +0x68 / +0x6a MP / max; +0x6c + 4i /
+  +0x6e + 4i skill / cap (0 melee, 1 ranged, 2 magic; the fourth pair unused); +0x7c + 4i u16 / +0x7e + 4i i16 STR..CHR
+  / bonus (LSB: bonuses only while the automaton is out); +0x98 i8 the elemental capacity bonus. FUN_100fcdd0: the first
+  block (main, then sub) with job 0x12, which statpup reads. LSB also sends it on attachment unlocks, skill-ups and
+  every tick the deployed automaton's update mask is set, so statpup follows the live pet.
+- Item records (file 77 en; parser FUN_1015c380): +0x14f4 -> kind, +0x14dc -> the nibbles, +0x14d4 -> slots (1 head, 2
+  frame, 3 attachment), +0x14d0 -> level (0). Heads 0x2001..0x2006, frames 0x2020..0x2023, attachments by element from
+  0x2101 in steps of 0x20. Head / frame nibbles add capacity (Harlequin Head 0x00222222, Frame 0x33333333, Valoredge
+  Head 0x02023203); an attachment's are its cost (Strobe 0x01, Mana Booster 0x20, Mana Tank IV 0x50000000).
+- Objects: automato DAT_1066442c (vtable 0x1033b248: init FUN_10207920, close FUN_10207930, draw FUN_10207d10, messages
+  FUN_10207e80, frame FUN_10207a40), statpup DAT_10664430 (draw FUN_10208120), pupsibor DAT_10664434 (FUN_102084c0), the
+  list source DAT_10664438 (vtable 0x1033b28c: open FUN_10208cc0, rows FUN_10208b60, update FUN_10208f00, messages
+  FUN_10209000). The open sets the list's title to group 0xd 0x14 "Equipment". The layout "menu    pupinven" exists in
+  39542 but nothing opens it.
+- Layouts (registry flags / layer / group): statpup 16,48 112x190 windowps 591 (0x200001 / 2 / 0x1c); automato 130,48
+  182x190 framesus 125 (0x20002 / 2 / 0); bluinven 314,48 (0x2 / 2 / 0x81); bluehelp 130,240 (0x3 / 3 / 0); pupsibor
+  440,48 56x140, rows 1..8 at (21, 5 + 16k) 32x15, framesus 134 (0 / 2 / 0). automato children: head 1 (24,7), frame 5
+  (58,7), attachments at x 24 / 58 / 92 / 126, y 45 / 79 / 113; help 0xe 0x286 / 0x287 / 0x288. Links: columns wrap
+  vertically (head up -> 4, frame up -> 8), rows wrap horizontally, head and frame left / right go to each other.
+- statpup (only with a PUP block whose name is non-empty; fontshp, from the window origin): name at (4, 7) fitted to
+  width - 6; HP "%d" right at (0x45, 0x14), "/%d" left at (0x47, 0x14), MP the same at y 0x21; skills right at 0x4d,
+  "/%d" caps at 0x4f, y 0x37 / 0x44 / 0x51; STR..CHR "%4d" at (0x32, 0x60 + 13i), then " %d" in 0x80804040 for a
+  negative bonus, " +%d" in 0x80408040 for a positive one.
+- automato per frame: a picked head locks the cursor on child 1, a frame on child 5 (window +0x61 = 0); an attachment
+  moves a cursor on 1 / 5 to child 2. The capacity counts sit at (x0 + 39 + 60 (e / 3), y0 + 148 + 14 (e % 3)): "%d/"
+  right-aligned and "%d" left-aligned at that x. Records not yet loaded are skipped that frame.
+- bluehelp for an automaton item: header = the singular name (field 2) with its first letter upper-cased; for an
+  attachment, from x1 - 100, nibble e copies of the gaiji EF (1F + e) per element, 16 px apart; body the description
+  lines at (x0 + 16, y0 + 20 + 16k); no footer.
+- List rows: heads / frames in id order with a half-size icon and the name (field 0); the side's current one green
+  0x80509050, the picked one orange 0x80804020. Element row framesus 129, help 0xe 0x289; (Remove All) group 9 0xe3 in
+  0x80909040. Fits: free[e] = capacity - used, plus the nibbles of the attachment under automato's cursor while a slot
+  is picked; every non-zero cost <= free (signed bytes). pupsibor rows keytops3 420..427; Up / Down wrap; Enter on child
+  k sets filter k + 1 and closes it; Escape leaves the filter at 0.
+- Activated check FUN_101cc400 (only at a flow's first step): our pet (actor +0x1fa) exists and its name (+0x7c, or
+  +0x214 when +0x210 != 0) equals the block's name -> group 7 0xb8, SE 0004. Remove All and Element do not check it.
+- Keys: flow B's Enter on a slot plays SE 0002 (or 0004) and then SE 0002 again; Escape on automato with only a slot
+  picked, or on the list with only an item picked, does nothing; Num+ with a pick: automato SE 0004, the list nothing.
+  Mouse (inferred, as BLU and the Equipment grid): hover moves the cursor, a click on it is Enter, the pointer over the
+  other window swaps the focus when nothing is picked.
+- c2s 0x102 examples: head Valoredge @4 02, @0xc 02; frame Sharpshot @4 22, @0xd 22; Strobe in slot 2 @4 01, @0xe 01;
+  removing Scope (0x42) from slot 5 @4 00, @0x11 42. Remove All copies block bytes +6..+0x13 and is sent even when
+  everything is empty. Heads and frames are never removed.
+- LSB: no reply while an automaton is out; a head / frame change does not re-check attachments (used can exceed
+  capacity: red counts); an attachment already in another slot is refused (retail may move it); no message on a refusal.
+- Open: whether flow B's double SE 0002 is heard twice and whether automato's per-frame message 8 under the pointer
+  repeats SE 0004 while an item is picked; how unfocused automato draws its cursor while a slot is picked; pupsibor's
+  starting cursor (FUN_10118870's memory or child 1).
+
 ## Log window 2 (2026-10-28)
 
-Spec `~/ffxi/lab/research/logwin2_spec.md` (FUN_10161b80 class, FUN_10161c70 placement, routing FUN_10127c00 ->
+Retail (FUN_10161b80 class, FUN_10161c70 placement, routing FUN_10127c00 ->
 FUN_10128ce0 -> FUN_10129980, region 0 FUN_1015f980). Ours: client/logwin.rs (`LogWin::second`, `Route`, `mode_bit`,
 `second_rect`, `caption_1`), the world's `log2`.
 - Config 0xb4: 0 off, 1 above window 1 (same x, bottom on window 1's top), 2 right of it (left edge on window 1's
@@ -10966,7 +16859,7 @@ FUN_10128ce0 -> FUN_10129980, region 0 FUN_1015f980). Ours: client/logwin.rs (`L
   0xb8 min, 0xc5 width, 0xc6 seconds (the -1s follow window 1 once, cfgapply::normalise); every setter fills it.
 - Routing at print time: window 1 takes everything while window 2 is off, GM lines (s2c 0x017 Attr bit 0), and the
   modes its mask {0xb9, 0xba} allows or that have no bit; window 2 never GM lines, only modes its mask {0xbb, 0xbc}
-  allows. Mode -> bit: table 0x1036e888 -> FUN_1012a120 (chatfilters/SPEC.md §3). Defaults: chat, emotes, NPC talk
+  allows. Mode -> bit: table 0x1036e888 -> FUN_1012a120 (MODLOG "The full log's tabs and the log filters"). Defaults: chat, emotes, NPC talk
   to window 2; battle, system and modeless lines to window 1. A route change (0xb4, the masks) or a reopen rebuilds a
   window from the log newest first through its mask until more than 49 rows (FUN_101295d0).
 - Window 2 runs window 1's rule with its own values, held at its max by window 1's Num+ focus, never moved for the
@@ -10976,16 +16869,69 @@ FUN_10128ce0 -> FUN_10129980, region 0 FUN_1015f980). Ours: client/logwin.rs (`L
   its bottom (GameUi::log_bottom).
 - Lines now carry their print mode: event text its mode (pages 0x98, the queues' writer FUN_10136670), battle
   messages BATTLE + their relation mode (the modern Battle tab tests combat::is_battle), chat lines their GM flag.
-- Window 1 fixes from the spec: 0x9c fills it like the other setters; seconds per line under 3 are 3 (FUN_10162ea0);
+- Window 1 fixes: 0x9c fills it like the other setters; seconds per line under 3 are 3 (FUN_10162ea0);
   timestamps are added as lines come (a change of 0xb5 shows on new lines only).
 - Seen live 2026-10-28 (Lnxcsfix, 0xb4 1 with 0xc5 60 and 2 with 40): /say and NPC-style lines in window 2, the echo
   and system lines in window 1, the GM prompt stacked on window 2 (mode 1) or window 1 (mode 2). Not done: rem4line /
   rem4li2 (page overflow) and spoolmsg / splmsg2 (Chat Filters Hold), for both windows; the full log's tab switch
   (Num+, message 8).
 
+From the research notes:
+- Objects: window 1 handler DAT_1062193c (ctor FUN_10161850, vtable 0x10335410, buffer DAT_10578158), window 2
+  DAT_10621940 (ctor FUN_10161b80, vtable 0x10335470, buffer DAT_1057815c); children +0x1c spoolmsg / splmsg2, +0x20
+  rem4line / rem4li2. Slots that differ (1 / 2): init FUN_10161910 (also DAT_10621938 = its menu, the kaipage owner) /
+  FUN_10161c20; draw FUN_10161990 / FUN_10161d60; message FUN_10161aa0 / FUN_10161e40 (nothing); update FUN_10161970 /
+  FUN_10161c70 (place, then the rule); +0x4c "primary" 1 / 0 (runs the open sync, takes the typing shift); +0x58 filter
+  0 / 8.
+- Fields: +0x4d should be open, +0x4e max, +0x50 min, +0x52 configured width, +0x32 text width, +0x54 ticks per line,
+  +0x56 stamps, +0x58 reactive, +0x59 Escape passed down, +0x5a focused.
+- Config callbacks (LAB_101aaa90; at registration and on each change): 0xb4 (help 0xe 0x381 / 0x392 / 0x393); 0xb7
+  FUN_10162e20 (4..24, else 24; default 10, range 4..20; min follows when above it or not reactive); 0xb8 FUN_10162e60
+  (reactive ? v : max, no clamp to max); 0xc5 / 0xc6 -1 replaced once by 0x9c / 0x11 and stored (per character), so
+  later changes of those do not reach window 2. FUN_10162ea0: under 3 s -> 3; T = ftol(secs x 60), T <= 0 -> 20.
+- Width (FUN_10161e50 as window 1's FUN_10161b10): +0x52 = clamp((W - 512) x pct / 100 + 352, cap W - 160 first, floor
+  352); +0x32 = min(+0x52, W - 160), the rect +0x32 + 14 wide; each window wraps at its own +0x32. The layout is
+  logwindo's: (16, 298) 366 x 134, anchor 2.
+- Place (FUN_10161c70, each frame before the rule, only while window 1's menu exists): 1 -> FUN_10119110(A.x0, A.y0 -
+  h2), 2 -> (A.x1, A.y1 - h2). Windows update head to tail, so after a reopen or Num+ raise window 2 places itself on
+  window 1's previous-frame rect *(inf: a one-frame lag, not observed)*.
+- The open sync FUN_10162f60 (window 1, each frame) opens or closes window 2 to match +0x4d; when it changed, window 1
+  is closed and reopened (FUN_10162f30), rebuilding its ring through its filter, with its open zoom. Mask edits
+  (LAB_1019a220, 0xb9..0xbc) close and reopen that window, then fill it.
+- Global opens: the field entry (FUN_1015f3e0(4)) opens every A & 0x80 window, logwin2 whatever 0xb4 is (closed again by
+  window 1's first update *(inf: not visible)*); zone out / logout (FUN_1015f3e0(8)) closes both logs, rem* and spool*;
+  FUN_1015f3e0(0x200) (game state 0x40, screen unknown) closes both; events and battle keep them. Registry rows 31 / 32:
+  both A 0x00000093, B 0x00000125 (layer 1, group 0); A 0x01 skipped by the focus walk, A 0x02 not closed by the generic
+  Escape *(inf)*, A 0x10 not traced; no 0x40: hidden with the UI.
+- An open (FUN_101295d0(8, 0, 0, 0)) clears the ring and walks the history store newest first through filter 8
+  (FUN_10129090) until more than 49 rows; every printed row reaches the history store, even while window 2 is closed.
+  Keyed event messages (0x96 / 0x97) go into both message queues; each queue's writer FUN_10136670 prints its pages to
+  its own window only (DAT_104e2150 window 1, DAT_104e2154 window 2).
+- Window 2's rule (FUN_101626e0) apart from its values: no sync; fill = window 1's +0x5a (held at max while window 1 has
+  the Num+ focus); kept also while the chat line is open with open ticks <= 2T; the chat line opening (FUN_101b7f00)
+  gives both windows two periods and 40 to slide; no typing shift; each window polls Escape (key function 0x95) itself,
+  so one Escape takes a line off both, both blocked by FUN_1015dce0 (window 1's rem4line narration, or the UI hidden);
+  every +0x59 setter writes both.
+- rem4li2 and splmsg2 wrap and size at window 1's +0x32; splmsg2's close (FUN_10136f50) closes "menu    spoolmsg", not
+  itself, so the full log's open leaves splmsg2 up *(inf: the visible effect)*; FUN_10136f00 opens splmsg2 for every
+  held line even while window 2 is off.
+- Window 2 takes no key, focus (registry flag 0x1) or mouse; Num+ (key function 0x78, FUN_10157e20) cycles window 1 ->
+  the buff window -> none. The full log reads window 1's buffer in window 1's frame (16, 48, +0x32 + 14, H - 64). The
+  chat line and the event input take window 1's width; with 0xb4 = 2 window 2's bottom 22 px stay uncovered.
+- Regions (&DAT_1062193c, &DAT_106643a8, &DAT_10578478, &DAT_1057845c, &DAT_10621940; flags 0x1000, 0x2000, 0x4000,
+  0x10000000, 0 at 0x1037629c): FUN_1015f980 maps region 0 to window 2 when 0xb4 != 2 and window 2 is open. Flag-0x1000
+  windows sit at y = region.y0 - h - 2, or region.y1 - h while its frame fades or is hidden, at least 16 (FUN_1015f790).
+  Also on region 0: the compass (FUN_1021ee20), the party member icons (FUN_10228440, x0 + 200), the party window's
+  extras (FUN_102041d0: the pet block FUN_10202960 and a second block FUN_10202a40 *(inf: which actor, FUN_101cc560)* go
+  left of the party window when the logs leave room). Not on it: the chat line, the event input, the IME windows, the
+  map preview point FUN_101f9a50, the full log.
+- Captions at (x0 + tw - 352, y0), 0x80808080, only while visible lines > 0; window 1 tests config 0xb4, not +0x4d.
+  Stamps are baked in at print time, before wrapping (FUN_101c8fd0(time, 8 + 8 x (mode != 1))).
+- Open: game state 0x40's screen; registry A 0x10; whether rows rebuilt by FUN_10129090 count toward the open ticks.
+
 ## Mog House gardening (2026-10-28)
 
-Spec `~/ffxi/lab/research/gardening_spec.md`. Ours: client/garden.rs (replacing layout mode's stand-in /garden).
+Ours: client/garden.rs (replacing layout mode's stand-in /garden).
 - /garden (its gate in textcmd.rs, plus ours: not while gardening) opens bankmenu for the Safe (myroom mode 2);
   Escape ends it. A Safe with no installed pot: moogle 0x3b. Else mode 3: furnished rooms (myroom::has_floors) hide
   the player at the room's middle with focal 350 and frame the pot under the list's cursor (FUN_101d4500: look 0.4
@@ -11005,9 +16951,77 @@ Spec `~/ffxi/lab/research/gardening_spec.md`. Ours: client/garden.rs (replacing 
   UIs): sow (LSB 0x084 "Your moogle plants the bag of herb seeds"), feed (0x088), harvest (0x086: 16 rock salt),
   dry (0x085), Examine with LSB's "Seeds sown / Crystal used" lines, Empty Pot, the dried pot's plnt6, leaving.
 
+From the research notes:
+- Paths in: /garden (id 0x83, flags 0x11) or myroom row 4 "Gardening" (FUN_10145460 case 4 runs "/garden" and closes
+  myroom). Nothing in the world: flowerpots are furniture actors with +0xc0 = 2 (not targetable), and layout mode
+  gives a pot plain rmlo2.
+- The /garden gate (FUN_1007e8d0), in order: zone flag 0x100 (FUN_101cc070(0)); a Mog House scene (FUN_100f9680);
+  visiting -> 7 0xbc; the myroom object; the status gate FUN_101cc0d0(0x44, 0); the job-change cooldown
+  (FUN_101039e0() <= myroom window +0x18); the window manager busy (FUN_10160c80); the moogle away -> 7 0x48; then
+  FUN_101d3380(2, -1, 1). No furnished-room or open-to-visitors test. Its flag 0x10 makes FUN_10081230 refuse it in
+  layout mode (7 0x50).
+- Names: myroom = DAT_106631d4 (mode +0x1c, previous mode +0x1e, objects +0x4c, the away timer / state +0x3c / +0x40,
+  selected entity +0x7e6, saved focal +0x7f4); pot source DAT_10664420 (vt 0x10338030; +4 container, +8 "list was up",
+  +0xa saved row, +0xc the current pot), seed source DAT_10664424 (vt 0x10337f60), crystal source DAT_10664428 (vt
+  0x10337fc8); the one item list "menu    inventor" DAT_10663740 swaps sources (FUN_101f23a0); comyn DAT_10664520.
+- Mode 2 opens only bankmenu (LAB_101d3bf0: cancelled -> mode 0; picked -> container 1 / 9, mode 3). Mode 3 entry:
+  FUN_10207360 counts type-12 records with exdata[1] & 0x40 (none: moogle 0x3b, mode 0); furnished or off 1F
+  (FUN_101d5fe0 / FUN_101d6020): context 0x42, the list with the pot source, lock-on released (FUN_10157660(0)); else
+  FUN_101d55d0(0) (the trip); then targetwi, menuwind, roommenu and mogpost close.
+- FUN_101d4d90 (furnished rooms), on a mode change but 0 -> 2: 2 -> 3 the player camera off (FUN_100842d0), the player
+  +0xb2 |= 0x10, its position DAT_1037eba8[floor] = (0, 0, 0) 1F / (0, 0, -9) 2F, the saved focal = camera +0x2f4,
+  focal DAT_1037eb94[3] = 350; -> 0 the reverse (FUN_10084210, focal = +0x7f4). Quirk as read: cancelling bankmenu (2
+  -> 0) runs it too, putting the player at the room centre with the saved focal.
+- Pot camera (FUN_101d4500) constants: DAT_1032df40 0.4, DAT_1032a3ac 1.5, DAT_1032b15c 0.3 (per frame); P = the pot
+  actor's +0x734; nothing when (-P.x, 0, -P.z) is zero; then FUN_101d4310 tints from the pot. Vector: P = (4.5, -0.5,
+  -3.9) -> look (4.5, -0.9, -3.9), eye (3.36647, -0.9, -2.91760). The link-999 ceiling stays drawn in mode 3.
+- The moogle's trip (FUN_101d55d0 / FUN_101d5410, every frame unless furnished on 1F): +0x3c starts at 180 and drops
+  to trunc(t - frame ticks) a frame *(inferred: 3 s at 2 ticks a frame, shorter at high frame rates through the
+  truncation)*. Going: DAT_10482f18 = 1 (the control lock), 0x50 on 1F, scheduler 'main' of file 0xbf8 on the moogle
+  (FUN_10062e20) unless it runs; on the first frame FUN_101590a0 (target dropped *(inferred)*) and the pot list; at t
+  < 0 FUN_100a17f0(1) (entity +0x120 bit 15: model hidden), lock 0, 0x51 on 1F. Back (FUN_101d55d0(1)): lock 1, shown,
+  alpha ((180 - t) x 0x80) / 180 through vt+0x2c / +0x30, at t < 0 lock 0 and 0x52 on 1F. Called by the pot list's
+  Escape when unfurnished or off 1F, and by mode 0 in an unfurnished room from any other mode. Quirks as read: in a
+  rent-a-room cancelling bankmenu or having no pot plays the return though the moogle never left; on 2F the Escape
+  plays it too (no line; FUN_101d5580 keeps the 2F moogle at y 100).
+- The pot list: iteminfo mode 0 stacked on the log, place (16, 48) group 0x10, help 0xe 3, cursor memory, Left / Right
+  pages of 10; rows type 12 with exdata[1] & 0x40 (installed pieces are LockFlg 5) in slot order (view 3); every open
+  says 0x3d when furnished on 1F; close stores the row (FUN_101f7100); reopening with FUN_101f7080(+0xa, 0) puts the
+  saved row on top. Per frame (FUN_10207490) and on cursor messages FUN_101d3880(slot, c): every object state 0, the
+  pot's object state 3 with 4 pulses (FUN_101ce9e0(4), invisible on MMB pots), +0x7e6 = its entity.
+- plnt windows: registry flags 0x00021002, layer 2, group 4, title 0xd 0x59 "Gardening", rows 88 x 16 at (21, 5 + 16
+  (n - 1)), no disabled sprites, x 16, y stacked on the log. Rows (windowps -> help 0xe): plnt1 61 Examine 0x171, 60
+  Plant Seeds 0x172, 102 Exit 0x173; plnt2 Examine, 58 Dry Flowers 0x174, 63 Empty Pot 0x175, Exit; plnt3 Examine
+  (0x176), 62 Feed Crystal 0x177, Dry, Empty, Exit; plnt4 Examine (0x176), 64 Harvest 0x178, Dry, Empty, Exit; plnt5
+  Examine, Harvest, Exit (never opened; its Exit only closes); plnt6 Examine, Empty Pot, Exit. Links wrap. A focused
+  plnt window sets DAT_1057876c +0x74 bit 0 (FUN_10206b20), which stops the target keys.
+- The seed / crystal lists: rows item type 11 (every one, though LSB takes only 572..575, 1236..1238, 2235) / ids
+  0x1000..0x1007 (no HQ crystals); both open hooks rebuild the Mog Safe's view (DAT_10666e30) even for Safe 2 (quirk
+  as read); Enter closes the list and asks; the crystal Enter plays no sound (as read). The seed list's Escape keeps
+  the plnt window, the crystal list's closes plnt1..6.
+- A stage change (FUN_101cda60 from FUN_101ce7a0, per flowerpot object, exdata[0] against the cached +0x2a): the old
+  plant model goes; with a new stage != 0 and this record the current pot in mode 3, plnt1..6 close, comyn is
+  cancelled without its callback and the pot list reopens if it was not up (+8 == 0). Drying is not compared.
+- c2s bodies (offsets with the header): 0x0FC (0xc) @4 pot item, @6 added item, @8 pot slot, @9 added slot, @0xa pot
+  container, @0xb added container; 0x0FD (8) @4 item, @6 slot, @7 container; 0x0FE (0xc) the same, @8 CancellFlg (0
+  harvest, 1 Empty Pot); 0x0FF (8) as 0x0FD. Queued with a nonzero key: no 1 s throttle. s2c 0x0FA is a no-op
+  (LAB_100f0c70).
+- Flowerpot exdata: [0] stage; [1] bit 6 installed, bit 7 dried (bits 0..1 floor); [2] / [3] crystal elements 1..8
+  (crystal 4095 + e); [4] kind 1..8 (fruit, herb, grain, vegetable, cactus, tree cuttings, tree saplings, wildgrass);
+  [5] bit 0 examined, bits 1..7 strength; [6..9] column, level, row, rotation; [12..15] / [16..19] time planted / next
+  step (Vana'diel seconds). The client reads [0], [1], [4] and the place only. Stages: 0 empty, 1 seeds, 2 / 3 / 5 / 6
+  / 8 sprouts, 4 / 7 waiting for a crystal, 9 blooming, 10 ripe, 11 wilted.
+- Texts: moogle lines 7031 0x3b, 0x3d..0x57, 0x8b (0x3c has no caller); system lines 0x84 sow, 0x85 dry, 0x86 harvest,
+  0x88 feed, 0x89 nothing to pick; Examine's 7027 256 / 257 / 258 (259, two crystals, LSB never sends); prompts group
+  0xc 0x30..0x35.
+- Open: what 0xbf8's 'main' shows *(inferred: a vanish effect)*; a plnt window left under the seed / crystal flow and
+  resumed by the group walk on a stale pot (not seen); the item list's generic Escape sound; container 9's view order
+  in the Safe 2 lists (FUN_1021c210's upkeep); /garden typed in mode 3 (only FUN_10160c80 could stop it; read
+  literally the focal becomes DAT_1037eb94[2] = 0.0 and the saved focal 350).
+
 ## Full log: the tab switch (2026-10-28)
 
-From `~/ffxi/lab/scratch/chatfilters/SPEC.md` §1, §2, §5. Key function 0x11 (Num+, Ctrl / Alt + F) sends message 8
+Key function 0x11 (Num+, Ctrl / Alt + F) sends message 8
 to the open full log (FUN_10138230 case 8): the next tab of the list (English: Window 1, Window 2 only with config
 0xb4, Say, Tell, Party, Linkshell, Linkshell 2, Assist E, Assist J, Unity, Shout), wrapping, from its newest row, SE
 0002. FUN_101299f0 filters: Window 1 / 2 by the windows' masks, the channels by mode (Party 5 / 13 / 0xd2, Linkshell
@@ -11084,20 +17098,21 @@ keeps its newest 100 rows *(inf: retail ~50 at the switch, up to 100 while open)
   client's (FUN_101e0e30 opens tskill2 only with DAT_10456a28 +8 = 0, the language; the window-name resolver at all.c
   274990 swaps mcr*pall for mcr*long only with +0xb5 = 0).
 
-## The Friend List and PlayOnline messages (2026-10-28; spec ~/ffxi/lab/research/friend_list_spec.md)
+## The Friend List and PlayOnline messages (2026-10-28)
 
-- LSB's xi_profile stands in for PlayOnline (spec 3): TLS 51220, one request per connection (hello {u32 account, the
+- LSB's xi_profile stands in for PlayOnline (below): TLS 51220, one request per connection (hello {u32 account, the
   login's session hash}, ProfOpenData, ProfOpenAns 0x81, ProfSendReqData {kind 2, command, sub, size}, body;
   ProfRecvAns 0x83 {error, size} + body), and TLS 51240, an IRC-like session (USER, NICK U<scrambled id>, the
   profile-available notice, PING / PONG, notices as polcore base64 of a 0x48-byte header). polcore's checksum, line
-  checksum and base64 (alphabet TSG8IncW..., pad T) are in net/profile.rs, checked against the spec's vectors.
+  checksum and base64 (alphabet TSG8IncW..., pad T) are in net/profile.rs, checked against vectors derived from
+  LSB's codec.
 - Ours: net/profile.rs (requests, FriendInfo, MsgHeader, the IRC thread); MapLogin carries the account id and hash.
   client/friends.rs: in game (first zone-in) the IRC sign-on and LoadMyStatus / LoadFriendList / LoadHandleNameList /
   LoadCharacterList; ChangeMyStatus {character found, slot} once signed on and in a zone; /away /online /hide (and
   olstat) as ChangeMyStatus 1 / 0 / 4; status notices update a friend's status (Status - 1) and character, newer ages
   only; the friends' characters from xi_search wire type 1 (ID_LIST, u16 count + u32 ids, 20 a query) every 60 s
   (record and "fresh"); a dropped IRC session comes back after 30 s.
-- Mail (spec 2.4): at sign-on and on a new-message notice the mailbox (GetFileList O/m/) is downloaded (ReadFile),
+- Mail: at sign-on and on a new-message notice the mailbox (GetFileList O/m/) is downloaded (ReadFile),
   kept in <data>/mail/<account>/unread and deleted on the server (RemoveFile); read messages move to .../read. A
   friend's +0xfc bit 1 (unread mail) from the unread folder. A message's body is ours: title and text as Shift-JIS,
   each ending in NUL *(polcore's format unknown: retail clients' messages will not read right)*. Header Date = unix
@@ -11116,7 +17131,7 @@ keeps its newest 100 rows *(inf: retail ~50 at the switch, up to 100 while open)
   (9 0x19). msgline at (16, 410), the chat line's width + 14, 15 / 300 characters; the log gives it its input row.
   One operation at a time (7 0x7a). /friendlist, /befriend (exact name, then FUN_101ffa20; ourselves or not found: 7
   0xa2; listed: 7 0xa1), the search results' Befriend (dim only on ourselves; listed: a plain message).
-- Sends (spec 2.6): request = StoreFriendList set {first free index, our list name} + WriteFile FWT "Let's be
+- Sends: request = StoreFriendList set {first free index, our list name} + WriteFile FWT "Let's be
   friends!" with the character's name, 9 0x14; accept = store + FOK, 9 0x15 (LSB clears both pending flags); decline =
   FNO, 9 0x16; reply / plain = NRM with 9 0x1f / 0x1c titles, 9 0x12 / 0x11; ignore = store set black, 9 0x18; failures
   10 0x2d / 0x6f.
@@ -11132,13 +17147,71 @@ keeps its newest 100 rows *(inf: retail ~50 at the switch, up to 100 while open)
   (DAT_10385272), held on page 1 while nothing is unread; the modern top bar the same with its own envelope. Seen live
   in both UIs.
 - Not done: netstat's Help Desk count (GM replies) and its second count (engine +0xe), the busy strip bit 0x10, deleting / unblocking / reordering
-  (retail has no in-game way: the user's call), Away back to Online at login *(inf, spec 2.5)*.
+  (retail has no in-game way: the user's call), Away back to Online at login *(inf, below)*.
 - Also: the K.O. windows (dead, mp_dead) drawn 8 / 4 px larger (ours, the user's call, as the raise prompt).
 
-## rem4line / rem4li2 and spoolmsg / splmsg2: the log's page overflow and Hold (2026-10-28; spec ~/ffxi/lab/research/log_overflow_spec.md)
+From the research notes:
+- Profile requests (command / sub, from LSB's source): LoadHandleNameList 0x00 / 0x09, LoadCharacterList 0x01 / 0x03,
+  SearchPolId 0x01 / 0x0B, LoadFriendList 0x02 / 0x03, StoreFriendList 0x02 / 0x06, ReadFile 0x03 / 0x00, WriteFile
+  0x03 / 0x01, RemoveFile 0x03 / 0x02, GetFileList 0x03 / 0x03, ChangeMyStatus 0x04 / 0x05, LoadMyStatus 0x04 / 0x06.
+  ProfRecvAns errors: 0 ok, 0x01 refused, 0x7E not found. A bad header, a kind other than 2 or a body of the wrong
+  size or checksum gets no answer (the connection closes). LSB never checks ProfSendReqData's signature (zeros). Which
+  polcore slot is which request is inferred from use.
+- Checksum (polcore's sqCalcChecksum): the wrapping u32 sum of the bytes as little-endian u32 words, a 1..3-byte tail
+  folded in from the top (tail = tail >> 8 | byte << 24). An IRC line is the text, 4 characters ((sum >> s) & 0x3f) +
+  0x3f for s = 26, 20, 14, 8, then CR LF. The POL ids in a notice header are XORed with 0x1C273E4567891133.
+- Status notice (header type 31): +0x10 connected (2, 1 profile available, 0 closed), +0x11 Status (1 offline, 2
+  online, 3 away), +0x12 bit 0 playing, +0x1c where the receiver lists this friend, +0x30 u64 age in ms (a notice older
+  than the last applied is dropped); then an 8-byte extension (flag 0x08: a character primitive follows, u64 charid at
+  its +8).
+- polcore's friend entry (300 x 0x100 at DAT_104df770 + 0xa90): +0x08 bits 13-15 the status (1..3 "Online Friends"
+  with keytops3 64 / 65 / 66, 4 "Ignore List" with 177, 0 and 5..7 "Offline Friends"), bit 16 playing, bits 17-19 the
+  active character slot, bit 28 pending. How polcore maps the notice's Status into it is unknown: ours Status - 1
+  *(inf)*. What 3 (Busy?) and 4 are, whether the Ignore List category is ever reached, and whether the block-list
+  category (windowps 343, a bar without a label) shows on retail need polcore or the original client on LSB.
+- Who sees whom (LSB): A and B are visible when each lists the other (friend list, not pending) and neither blocks the
+  other. A as B sees it: offline when not signed on or Invisible, else online / away; playing only while A's last
+  ChangeMyStatus said in game and A has a map session (accounts_sessions). No notice for a zone, job or level change
+  (xi_search has those), nor when the map session appears without a ChangeMyStatus: send it after the session exists.
+- A friend playing FFXI (FUN_101eaec0; not seen live): no search record yet (+0xfc bit 0 clear) or another world: cell
+  5 "<World>", kind 6 (FUN_100db7b0 gives no string, so nothing is drawn *(inf)*); else cell 5 the zone name when not
+  our zone and cell 4 the character name when the record has one, kind 5 (the only kind flmes' Tell allows). Job and
+  level are never shown. The list is a snapshot: only its open and a header toggle rebuild it.
+- Requests on LSB: accept = store + FOK, and LSB clears pending on both rows in one transaction, then both get status
+  notices; a decline (FNO) deletes the requester's pending row (by LSB's note retail keeps it pending). Every
+  StoreFriendList carries the whole order tables (head 0x130: friendOrder[200], blackOrder[100], u16 count). Removing
+  = StoreFriendList op 2 {Num} (the other side keeps its row and sees us offline); blocking = set {isBlack 1}. Retail
+  has none of these in game: commenu's help 0xe 0x14a sends the player to the PlayOnline viewer.
+- Mail engine: FFXiMain's one polcore event handler (LAB_100f28b0, slot 0x120) takes only type 0, a new message:
+  FUN_100f27e0 drops duplicates, downloads it (slots 0x113 / 0x114), marks the sender's entries (+0xfc bit 1), saves it
+  to local folder 7, deletes it on the server (0x118 / 0x119), counts it (engine +0xc / +0xa / +0x10 / +0x12; type 30
+  SYS apart) and trims folder 7 to 200. Engine start (DAT_104df908, FUN_100f1f00): every +0xfc bit 1 cleared, folders
+  7 / 8 / 6 counted (unread / read / sent *(inf)*), the server list (<= 16 headers) fetched and each queued. Types
+  (header +0x3e bits 7-11): 0 NRM, 1 FWT, 3 KNK, 9 FOK, 10 FNO, 0xe..0x13 GRP, 0x1e SYS; LSB takes 0, 1, 9, 10. LSB's
+  limits: 100 messages a mailbox, 10 from one sender, 50 unread sent; data <= 1024 bytes; SenderName one of the
+  sender's characters; a blocked sender's message is answered ok and dropped.
+- The message body (slots 0x110 encode / 0x10f decode: title <= 50, text <= 300, an attachment) is opaque to LSB; one
+  message sent from the original client and read back from accounts_messages.data would settle the format. The
+  handle-id text (slot 0x1db) is unknown too; titlehan draws only while polcore's mode byte *DAT_10456a28 == 0x60
+  *(inf: signed on)*.
+- netstat page 0: windowps 2, or 418 (red) with unread SYS, or fontshp 118 "GM"; with a GM-call count windowps 36
+  "Help Desk". Page 1 is held only while there is neither mail nor a GM count. A count that grows (FUN_100f6f30, <=
+  200, and FUN_100f6f00) plays SE 0039 when config 0x48 is on (default 1).
+- Busy strip bit 0x10: set with DAT_10663ac8 while msglist's list job, a read (FUN_100f75f0) or a msgline send runs;
+  cleared at the job's end (result 1, the engine closed, only clears it).
+- Our status at login: s2c 0x00A (LAB_100facf0, LoginState @0x80 in {1, 2, 0, 6}) sets Away back to Online with a
+  0x0DC clear *(inf: only the first 0x00A)*; FUN_100daf30 state 4: FUN_100f7960 re-reads and re-sends our status with
+  FUN_100e46a0(1, status == Away). At character select (FUN_100ee160) retail sends ChangeMyStatus(handle, character
+  index, 0, -2 keep, -1, 1).
+- FUN_101ffa20(rec, flag) (/befriend flag 1, Befriend 0): key = id & 0xffff | world << 16 | (id & 0xf0000) << 8,
+  SearchPolId, then our lists; result 10 (not listed) msgline mode 2; 0 with flag 1 7 0xa1, with flag 0 msgline mode 0
+  (a plain message); 1 silent; else 10 0x70 "Unable to send. (%d)". Knocks (msgline modes 3 / 4: scoption child 1 with
+  search flag 0x400, once per 30 s; type 3, 9 0x13) are refused by LSB.
+
+## rem4line / rem4li2 and spoolmsg / splmsg2: the log's page overflow and Hold (2026-10-28)
 
 - Corrects the older note under "Event text" (2019 build): rem4line is the event message's own window, open (invisible)
-  for the whole message; it shows only when lines push the page off a full log (spec §5).
+  for the whole message; it shows only when lines push the page off a full log.
 - Records carry a print mark (+0x12): 1 the open event page (FUN_10136670 prints pages with it; each advance unmarks
   the pages before, FUN_10126a90), 2 a held chat line (FUN_101273c0, config 0x34 bit by mode: 0 say 1/9, 1 shout and
   yell 2/3/10/11, 2 tell 4/12, 3 party 5/13, 4 linkshell 6/14, 5 emote 7/15, 6 0xd2, 7 unity 0xd3/0xd4, 8 linkshell 2
@@ -11150,8 +17223,8 @@ keeps its newest 100 rows *(inf: retail ~50 at the switch, up to 100 while open)
   page's rows in the log are no longer the page's (the log's own arrow, after the page's newest drawn row, goes). It
   stays until the message ends. Ours runs the test per new row of the frame (a frame's rows come together), and shows
   the current page *(inf: retail draws from its list head +0x58, stepped 4 rows by the message handler; the handler's
-  double run, spec §3.5, is not modelled: one page per Enter as ours always did)*.
-- Spool (§4): a held line goes into the spool (per window, of the lines it takes) with the log's period (config 0x11 x
+  double run (below) is not modelled: one page per Enter as ours always did)*.
+- Spool: a held line goes into the spool (per window, of the lines it takes) with the log's period (config 0x11 x
   60 ticks); caught (+0x14a = 1) when it scrolls to or past the visible rows of a full log (walk max + 6 rows back,
   lim = vis - shown rows); the reached rows (<= 4) pinned at the log's top-left, newest at the bottom (x0 + 4, y1 - 18 +
   slide - 16 k), the frame eased +8 / -2 px a frame, 8 to slide (-4 a frame), a 20-tick fade; expired entries go, the
@@ -11170,7 +17243,38 @@ keeps its newest 100 rows *(inf: retail ~50 at the switch, up to 100 while open)
   (subs 0xa / 0xc / 0xb). Not seen live.
 - A 0x97 message's pages (op 0x48) print as mode 0xbe (asm 0x1013669b); 0x96 / 0x97 / 0x98 / 0xbe share colour id 91
   and mask bit 9, so only the record's mode differs.
-- Not done: the frames' magenta tint (windowps 43, spec §8).
+- Not done: the frames' magenta tint (windowps 43, below).
+
+From the research notes:
+- The four windows (layout (16, 298) 366 x 70, one frame element): rem4line / rem4li2 (handlers DAT_105781cc /
+  DAT_105781d0, owners window 1 / 2 +0x20, registry A 0x12 / B 0x0405, layer 4), spoolmsg / splmsg2 (DAT_105781d4 /
+  DAT_105781d8, owners +0x1c, A 0x11 / B 0x0305, layer 3). The frame's sprite is windowps 43, a 366 x 70 newtex cell
+  coloured (128, 65, 128, 169) where the log's windowps 0 is (128, 128, 128, 192): magenta and a little more
+  transparent (inf: that the ref sprite's colour reaches the screen; our frame() ignores element refs; check one
+  retail screenshot). Neither has A 0x40 (hidden with the UI) nor A 0x100 (closed at zone-out).
+- Event message queues (FUN_10126790, DAT_104e2150 / DAT_104e2154): modes 0x96 (ops 0x1d, 0x2b, 0x49, 0xb0; s2c 0x03B,
+  which LSB never sends) and 0x97 (op 0x48) are not printed but pushed to both; the push writes page 1 at once and
+  opens the rem. Page flags: bit 0 waits for a key, bit 1 timed, 0x4000 drops the rem's rows at the next advance (7f
+  32 / 7f 33), 0x8000 has no reader. Page 1's keyed argument is always 0 (no arrow in the rem for page 1). Each Enter
+  pages both queues (FUN_10126840). FUN_10127ea0 cancels both (DAT_10488208 = 2; from the event runner, the choice
+  window's close and zone-out).
+- The unmark serial: FUN_10126a90 unmarks rows from entry +0x10 (record +0xc), the spool from +0x50; neither is ever
+  written, so the real range is unknown (the visible result must be that earlier pages lose their mark).
+- The rem's message handler FUN_10136bf0 runs FUN_10136c30 twice (asm 0x10136bff / 0x10136c1a; the 2019 build too):
+  each moves +0x58 4 rows on when the list holds more than 4 and pages both queues, so one Enter on a keyed page whose
+  next page is also keyed shows it and advances again (pages two at a time after page 1; a 5..8-line message ends on
+  one Enter); read, not seen. Escape only while cancellable (DAT_10485a70: op 0x2e sets, 0x42 clears): SE 0003, its
+  own queue cleared, DAT_10488208 = 2.
+- Enter / Escape reach the rem through the generic path (FUN_1015dd00 -> FUN_10118260), blocked by placed narration
+  (FUN_1015dce0) or the hidden UI; a left click (key function 0x8b released, FUN_10123a70) advances it whenever it is
+  focused and the UI shown, placed narration included. While a rem is open DAT_104e1d4c +0x87 = 1: a click over no
+  element plays no 0004.
+- The log keeps its size (no decay, no Escape shrink) while the rem shows, or while its oldest visible row is an event
+  row and such rows are no more than the rem's row count (+0x24); the same for held rows and the spool.
+- Spool quirks: splmsg2's close closes spoolmsg (the full log's Enter closes spoolmsg twice and splmsg2 stays, inf);
+  splmsg2 wraps at window 1's width with window 2's serials; it collects while window 2 is off and its entries just
+  expire. At most 64 entries; the width is window 1's + 14 (frame element +0x22, inf); +0x5c is refreshed only at a
+  reach (stale after expiries, inf).
 
 ## s2c 0x075: the battlefield countdown, objective bars and text (2026-10-28)
 
@@ -11333,7 +17437,7 @@ Handlers from the bulk registrations (PUSH handler / PUSH id / CALL 0x100fc3a0, 
 
 ## Chocobo racing (2026-10-28)
 
-Spec `~/ffxi/lab/research/chocobo_racing_spec.md` (addresses, LSB flows). Supersedes "0xf..0x12 chocobo race windows:
+Addresses and LSB's flows below. Supersedes "0xf..0x12 chocobo race windows:
 host effects only so far" under op 0xb4.
 
 - Op 0xb4 0xf (FUN_10209430): the toteboard "menu    chocobor" for attendant colour (u8) val@2, betting closing in
@@ -11370,6 +17474,64 @@ host effects only so far" under op 0xb4.
   runs to its end with the chocobos dressed from op 0xbf 0x20 (colours as the card). Modern UI (the classic windows,
   as every retail window without a modern counterpart): the toteboard "C2 Chocobo Race (Race No. 144190)", "Betting
   ends in (12:32)", and the card; the 22:50:59 broadcast with the framed race cameras and the entrants' names (below).
+
+From the research notes:
+- Handlers: DAT_1066443c (toteboard, 0x88 bytes) and DAT_10664440 (race card, 0x28), both made by FUN_10209300.
+  Toteboard vtable 0x1033b340 (base 0x10333360): +0 FUN_102093a0 dtor (deletes the card's too), +4 FUN_10209510 init
+  (the rect, FUN_10118f70), +0x10 FUN_10209660 draw, +0x28 FUN_102095b0 per frame (every live handler, suspended or
+  not); input and close slots are the base no-ops. Fields: +0x14..+0x1b rect, +0x1c colour (i8), +0x1e refresh (i16
+  ticks), +0x20 race no., +0x24 betting (i32 ticks), +0x28 grade (-1 unknown), +0x2c odds u16[28], +0x64 tiers
+  u8[28], +0x80 name string, +0x84 name loader. Race card vtable 0x1033b2f8: +4 FUN_102098f0 init (+0x20 = +0x24 = 0,
+  sends kind 2), +0x10 FUN_10209b40 draw; no per-frame: one request per open, no refresh.
+- 0xf (FUN_10209430) also sets +0x80 = 0 and makes the name loader (FUN_101c8260: a 10-entry cache over language slot
+  0x1c, English file 55688). The race no. and odds are not reset: the last board shows until the first 0x073 *(inf:
+  zero on the session's first open)*. 0x10 (FUN_102094d0) closes and frees the loader; 0x12 is FUN_102098b0. Events
+  210 and 355 begin with `b4 10`, `b4 12`.
+- Race names (slot 0x1c, entry = grade): 0 "CS Event Race", 1..10 "Race Type NN", 0xb "Altana Cup II", 0xc "C1
+  Crystal Stakes", 0xd..0xf "C2".."C4 Chocobo Race", the rest "."; loaded asynchronously by the per-frame
+  (FUN_101c8450(grade)) once the grade is known. Countdown (FUN_101c93c0): "%d:%02d", from 3600 s "%d:%02d:%02d"; 11
+  0xbb "Bet placement closed", 11 0xba "Bet placement ending momentarily".
+- Throttle: per packet id, DAT_104dfd94 +0x43e34 + id x 4 = 1000 ms for every id (FUN_100f9940); both windows share
+  0x9b. A refused request still re-arms the refresh countdown; when the race card asked less than 1 s before the
+  board opened, the board's first request is dropped and it keeps stale or zero odds up to 30 s (retail quirk).
+  Callbacks: kind 1 S+0x3c130 = LAB_10209520, kind 2 S+0x3c138 = LAB_102098d0, never cleared (a late answer updates a
+  closed window's handler).
+- Store (S = DAT_104dfd98): +0x3bde8 download flag, +0x3bdec race params [2], +0x3bdf4 chocobos 8 x 12, +0x3be54
+  sections 32 x 12, +0x3bfd4 result, +0x3bfd8 the 0x073 copy (0x11 dwords from p+4: SlotIndex unread, Ident, padding,
+  odds), +0x3c01c the 0x074 store (0x114 bytes). FUN_100f9940 (session start) zeroes it *(inf: so per zone)*.
+- 0x074: mode 1 also stores u32 @0x14 / @0x18 at R+0xc / R+0x10 (unread); mode 4 copies @4 / @8 / u16 @0xc to R+0 /
+  +4 / +8 and sets R+0xa bit 4 (unread), then the callback (handler +0x24 = names, +0x20 = params). The card draws
+  straight from the store, so a later mode 1 blanks it. LSB writes Mode as u16, so the index byte @0x11 is 0; it sends
+  modes 1..4 per request, only 1 and 4 before the race is posted (8 empty rows: no names, rank-0 letters, yellow male
+  balls).
+- 0x069: byte @5 ParamIndex (a record index), byte @6 ParamSize, data at @8; retail never bounds-checks (ours
+  clamps). Op 0xbf: sub 0 len 8 (index 0..1), 0x20 len 10 (chocobo < 8, dword 0..2), 0x40 len 10 (section < 32, dword
+  0..2), 0x60 len 8 (val@4 0); signed compares, so a negative index reads before the array in retail (ours clamps); a
+  failed check writes 0 (debug print); any other sub neither writes nor advances (never seen). Accessors FUN_100f97c0 /
+  FUN_100f97f0 / FUN_100f9820 / FUN_100f9850 give NULL (0) until the flag.
+- Records (as LSB builds them; the scripts and the card agree): chocobo byte 0 orders (low nibble 0 Sprint, 1 Keep
+  Pace, 2 Final Spurt) | item << 4; bytes 4..7 STR, END, DSC (bit 0 trait, 1..4 RP, 5..7 rank), RCP (0..4 RP, 5..7
+  rank); u32 @8 DNA: bits 0..8 DNA1..3, 9..12 ability 1, 13..16 ability 2, 17..19 temperament, 20..23 weather, 24
+  gender, 25..27 colour, 28..30 jockey size. Section: From u8[4] (8 nibbles, track position, chocobo 0 low), To u8[4],
+  {User mask, Targets mask, Param, Type: 0 straining, 1..9 items, 0x20 start, 0x21 accident}. Result: 8 place nibbles
+  (0 first). Race param 0: bits 0..4 entrants, 5..8 weather; zone 70 never reads param 1.
+- Registry rows 162 / 163: flags 0x00030000, layer 2, group 0x5c (gaugewin, buff, query and fulllog step back
+  through the group walk); flag 0x20000 closes every 0x40000 window (mcr1pall, mcr2pall, mcr1long, mcr2long, cnttime).
+  Layouts (file 39542): (16, 48) 366 x 248, one element, no cursor stops; chocobor windowps 600 (the board art, its text
+  baked in), racecard "menu    frames" 152 (framesus 152 in English).
+- keytops3 sprites, named from the art only *(inf)*: 435..437 San d'Oria / Bastok / Windurst crests (name u32 @0 & 3
+  = affiliation; LSB sends 0, so not seen live; 434 never drawn, 438 Jeuno out of reach); 439..443 balls yellow,
+  black, blue, red, green (LSB colours 0..4); 444 / 445 male / female; 446..448 orders Sprint / Keep Pace / Final
+  Spurt; 449..454 abilities Gallop, Canter, Burrow, Bore, Auto-Regen, Treasure Finder; 455..462 ranks F, E, D, C, B,
+  A, S, SS; 463..470 weathers 1..8 (fire .. dark).
+- Op 0xb4 0xf..0x12 and op 0xbf occur in zone 70 only (104 and 133 sites over zones 0..299). Not seen live: events
+  100, 115, 116, 427, 458, 469, 479, 488, 497 (the player-chocobo races, which read the 0x069 store; LSB never starts
+  them) and zone-actor events 355 / 406.
+- LSB: a race every 900 s; bets close 47 s into the slot, the race runs 359..555 s; colour = race no. % 4, grade C4
+  C3 C3 C2 C4 C3 C2 C1 by race no. % 8 (Ident grade 11..15); odds min(75 x all quills / pair quills, 49999), 50000 no
+  bet. Event 210 polls update option 5 up to 30 times (Z9 -4 one more try, -5 / -6 stop); LSB answers only after the
+  race has run *(inf: else the update never returns)*. Options 274 / 530 name entries 1..4 / 5..8 (s2c 0x05D), 17 the
+  payout.
 
 ## Grammar blocks from 0x80 and event op 0xc3 (2026-10-28)
 
@@ -11441,7 +17603,7 @@ Supersedes "Not done: the idle variants +0x1a8 / +0x1ac" under "Motion name base
 - Ours: seacom::zone_in at each 0x00A (Store.entered for the first since login; the comment kept in memory).
   Live: a login of Lnxcsfix, no server warning.
 
-## Training regime window (an Extra, 2026-10-28; spec ~/ffxi/lab/research/training_regime_spec.md)
+## Training regime window (an Extra, 2026-10-28)
 
 Not retail (retail has no tracker and no regime packet; the user's wish). client/regime.rs, Extras > Timers > Training
 Regime (config `regime`, its drawer `regime_out`). The state comes from packets alone; nothing is sent for it:
@@ -11451,7 +17613,7 @@ Regime (config `regime`, its drawer `regime_out`). The state comes from packets 
   the block base R; option 3 (a Hunt Registry's 4) then 0x02A is a cancel; option 1 (Review) gets num[0..3] needed and
   num[4..7] killed;
 - s2c 0x029 558 (about us: Data killed, Data2 needed) a credit, 559 complete, 643 begun anew; 6 / 20 (the defeated
-  monster) name the credit's target when two slots need the same count (spec 7.3).
+  monster) name the credit's target when two slots need the same count (below).
 - The names are never sent: the client's own zone dialogue holds them by id (R - 2050 + id a line per target,
   "[Siege Bat/Siege Bats]", "member[/s] of the worm family", "undead-type creature[/s]"; R + 3 + id the area), the
   same text the book shows. A book seen with a regime but no accept finds R as the entry "New training regime
@@ -11464,6 +17626,46 @@ Regime (config `regime`, its drawer `regime_out`). The state comes from packets 
 - Live (Lnxcsfix, Valkurm Dunes Field Manual, classic): page 1 accepted (regime 7: Hill Lizard 0/7, Sand Hare 0/1 shown
   at the "registered" line), credits 3/7 and 1/1 (`!exec player:messageBasic(558, k, n)`), the Review reset them to
   the server's 0/7 and 0/1, the cancel hid it; modern: a kills-only row "Target 1: 2/4", hidden by 559.
+
+From the research notes:
+- Id ranges in the book's bytecode (West Ronfaure's actor 0x010642dd, Gustav Tunnel's 0x010d4157): 1..146 FoV,
+  147..559 hunts, 560..601 unused by LSB *(inf: elite training)*, 602..819 GoV. LSB: 146 FoV and 218 GoV pages in 60
+  zones, up to 4 targets, the non-zero counts always a prefix.
+- The book's start (s2c 0x034): num[1] page mask (bit p = page p hidden), num[2] cipher campaign, num[3] 1 with the
+  key item Rhapsody in White, num[6] tabs, num[7] the current regime (a hunt's id while a hunt is on). Updates: 1
+  review (needed num[0..3], killed num[4..7]; no 0x05C without a regime, so the VM sees num[0] = 0), 6 (FoV) / 5 (GoV)
+  details (levels num[5] / [6]), 7 GoV prowess, 2 | page << 4 (FoV pages 1..5, GoV 1..10) a page. Ends: 2 | page << 4
+  accepts (bit 31 repeat): 0x02A R | 0x8000, then (R + 1) | 0x8000; 3 cancels: (R + 2) | 0x8000; not enough tabs:
+  (R + 1032) | 0x8000. An update or end is accepted only inside that book's event (a Talk within 6.0), so there is no
+  Review without standing at a book.
+- The book's event registers: Z0 the choice, Z1 the option, Z2..Z9 num[0..7]; menu rows by L6 (num[7]): 0 hides Review
+  and Cancel, a FoV / GoV id hides "Read about individual training" (a new regime needs a cancel first), a hunt hides
+  Review and Cancel.
+- The zone dialogue's block (byte-identical in all 60 book zones, every regime id; R = the zone's "New training regime
+  registered!", mapped through MsgShift): R - 2051 "The information on this page instructs you to defeat the
+  following:", R - 2050 + id the targets (a line per non-zero slot k, `{0a 0k}`), R - 1026 + id the review list (`{0a
+  0(k+4)}/{0a 0k}`), R - 2 "Target level range: ...", R - 1 the "Undertake this training regime?" prompt, R + 1 the
+  job-change warning, R + 2 "Training regime canceled.", R + 3 + id "Training area: <zone>.", R + 1027 "(End of
+  list.)". Line forms: 617 `{0a k} {7f 92 k}[Singular/Plural].`, 137 `{0a k} member{7f 92 k}[/s] of the <family>
+  family.`, 5 `{0a k} <kind>-type creature{7f 92 k}[/s].`, separated by {07}. The event's constants hold the bases
+  (zone 100: 8400 / 9424 / 10453).
+- LSB's credit (checkRegime, for every alliance member in the zone): none when the member is dead, the id differs, in an
+  alliance (unless the REWARD_ALLIANCE settings), the mob gives no EXP, or the slot is full (no message). A full page:
+  559, for GoV a prowess line (609..620 / 625..636), once a Vana'diel day 565 (gil) and 566 (tabs), EXP, then with
+  repeat 643 (counts back to 0) or the vars cleared: all in one tick. Before it the defeat (6 / 20) goes to everyone
+  within 50 of the mob, so a member out of range gets 558 without it. A Hunt Registry (event 1500) end with option 4
+  cancels: 0x02A REGIME_CANCELED "Current training regime canceled." *(inf for retail)*.
+- LSB keeps the state in char vars only ([regime]type / zone / id / repeat / lastReward / needed1..4 / killed1..4),
+  untouched by zoning, logout or a job change; retail cancels on a job change *(inf, from the R + 1 text)*.
+- Attributing a 558 (k, n) (ours: it names no slot): the candidates are the slots with needed == n and killed == k -
+  1 (with unknown counts, the unknown slots); one: it; several: the defeat within about 1 s whose name matches a
+  specific label (singular or plural) or a family word as a word prefix ("Orc" ~ "Orcish"; not all: "Giant Guard" is
+  Gigas, "Wespe" a bee, "Sand Digger" a worm, "Sagittarius X-XIII" an Antica); one family candidate left: it; else the
+  lowest index (the next Review corrects swapped labels); none: the slot with needed == n nearest to k - 1. Of LSB's
+  pages 94 have two slots with equal counts, 7 of them two families (FoV 74 Goblin / Orc; GoV 777, 778, 784, 790, 814,
+  816).
+- Retail: no tracker and no "regime" string in FFXiMain; the 0x029 queue (FUN_100c3480) special-cases only 1, 9, 0xb,
+  0x32, 0x2cf, 0x2d, 0x32b, 0x32d, so 558 / 559 / 643 take the generic path into the log.
 
 ## Our upscale pack: four wrapped chunks, and the merge passes over broken images (2026-10-28)
 
@@ -11573,14 +17775,14 @@ User requests, the modern layer unless noted.
 
 ## Moblin Maze Mongers: the Maze Tabula editor (2026-10-28)
 
-Spec `~/ffxi/lab/research/mmm_maze_spec.md` (FFXiMain 30261006_0). Corrections: "s2c 0x0AD and 0x0B5" above says the
+FFXiMain 30261006_0. Corrections: "s2c 0x0AD and 0x0B5" above says the
 maze window "only opens from the MMM NPC's event" and that ours does not keep 0x0AD: the window is the Maze Tabula
 editor, opened by using a tabula (no packet) and by event op 0x71 0x20 (view only); both done now. The op 0x71 line
 in "Event VM" listing 0x20 / 0x21 as not done: done.
 - dat/maze.rs: the shapes (table 0x103850a8: w, h, four 4 x 4 rotation masks, rotation 1 a quarter turn clockwise),
   cell masks (FUN_101fda30), the clamp (FUN_101fdb40), the extdata bit stream (voucher index + 1 in bits 0..6, the
   anchor mask in 7..31 = the first cell of each rune in row-major order, rune k's index + 1 in 32 + 9 k and rotation in
-  140 + 2 k; FUN_101fd290 decodes, FUN_101fd600 encodes), the rune count and d5's (%d). Tested on the spec's vector.
+  140 + 2 k; FUN_101fd290 decodes, FUN_101fd600 encodes), the rune count and d5's (%d). Tested on the vector below.
 - K7000 records keep their 64-byte block (Item::maze): a tabula's 25 cells (-1 empty, < -1 blocked, 0..7 an
   element), a voucher's allowed-rune bits (byte n >> 3, bit n & 7: FUN_101fe4d0), a rune's element (0xff none) and
   shape. File 92 (prvdungp, prvdunsi, the prvdunge library, tex4) loads with the UI (FUN_101cc620(0x5c)).
@@ -11589,7 +17791,7 @@ in "Event VM" listing 0x20 / 0x21 as not done: done.
   bluinven at (16, 48) (group 0x10) fed by the maze list: the vouchers (green the current), the Type row and the
   learned runes (grey not allowed by the voucher, green placed, orange held), or the placed runes in view mode;
   bluehelp at (16, 240) (group 8) with the voucher's description or the rune's text for the voucher (language slot
-  0x26, entry rune index x 64 + voucher index); prvdunsi's 11 shape buttons filter the runes. Keys as §3: Escape
+  0x26, entry rune index x 64 + voucher index); prvdunsi's 11 shape buttons filter the runes. Keys: Escape
   silent (runes -> vouchers, else close), Enter on another voucher asks group 9 0xf6 (default No), a rune is carried
   to the grid (its last place, rotation 0; a placed one is picked up), arrows move it clamped (SE 0001), key
   function 0x18 (Num-) turns it (SE 0015), Enter places it unless a cell is taken (SE 0004), Escape drops it (SE 0003;
@@ -11615,12 +17817,93 @@ in "Event VM" listing 0x20 / 0x21 as not done: done.
   two learned vouchers, 021 / 106 / 109 listed, 021 carried, moved, turned and placed, 106 refused over a taken and a
   blocked cell, the voucher prompt (No kept the runes), the T filter left 106; closing sent 0x0D8 and LSB's map
   server logged "GP_CLI_COMMAND_DUNGEON_PARAM: Not implemented. ActIndex: 1026, Param1: 28672, Param2: 6" (LSB does
-  not store it: the tabula reopens empty). R01 with the spec's vector in its extdata: iteminfo "Maze Voucher 01
+  not store it: the tabula reopens empty). R01 with the test vector in its extdata: iteminfo "Maze Voucher 01
   [3](0)", the view listed the three runes, the hover pulse and texts. The event op: event-run 245 0x4e21 gives item
   28704 and dwords 0x90008001, 0x01b4d415, 0, 0, 0x00011000, 0 (the same vector); LSB never starts these events.
 - Live, classic, M02: the mouse (a click on the voucher row and on rune 021, Num-, a cell hovered, a click placed it)
   and the glint on Fire's cell (cell 6) under the placed Fire rune; M02's Lightning / Wind / Light marks and blocked
   cells 4, 12, 20 drawn.
+
+From the research notes:
+- Paths: iuse Use (FUN_101f33a0) on type 0x16 -> FUN_101fcf60(0, slot), 0x17 -> (1, slot), then iuse closes (no status
+  gate, no prompt, no packet); the direct list (FUN_101f0a10) the same, with SE 0002. FUN_101fcf60 reads the slot's
+  extdata (FUN_101cb7a0) and id (FUN_101cb830) -> FUN_101fcec0(mode, item, six dwords, slot). Op 0x71 0x20 (len 16,
+  FUN_100b93e0): seven values, item = val@2, the dwords val@4..@0xe, mode 1, slot -1, ends the frame; 0x21 (len 2,
+  FUN_100b9470) -> FUN_101fcfb0.
+- Items: 0x16 Maze Tabula M01..M03 (0x7000..0x7002), 0x17 R01..R03 (0x7020..0x7022), 0x18 vouchers 01..09
+  (0x7040..0x7048), 0x19 runes (100 named in 0x7080..0x70f6, "001".."119"). Grids: M01 / R01 blocked 6, 18; M02 / R02
+  blocked 4, 12, 20, Fire @6, Lightning @8, Wind @16, Light @18; M03 / R03 blocked 10, 12, 14, Ice @3, Dark @6, Water
+  @18, Earth @21. Runes each voucher allows: 01 48, 02 48, 03 45, 04 32, 05 30, 06 46, 07 62, 08 17, 09 37.
+- The event sites (zone 245 only, 46: 23 opens and 23 closes, each open, message, wait, close): Chatnachoq 0x4e3e (a
+  preview with empty extdata), the Maze Mongers Shopfront 0x4e21 (Z2 bits 0..15 the tabula, Z3..Z8 its extdata: an
+  order), Duplidoc 0x4e28 (a copy) / 0x4e29 (register), and the Duplidoc copies. LSB scripts none of them.
+- Handler DAT_10663aac (0x118 bytes, ctor FUN_101fd000, vtable 0x1033aab0: +4 init FUN_101fd150, +8 close hook
+  FUN_101fd1d0 (closes bluinven and bluehelp), +0x10 draw FUN_101fe0b0, +0x18 messages FUN_101fe290, +0x28 per frame
+  FUN_101fdfe0): +0x14 mode, +0x15 grid set up, +0x16 decoded, +0x17 slot, +0x18 tabula, +0x1a glint, +0x1c pulse,
+  +0x1e held draw mode (1 hover, 2 carried), +0x1f pulse step, +0x24 rect, +0x2c / +0x2e grid origin (rect + 0x28,
+  0x38), +0x30 voucher, +0x32 held rune, +0x34 / +0x35 col / row, +0x36 rotation, +0x38 shape pointer, +0x3c..+0x53
+  the extdata, +0x54 occupied mask (bit 24 - c), +0x58 + 16 k (k < 12) placed runes {cell mask, rune (0xffff empty),
+  shape pointer, col, row, rotation}. The init opens bluinven at (16, 48) group 0x10 (source mode 0 edit, 2 view) and
+  needs the prvdunge library (FUN_101c8c30(0x11)); FUN_101fcec0 then opens bluehelp at (16, 240) group 8
+  (FUN_101ec220) and focuses the list.
+- Per frame: the grid (FUN_101fd980: blocked cells into +0x54; waits for the record), then the decode (retried while a
+  rune has no shape), then one rune's shape byte cached a frame (DAT_10663aa8 counts, DAT_106638a8 = element (0xff ->
+  8) | shape << 4), never reset: retail draws a tabula using rune 119 only about 119 frames after the session's first
+  open.
+- The list source DAT_10663ab4 (vtable 0x1033aaf8; columns DAT_1038509c {0, 0x12, 0xa0}; open FUN_101fe9a0: titlewin
+  slot 2 0xd 0x96 "Tabula", bluinven +0x40 = 0xc 0x54 " ", filter -1, a 10-entry d_msg loader of slot 0x26; close
+  FUN_101fea40; update FUN_101feab0; rows FUN_101fe930; messages FUN_101febf0): +0x10 mode, +0x11 filter, +0x12 cursor
+  reset. prvdunsi DAT_10663ab0 (vtable 0x1033aa68): help override 0xe 0x2a4; Enter sets the filter to child - 1 and
+  closes.
+- Registry: bluinven row 152 (flags 0x2, group set to 0x10), bluehelp 153 (0x3, group 8), prvdungp 160 (0x00420002,
+  group 0xc1; its flag 0x20000 closes the 0x40000 windows mcr1pall, mcr2pall, mcr1long, mcr2long, cnttime), prvdunsi
+  161. Layouts (file 92): prvdungp (200, 48) 182 x 190, cells 24 x 24 at (40 + 24 c, 56 + 24 r) (child 1 + 5 r + c,
+  prvdunge 2 at alpha 0, no cursor sprite); prvdunsi (440, 48) 56 x 188, children 1..11 = prvdunge 102..112; bluinven
+  (16, 48) 182 x 190, 10 rows 18 apart; bluehelp (16, 240) 366 x 56, growing down.
+- Cell mask (FUN_101fda30): base = the sum over r = 0..3 of ((m >> (12 - 4 r)) & 0xf) << (21 - 5 r); cells = base >>
+  (5 row + col). Decode, per anchor: col = c % 5, row = c / 5; with the rotated mask, bit 15 clear -> col - 1, bits 15
+  and 14 clear -> col - 2 (the anchor is the top row's first cell); a refused placement is skipped. Encode: 0 without
+  a voucher; d0 = (voucher - 0x3f) & 0x7f; cells 0..24, each taking the first unused placed rune covering it (list
+  order); d5 bits 4.. stay 0. Bits 164..170 (d5 >> 4 & 0x7f) are the R iteminfo's "(%d)" *(inferred: server-set)*;
+  171..191 unread.
+- Test vector (voucher 01; rune 21, the Fire corner, at (0, 0) rotation 1; 106, T, at (3, 0) rotation 0; 109, S, at
+  (0, 3) rotation 1; anchors 0, 3, 16): `01 80 00 90 15 d4 b4 01 00 00 00 00 00 00 00 00 00 10 01 00 00 00 00 00` =
+  {0x90008001, 0x01b4d415, 0, 0, 0x00011000, 0}.
+- Keys: message 7 = key function 0x18 (Num-, or - with Ctrl / Alt; a middle-button release *(inferred)*), 9 the
+  pointer onto another child. The list takes only 5 / 6 (the rest is bluinven's base: 10 rows, no wrap, Left / Right a
+  page). Enter in view mode forwards message 5 to rem4line / rem4li2 when open; the Type row (value 0) opens prvdunsi
+  (filter -1, SE 0002); a grey row SE 0004; a voucher: none yet or the same -> FUN_101fd1f0(v, 1 / 0) (1 clears the
+  runes), rune mode, SE 0002; another -> comyn 9 0xf6 (default No; Yes clears and resets the filter); a rune:
+  FUN_101fd220(r, 2) and the grid focused, SE 0002 (shape not cached: SE 0004). Pointer message 9 moves the held
+  rune's top-left to cell c - 1.
+- Help (FUN_101feab0): below 0x7040 cleared; a voucher its description; a rune (not mode 0) entry (v - 0x7080) x 64 +
+  (voucher - 0x7040) of slot 0x26 (file 55691 en, 32768 entries), empty until loaded. Then, focused and +0x32 != v: a
+  placed rune pulses (FUN_101fd220(v, 1)), else nothing held.
+- c2s 0x0D8 (FUN_100ec3f0, 0x28 bytes): @4 our ActIndex, @6 the tabula id, @8 the slot, @9..@0xb unwritten *(inferred:
+  0)*, @0xc our UniqueNo, @0x10..@0x27 the extdata; FUN_100fc3c0(0xd8, 0, 0) drops it within 1000 ms of the last (the
+  edit is lost). The client keeps its copy of the extdata as it was.
+- The event end FUN_100ae3f0 (0x100ae931) calls FUN_101fcfb0 whether or not the window is open; the event start's
+  broadcast 0x800 closes prvdungp without saving *(inferred: not re-traced)*, so the event end sends the edit late (a
+  retail quirk). Retail's handler is operator_new'd and FUN_101fd000 sets no +0x14..+0x17 *(inferred)*: an event end
+  before any tabula was opened reads garbage.
+- Drawing: list rows (FUN_101fe580) a half-size icon at the row's x, the name at x + 0x12 (y + 2); mode 0 green
+  0x80509050 the current voucher (its row is the cursor target), else 0x80808080, help 0xe 0x2a5; mode 1 the Type row
+  (framesus 159 "Type ▶", help 0xe 0x2a4), runes grey 0x80404040 when not allowed (0xe 0x2a7), green placed, orange
+  0x80804020 held, else white (0xe 0x2a6); mode 2 the placed runes, green. Without 0x0AD mode 0 is empty, mode 1 only
+  Type. bluehelp: description lines at (x0 + 4, y0 + 4 + 16 k), a rune text wrapped to (x1 - x0) - 8; height lines x
+  16 + 8, at least 56. Draw modes: 1 hover P + (-2, -2) at the pulse alpha; 2 carried a shadow P + (3, 3) 0x40303030,
+  then P + (-4, -4) at the pulse alpha; 3 P at 0x50808080; 4 glint: from 0x60, t = (glint - 0x60) x 0.03125, a copy at
+  P - (o, o), o = trunc(5 t + 0.5), alpha trunc(80 (1 - t)), and one at P, alpha trunc(80 t). Pulse 0x58..0xa8 by 8 (a
+  20-frame cycle), glint 0x30..0x7e by 2 (40 frames), starting at 0x60.
+- iteminfo (FUN_1013d790 cases 0x16 / 0x17): when the voucher bits are nonzero and its record is cached, n =
+  popcount(d0 >> 7); "%s [%d](%d)" (0x1036fe8c) for 0x17 with d5 >> 4 & 0x7f, "%s [%d]" (0x1036fe84) for 0x16.
+- s2c 0x0AD (LAB_100e6150, registered by FUN_100e5f70 with 0x0AB / 0x0AC): 0x20 dwords from p+4 to S+0x3c2b8 (S =
+  DAT_104dfd98), S+0x3c2b4 |= 1, no size check; p+4 8 bytes of vouchers (bit n = 0x7040 + n), p+0xc 64 bytes of runes
+  (bit n = 0x7080 + n), p+0x4c 56 bytes unread. Read only by FUN_100e6050 (the list's modes 0 / 1); cleared only by
+  the session block's zeroing (FUN_100f9940 from FUN_100f9a30 at each map connection). LSB sends it at every zone-in
+  and saves newly learned bits without resending (the list catches up at the next zone).
+- Open: what d5 bits 4..10 mean; message 7's middle-button source; whether to keep the late 0x0D8 at the event end
+  (ours does); helpwind's line while the grid has the focus; the pulse / glint timing assumes 30 fps.
 
 ## Generator clones go with their last element (2026-10-28)
 
@@ -11661,7 +17944,7 @@ ticks forever.
   Her orb generators are unaffected by "Generator clones go with their last element": element life 40 against an
   interval of 20.
 
-## Ship actors: 0x00E SubKind 4, the XiModelActor (2026-10-29; spec ~/ffxi/lab/research/ship_actors_spec.md)
+## Ship actors: 0x00E SubKind 4, the XiModelActor (2026-10-29)
 
 The boats and airships seen from the docks, the overhead airships, the pirate ship, the barge, the Manaclipper. Done
 since "Ship voyages: the moving world" listed them as not done.
@@ -11690,7 +17973,7 @@ since "Ship voyages: the moving world" listed them as not done.
 - Ours: client/ships.rs (loads, the model actor, states, poses after each effects tick into the renderer's
   model_actors: own buffers and textures, drawn after the furniture), fx/drive.rs, fx/tasks.rs (start_sequence /
   kill_sequence, step_drives, fast_forward), FxActors (matrix, rotation, files, hidden, every point the position).
-  Tests: the drive against the spec's worked examples (Selbina `seq0` from the staging point and caught up 1500
+  Tests: the drive against the worked examples below (Selbina `seq0` from the staging point and caught up 1500
   ticks, Port Jeuno's descent with yaw / pitch, the pirate ship's leaving), the easing curves, the 22 ship files'
   MMBs.
 - Live (Lnxcsfix, Port Jeuno): zoned in with the Bastok berth's `seq2` 7260 ticks old, caught up and drawn at the
@@ -11700,6 +17983,107 @@ since "Ship voyages: the moving world" listed them as not done.
   stamp; not seen on screen (the test camera sat behind the pier).
 - Correction to "0x00E SubKind 5 / 6 and event op 0xb6 0x11": op 0xb6 0x11 swaps the model of a SubKind 4 prop (an
   XiModelActor, state 0x37), not of a SubKind 5 / 6 actor (those are skeleton actors). Not done yet.
+
+From the research notes:
+- XiModelActor: vtable 0x10330aa0, class 0x10330684, 0x794 bytes (CXiControlActor ctor FUN_100a89e0). Overrides: vt
+  +0x1bc position +0x734, +0x1c0 rotation +0x744, +0x1c4 the position for every point, +0x1d0 the matrix (the point
+  ignored), +0x20 the frame FUN_100c47f0, +0x288 the draw FUN_100c4c20, +0x27c the screen point of pos + (+0x754).
+- 0x00E SubKind 4 (jump table 0x1009ce88 on u8 @0x30 & 7): a SubKind 0 race byte (+0xef) or model id (+0xfc) is
+  cleared (rebuild / look changed); +0xee = 5; the shared SubKind 3 / 4 tail (0x1009ccc9, every update): +0xf8 id,
+  +0x184 start, +0x180 = start + u16 @0x3c (read only by the lift path of FUN_1008b460), +0x128 |= 8 (no gauge, no
+  plate). +0x120 bit 0 makes FUN_10095dd0 destroy the model (FUN_10092900). The animation byte @0x1F is the state.
+  The entity's own position goes on following the server (FUN_1008cd90); FUN_10092c20 / FUN_100929d0 / FUN_10092b20
+  push it into the actor only for kinds 0 / 1 / 2 / 6 / 7 / 8.
+- Creation (FUN_1008f740 kind 5): kinds 3..5 are made outside the per-frame model budget (FUN_10096200 returns 0), so
+  the first frame; +0x170 = +0x16c; ids 0, 1, 2, 5, 6 (DAT_1035d648, the five airship docks) FUN_100849e0(1); then
+  FUN_10097a80(+0x184 x 60). The 0x37 test reads the state at creation only.
+- FUN_100c4410: FUN_100c4290 (+0xb4 = file; a folder root runs FUN_10085060); `fune` / `_fun` found by name over the
+  whole file (file 16 has `su00` before `fune`); only the generic branch auto-starts the file's schedulers
+  (FUN_100c46b0) and plays 'init' once (FUN_100c47f0); +0x764..+0x76c = 0 (no collision box).
+- Ship files: 0..2 (31004..31006) the nation airships at home, seq0 / seq1; 3, 4 the Mhaura / Selbina boats (folders
+  mode, even, se, hune, effe); 5 Kazham; 6 Port Jeuno seq0..seq7 (0 / 1 San d'Oria berth, 2 / 3 Bastok, 4 / 5
+  Windurst, 6 / 7 Kazham); 7..12 the overhead airships (`_fun`, 45 s linear flights, a `prop` folder); 13, 14 the
+  pirate ships (paths `come`, `side`, `away`); 15 Norg; 16 the barge (seq0..seq7, bak5, op 0xa9); 17 the
+  Manaclipper (seq0..seq3); 18, 19 event ships with no seqN (goup, atck, strt, ...); 20 Whitegate / Nashmau
+  (seq0..seq5); 21 Arrapago. Their op 0x27s use flags 1, 3, 9, 0xb and curves 0, 1, 2, 4 only.
+- State table DAT_1032d42c: 0x37 -> `noid` (none), 0x1a -> 0, which FUN_10072290 takes as the first scheduler (as
+  coded). The state in force is +0x174 while bound to a running event (FUN_100bcdd0 copies +0x170 for kinds 3 / 4 / 5
+  / 8; op 0x4f FUN_100b69b0 sets val + 0x12 unless +0x120 bit 2). FUN_100c4730 kills the actor's +0x143 tasks
+  (restarting the walk after each), then FUN_10056c70 (from the first op) or FUN_10056b20(actor, elapsed); a
+  scheduler finished inside the skip leaves no task, the ship staying where its last path left it (or at its
+  creation place).
+- The fast-forward FUN_100575a0 (task +0x98 the wait, +0x94 elapsed, +0x88 the op): op 0x02 with a world mode (0 /
+  0xe / 0xf / 0x14) that is static or a looping sound (SeSep +0x3c bit 31) starts as a world piece (FUN_100531d0);
+  else, with a world mode or neither actor hidden: an auto (0x1000) generator's clones on the pair go first
+  (FUN_10053a00(gen, a1, a2, 1, 0)), then a clone starts when static or life (i16 @0x22) + dur >= over, owned by the
+  task unless world, clone +0xd0 = dur (+1 when 0), +0xd8 bits 14..27 = ftol(over). Ops 0x03 / 0x73 only resolve;
+  0x09 / 0x57 / 0x85 fast-forward their sub-scheduler (FUN_10056b20 / FUN_10056ef0); 0x1e / 0x26 / 0x27 / 0x3f run
+  with DAT_1047bf14 = over (only the path drive reads it).
+- Op 0x26 / 0x27 (case asm 0x1005c954..0x1005cae8, ctor FUN_1005e890, update FUN_1005e9c0 / FUN_1005eef0; 10 words):
+  +4 wait, +6 duration (x speed, FUN_1005e5b0), +8 the 4cc of a type-0x3e Vtx, +0xc its handle (FUN_10052870), +0x10
+  flags (bit 0 abs, bits 1..2 face (bit 1 set: no pitch), bit 3 fwd, 4..7 unused), +0x14 curve 0..4, or > 6 the 4cc
+  of a type-0x19 KeyFrame (cached at +0x20), clamped to 5, +0x18 f32 yaw0. 0x26 drives actor1 (FUN_10062770), 0x27
+  actor2 (FUN_100627d0). It first kills every CMoPathDriveActorTask on that actor (FUN_1005e310 / FUN_1005e0e0) and
+  needs the Vtx resolved (FUN_1004e3b0) and actor vt +0x178 *(inferred: "can be driven")*; the task (0xb0 bytes,
+  vtable 0x1032b9a4) is a child of the scheduler task (FUN_10074790).
+- Its update: left -= ticks; while left >= 0: u = left / total (1 -> 0), fwd: 1 - u; f = the curve, or the KeyFrame;
+  apply; else, if it ever ran a frame, apply(path(1.0)) (literal 1.0, whatever fwd), then it ends. Apply: with face
+  and started: d = p - prev, h = sqrt(dx^2 + dz^2), yaw = wrap(yaw0 - atan2(dz, dx)), pitch = atan2(dy, h) (with face
+  bit 1 set an uninitialised local in retail; no file uses it; ours keeps the pitch *(inferred)*), no turn when h <
+  0.1; abs: +0xd4 = p (FUN_100a57c0); relative: +0xd4 = position + (p - prev) once started; the first turn snaps
+  +0x744 / +0xe4 / +0x44, later ones set the target +0xe4 only. Curves (FUN_10055ad0): 0 u, 1 sin(u pi/2), 2 1 -
+  cos(u pi/2), 3 u <= 0.5 ? 0.5 sin(u pi) : 1 - 0.5 sin(u pi), 4 (1 - cos(u pi)) / 2, 5 without a KeyFrame u.
+  Forward = (cos yaw, 0, -sin yaw); the bow is +x *(inferred)*. The spline in this build: FUN_10063c30 ->
+  FUN_10063b80 (lazy build), FUN_100635b0, FUN_10063a60 / FUN_10063890.
+- Op 0xa9 / 0xaa (ctor FUN_1005fa20, update FUN_1005fb30; 6 words): f32 @8 / @0xc / @0x10 the target in degrees (x
+  pi/180, _DAT_1032a9f4), byte @0x14 mode, i16 @6 duration; the start = vt +0x1c0. Mode 0: every frame rot = target
+  into +0x44, +0xe4 and +0x744, the time never running down (it holds until its scheduler ends); else left -= ticks, k
+  = left >= 0 ? 1 - left / total : 1, rot = start + (target - start) k per component (no wrap) into +0xe4 / +0x44 (the
+  model eases after it), ending below 0. The barge holds mode 0 before it side-steps into a berth (seq0 at t 1040: y
+  -90; seq2 / seq4 -135; seq5 90; seq6 45).
+- The frame FUN_100c47f0: +0x734 = +0xd4; `fune` / `_fun`: ceil(ticks) steps of +0x744 += (+0xe4 - +0x744) / 8 (y
+  wrapped); else 'init' once, then +0x744 = +0xe4; +0x34 = +0x734 unless DAT_104568fc +9, +0x103 or +0x104. Draw and
+  attach matrix: RotZ, RotY, RotX post-multiplied, then the translation (FUN_10027d10 / FUN_10027cf0).
+- Lifetime: a task's destructor (FUN_100747c0 -> FUN_10074ad0) unlinks it and deletes its children (FUN_10074890).
+  Every backward drive in the ship files is replaced by the next op 0x27 exactly at its end, or its scheduler ends
+  then (Selbina `path` 0..1800 / `pat2` at 1800; Jeuno `pts0` 0..1600; `pts2` 900..2200), so at 30 fps the u = 1.0
+  snap is never reached. So: a scheduler's ops step before its drives each tick, drives die with their scheduler in
+  the same tick, and a starting drive kills the actor's running drives first.
+- Worked examples (2-tick frames): Selbina `seq0` (2400 ticks; `path` 0..1800 abs, face, backward, curve 2, then
+  `pat2` 1800..2400 abs, forward, curve 4): t 0 (-401.468, 0, -123.873) (the staging point), t 300 (-295.153, 0,
+  -116.229) yaw target / drawn -0.0980 / -0.0958, t 900 (-111.317, 0, -100.308), t 1500 (-4.737, 0, -100), t 1800
+  (9.295, 0, -100), t 2400 (9.295, 0, -69.775) (the dock). Started 1500 ticks late: `path` has 300 left, `sglp` (life
+  1200 + 60 < 1500) does not start, `sgcm` starts 300 ticks old, `smv0` completes inside the skip, the task waits 90
+  on `sst1`. Port Jeuno `seq0` (`pts0`): t 200 (-254.825, -25.673, 356.751) yaw 0.5498 pitch +0.188, t 1600 (-68,
+  10.45, 117). The pirate ship's `seq1` ends at (-150, 0, -1000), its heading unchanged.
+- Draw: FUN_100c4c20 -> FUN_101844c0(record +0x5c8, +0x770): the record zeroed each frame, only the model (+0x5e0),
+  the matrix (+0x608) and +0x69c set; lit as area 0 *(inferred)*; fog on; ALPHATEST GREATER 0x60 only for `_fun` /
+  '_' models; CULL CCW. No distance test *(inferred: nothing writes +0x8c)*. Boarding is the door NPC's event
+  (Selbina `_6ww`, Port Jeuno `_6us`..`_6uv`) and a zone change.
+- Effects and sounds (the file's generators, mode 1 or 9): boats `hune` g000..g003, g03a (wake, smoke; all but g000
+  auto), stopped and started by `sst0` / `sst1` / `smv0`; airships `prop` mov1..6 / sla* / slb* / stp*, `hiku`,
+  `splt`, started by the sequences (main, mai1, move, quit, estp, esla, eslb, emov, slob, sloa, stop). Sounds in `se  `:
+  `sggo` (a departure's start), `sgcm` (late in an arrival), `sglp` (a 1200-tick loop under way); SeSeps 8209..8211
+  (boats), 8161..8163 (the Jeuno airship), 2195 (overhead); horn or engine not identified *(inferred from the names)*.
+- Events (op 0x4f on the bound ship, so it starts "now"): Selbina / Mhaura 200 (wait 30, 0x4f #1, wait 2300, op 0x22
+  1); Whitegate 200 / 203 (#1 / #3); Nashmau 200 (#5); the nation airships 700 / 71 / 10002 / 10000 (a camera
+  scheduler on the ship, #1); Port Jeuno 10010..10013 (`sshp` on self, #1 / #3 / #5 / #7); the barge 14 / 40 / 16;
+  the Manaclipper 14 / 16. Arrivals use the zone actor's event (Selbina 202). No dock zone DAT has ops 0x26 / 0x27 /
+  0xa9 / 0xaa.
+- LSB: stamps are phase starts (arriving: its animation and start; docked / closing: the arrival's again, no state
+  change; departing: its animation and start); `place` positions are ignored once the model exists; hides by status
+  Disappear; ships are alwaysRelevant; the clock is Unix time - 1009810800. Ids by zone: 236 Port Bastok 0, 240 Port
+  Windurst 1, 232 Port San d'Oria 2, 249 Mhaura 3, 248 Selbina 4, 250 Kazham 5, 246 Port Jeuno 6, 101 / 107 / 115 / 120
+  / 105 / 110 the overhead flights 7..12, 227 / 228 the pirates 13 / 14, 252 Norg 15, 2 Carpenters' Landing 16, 4
+  Bibiki Bay 17, 32 Sea Lion's Den 18, 31 Monarch Linn 19, 50 Whitegate and 53 Nashmau 20, 54 Arrapago Reef 21. About
+  140 more look-type-ship NPCs carry animation 55 (the props), most cutscene_only.
+- SubKind 5 / 6 share only FUN_100c51c0(type, id) (type 0 the NPC table: < 1500 1300 + id, < 3000 50295 + id, < 3500
+  96907 + id, else 98239 + id; 1 FUN_100c5260; 2 the furniture table; 3 / 4 FUN_100c5280 / FUN_100c5270). The skeleton
+  model switch on +0xee: kind 2 takes the furniture table with entity +0x130 bit 21, else the NPC table; kind 6 loads
+  NPC model +0x10e & 0xfff and, with a race (+0xef), goes on into the PC race path; kind 7 is no case *(not traced)*.
+- Open: whether a new task first updates in the frame it is made; vt +0x178 and the default speed 1.0
+  (FUN_10057270) assumed; the far plane; the lighting area; the 10-second no-skip window as coded, not observed; +0x130
+  bit 21's writer.
 
 ## The record loop's jump takes 0x32's wait back (bard songs on every target at once, 2026-10-29)
 
@@ -11779,7 +18163,7 @@ since "Ship voyages: the moving world" listed them as not done.
   additive sea); `down` after col1 at a grazing event camera came out black. Now ties go by the generator's start
   serial, then the element's (fx/mod.rs `insert_order`), so the harbour draws col1, 1sea, down every time. Seen
   live after a login and after an airship landing (both navy); offscreen unchanged.
-- The navy itself is the data: untextured MMB `rgb = sat(2·D·F)` (model_draw.md 1.3) with D = 0x73 and F =
+- The navy itself is the data: untextured MMB `rgb = sat(2·D·F)` ("Effect generators") with D = 0x73 and F =
   (0x19, 0x28, 0x32) gives about (23, 36, 46), then fog. Not compared with a retail screenshot.
 - mmb-dump prints each model's blending word and vertex colour mean / range.
 
@@ -11886,7 +18270,7 @@ since "Ship voyages: the moving world" listed them as not done.
 
 ## Actor culling: every +0xb2 reason hides the model and the plate (2026-10-29)
 
-- Retail (culling_spec.md section 5; MODLOG "Tab candidates"): an actor with +0xb2 bit 0 set is not drawn at all.
+- Retail (below; MODLOG "Tab candidates"): an actor with +0xb2 bit 0 set is not drawn at all.
   The update queues no draw entry, the list walk FUN_10082d70 skips vt+0x288, and the queued callback re-checks.
   The reasons: no skeleton box, wholly behind the near plane, past the draw distance, not faded in, off the viewport,
   or failing FUN_1006c280's occlusion test.
@@ -11901,6 +18285,17 @@ since "Ship voyages: the moving world" listed them as not done.
   - The occlusion test keeps running on culled actors (their queries come from tests 1-5), so they come back when
     the scene depth behind them clears; a result is a frame or two late (retail tests every 4th frame).
 - Seen live in Port Bastok: NPCs in view drawn with their names through a camera turn (Gwinar at a distance), no pop.
+
+From the research notes:
+- The draw distance test in the actor update FUN_100c63d0 (asm 0x100c7d12..0x100c7d66): when u16 +0xb2 == 0 and an env
+  is loaded, D_a = FUN_1018b8f0(E, 1) (the scenery's value at any setting) against the farthest skeleton box corner's
+  view depth (-min z_view, stored to +0x8c); deeper -> +0xb0 = 1, +0xb2 |= 1. Exempt (bit cleared, +0x8c = +0xbc =
+  0.1): our actor (vt+0x304) while DAT_10487f80 is set *(inferred: first person)*, or a stack flag not identified.
+- The draw entry is queued only when u16 +0xb2 == 0 (+0x8d0 = 0x100cbd90, +0x8d4 = self, key +0x8c8 = depth x 512 +
+  +0x8ec, inserted into DAT_1047bc94 by FUN_100553c0); else +0x8d4 = 0. FUN_10082d70 calls vt+0x288 (FUN_100cbd60 ->
+  FUN_100cbde0) only for u16 +0xb2 == 0 and +0x8c >= 0 (else it sets +0xb0 / +0xb2 bit 0); the queued callback
+  re-checks both; FUN_100cbde0 marks the actor culled and returns when FUN_1002b5a0 yields nothing *(inferred: no
+  skeleton)*.
 
 ## Lamp Lights: real point lights in place of baked lamplight; soft glows (ours, 2026-10-29)
 
@@ -11939,7 +18334,7 @@ since "Ship voyages: the moving world" listed them as not done.
 
 ## Actor ground shadows (FUN_10032f80; 2026-10-29)
 
-- Spec: `~/ffxi/lab/research/actor_shadow_spec.md` (the mode gate FUN_100c9da0, light and size FUN_10033080, the three
+- The mode gate FUN_100c9da0, light and size FUN_10033080 (2019 build; more at the end), the three
   draws FUN_1017dd50 / FUN_1017e0b0 / FUN_1017ecf0). Config 0x3a: High 2, Normal 0, Off 1.
 - Modes (client/shadows.rs `mode`):
   - 1, the silhouette: ours (our mount's instead while riding; our own rod too), and everyone in High;
@@ -11966,6 +18361,50 @@ since "Ship voyages: the moving world" listed them as not done.
   Croteillard a silhouette lying the same way as ours; Off draws none.
 - Not seen: point-light shadows indoors, the quad under cover, riding, ops 0xa5 / 0xc0.
 
+From the research notes:
+- Call chain (2019 addresses, current ones in the last bullet): the actor draw -> FUN_100c9da0 (mode, light, size) ->
+  the mesh draw FUN_1002a8c0 -> FUN_10032f80 (ECX actor+0x6bc, the shadow object) right after the actor's meshes.
+  Nothing for +0xb2 != 0, +0x8c < 0, or a draw alpha min(1, (+0x664 < 0.8 ? +0x664 x 1.25 : 1) x +0x59c) under 0.0001
+  (first person fades the player out: no shadow).
+- FUN_10032f80: mode >= 3 nothing; 2 the quad unless noblob (u16 actor+0x670); 1 the ground pass when the silhouette was
+  drawn this frame (shadow +4, then cleared); 0 unless noblob, the projected blob at view depth < 20, else the quad.
+  size_b = S / 3, size_s = 2.4 S.
+- The gate in FUN_100c9da0, first match wins: zone 33 on floor surface 8 / 9; actor+0x66c == 0; Off; feet over 2 above
+  the eye -> none. High and depth < 40 -> 1, where depth is the global the previous actor left (0 after any mode 1), so
+  in High every actor that gets this far gets 1 at any distance (retail's outcome). Then depth = actor+0xbc. Ours:
+  riding a chocobo / mount -> none, else 1. Others: +0x728 (primitives of its last mesh draw) < 2 -> none *(inf: its
+  first drawn frame; not ported)*; a main actor riding -> none; an extra actor by kind +0xa4: chocobo 1..4 / mount 0x54
+  -> 1 when we ride it, else B; rod 5..0x24 / chair 0x3d..0x51 -> 1 when ours, else none; Indi aura 0x25..0x3c, 0x52,
+  0x53 -> none; others B. B = the covered flag actor+0x17c ? 2 : 0.
+- +0x66c is 0x80 when the model colour's alpha (+0x663) is non-zero, else 0 (ctor default 0x80) *(inf, not traced:
+  whether a 'spop' actor's alpha-0 start colour is already set then)*.
+- Light: vt+0x404 non-zero -> straight up (0 in every skeleton vtable). Else FUN_100c94a0's pick from the actor's five
+  D3DLIGHT8 slots (+0x388 + 0x68 i): the point light in range with the largest 1 / max(d² x Attenuation2, 1e-4), else
+  the first directional, else slot 0. Point: L0 = Position - pos; directional: -Direction. FUN_10033080 ends with |L.x|
+  and |L.z| < 0.01 -> L.x = 0.01.
+- Quad FUN_1017dd50: a strip (±1, -0.001, ±1), diffuse 0x80606060, WORLD = scale(size_b, 1, size_b) x translate(pos):
+  flat at the actor's y, never following slopes; POINT, CLAMP.
+- Projected blob FUN_1017e0b0: per collision face its object matrix, CULL CCW (CW when mirrored, +0xa4 bit 0); uv =
+  (W.xz - pos.xz) / size_b + 0.5, a diameter of S / 3, half the quad's (the switch at depth 20 doubles the blob, as
+  read); diffuse c = 0x60 - trunc(48 |W.y - pos.y|) clamped >= 0, ARGB (0x80, c, c, c); a face with all three c negative
+  is dropped (a 2-unit fade).
+- Silhouette FUN_100329e0 / FUN_10032c50: one A8R8G8B8 target at the scene's size, shared; each mesh draw of a mode-1
+  actor (depth < 4) is repeated into it, the first one clearing it to 0. TEXTUREFACTOR 0x80FFFFFF, stage 0 SELECTARG2
+  TFACTOR (cutouts fill solid), lighting, fog and z off; alpha test GREATER 0x60 passes; blending off *(inf)*. Its frame
+  is 2 x 12 S x tan(pi/32) = 2.364 S wide at the actor; the ground pass uses 2.4 S.
+- Ground pass FUN_1017ecf0: hl = |L.xz|, u = dot(W - pos, (L.z, 0, -L.x) / hl) / size_s + 0.5, v = dot(W - pos, (L.x, 0,
+  L.z) / hl) / size_s + 0.5 (the head away from the light, not mirrored); c = 0x40 - trunc(32 |dy|); LINEAR, CLAMP.
+- kage_tex (file 0x1b8c): maru / kage (DXT3 256 x 256, no mips) / end, a grey cone from 255 at the centre to 0 at radius
+  ~124 of 128, alpha 0x88 unused. Peak darkening: blob 0.75, silhouette 0.50.
+- ZBIAS is 2 on an ATI adapter (vendor 0x1002), else 15. *(Not traced: whether the overlay passes between the meshes and
+  the shadow leave other stage states.)* Overlapping shadows multiply; the actor's alpha is ignored until under 0.0001;
+  later actors and translucent effects (harbour water) draw over a shadow.
+- 30261006_0: FUN_100c9da0 = FUN_100cbde0, FUN_1002a8c0 = FUN_1002b6e0, FUN_10032f80 = FUN_10033da0, FUN_10033080 =
+  FUN_10033ea0, FUN_100328f0 = FUN_10033710, FUN_100329e0 / FUN_10032c50 = FUN_10033800 / FUN_10033a70, FUN_1017dd50 =
+  FUN_10184c90, FUN_1017e0b0 = FUN_10184fe0, FUN_1017ecf0 = FUN_10185ca0, FUN_101720a0 (the kage_tex lookup) =
+  FUN_10178f90; mode / depth / S / noblob DAT_1045b77a / b80c / b810 / b814, config 0x3a DAT_10456acc, the scene
+  DAT_10631f24.
+
 ## The Mog House door's target arrow (2026-10-29)
 
 - The client's own "Door: Back to Town" (FUN_101d2cc0) is an XiDoorActor like the server's doors: FUN_101d2ff0 makes
@@ -11979,7 +18418,7 @@ since "Ship voyages: the moving world" listed them as not done.
 
 ## Config tool 0043 "Screenshot Size" (2026-10-29)
 
-- Spec: `~/ffxi/lab/research/stored_settings_spec.md` section 8 (FUN_101c74c0, cur FUN_101d0ea0).
+- Retail: FUN_101c74c0 (cur FUN_101d0ea0); more at the end of this entry.
 - A Print Screen shot (key function 0x55) is now always 512 x 382, an area-average resample of the frame (retail's
   D3DX resample of the world target), saved as before in the game folder's `screenshots` (our stand-in for the
   PlayOnline folder 0x21), with the group 9 0x42 line. With 0043 on, a copy at the screen size goes to
@@ -11987,6 +18426,18 @@ since "Ship voyages: the moving world" listed them as not done.
   which we do not have), with no message. PNG, not retail's JPEG (no encoder in the tree; by choice).
 - Script and drive shots stay full size. Settings' row is live (When::Now).
 - Seen live: 512 x 382 in screenshots/, 2560 x 1366 in ffxiuser/screenshots/.
+
+From the research notes:
+- 0043 = DAT_10456a84 (2019 DAT_1044416c), FFXiMain default 0; 0042 is the user directory string. Addresses below are
+  the 2019 build's unless marked cur.
+- The Print Screen state machine calls FUN_101c74c0 with 0 in state 3 and with 1 the next frame (state 4). The name is
+  `%c%c%c%02d%02d%02d%02d%02d%02d%c` + ".jpg": three name letters, yymmddhhmmss, 'a' + the same-second count % 10.
+- Mode 0: capture at 512 x 382 (FUN_101c7620 -> FUN_101c7680 -> FUN_10016eb0: device +0x194, the world target,
+  resampled through D3DX *(inf)*), JPEG quality 90 (FUN_101c6ab0(w, h, px, 0x5a)), saved through polcore in folder id
+  0x21 (FUN_101b7220; created if missing *(inf: the PlayOnline screenshot folder)*). Success: group 9 0x42 with group
+  10 0x6e ("200 - n" left; the count is PlayOnline's); failure: SE 0004 and group 7 0x8d.
+- Mode 1, only with 0043 != 0 and 0042 non-empty: capture at the screen size (DAT_10443fe4 +0x10 / +0x12), JPEG 90;
+  FUN_101b8fe0 stores 0042 + "\ffxiuser", FUN_101b6f40 joins "%s/%s" and makes the directories.
 
 ## Our upscale pack: dithered glows and DXT3 banding (2026-10-29)
 
@@ -12006,7 +18457,7 @@ since "Ship voyages: the moving world" listed them as not done.
 
 ## Config tool 0019 "2-D Mapping" (2026-10-29)
 
-- Spec: `~/ffxi/lab/research/stored_settings_spec.md` section 1 (FUN_10038c40, cur FUN_10039a80): category 10
+- Retail (FUN_10038c40, cur FUN_10039a80; more at the end of this entry): category 10
   (flag-0xB1 images with the u32 at payload 57 low nibble 10: the 209 palettized `menumap` images) are made DXT3 when
   0019 is 0 (Compressed), uncompressed when 1 (Full). The DXT map images are used as stored either way.
 - Ours: client/map.rs `decode` (the map window, the overlay, the minimap): with 0019 = 0 (render::MAP_COMPRESSED,
@@ -12014,9 +18465,20 @@ since "Ship voyages: the moving world" listed them as not done.
   surface retail's D3DX load gives *(inf: D3DX's encoder differs in detail; the blocks are the same kind)*. Takes
   effect at the next map load (Settings row NextZone). Test map_category_10_through_dxt3.
 
+From the research notes:
+- 0019 = DAT_10456ab0 (2019 DAT_10444198), FFXiMain default 1 (Full). 2019 addresses unless marked cur.
+- FUN_10038c40: the category is (+0x2c >> 4) & 0xf, which FUN_1001cb10 (the IMG parser) sets only for flag-0xB1
+  images, from the low nibble of the u32 at payload offset 57 (the palette follows at 61). For images not already DXT:
+  category 9 always uncompressed; 10 uncompressed when 0019 != 0; any other uncompressed when 1 <= category <= 0018,
+  else compressed. Uncompressed: A8R8G8B8 (0x15) for 24 / 32-bit sources, A1R5G5B5 (0x19) for 16-bit. Compressed: DXT1
+  for 16-bit sources, DXT3 for 24 / 32-bit (the palette entry size, IMG byte 53, is 0x20 for maps); FUN_10039010
+  converts to A8R8G8B8 and D3DX loads that into the DXT surface. Flag-0xA1 files ("1TXD" / "3TXD") are used as stored.
+- Install scan: exactly 209 images are 0xB1 category 10, all `menumap m_###_##` (512 x 512, 8-bit, a 1024-byte BGRA
+  palette); the other 676 map images are 0xA1 DXT3. Category 9 = 539 images (`cntguide...`), untouched by 0019.
+
 ## Config tool 0040 "Graphics Stabilization" (2026-10-29)
 
-- Spec: `~/ffxi/lab/research/stored_settings_spec.md` section 4 (FUN_10024e10, cur FUN_10025c40): the actor shine
+- Retail (FUN_10024e10, cur FUN_10025c40; more at the end of this entry): the actor shine
   pass sets D3DRS_WRAP0 = 7 when 0040 is 0 (Off, the default; also not on the listed Intel fallback device), so each
   generated coordinate runs the short way round the 0 / 1 seam across a triangle; On interpolates plainly.
 - Ours had only the plain form (= On). Now vs_skinned_shine reads its triangle's first corner from the skinned vertex
@@ -12027,6 +18489,13 @@ since "Ship voyages: the moving world" listed them as not done.
 - FFXI_SHINE_TEST puts a striped shine on our own actor (checks; no effect file needed). Seen live with it, wrap on and
   off: the pass draws, no errors; the difference is limited to triangles whose corners' normals differ widely in x / y.
 - fx-shot honours 0040 (it draws no actor models, so it cannot show the shine).
+
+From the research notes:
+- 0040 = DAT_10456a74 (2019 DAT_1044415c), default 0. 2019 addresses unless marked cur.
+- WRAP0 = 7 (wrap U, V and W of coordinate set 0) needs 0040 == 0 and DAT_103c75f8 +0x5c == 0 (+0x5c: the device was
+  made on the fallback path for listed Intel chips, FUN_10014a50 / FUN_10002ce0); FUN_10025140 sets WRAP0 = 0 after
+  the pass. The generated coordinates: s = 0.5 n.x + 0.5 + U, t = 0.5 n.y + 0.5 + V. Whether drivers applied WRAP0 to
+  generated coordinates varied *(inf: the reason for the setting)*.
 
 ## Our upscale pack: UI sprite textures stay stock (2026-10-29)
 
@@ -12039,8 +18508,8 @@ since "Ship voyages: the moving world" listed them as not done.
 
 ## Config tool 0023 "Simple Character Creation" (2026-10-29)
 
-- Spec: `~/ffxi/lab/research/stored_settings_spec.md` section 7 (cur FUN_10239720 creator entry, FUN_10239260 /
-  FUN_102394c0 chdummy mode 0).
+- Retail: cur FUN_10239720 (the creator entry), FUN_10239260 / FUN_102394c0 (chdummy mode 0); more at the end of
+  this entry.
 - Read as the creator opens (App::creator_simple). With it on: no zone-133 backdrop, no dancer, no race music (the title
   music goes on, MusicScene::Title until the nation step); creator::Portrait is chdummy mode 0:
   - index face % 8 + (race + hair x 8) x 8, file 39631 + index (charmake<race><face>[b], 512 x 512 DXT1 + one sprite
@@ -12056,10 +18525,28 @@ since "Ship voyages: the moving world" listed them as not done.
 - Seen live (lnxtest01, Create, classic and modern UI): Hume M face 1 hair A, then Down: the old picture holds through
   the settle, Hume F follows.
 
+From the research notes:
+- 0023 = DAT_10456aa4 (2019 DAT_1044418c), default 0. Readers (2019 / cur): the creator FUN_1022ef00 / FUN_10239720,
+  the race / face / hair handlers FUN_1022cf10 / FUN_1022d1b0 / FUN_1022d390 (cur FUN_10237730 / FUN_102379d0 /
+  FUN_10237bb0), the title FUN_10235fa0 (cur FUN_102406d0).
+- Forced on (not done): app state 4 (FUN_10010d20) sets 0023 = 1 when DAT_10444038 is set (on a lobby return in a
+  session whose dancer had already drawn, DAT_10623e90 *(inf)*) or DAT_103c75f8 +0x58 (the device made on the fallback
+  path).
+- With 0023 = 0 the title's Create fades the title music over 30 ticks (FUN_10036c50(0x1e)) and the creator builds the
+  3D scene: clock FUN_10184f30(0xb), weather `suny` with area 0x85, or `fine` / 0x84 when FUN_10247240(0x10), the
+  camera and the dancer (FUN_10246f10); race / face / hair changes rebuild it (FUN_10246fa0 / FUN_10246fe0 /
+  FUN_10247070). With 1: FUN_10184600 (environment reset) when a world exists, the title music asked again
+  (FUN_1023ae50(config 0xaf)), chdummy (DAT_10623a48, FUN_1022e970) mode 0 from race DAT_10623a1c, face DAT_10623a24
+  and hair DAT_10623a28; size and job never change the picture.
+- Leaving (not done): cancel restarts the title music, confirm plays music 0x78 (both creators); the simple creator
+  frees the picture (FUN_1022eed0) and clears DAT_10443fe4 +0x338 (FUN_10014230(0)) *(inf: the screen tint)*. The
+  portrait files 39631..39758 run in race order humem humef elvm elvf tarum taruf mithra gark, faces 1..8, `b` = hair
+  B.
+
 ## Config tool 0011 "Environment Animation" (2026-10-29)
 
-- Spec: `~/ffxi/lab/research/stored_settings_spec.md` section 2 (MMB loader FUN_10168eb0, per-draw FUN_101734f0,
-  curve FUN_10053550, curve tables FUN_10160700 / FUN_10160830 / FUN_101606a0).
+- Retail: MMB loader FUN_10168eb0, per-draw FUN_101734f0, curve FUN_10053550, curve tables FUN_10160700 /
+  FUN_10160830 / FUN_101606a0; more at the end of this entry.
 - Data: dat/zone.rs keeps the type-2 vertices' delta (@12 of the 48-byte vertex; Vertex::delta, Mmb::animated) and the
   curves (sway_curves: per SWAY_TAGS weather tag the type-0x19 chunks of `weat/<tag>/kfrm`, else `mode/kfrm`, at
   most 32; (t, value) pairs up to t = 1). Zone 101 has mode/kfrm only (one curve for every tag); Jugner (104) has
@@ -12075,10 +18562,28 @@ since "Ship voyages: the moving world" listed them as not done.
 - Seen: zone-shot of La Theine (102) by an animated instance: the dandelions' heads move between Off and Smooth;
   live in East Ronfaure (2412 animated instances, 6118 deltas) with no errors.
 
+From the research notes:
+- 0011 = DAT_10456ac0 (2019 DAT_104441a8), FFXiMain default 1 (Normal; ours 2). 2019 addresses unless marked cur.
+- The type-2 vertex (48 bytes): pos f32x3 @0, delta @12, normal @24, BGRA colour @36, uv @40; triangle lists. The
+  loader keeps N (+0x64: 1 / 16 / 32), the animated flag +0x68 (0011 != 0) and +0x6c = float(N - 1), one static buffer
+  per piece (stride 0x18: normal, colour, uv; stream 1) and N position buffers (stride 12, stream 0) holding pos + (i
+  / (N - 1)) delta. Normals do not move.
+- Both scenery draw paths (FUN_10175ac0 after its distance tests, FUN_10176f20) call FUN_101734f0 (cur FUN_1017a3f0)
+  when +0x68 is set, then bind buffer trunc((N - 1) x inst+0x15c) (asm 0x10176df9). The instance record: +0x154 the
+  first call, +0x158 timer, +0x15c s, +0x160 the curve; the timer runs on FUN_10014000 (1/60 s ticks). The curve
+  (FUN_10053550): piecewise linear over (t, value) pairs, t clamped to [0, 1], walked until t >= 1.0.
+- Curves: FUN_10160700 (zone set-up) fills zone +0x34428 for 20 weather tags (fine suny clod mist dryw heat rain sqal
+  dust sand wind stom snow bliz thdr bolt aura ligt fogd dark); FUN_10160830 collects up to 32 per tag (the
+  `mode/kfrm` fallback through FUN_100712e0 from the weather node *(inf)*); FUN_101606a0 picks one at random for the
+  current weather (FUN_10181090 of DAT_106175ac). La Theine (DAT 202): `mode/kfrm/k001` values 0..0.44,
+  `weat/wind/kfrm/k001` up to 0.90.
+- Scan of the zone scenery DATs (zone + 100, zone + 83191 from 600): 961 type-2 MMBs in 81 zones (67,397 type 1, 5
+  type 0), e.g. zones 4, 7, 8, 102..125, 215, 250.
+
 ## Config tool 0030 "3D LCD Mode" (2026-10-29)
 
-- Spec: `~/ffxi/lab/research/stored_settings_spec.md` section 5 (FUN_1000ca70 frame flag and counter, FUN_1000c360
-  eye projections, FUN_1000b4f0 side-by-side blit, FUN_1000afd0 the strip).
+- Retail: FUN_1000ca70 (frame flag and counter), FUN_1000c360 (eye projections), FUN_1000b4f0 (side-by-side blit),
+  FUN_1000afd0 (the strip); more at the end of this entry.
 - Retail draws the 3D world twice, eye 0 through projection x Translate(-0.006, 0, 0) and eye 1 through +0.006: a
   constant NDC shift, no parallax by depth. So each eye is the same picture moved 0.3 % of the width; ours draws it
   once into a scene target 0.6 % wider (the aspect widened to match, same pixel scale) and crops it twice: eye 0 =
@@ -12093,10 +18598,23 @@ since "Ship voyages: the moving world" listed them as not done.
 - Not modelled: retail's unused 1024 x 2 magenta / green textures (made, never bound).
 - Seen live: the gate in East Ronfaure side by side, the strip on frames 2 and 4 of four.
 
+From the research notes:
+- 0030 = DAT_10456abc (2019 DAT_104441a4), default 0. 2019 addresses unless marked cur.
+- FUN_1000ca70 (cur FUN_1000d630) copies 0030 into DAT_10443dd0 +0x18 at the start of every frame (FUN_10010d20) and
+  runs the counter +0x1c (+0x1e is written by the creator, never read). The eye-1 targets exist only when made at
+  start (FUN_10010080 -> FUN_1000bb20, FUN_1000bc90): an eye-1 scene target (device +0x198, depth +0x1a8) at the
+  background size, the side-by-side target +0x824, eye-1 twins of every post-effect target (DAT_10443ffc, DAT_1044443c
+  / DAT_10444444, DAT_1046901c / DAT_10469024, half-size DAT_10444024), the 1024 x 2 textures +0x814..+0x820 (even
+  columns magenta or green) and the 1 x 16 strip +0x82c (A 0x80).
+- While the 3D world draws (device +0x828 = 1), the DrawPrimitive / DrawIndexedPrimitive / DrawPrimitiveUP wrappers
+  (FUN_1000bf60, FUN_1000c040, FUN_1000c140) draw twice when the bound target is an eye-0 target (FUN_1000be40);
+  FUN_1000c360 sets D3DTS_PROJECTION = the stored projection (+0x9bc) x the eye's translate. FUN_1000b4f0 squeezes
+  each eye to half width (bilinear, clamp) into +0x824, then point-filters that to the window. FUN_1000afd0's strip is
+  a pre-transformed quad over (0, H - 10, W, H), Z off *(inf: a signal for the display)*.
+
 ## Config tool 0017 "Bump Mapping" (2026-10-29)
 
-- Spec: `~/ffxi/lab/research/stored_settings_spec.md` section 3; FUN_10181b50 (the two-light model) and FUN_10169d10
-  (the corner tangent) read again for this.
+- Retail: FUN_10181b50 (the two-light model), FUN_10169d10 (the corner tangent); more at the end of this entry.
 - On (read at the zone load, never in zone 182): the zone's bump DAT (dat/bump.rs: file 39831 + zone, 83991 + zone
   from 600) gives its Bp height maps, each made a normal map as FUN_1001d270 (wrapping neighbours; R from the rows
   above / below, G from the columns, B = 128 + 255 s) *(inf: the rows are taken as stored, no flip)*.
@@ -12117,10 +18635,33 @@ since "Ship voyages: the moving world" listed them as not done.
 - Seen: zone-shot 230 (44 Bp, 41 used on 654 draws), on vs off differ over every directly lit face and the bumped
   walls; live East Ronfaure (20 normal maps on 225 draws) with no errors.
 
+From the research notes:
+- 0017 = DAT_10456bf0 (2019 DAT_104442d8), FFXiMain default 0 (ours 1). 2019 addresses unless marked cur.
+- Enable: FUN_10171360 (cur FUN_10178250), run by FUN_10171c40 on the zone manager's first update (+0x34 == 0; once
+  per process *(inf)*), sets zone +0x39498 (bump) and +0x3949c (light mode) only with 0017 != 0 and VS / PS 1.1
+  (device +0x909 / +0x90a *(inf: the cap flags)*), and assembles five vs.1.1 shaders (0..4 point lights; sources
+  0x1036af98 / 0x1036afe8 / 0x1036b070 / 0x1036b108 / 0x1036b1b0) and one ps.1.1 (0x1036b264). FUN_101720a0 copies the
+  mode at each zone load, 0 in zone 182 (env +0x1b4 == 0xb6). 287 zones have a bump DAT with Bp chunks (1..103 each;
+  FUN_10171f00, cur FUN_10178df0).
+- Type 3: strips unrolled to lists (degenerates dropped, winding kept), 48-byte vertices pos, normal, colour, uv,
+  tangent @0x24; model +0xbc = the bump texture. The Bp chunk: "bp\0\0", u16 width @4, u16 height @6, 8 zero bytes,
+  name[16] @16, width x height 8-bit heights @32 (powers of two); FUN_1001d130 makes the texture. FUN_1001d270 (cur
+  FUN_1001e0a0), with wrapping neighbours: gy = 2(prev[x] - next[x]) + prev[x-1] + prev[x+1] - next[x-1] - next[x+1],
+  gx = 2(cur[x-1] - cur[x+1]) + prev[x-1] + next[x-1] - prev[x+1] - next[x+1], s = 127 / sqrt(gx^2 + gy^2 + 255^2),
+  texel R trunc(gy s) + 128, G trunc(gx s) + 128, B 128 + trunc(255 s), A 0; category 0, so stored DXT3 when the
+  device can *(inf)*.
+- Draw (FUN_10175ac0 case 3): the vertex shader by point-light count (zone +0x3945c..+0x39468; positions into object
+  space, colour = light +0x60 x colour, range^2 from light +0x4c), the pixel shader +0x39494, stage 0 the colour
+  texture, stage 1 the bump, stride 0x30. VS: oFog = clamp((c9.z - w) c9.x, 0, c10.x); B = N x T; oT0 = oT1 = uv; oT2
+  = c6 x vc; oT3 = c7 x vc plus per point light max(N.Lp / |Lp|^3, 0) masked by |Lp|^2 <= c18 through the colour
+  matrix c15..c17, x vc. PS alpha = 4 v0.a t0.a. Mode 0 draws type 3 with FVF 0x152 and no shaders.
+- Lighting (FUN_10174610): mode 1 (and 2) one directional light (FUN_10184980, the eased background light), light 5
+  off, vertex fog (FOGVERTEXMODE LINEAR, TABLEMODE NONE, RANGEFOG when supported); mode 0 table fog when supported.
+
 ## Config tool 0022 "Opening Movie" (2026-10-29)
 
-- Spec: `~/ffxi/lab/research/stored_settings_spec.md` section 6; FUN_10017a90 (CXiOpening update), FUN_102143b0 /
-  FUN_10214470 (texture renderer), FUN_10213810 (the quad) and FUN_102137b0 (stop) read again for this.
+- Retail: FUN_10017a90 (CXiOpening update), FUN_102143b0 / FUN_10214470 (texture renderer), FUN_10213810 (the
+  quad), FUN_102137b0 (stop); more at the end of this entry.
 - `mov/mov999.pmv`: "PMUS", then an MPEG-1 video elementary stream XORed by file offset with `c2 ee 9c d9 bd 6c 4d
   72` (o % 8). Ours decodes it itself (mpeg1.rs: sequence headers and matrices, I / P / B pictures, slice and
   macroblock VLCs, dequantisation, float IDCT, half-pel motion; display order) on a thread: all 12,620 pictures in about
@@ -12146,6 +18687,28 @@ since "Ship voyages: the moving world" listed them as not done.
   WxH]` writes frames (CPU colour) or the window as drawn.
 - Seen: a driven run, the movie with its music, Escape, 4.0 s of black, the title and its music; the GPU frames
   match the CPU conversion.
+
+From the research notes:
+- 0022 = DAT_10456be4 (2019 DAT_104442cc), default 1. 2019 addresses unless marked cur.
+- The app state machine FUN_10010d20 (cur FUN_10011a00), state 1: with 0022 != 0 FUN_10012cf0 (cur FUN_100139e0) runs
+  every frame until done, then state 2 (the title); with 0 straight to state 2. The path is the working directory +
+  "\mov" when DAT_103c75f8 +0x20 is 1 or 2 (the normal launch *(inf)*), else "c:\image\ffxi\mov". CXiOpening
+  (FUN_10017900, cur FUN_100186c0) saves the gamma ramp and sets 1.0 when device +0x915. The movie list at 0x10345cbc
+  has one entry; CXiMovie FUN_10213720 -> FUN_10213d00 builds a DirectShow graph with a custom "TEXTURERENDERER"
+  filter. A failed start: done, the music stopped. The skip fades the music with FUN_1023c090(-1, 0x3c).
+- The texture renderer keeps four rotating 512 x 512 A8R8G8B8 textures (A1R5G5B5 fallback). off is -110 for English
+  (language 1, or German / French forced to English by +0x18 bit 7) and -160 for subtitled languages, where the
+  picture spans 0.034 H..0.755 H *(inf: bottom-aligned rows)*.
+- Subtitles (FUN_10017c90, cur FUN_10018a50; at frame = movie time x 30, FUN_10017d90): language DAT_10444110 +8 (0
+  JP, 1 EN, 2 DE, 3 FR *(inf: ids)*); files JP 39531 (`screens opmovtxt` + Msb `screens subtites`), DE 55747, FR
+  56167, EN none; 24 windows {start, end} in 30 fps frames at 0x10345cc8 (the first (86, 160), (160, 230), (240,
+  394)), drawn at y = UI height x 400 / 512 in 0x80808080. In this install 55747 / 56167 hold `menu keytophd` images
+  instead (no subtitle sprites).
+- Data (`mov/`, the same in the 2019 base): mov999.pmv 315,815,512 bytes; 512 x 336, aspect code 1, frame rate code 4
+  (29.97), 6,000,000 bit/s, no 0xB5 extensions, 848 sequence headers / GOPs, 21 slices a picture, 421.1 s. Retail
+  decoded it through PlayOnline's DirectShow source filter polmvf.dll ("PlayOnline Movie File Source", CLSID
+  {E697F40A-B701-4F75-A201-635FA69A41B3}, registered for MEDIATYPE_Stream check bytes 0, 4, FFFFFFFF, 504D5553) and
+  the system MPEG-1 decoder. music999.bgw: PCM 16-bit stereo 48,000 Hz, 80,720,640 data bytes (420.4 s).
 
 ## Correction: the lobby scenes already blend in gamma space (2026-10-29)
 
@@ -12213,7 +18776,7 @@ since "Ship voyages: the moving world" listed them as not done.
 - Lamp Lights correction: a lamp copying a data light carries no colour, and an own-light lamp keeps its first one, so
   the pulsing glows no longer change the list (and re-apply the lamps) every second; the counts log once per zone.
 
-## /sitchair: the chair under the sitter (2026-10-29; spec ~/ffxi/lab/research/chairs_spec.md)
+## /sitchair: the chair under the sitter (2026-10-29)
 
 - Ours had the seated pose and no chair. Now client/chair.rs: the chair is the sitter's second actor (id CHAIR 0x8000_0000 |
   sitter; retail entity +0xa4, kind status - 2), file 100507 + (status - 0x3f) (chairs 0..12 = statuses 0x3f..0x4b;
@@ -12225,7 +18788,7 @@ since "Ship voyages: the moving world" listed them as not done.
   0x17 -> 0x18); wep0..8 hidden while seated (again after a model rebuild). A status leaving the chair starts the
   stand-up (state 0x19): `chi2` on the sitter and the chair (it fades out after 90 ticks), the weapons shown with wep2
   hidden, the new status held 186 ticks (chair::holding beside combat::held); then the chair goes and ours sends one
-  more c2s 0x113 {2, 0} (LAB_1008c376). A chair -> chair change keeps the first chair (3.3). Shadows: our chair a
+  more c2s 0x113 {2, 0} (LAB_1008c376). A chair -> chair change keeps the first chair (below). Shadows: our chair a
   silhouette, others' none; no bone-0 drop for the chair.
 - /sitchair (FUN_1007c390): status gate 0x50 and SendResRdy; "on" 1 / "off" 2 / a number 0..20 as mode 0; nothing while
   sitting down, "on" while seated, "off" while standing. A toggle or "off" while seated starts our stand-up and is sent as
@@ -12237,6 +18800,74 @@ since "Ship voyages: the moving world" listed them as not done.
 - LSB facts (not patched): chair 12's key item check uses 2837, the real one is 3343; its "sitting" checks stop at
   chair 10; the toggle-with-another-id case above. Others' chairs need a second player (not seen live).
 - Not done: trusts ignoring chair / sit / heal statuses in 0x00E (asm 0x1009c148).
+
+From the research notes:
+- c2s 0x113 (size 0xc): u32 mode @4, u32 chair @8. LSB sets status 63 + n (the same status again stands) and wants
+  key item 63 + n + 0xACA for chairs > 0.
+- Chair status predicate FUN_10095790 (0x3f..0x53; actor side FUN_10084330). Kind = DAT_1035b3ec[applied status]
+  (asm 0x10090cef), predicate vtable +0x36c = FUN_10082860 (0x3d..0x51). File: FUN_100d2f60's +0x36c branch,
+  FUN_100c51c0(3, kind - 0x3d) -> FUN_100c5280 = n + 0x1889b, a self-contained model (FUN_100d0d70). A sitter race
+  9..0x1c only logs an error and goes on.
+- Chair files (all 13 alike): skeleton `chai` (3 bones, the root turned 90 degrees about Y, bone 2 at 0.507 up), one
+  mesh, motions `idl0` / `ci10` (2 frames, no tracks: it never animates), schedulers `init` / `chi2`, info 0x45
+  `00 00 00 ff ff ff 64 64 64 64 64 5a 87 78 ff ff` (leg mode 0: no ground tilt), a type-1 `sit_` chunk; no sounds,
+  no generators.
+- FUN_1008f740's first pass for an entity (+0x120 bit 9 clear) applies +0x16c directly, so a player already seated
+  when it comes into range starts in the chair status. The chair is made (asm 0x10090ca9..0x10090d13) when the
+  applied status is a chair, there is no second actor (+0x120 bit 10) and the sitter's model is loaded
+  (FUN_100d12d0); gate FUN_1008e130 (ActIndex <= 0x6ff), +0x12c bit 30 (NpcPetFlag) and bit 31 (u32 @0x28 bit 25)
+  clear; passing: FUN_100d2bc0(4), +0x120 bits 11..12 = 2 (chair type). A failed gate still builds an actor with a
+  leftover kind and no type bits, deleted next frame *(inferred: it draws nothing)*. FUN_100c59b0 links the pair
+  through +0x768; FUN_100c5d60 resets the per-axis scales +0x758 / +0x75c / +0x760 to -1.
+- Deletion FUN_10092870 (also from FUN_10092900: despawn, zone-out, model rebuild): type 2 -> FUN_100d44b0(9) drops
+  the tag-9 motion files; the chair deleted, both links and +0x400 cleared.
+- FUN_100d0d70 -> FUN_100d0fc0: kinds 0x25..0x34 (vt +0x378, the Indi auras) and chairs (vt +0x36c) run their own
+  `init` (vtable +0x298 on themselves). Chair `init` (length 90): op 0x29 colour 0 at once (advance 4), op 0x29 to
+  0x80808080 over 86. The chair's `chi2` (length 168): op 0x01 wait 90, op 0x29 to 0x00808080 over 78.
+- The sitter's chair motion files (FUN_100d2bc0(4), tag 9, the riding tables' slot 4; skipped for entity type +0xee
+  2): Hume M / F 38607 / 38703, Elvaan M / F 38799 / 38895, Taru 38991, Mithra 39087, Galka 39183 (motions
+  `ci00`..`ci21`, schedulers `chi0`..`chi2`); the skirt files (`ci02 ci12 ci22`) 32 and 64 past each.
+- Names: FUN_1008a160's base +0x1a0 = 'ci1 '; FUN_1008a1a0 in a chair status sets the stand bases +0x1a4 / +0x1a8 /
+  +0x1ac to 'ci1 ' when the gate passes, else 'si1 '. FUN_100c8bb0 picks 'ci1 ' (no gate) unless DAT_104568fc +9 is
+  set and actor +0x79c (vt +0x200) clear *(inferred: an event pose flag)*.
+- The machine (FUN_1008b460, state entity +0x1bc; FUN_1008e9a0 runs it each frame and keeps +0x170 while it returns
+  0; it returns 0 at the top while the busy hold +0x11c is set):
+  - state 0 with a chair applied: -> 0x17; ActIndex <= 0x6ff hides byte 0 of wep0..8 (FUN_100d60c0(0)).
+  - 0x17: once FUN_100d12d0 (the chair files in): FUN_1008a1a0, then FUN_1008c450(0, gate failed) from
+    "chi0sit0chi2sit2" (`chi0`, else `sit0`) -> 0x18.
+  - 0x18: while the server status is a chair, return 1. A chair -> chair change is applied but the chair actor stays
+    the first one: the type check tests only "a chair". Else -> 0x19 (zoning, FUN_10087060 = DAT_10487e48
+    *(inferred)*: straight to the stand-up).
+  - 0x19 (LAB_1008c2b5): `chi2` / `sit2` on the sitter; gate passed: `chi2` on a linked chair, FUN_100d5ef0(0) shows
+    wep0..8, FUN_100d60e0(2, 0) hides wep2 -> 0x1a.
+  - 0x1a (held 186 ticks by `chi2`'s op 0x1f): applied no longer a chair -> state 0; still a chair -> LAB_1008c376,
+    return 1. LAB_1008c376 runs "/sitchair off" (0x1035bb04) for our own entity.
+- Sitter schedulers (38607): `chi0` (312): op 0x1f busy hold d 230, 0x07 no reactions 230, 0x2e move lock 230, 0xb5
+  no blink 200, op 0x05 `ci0?` 200, then `ci1?` 112. `chi2` (186): ops 0x1f / 0x2e / 0x07 d 186, op 0x05 `ci2?`
+  186. `chi1` (`ci1?` 112) is named by no code.
+- /sitchair's mode is FUN_10079170 ("on" 1, "off" 2, else 0 with chair = atoi, 0 outside 0..20; on / off send
+  chair 0); mode 0 or 2 while seated in state 0x18 sets 0x19 locally and sends; in 0x19 / 0x1a only mode 2 is sent.
+  In 0x19 with the server still seated LAB_1008c376 re-runs "/sitchair off" every frame until the status arrives
+  *(the send queue may merge them; not traced)*; ours sends once. The movement stand-up is FUN_10157fa0 (config
+  0x46).
+- Placement (FUN_100c63d0 -> FUN_100caf90 each frame): the sitter's drawn base +0x5fc (before any +0x60c offset),
+  rotation +0x61c, floor and lighting state (five 0x68-byte light blocks at +0x388), event scale (vt +0x204 ->
+  +0x208) and +0xb2 bit 4 (the layout-mode hide) are copied to the chair; nothing is written to the sitter. The chair
+  runs its own motion pick (FUN_100c83c0, 'ci1 '); the sitter's motion switches are not pushed to it.
+- Scale (FUN_100cf210, asm 0x100cf599..0x100cf615): +0x754 = S.info[10 + GraphSize] / S.info[11] (S the sitter);
+  k = FUN_10022170(race): Mithra 0, Galka 2, else none; +0x758 = chair.info[11 + k] / 100, +0x760 = chair.info[10 +
+  k] / 100, 1.0 without k. Both bytes are read signed (MOVSX), so Galka's info[12] 0x87 is -1.21 and its side falls
+  back to the relative size *(read from asm, not seen; looks like a retail bug)*. Draw (FUN_100cbde0 asm
+  0x100cc6b4..0x100cc7f5): an event scale >= 0 wins on every axis, else each axis when >= 0, else +0x754; +0x75c is
+  never set for a chair.
+- A model made while seated hides wep0..8 by FUN_1008c480 instead of its `init`.
+- The open trust item: an 0x00E entity with u8 @0x28 bit 0 (TrustFlag) ignores server statuses 0x21, 0x2f and
+  0x3f..0x53 (+0x16c not written; asm 0x1009c148..0x1009c16d).
+- Event binding (FUN_100bcdd0, FUN_100bd1a0): a bound PC-type entity (+0xee 0 / 2 / 6 / 7) gets event status 0 even
+  seated; only +0xee 1 keeps 0x2f / chairs / 0x30 *(so a cutscene stands a seated PC up; not traced further)*. A
+  model-id / costume switch (FUN_10095e90) waits while seated.
+- *Inferred*: whether retail's other hides (+0xb2 bits 1 / 5) reach the chair (only bit 4 is copied); +0x12c bit
+  31's meaning (LSB leaves Flags3 bit 25 unknown).
 
 ## map-grid: a position's map grid square (2026-10-29; tool)
 
@@ -12390,13 +19021,79 @@ since "Ship voyages: the moving world" listed them as not done.
   bare release. Not ours: reported to the LSB session with the events below.
 - Their events (event DAT 85023): Affi 9700 (first talk), 9701 (later talks), 9702..9704 (pick a key item); the
   Register 9708. The full read (start params, every server_update and the reply fields it reads, finish options,
-  the key item shop with its fixed prices, the temporary item table) is in ~/ffxi/lab/research/escha_affi_spec.md.
+  the key item shop with its fixed prices, the temporary item table) is below.
 - VM facts confirmed on the way (event_vm.rs already does them): message `{num1..7}` are Z3..Z9 and `{num8}` up are
   G0 up (Affi's code table 0x27ba lists them); `table` sub 5 writes through such a table of register ids.
 - Silt / bead lines in the zone dialogs (LSB ids = installed ids, msgshift delta 0): kill-style "You receive {num0}
   pinch[/es] of escha silt[ for a total of {num1}]." 288 7712 / 7713, 289 7831 / 7832, 291 7858 / 7859 (beads the next
   two); chest 7632 / 7751 / 7681 and Domain Invasion 7644-7645 / 7763-7764 / 7693-7694 ("You obtain", colour 0x79).
   No "can't hold more silt" line exists in any of them *(inf: retail caps silently)*.
+
+From the research notes:
+- The VM side: start num0..num7 land in Z2..Z9; each server_update (op 0x43: c2s 0x05B mode 1, option Z1) waits for a
+  0x05C whose num0..num7 overwrite Z2..Z9 (an unanswered update hangs the event). Options pack command bits 0..7, sub
+  8..15, count 16..31; a menu cancel finishes with 0x40000000. A menu hide mask's bit k hides option k. What starts
+  9702..9704 is not in the script: the server picks the csid *(inf: a trade)*.
+- Affi 9700 / 9701 start: num0 = the Domain Invasion word (bits 0..2 the DI state; the 9701 greeting reads it before
+  any update); num1 silt; num2 bits 0..15 the key item shop's hide mask (bit k-1 hides option k), 16..23 the area (0
+  Zi'Tah, 1 Ru'Aun, 2 Reisenjima), 24..31 flags; num3 unused; num4..num7 vorseals held (4 bits per kind, kind k in
+  word k/8 at bits 4(k%8), 19 kinds).
+- Flags: bit 1 registered. Clear: the main menu shows only "Nothing in particular" and "Hear various explanations"
+  (mask 1022), which asks for 10 silt (msgs 7478 / 7537): with enough, update 2, whose reply gives num1 silt and the
+  flags with bit 1 set; short, msg 7483 and the end (0x40000000). Bits 2 / 3 pick G27, the DI rows hidden (0 none; 1
+  elvorseal, teleport, blessings and the "unusual monster" explanation; 2 the same but the blessings): 9700 G27 = bit
+  2 ? 0 : 1; 9701 with bit 3: G27 = bit 1 ? 2 : 1; bit 3 clear, bit 1 set: bit 2 -> 0, else with the DI state active
+  msgs 7577..7579, update 13 and 0, else 1; bits 3 and 1 clear: bit 2 ? 0 : 1. *(inf: bit 3 = DI not open to this
+  player, bit 2 = the DI introduction given.)* Without DI: bits 2 / 3 clear and DI state 0 everywhere (G27 1).
+- Updates on the way in: 9700 14, the intro (msgs 7470..7476), 1, 8; 9701 14, 8, then the greeting (msg 7477 or the DI
+  notice). The main menu (msg 7560) loops, update 9 before every showing once registered; it ends only by option 0, a
+  cancel, the fee refusal or the elvorseal / teleport endings. Options: 0 end; 1 Receive / Return elvorseal (update
+  9's num0 bit 31 picks; 9, then 10); 2 Teleport (11); 3 blessings (9); 4 key items (3, buys 4); 5 trinket notes; 6
+  Receive vorseals (5); 7 Return vorseals (6); 8 vorseal effects; 9 temporary items (7, then 14); 10 explanations.
+  Rows 1 / 2 show only while the DI state is active.
+- Updates (reply fields read): 1 none; 2 num1, num2 flags; 3 num0 = tribulens purchases; 4 | n<<8 (shop item n =
+  option - 1) num1, num2 bits 0..15 the new mask; 5 | kind<<8 | total<<16 num1, num4..7; 6 | kind<<8 num1, num4..7; 7
+  | i<<8 (temporary item i) num1; 8 num1..num6 vorseal sources (185 bits), num7 the trinket notes known; 9 num0 (bit
+  31 elvorseal held, bits 0..2 the DI state, bits 10..20 blessings); 10 num6 result, num7 abort; 11 num0 bit 31 go,
+  num7 abort; 13 num1, num2 flags; 14 num0 / num1 temporary items hidden (47 bits).
+- DI active: ((num0 & 7) + 4) % 5 < 2 (state 1 "supposed to show up", 2 "shown up"). Elvorseal: update 10 with num7 !=
+  0 ends with option 10; num6 > 0 received (msgs 7580, 7561, 7037, 7581; num6 == 1 adds 7582..7585), then 7586 and the
+  teleport prompt; num6 == 0 returned (7583, 7561). Teleport: update 11 ends with option 11 unless num0 bit 31 == 1
+  and num7 == 0; then the 'main' scheduler, a fade, the move, c2s 0x05C with the position and option 12, and the
+  finish with 12. Spots (x 0.001: x, z, height, direction): area 0 (-2000, 59500, 0, 1024), 1 (0, -238000, -43600,
+  3072), 2 (640000, -921000, -372000, 1536).
+- Key item shop (prices are in the script, not sent; option: key item, silt): 1 2894 tribulens (1000 while c <= 2,
+  else 1000 + (1000 << c) / 20, c = update 3's num0 *(inf: c decays over time)*), 2 2839 50, 3 / 4 / 5 2307 / 2308 /
+  2309 (the three maps) 50, 6 2920 2000, 7 2921 10000, 8 2922 50000, 9 2986 0 (no buy branch: always hide it), 10 3031
+  10000, 11 3032 500. The client checks silt first (msg 7483), then update 4; after the reply msg 6398 and the list
+  again (update 3). Option 0 returns to the main menu.
+- Blessings (update 9 num0 bits 10..20): Temperance, Fortitude, Piety, Justice, Hope, Wisdom, Compassion, Dignity,
+  Loyalty, Mercy, Courage; none: only "None of them. Go back.". Trinket notes: update 8 num7 bit k = key items
+  2895..2906, then 2911..2919. Explanations: no updates; the "unusual monster" one hides while G27 > 0.
+- Vorseals: caps from update 8's 185 source bits (bit j adds 1 to the cap of the kind in the script's table at
+  0x22aa); price (base[total] - base[held]) x mult[kind], base 0, 100, .., 1500, mult 12, 6 (kinds 1..6), 8 (7..9),
+  100 (10..12), 500, 10, 10, 15, 15, 15. Receive lists kinds with a cap above 0 (counts held+1..cap), Return the kinds
+  held. Without vorseals: update 8 and num4..7 zero.
+- Temporary items: 47 in the script with fixed silt; update 14's set bits hide them (all zero shows every item; all
+  ones 0xFFFFFFFF / 0x7FFF offers none); the client checks silt, sends 7 | i<<8, then 14 again. Index, item, silt,
+  bit: 0 4182 30 b4, 1 4202 150 b26, 2 4206 60 b14, 3 4254 180 b12, 4 5385 90 b21, 5 5386 90 b6, 6 5387 90 b22, 7 5388
+  90 b5, 8 5389 90 b8, 9 5390 240 b15, 10 5391 90 b17, 11 5392 90 b9, 12 5393 90 b20, 13 5394 90 b7, 14 5395 900 b30,
+  15 5397 90 b16, 16 5824 30 b0, 17 5825 180 b10, 18 5826 270 b23, 19 5827 30 b1, 20 5828 180 b11, 21 5829 270 b24, 22
+  5830 270 b25, 23 5834 150 b13, 24 5835 90 b2, 25 5836 180 b18, 26 5837 90 b3, 27 5838 180 b19, 28 6399 600 b27, 29
+  6400 600 b28, 30 6401 600 b29, 31 6402 600 b31; from 32 the bit is the index: 32 5322 90, 33 4255 90, 34 4208 120,
+  35 6474 600, 36 5832 360, 37 5833 360, 38 5439 300, 39 5831 360, 40 5436 150, 41 5853 11000000, 42 6475 1000, 43
+  6473 3000, 44 6476 600, 45 6477 600, 46 6478 600.
+- 9702 / 9703 / 9704: no updates; a pick finishes with option k << 8 (row k from 1) after msg 7479, "None." or a
+  cancel with 0x40000000. 9702 rows 1..12 = key items 2895..2906, start num2 bits 0..11 hide them; 9703 rows 2911,
+  2913, 2915; 9704 rows 2912, 2914, 2916; for 9703 / 9704 start num1 is the whole hide mask (bit 0 clear, bits 4..18
+  set for the unused rows).
+- Register 9708: no updates, finish 0x40000000; menu msg 7682 (NMs 7683, page 2 7684; tallies 7685). num0 bits 16..31
+  the NMs defeated; num1 bit k stars a row: 0 Wepwawet, 1 Lustful Lydia, 2 Aglaophotis, 3 Tangata Manu, 4 Vidala, 5
+  Gestalt, 6 Angrboda, 7 Cunnast, 8 Revetaur, 9 Ferrodon, 10 Gulltop, 11 Vyala, 12 Blazewing, 13 Bucca, 14 Puca, 15
+  Alpluachra, 16 Pazuzu, 17 Wrathare, 18 Ionos, 19 Sensual Sandy, 20 Nosoi, 21 Brittlis, 22 Kamohoalii, 23 Umdhlebi,
+  24 Fleetstalker, 25 Shockmaw, 26 Urmahlullu (Bucca / Puca / Alpluachra share one row, starred with all three bits;
+  page 2 only with any of bits 12..17); num2 monsters defeated; num3 Azi Dahaka defeats, 10 bits per area chosen by
+  num4; num5 bits 0..9 Mireu. All zero is a valid empty register.
 
 ## Modern UI: flyouts anywhere taken out again; edge windows float; the skillchain helper reworked (2026-10-30)
 - User: "I hate the new interface. Put it back the way it was" (making any window a flyout and joining windows'
@@ -12496,7 +19193,7 @@ since "Ship voyages: the moving world" listed them as not done.
   standing), footstep kind 35 'z'. Its `0Nz1` SeSeps (se 147001 in fses, 147002 in fser) and `0az1` (127003 / 127004)
   sit in the model file; Caedarva Mire's zone DAT 179 has no 'z' steps. Live (Lnxcsfix by an Imp, footsteps logged):
   a step every 200..250 ms, about one gap in five under 150 ms.
-- FUN_100d2970 step 7 (footsteps_sound.md 1.3): a name missing from the actor's folder (+0x800, the zone's fses /
+- FUN_100d2970's sound lookup (section "Footsteps"): a name missing from the actor's folder (+0x800, the zone's fses /
   fser) switches it to the same folder in the actor's model resource (vtable +0x1e0 = actor+0xb4) and searches again;
   that folder stays the actor's (+0x800, its 4cc at +0x804) until the set changes; only a name missing there too
   falls to DAT 0's 'foot' = se 12, a 0.15 s 1047 Hz tone (retail logs "足音リソースの検索に失敗しました。" then).
@@ -12747,14 +19444,13 @@ DISPLAY13 at 100%; RX 6800 XT eGPU), MinGW cross builds, release and debug.
 ## PlayOnline sign-in (net/pol) and FFXiMain's -net 3 lobby path (2026-11-01)
 
 The client can sign a PlayOnline member in itself (no Viewer, no Wine) and speaks the lobby dialect of FFXiMain's
-`-net 3` path. Specs (with addresses): `~/ffxi/lab/research/pol_chat_spec.md`, `pol_profile_spec.md`,
-`pol_lobby_spec.md`.
+`-net 3` path. Addresses and layouts at the end of this entry.
 
 - Builds. The installer's Viewer is 1.18.00n (polcore f5af5837); the patch server installs 1.18.15e (polcore
   73b1864b, app 7ba99828). Only 1.18.15e has the Square Enix ID login (profile 4/7), so the client speaks 1.18.15e. The
   POL DLLs use FFXiMain's POL1 packer (compress_re/unpack_any.py); decompiles in ~/ffxi/lab/pol/gh118n and
   scratch/pol/profile/gh1815e. Kuluu's ffxi-pol was the map; every fact was confirmed in our decompile and by running
-  polcore's own code (below), with corrections (spec sections "Kuluu").
+  polcore's own code (below), with corrections (at the end).
 - Chat service (net/pol/chat.rs; ci000.pol.com:51240, IRC dialect, plain TCP): greeting (challenge = third word on,
   less its 4-character trailer; base32: clock, client IPv4 / port, optional redirect), `USER x 8 * :<base64 of the
   client's 255-bit RSA modulus, LE>`, numeric 300 (the 8-byte session key, RSA e = 0xffff, PKCS#1 type 2, key = message
@@ -12792,16 +19488,217 @@ The client can sign a PlayOnline member in itself (no Viewer, no Wine) and speak
 - Verification: polcore under Wine (MinGW harnesses, no network) gave the unit vectors the tests use; real polcore
   1.18.15e completed a whole sign-in against scratch/pol/chat/tools/mock.py; our client against the same mock sent
   byte-identical traffic (22 of 22 messages; OTP and wrong-password runs too) except the RSA modulus, the minute digest
-  and polcore's stale buffer bytes. A test lobby from the spec checks the -net 3 dialect (net::lobby tests). LSB login,
-  lobby and zone-in re-tested live.
+  and polcore's stale buffer bytes. A test lobby built to the layouts below checks the -net 3 dialect (net::lobby
+  tests). LSB login, lobby and zone-in re-tested live.
 - Open *(inf / not verified)*: whether a server checks the token or the stale bytes (addr20 bytes 8..19 enter polcore's
   authCode; ours are zero) and the handshake 0x0c..0x17; characters not yet linked to a handle (FFXiMain attaches them
   and stores 1/10; we stop with a message rather than write the list); the Friend List / POL messages through net/pol
   (ours speak LSB's xi_profile only).
 
+From the research notes:
+- Chat service, connection: port 51240 for the Viewer's login (POLCON 0x16 opens with 0x100139a0 / 0x10013ea0;
+  addresses 1.18.00n / 1.18.15e); 51241 a flag-0x08 open variant (table 0x84) nothing calls; 51242 the flag-0x80
+  variant of the GM service. The greeting may redirect once, port included. No retry across ports or hosts; the local
+  port is random (((MD5(CoCreateGuid ‖ counter ‖ GetTickCount)[0] << 8) | [1]) % 30000 + 0x4000, 0x10014370),
+  re-picked only on WSAEADDRINUSE. polcore has no connect timeout; the pump (0x10015a20) fails the slot with -250 400
+  s after the last queued line or an unanswered keep-alive; the client's `PING a` every 20 s runs only with the
+  connection setting POLCON 0x16 takes (0x100984e8). Three chat slots, a mutex "IRC%02x" each.
+- The PlayOnline ID: 8 characters of `EFKAOYMJVNGTDSWBQLPCIRHZXU6328401795` (0x100722e4; upper case only); value v =
+  the base-36 number; the 64-bit identity v | host index << 41 | region << 48 (routing), kept XORed with the identity
+  pad. The password is used verbatim, at most 16 ASCII characters (1.18.15e keeps a 0x11-byte buffer). app.dll hands
+  both obfuscated: obf(in, n) gives out[i] = rotl8(in[n-1-i] ^ (i odd ? 0xff : 0), i & 7) (0x10046840 / 0x10047e50,
+  inverse 0x10046930); ENCODE_POLID 0x356 = obf(id, 8); ENCODE_PASSWORD 0x358 17 bytes, obf(pw ‖ NUL), [0x10] = len +
+  1; ENCODE_HOST 0x364 0x42 bytes, [0x41] = len + 1; POLCON 0x13 decodes them.
+- The greeting's challenge: the first line whatever its command, past a `:prefix` and two words, less its last 4
+  characters. Its base32 bytes: 0..4 the server clock BE (the time base: clock + elapsed seconds, 0x1004af40 /
+  0x1004cca0), 4..8 the client IPv4 BE, 8..0xc a redirect IPv4 (nonzero: reconnect once; slot +0x20b blocks a second),
+  0xc..0xe the redirect port (0 = 51240), 0x14..0x16 the client port; 0x10..0x14 and 0x16..0x18 unused. addr20 = {u16
+  1, u16 port, u32 IPv4} host order, then 12 bytes of stack residue in polcore (0x100197a0 / 0x10019c30).
+- The routing 300 (0x2e base32 characters; 0x100157f0 / 0x10015a00 -> 0x100a60b8 / 0x100a8258): wire 0..2 region (BE),
+  2 host index, 3 flags, 4..6 u16 BE (bit 0 refused), 6, 7, 8..0xa u16 BE, 0xa, 0xb, 0x10..0x18 u64 BE; 0xc..0x10 not
+  copied. After 422 it is lost (host index 0). The refused bit sets -0x40d (0x10043c1b), but the next state overwrites
+  it on a successful lookup: in both builds it never stops the login. A numeric 001 of exactly 0xc0 characters
+  base64-decodes to 0x90 bytes at 0x100a60d0 / 0x100a8270 (4 BE dwords and two tables of 8 {u16, u16, u32}; meaning
+  open).
+- The profile-available NOTICE (from chat state 0xc; handler slot +0x3e4 = 0x1001b1d0 / 0x1001b6f0): 0x60 base64
+  characters -> a 0x48-byte header (the sender / receiver ids XOR 0x1c273e4567891133 and the pad); ready when +0x42
+  bit 0, type (+0x3e >> 7) & 0x1f == 31, +0x1b != 0, +0x18 == 0xff, +0x1c == 0xff, +0x10 == 1; +0x22 u16 != 0 -> a UDP
+  port slot (0x100128f0); +0x21 != 0 sets 0x100a88ec / 0x100aaa8c, which makes 1.18.15e skip the member login. A
+  NOTICE before 422 is ignored.
+- Codecs: base64 alphabet `TSG8IncW3HFKokOg79qzeCmZs2yBYEQVAUxR5rbwi4P@jMDLtpvad0f_J1hlN6uX` (0x10063de0; a short last
+  group sends only the characters with data; a short decode group pads with `T`, below 4 characters NUL maps to 0x40
+  OR'd in); base32 `N43OVHBJ1Y2C0WSXED5QFILRZMUTAPGK` (0x1006f460; NUL decodes as 0xff OR'd, so only bytes fully
+  covered by characters are good). Trailer: s = the dword sum (0x10061d50 / 0x10063df0), chr(((s >> k) & 0x3f) + 0x3f)
+  for k = 26, 20, 14, 8; outbound lines carry four tabs that become it when 6 < len < 0x1fa; enciphered lines shorter
+  than 7 or with a bad trailer are dropped silently; plaintext lines keep theirs unchecked.
+- Refusals: 433 -> -201; other numerics >= 400 -> -(0x1001 + n); `ERROR … (POL <b32>)`, byte 6: 0xc9 -203, 0xca -202,
+  0xcb -205, 0xcc -204, 0xcd -206, above 0xdb -code, else -129; `Kicked by same NICK` -> -0x201 (POLCON_IDLE gives
+  -0x40f); KILL -251. The Viewer closes the chat without QUIT; PONG and NOTICE lines are held about 1 s before
+  sending.
+- RSA: two 128-bit primes (16 random bytes, b[0] |= 1, b[15] = (b[15] & 0x0f) | 0x80, the next prime with gcd(c - 1,
+  0xffff) = 1), n always 255 bits, e = 0xffff never sent; one pair until the slots go. The unpad zeroes byte 30 (the
+  block type, unchecked), then skips nonzero bytes from 29 down to a zero byte.
+- The NICK token record (0x18 bytes, 0x10072270 / 0x10074278): 00 00 00 02 01; byte 5 the area code (table 0x51d, the
+  decimal value of a 2-character string; app.dll 1.18.15e calls it at 0x1001a1fb with env.dat's POL_UCS_AREA_KBN);
+  6..8 0; 8..0x10 MD5(data)[0..8] (table 0x46b); 0x10..0x18 MD5(host record)[0..8], the record a 0x40-byte name (table
+  0x423; a NULL argument stores "NOTIMPLEMENTED_YET"), the identity pad, a u32 and 6 bytes (zero). Nothing calls 0x423
+  or 0x46b (polcore, app.dll, pol.exe, FFXiMain), so the name stays empty and the digest zero; Kuluu's token assumes
+  the NOTIMPLEMENTED_YET name.
+- The cipher context (0x68 bytes; init 0x10061e10 / 0x10063eb0): +0 P[18], +0x48 the 0x1000-byte S-box buffer pointer,
+  +0x50 the running block, +0x58 IV, +0x60 the byte counter. The schedule's P takes overlapping words (P[i] =
+  BE32(buf[i..i+4])), then P[i] ^= BE32(buf[4i..]); S[j] = BE32(buf[4j..]); then the zero block is encrypted into each
+  pair, never chained. A block returns lo = xL ^ P[17], hi = xR ^ P[16]. 0x10019ce0 / 0x1001a170 publish it for the
+  profile service when flags & 0x88 == 0 (key 0x100a86b8 / 0x100aa858, context 0x100a86c0 / 0x100aa860).
+- 1.18.15e differs only in memory: slots 0x103e58a0 + 0x3a00 i; the challenge and password kept in malloc'd buffers
+  XORed with a pad from a GetTickCount-dependent offset of 0x10065e34; its NICK is command 0x28 (0x10016ae0); POLCON
+  is connected in state 0x1e (0x1c in 1.18.00n). Open: whether a server checks the NICK token; whether greeting offset
+  0x14 is the client's port as the server sees it; what numeric 001 carries; the keep-alive setting in a real Viewer;
+  the ERROR codes for a wrong password or a locked account; who opens 51241.
+- Profile service: the function table (GetCommonFunctionTable, IPOLCoreCom vtable slot 7: 0x1006dbe8 / 0x1006fbe8;
+  index: 1.18.00n / 1.18.15e): 0xab / 0xac LoadHandleNameList 0/9 (1001de30, 1001de50 / 1001e470, 1001e490); 0xaf /
+  0xb0 LoadCharacterList 1/3 (10024a80, 10022980 / 10023440, 10023460); 0xc3 / 0xc4 ChangeMyStatus 4/5 (1001d520,
+  1001d8d0 / 1001db60, 1001df10); 0x176 / 0x177 LoadMyStatus 4/6 (1001cdd0, 1001ce60 / 1001d400, 1001d490); 0x3a8 the
+  authCode (1001f500 / 10020020); 0x3eb the 16-byte value (1001c240 / 1001c870); 1.18.15e only: 0x5de the SE
+  credentials (1001e4b0), 0x5df / 0x5e0 the member login 4/7 (1001e580 / 1001e5d0), 0x5db..0x5dd SHA-1, 0x601 the SE
+  login mode; 0x5c8 / 0x3ec / 0x3ed polerr.bin (decrypt, message, label + message). 0x5db..0x5e0 hold unrelated
+  functions in 1.18.00n.
+- POLCON (0x10043820 / 0x10044a50): 0x13 decode and install the ID and password; 0x14..0x17 resolve and the chat
+  login; 0x18 routing (0x100158a0, 0x1001df60); 0x19 / 0x1a the profile host with port 51220 (0x1001dee0 /
+  0x1001e930); 1.18.15e 0x1b / 0x1c the member login (a failure ends the connect); 0x28 / 0x29 polcore's
+  ChangeMyStatus (-2,-2,1,-2,-1,-2) (mode 3); connected. The profile host's index is the host byte & 0x7f, 0 before
+  routing.
+- The cached profile address (0x10402b58 / 0x10404ab8): set from the first reply header whose +8 dword is nonzero (an
+  LE u32 holding the IPv4 as a host-order integer); later transactions connect straight there; cleared on any
+  transaction error and on a POLCON failure. 4 transaction slots of 0x338 bytes (0x10402b70 / 0x10404ad0): +2 host
+  index, +4 socket, +0x0b cipher on, +0x0c / +0x10 checksum sums, +0x14 reply length, +0x40 header buffer (0x398),
+  +0x50 cipher state, +0xb8 token, +0x328 body buffer (0x800, reused uncleared). A transaction older than 100 s fails
+  with -0x104; after a cancel new checks return 0 for 10 s.
+- Framing: handshake request 0x28 bytes, plain: [1] 0 (cipher on), @4 u16 1, @6 port, @8 IPv4 (addr20), 0x0c..0x17
+  unwritten (zero on a slot's first use, then the previous request header's ciphertext); reply 0x18 plain, [1] status,
+  [0x14..0x18] the token. Request header 0x28, enciphered from the IV: 2, category, opcode, 0, u32 body length
+  including its checksum, zeros, 0x18..0x27 MD5(the ID's 8 characters ‖ the password up to 15 bytes ‖ token). Reply
+  header 0x18 from the IV: [1] status (-> -0x1450 - s), [4] body length, [8] the cached address.
+- Member login 4/7 body (0x3c + checksum): 0 mode (1 ID and password, 2 with OTP, 0 nothing set: all zero); 0x01..0x11
+  the SE ID (at most 16); 0x12..0x17 the OTP (mode 2); 0x20..0x33 the SHA-1 digest ("%u" at 0x1007542c; now = the
+  greeting clock base + seconds since, 0x1004ccf0); no reply body. The setter (table 0x5de) keeps the SE ID NOT-ed and
+  reversed at 0x100aaa9c, the secret NOT-ed at 0x100aaaad, the OTP as ~(c + i) at 0x100aaac1; the builder wipes the
+  secret and OTP after one use. app.dll builds the secret at 0x1019ab29 (salt at 0x103cb334).
+- LoadMyStatus 4/6: request 0x14 zero bytes + checksum; reply 0x80: [0] content index (< 0x40; none when [6] = 0), [1]
+  the gate for [2], [2] slot 0..7, [3] == 1 a flag (sent back inverted at ChangeMyStatus 0x13), [4] u16 activity, [6]
+  presence + 1, [7] a flag, [8] / [0xc] two u32 *(names inferred)*; status 0x72 reads 0x18 bytes (-0x14c2).
+  LoadHandleNameList 0/9 records (0x88): [0] content index, [1] & 0x3f ordinal, [2] & 3, [4..8] u32, [8..0x10] u64
+  kept to 44 bits *(inferred: the handle's ID)*, [0x10..0x1f] the handle name, [0x20..0x83] 50 UTF-16 units; content
+  table 0x104038a0 / 0x10405800 (64 x 0x28). LoadCharacterList 1/3 records (0x68): [0] index, [1], [4] linked, [5]
+  content index, [6] slot, [8] u16, [0xa] / [0xb], [0xc..0x18] three u32, [0x18..0x27] name, [0x28..0x67] comment;
+  character table 0x10401120 / 0x10403080 (64 x 0x68).
+- ChangeMyStatus 4/5 (setup 0x1001d1a0 / 0x1001d7e0 (content, service, flag, presence, p5, activity[, 1]); -2 keeps):
+  presence 3 on a private profile is refused locally (-0x107); it goes out only when something changed (the first
+  always). Body (0x24 + checksum): 0x10 content, 0x11 / 0x12 1 / the slot when the service is in that content's slots,
+  0x13 flag == 0, 0x14 u16 activity, 0x16 presence + 1 (0 without content), 0x17 p5 != 0, 0x18 1 when every argument
+  was kept and one already succeeded, 0x19 1, 0x20..0x23 unwritten (stale). Reply 0x20: value16 = [0..16] (0x100a8900
+  / 0x100aaad0) and the authCode built (0x10403850 / 0x104057b0); bytes 0x10..0x1b unread.
+- Status labels (polerr.bin, 471 ranges): 0x6e IP block, 0x6f wrong SE ID / password / OTP, 0x70 banned / withdrawn /
+  arrears (the same message as 0x6f), 0x71 / 0x72 Xbox binding, 0x7b / 0x7d no such handle, 0x82 / 0x83 version
+  mismatch, 0x84 the password changed during the session, 0x85 connections only from a given IP, 0xe2 CIS
+  authentication failure, 0xea access suspended, 0xef checksum error (server), 0xf1 / 0xf2 unexpected access; local
+  -0x140f checksum error, -0x104 / -0x200 / -0x203 timeout / not logged in. Mapping: s 0xb4, 0xf4 -> -0x104; 0xe4 ->
+  -0x105; 0x79 -> -0x106; 0xe6..0xe9 -> -0x200.
+- authCode (0x10019e40 / 0x1001a2d0): a 0x28-byte scratch, [0x18..0x28] = MD5(reply16 ‖ clock LE ‖ chat key),
+  [4..0x18] = addr20, [0] = [0x25] ^ [0x1b], [1] = the host index; c5 with key cb 83 24 b7 ba 3e 9e 0a (0x10072310 /
+  0x10074318) gives 0x30 bytes at out[4..]; out[i] ^= out[i - 1] for i = 5..0x33; out[0] = out[0xe] ^ host, out[1] =
+  out[0xc] ^ out[6], out[2] = out[0xa] ^ out[8], out[3] = out[0xd] ^ out[9]. c5 (0x10008170, decrypt 0x100081b0): p0 =
+  rotl(k1, 16), p1 = rotl(k0, 8); over those 8 bytes b0 += 0x45, then b[i] = (b[i-1] << 2) ^ (b[i] + b[i-1] - 0x2c) ^
+  0x45; W0 = them as a u64, W[i+1] = 5 W[i] (32 words). Per 8-byte block: ck += blk[0] + blk[4]; idx = (pos >> 3) &
+  31; v = the two u32 halves swapped, ^ W[idx]; c = pos, then c = (c << 10) | pos three times; v ^= c + 0xa1652347; v
+  += W[idx]; each byte y = (x + the sum of W[idx]'s bytes + 0x40) ^ chain (chain from ((pos >> 3) ^ 0x45) & 0xff, then
+  y); pos += 8. A partial block is zero-padded, then the tag {u32 length, u32 ck}.
+- Kuluu's reading, corrected (all checked by running polcore): 4/7 is absent from 1.18.00n; 4/6 is LoadMyStatus with a
+  zero body; 4/5 is ChangeMyStatus, sent only on a change, with 0x18 "all kept" and 0x20..0x23 uninitialised; the
+  cached-address dword is LE; the handshake leaks stale bytes at 0x0c..0x17; a counted reply's checksum is a separate
+  trailer over the preamble and records. Open: whether a server checks those stale bytes; the meaning of the status
+  fields beyond content and character; the minimum before FFXiMain's (-2,-1,0,-2,-1,1) *(inferred: the Viewer's
+  (content, -2, 1, 2, 0, -2))*; the chat event behind the skip flag; whether the 4/7 mode comes from a per-account OTP
+  setting.
+- Lobby (-net 3): DAT_104ca430 is the link's state (0 none, 2 up from FUN_100ed7e0 sub 1, 1 closing after 0x0B), not a
+  mode. MD5 is plain (FUN_100d7420 / FUN_100d7450 / FUN_100d7560). Header: u32 size, "IXFF" (FUN_101165f0), u32
+  command & 0x7fffffff, MD5 @0x0C over the packet with 0x0C..0x1B zeroed (FUN_10116c90; checked by FUN_10116540, a bad
+  one fails the step with 0x65). Requests 0x1C < size < 0xFC1; a received size outside 8..0xB68 or a bad magic drops
+  the link (FUN_1026be74).
+- Connections: the lobby host through polcore's resolver (0xDD start, 0xDE poll); one TCP link to it on -port
+  (FUN_10102340; 0x47DC = 18396 without -port; FFXiMain's developer boot appends "-net 3 -port 54001", the value the
+  PlayOnline launch is taken to pass *(inferred)*); UDP to the map server bound locally at 54090 (+0x100 a failed
+  bind, about 50 tries); a TCP link per query to the search server (0x0B @0x40 / @0x44). Never 54230 or the data
+  messages. -net N (switch at 0x1010249a) -> net config +0xC (default 1) -> lobby state +0x98; only 1..3 make the net
+  object (FUN_100f0130): 3 waits for the lobby, 1 goes straight to the map server (-ip / -worldip / -port, -accunt /
+  -pass), 2 starts at state 4; -net 0 completes every lobby step at once (FUN_100da750); -POLCON sets lobby state
+  +0xa4 (consumer not traced).
+- Step 1 (FUN_100ed7e0): subs 0-1 resolve and the link object, 5 the key mode (data +0x134 = 1), 7-10 connect, 0xB-0xC
+  ChangeMyStatus (-2,-1,0,-2,-1,1) and its poll ("Setting up PlayOnline active content."), 0xD 0x3A8 (into data
+  +0xA24, flag +0xA20) and 0x3EB (K16 into data +0x10), then 0x26; 0xE waits for 0x05; 0xF-0x10 0x1F / 0x20; 0x11-0x12
+  0x24 / 0x23. Step 3: 0x07, 0x0B, the server's close, the addresses, the link freed, then the PlayOnline character
+  steps (below). Step 6: the map key at world entry (FUN_100ef0e0 / FUN_100ef1a0).
+- Request bodies (offsets from the packet start; strings 15 + NUL). The 0x20 record rec (data +0x148 + 0x8C slot): +0
+  content id, +4 u16 ffxi_id_world, +6 u16 world id, +8 status, +0xA flags (bit 0 rename), +0xB u8 world table, +0xC
+  name, +0x1C world name, +0x2C the make block (0x60). 0x26 (0x98): @0x1C account (first byte 0 with an authCode),
+  @0x2C region (3 Japanese, 5 otherwise, FUN_1023e610), @0x30 0, @0x34 authCode[64] (0x34 bytes from polcore, the rest
+  FFXiMain's stack), @0x74 version[15] (@0x83 unwritten), @0x84 the installed mask. 0x1F / 0x24 (0x2C): @0x1C key.
+  0x07 (0x58): @0x1C content id, @0x20 rec u16 +4, @0x24 name, @0x34 key, @0x44 3, @0x48 MD5(authCode[64] ‖ key ‖ u32
+  3 ‖ u32 the FFXiMain.dll checksum ‖ u32 content id). 0x14 (0x34): @0x1C content id, @0x20 rec u16 +4, @0x24 key.
+  0x22 (0x60): @0x1C the free slot's content id, @0x20 name, @0x30 key, @0x40 world name, @0x50 Gold World Pass (data
+  +0xA08). 0x21 (0x90): @0x1C content id, @0x20 key, @0x30..@0x8F the make block. 0x28 (0x44): @0x1C content id, @0x20
+  rec u16 +4, @0x24 new name, @0x34 key. 0x2B (0x44): @0x1C content id, @0x20 the target world (data +0x1A18), @0x24
+  name, @0x34 key. A free slot is a record with status 1 and name " ".
+- The key counter (data +0x138): 0x05 sets reply @0x1C + 1; +1 after each key request (0x07, 0x14, 0x1F, 0x21, 0x22,
+  0x24, 0x28, 0x2B); +1 per reply 0x03, 0x0B, 0x20, 0x23; +1 per 0x04 only while waiting on 0x22, 0x24, 0x28, 0x2B.
+  Replies read: 0x05 @0x1C counter seed, @0x20 expansions, @0x24 features; 0x20 @0x1C count, 0x8C records (at most
+  16); 0x23 {u32 no, name[16]} records; 0x0B only @0x38 / @0x3C map and @0x40 / @0x44 search (error 0x68 when the last
+  0x20 had no characters); 0x03 success; 0x04 @0x20 u32 code (FFXI-(3000 + code)).
+- The FFXiMain.dll checksum (FUN_100185a0 over .\FFXiMain.dll, arg 0x13): the sum of (i32)(i8)b << ((4 k) & 31), k =
+  0..19 cycling, at DAT_10456a28+0x20; FFXi.dll's (arg 7; 0x25580939 for this build's FFXi.dll) is computed and
+  overwritten (FUN_10116480 twice: only (3, checksum) survives at data +0x1A2C / +0x1A30). A missing file gives 0. The
+  installed mask (DAT_10456a28+0x10, written only by FFXiMain: 1, then FUN_101c3400): bits 1..4 ROM2..ROM5, 5..7
+  ROM6..ROM8 only with bit 1, 8..10 with no ROM when bits 1 and 4 are set, 11..15 ROM9..ROM13; a full install sends
+  0x00000FFF. The language (DAT_10456a28+8) comes from FFXi.dll's parameter block (+0x28), mapped from polcore table
+  0x1A5: 0 -> 0, 3 -> 3, 4 -> 2, else 1.
+- The version (0x26 @0x74): FFXiMain reads 0x120 bytes of patch.ver (FUN_101c4590) and polcore 0x493 (FUN_10048380)
+  decrypts them with a key from the registry value Interface\0001 (key names stored shifted by one; 8 summed lanes
+  plus the product, FUN_10048330 / FUN_10048200; retried with a zero key): the string at block +0x18, then 4 heap
+  bytes after its NUL. Without patch.ver stock FFXiMain sends "Unknown".
+- The map key (step 6): a new unconnected link, the saved block restored, the counter advanced twice, MD5(K16 ‖
+  counter) strncpy'd (zero after its first 0x00 byte) as the 16-byte Blowfish key (FUN_100f9eb0 -> FUN_100dd520 ->
+  FUN_100dc710; send +0x2020, receive +0x30c0). Zone changes (boot states 6 / 7) call no polcore function. 0x00A:
+  @0x06 attempt (0, then 2), @0x0C char id, @0x31 account (empty), @0x40 MD5(account[15] ‖ key[16]) (FUN_100dd800),
+  @0x54 "WIN", @0x58 language, @0x5A an info file's u16 (FUN_102532c0: slot 0 info00.bin, the progress breadcrumbs,
+  replaced by slot 2 info02.bin when loaded: {01, 01} after a normal boot; 0xFFFF without the files).
+- Every frame FUN_100daf30 stores POLCON_POLL (0x2C1) at lobby state +0xb8; a negative value goes to DAT_10456900, and
+  -0x420 calls FUN_100163e0(1): the PlayOnline connection must stay up *(inferred beyond the stored value)*. Logout
+  (steps 0xB / 0xE, FUN_100ef680) runs ChangeMyStatus(-2, -1, -2, -2, -1, -2); 0x10196330 / 0x10196390 send (-2, -2,
+  -2, -2, v, -2) when an in-game setting v changes.
+- Character select (step 3, FUN_100ee160; from sub 10 only polcore's 100 s limit applies): FUN_100efda0(slot) ->
+  FUN_100efdf0(content id, rec u16 +6 | rec[+0xB] << 16, rec[+0xB] << 16 | rec u16 +4) tries POL 0xB1(i) for i = 0..63
+  and takes the first entry with +0 bit 0, u16 +2 == 1 (the product, FFXI), u32 +8 == the content id, u32 +0xC == 0
+  and u32 +4 == id_world | worldid << 16 | tbl << 24; none -> -1. The entry (0x68, from the 1/3 record): +0 present,
+  +2 [8] product, +4 [0xC] the world key, +8 [0x10] content id, +0xC [0x14] 0, +0x10 u64 (bits 0..7 the ordinal [1],
+  bit 15 linked [4] & 1, bits 16..21 the content index [5] & 0x3f, bits 22..24 the slot), +0x18 name, +0x28 comment.
+- Linked (bit 15): POL 0xC3((entry +0x10 >> 16) & 0x3f, i, 0, -2, -1, 1) and the 0xC4 poll; polcore makes a new
+  value16 and authCode that FFXiMain never reads again (0x3A8 and 0x3EB have one call site each, in step 1).
+- Not linked (the open item above): sub 0x10: FUN_100efd20 -> POL 0xAD (0x1001C610 / 0x1001CC40) picks the first
+  present Content ID with a free slot byte (+0x20..0x27 bit 0 clear), whatever content the character belongs to; POL
+  0xB8(i, c) detaches (result ignored; -0x1C06 when not there); POL 0xB7(i, c) attaches (-0x1C03 bad i, -0x1C16 bad c,
+  -0x1C04 no content, -0x1C05 no character, -0x1C00 already linked, -0x1C01 no free slot; local only: the character
+  dirty in bitmap 0x10401100, i << 1 | 1 into the slot byte, bits 22..24 the slot, 16..21 c, bit 15). Subs 0x10 /
+  0x11: 0xB3 / 0xB4 StoreCharacterList 1/10 (no traffic when nothing is dirty; the bitmap cleared on status 0). Subs
+  0x12 / 0x13: 0xB5 starts StoreHandleNameList 0/8 but FFXiMain polls it with 0xB4 *(inferred effect: normally no
+  traffic)*. Sub 0x14: linked -> as above, else -1.
+- StoreCharacterList 1/10 payload (0x244 + checksum, declared 0x248): 0x000 + i the ordinal of every entry; 0x040 + 8
+  i: 0 when not dirty, else 1 linked / 2 not (present ones), +1 content, +2 slot, the rest 0 (a dirty absent entry:
+  stale); 0x240..0x243 unwritten. Any failure in subs 0xE..0x15 makes the step return -1 (code at obj +0x136ac): one
+  popup (negative codes from message group 7; 0 -> 0x71, FFXI-3113) and back to the title, without the map server's
+  0x00A.
+
 ## Map session details LSB does not check: header words, 0x00B states, 0x00E gates (2026-11-01)
 
-Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (addresses for every point).
+More addresses and details at the end of this entry.
 
 - Datagram header (FUN_100fa9f0, FUN_100fdbf0): after the zone-in every client datagram carries @0x0C = 1 and the two
   words s2c 0x00A sends @0x94 / @0x98 (session +0x4164 / +0x4168, set only by the 0x00A handler) @0x10 / @0x14; login
@@ -12818,9 +19715,66 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   (0x1009c976 / 0x1009ce64). KingFlag is counted only with 0x04 (0x1009c739). There is no default NPC model from any
   DAT: the zone NPC list holds names only. Correction to "### 0x00E update mask": its last sentence (the model from any
   non-despawn update) holds for kind 0 only. Ours now drops mask-0 updates, gates kinds 1 / 7 and KingFlag; the name
-  rules, reserved-actor skips and index ranges of the spec are not done yet.
+  rules, reserved-actor skips and index ranges (below) are not done yet.
 - Lobby character records (0x20): model ids 1..7 may carry their slot in the top nibble, as the zone's GrapIDTbl does;
   net::lobby::parse_char masks it (LSB sends bare ids).
+
+From the research notes:
+- Session object DAT_104dfd98 (zeroed by FUN_100f9eb0 at each connection): +0 socket, +6 u16 next send seq (from 1),
+  +8 u16 last accepted server seq, +0xA u16 the server's ack of ours, +0xC state (1 created, 2 login being sent, 3
+  zoned, 4 dead), +0xD "0x011 sent", +0x10 send queue, +0x2020 receive cipher, +0x30C0 send cipher (it also keys the
+  login ticket; same key), +0x416C server IPv4, +0x4170 port, +0x4172 local port, +0x417C send interval, +0x4188 last
+  receive time, +0x41B0 receive timeout, +0x3C35C login flags. No per-datagram key change (FUN_100dd570 bumps cipher
+  +0x109C, which nothing reads).
+- Per frame (FUN_100f9d50 -> FUN_100fa180): the state-3 receive timeout (no datagram for +0x41B0 ms -> state 4,
+  message 0xFA1), the login build / 0x011 (FUN_100fb830), the send when timer 0 reaches +0x417C, then one recvfrom
+  (at most one datagram a frame, 0x550 max; the sender's IPv4 must match, the port is not checked).
+- Login @6 = DAT_104df920 (FUN_100fa940): 0 at connect, 2 after each build (1 after the name-override build
+  FUN_100fb920), 3 when any datagram is read, 4 in the 0x00A handler. Login @8 = DAT_104df924 (FUN_100fa950): the last
+  4 receive error codes, no immediate repeats: 1 sender IP not the server's, 2 MD5 mismatch, 3 decompress failure, 5
+  simulated drop (config +0x184), 6 stale datagram, 7 zero-size sub-packet, 8 stale sub-packet, 0xA / 0xB no handler,
+  0x10 (twice) 0x00A outside state 2, 0x20 0x00A accepted. Login datagrams: raw sub-packets plus MD5, nothing
+  encrypted; the replace-mode slot re-stamps the 0x00A's sync with each datagram's seq; no retry limit.
+- s2c 0x00A (LAB_100facf0): LoginState u32 @0x80 (table 0x100fb640): 1 MYROOM -> flags 1 | 0x100; 2 GAME, 0 or > 5
+  -> 1 and the area print (FUN_100fb660); 3 POLEXIT -> 0x200; 4 JOBEXIT -> 0x2000 | 0x100; 5 POLEXIT_MYROOM -> 0x200 |
+  0x100. It zeroes +8 / +0xA before the receive loop stores the carrying datagram's header, so the rest of that
+  datagram passes the sync filter whatever its syncs.
+- After the zone-in: next frame c2s 0x011 (8 bytes, @4 = 2, @5 = 0, once per connection), with 0x015 once the player
+  actor has a position (x + y + z != 0 and DAT_10482f18 == 0); when flag 1 is set and the scene is up (FUN_10094190 ->
+  FUN_10093db0) c2s 0x00C {0, 0}, then c2s 0x061 {0} (FUN_10097fd0(0, 0)); then 0x01A 0x14. The zone-in is acked only
+  by header @2 of the next datagram; there is no ack packet.
+- Later datagrams (FUN_100fdbf0 / FUN_100dd590): a queue entry over 0x104 bytes aborts the build; the build stops
+  when the raw size would pass 3999 - 28 or the estimated compressed size passes config +0x448 - 0x31; a datagram over
+  0x550 bytes is dropped. In state 3 each send adapts the interval: |+6 - +0xA| > 1 -> +50 ms (at most base + 3000),
+  else back to the base. Queue: 30 slots of 0x110, 10 kept for 0x00C / 0x0F2 and replace-mode rewrites. Local UDP
+  port 54090 (+0x100 per failed bind). Ours: no 0x550 cap, a fixed interval, an ephemeral port.
+- Clock re-sync FUN_100fbd10 -> FUN_100dc1b0(header @8, header @4 + (+0x4190 >> 1)), at most 20 ms per tick; +0x4190
+  is the measured receive interval (inferred: a round-trip estimate).
+- s2c 0x00B u32 @0x18 is LSB's cliErrCode (1 RESERR, 2 ZONEDOWN, 3 REGERR, 4 CLIVERSERR, 5 CLINOEXERR, 6 UNKNOWN);
+  state 8 gives 0xFA6 when it is 6. After the 0x00D the next send sets flag 8 and FUN_100f02b0 state 8 -> 9 closes
+  the session: exactly one more datagram.
+- Entity updates: registered at 0x10094430 (0x00D -> FUN_10099ae0, 0x00E -> FUN_1009b550); the old build's +0x141
+  (first full update) is +0x145 here.
+- 0x00E order: mask 0 ignored; index < 0x400 or 0x700..0x8ff (FUN_1009ceb0); a new UniqueNo resets the slot; R =
+  entity +0x138 bit 31 (op 0xac sub 2, reserved); the name, before the despawn and first-update gates; 0x20 despawn
+  unless R (SubKinds 5..7 clear the look slots, +0x145 = 0, +0x120 bit 14 unless bit 8); the first update unless R
+  (short of the full mask: reset, +0x12c bit 15 for c2s 0x016, nothing applied); 0x01 position, heading, speeds,
+  @0x18 (skipped when R and +0x13c bit 0; face target and @0x20 bits only when not R); 0x02 claim unless R; R stops
+  here (no general fields, no look); 0x04 General (Flags1, @0x2A, HP% @0x1E, status @0x1F unless +0x120 bit 1, for a
+  trust unless status 0x21, 0x2f or FUN_10095790, KingFlag); then the look switch.
+- 0x00E names (FUN_10093430; FUN_100dde40 copies at most 15 characters): 1. SubKind 0 / 1 / 5 / 6 / 7, mask 0x08,
+  index >= 0x700: @0x34; 2. SubKind 1, mask 0x40, index >= 0x700: @0x44; 3. SubKind 1, mask 0x40, index < 0x400, u8
+  @0x44 > 0x20: @0x44; 4. index < 0x400, mask 0x08, u8 @0x34 == 1, u8 @0x35 > 0x20: @0x35; 5. index < 0x700: the zone
+  list by UniqueNo, else "NPC", on every update; 6. otherwise unchanged. LSB uses rule 2 for renamed dynamic entities
+  (mask 0x57).
+- 0x00D (FUN_10099ae0): index 0x400..0x6ff only (FUN_1009aad0), no mask-0 test, full = 0x1f, no reserved exception.
+  On every non-despawn update, before the first-update gate: u16 @0x3C -> +0x1fa, u16 @0x30 -> +0x166, u8 @0x32 ->
+  +0x294, @0x33 bits 0 / 1 / 6. Name @0x5A with 0x08 (15 characters).
+- Not done in ours: the name rules (kinds 2..4 at >= 0x700 take @0x34; no SubKind 1 + 0x40 rule; 16 characters; the
+  zone list / "NPC" fallback for any index and only while the name is empty); reserved actors (FFXiMain skips
+  despawn, claim, 0x04 and the look, accepts a partial first update, skips the position while +0x13c bit 0 is set,
+  inferred from op 0xac sub 4); the index ranges; an event-held actor's despawn clearing +0x145; SubKind 7's main /
+  sub / range words @0x3E..@0x42 (ours zeroes them).
 
 ## Mask-0 0x00E names an NPC to ask for; s2c 0x017 Attr bit 3, coded lines (2026-11-01)
 
@@ -12866,7 +19820,7 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
   added an unlit tan (0x948062). Now vs_mesh lights the MMB variants 2 / 3 too, and MMB stand-ins (+0x179) skip the
   parent step of the light matrix (generator-bits bit 1, set at emission).
 - Offscreen, 21:00 from (-86.6, -7, 4.4) towards (-116, -2, 4.4), mods off, river pixels: before (65, 60, 62), now
-  (55, 48, 59); the user's retail screenshot (55, 51, 65). Open item 1 of fx_element_render_spec.md closed.
+  (55, 48, 59); the user's retail screenshot (55, 51, 65). This closes the MMB stand-ins left in "Lit D3b / D3m effect elements".
 - kaw1 itself (64 x 64, alpha levels 0 / 34 / 68, 763 clear specks) is not taken for dither by soften_alpha (test
   speckled_wash_kept). With vana-upscale on, tex-pack's Floyd-Steinberg alpha dither turns the upscaled speck edges
   into fine noise, so the specks wash out (brightest minus darkest: stock (27, 24, 30), pack (21, 19, 23), retail
@@ -12938,8 +19892,8 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
 
 ## The search server pages: "more" requests (2026-11-01)
 
-- Captured (the original client on the PlayOnline search server, 124.150.154.76:54002; decoded with the keys of
-  "Search server" 1.3): an auction list (type 0x15, extra 1) is answered one page per request. After each page not
+- Captured (the original client on the PlayOnline search server; decoded with the keys of "Search: the search
+  server client and name lookups"): an auction list (type 0x15, extra 1) is answered one page per request. After each page not
   flagged last (+0x0a bit 7) the client sends the "more" packet (type 0x10, dlen 0x10, no payload) and the server sends
   the next: a 95-item category came as 5 pages (4 of 0x10c, the last 0xcc) after the request and 4 "more" packets. A
   price history (type 5) is one packet. LSB sends every page at once, so ours read on until the last flag; the
@@ -13221,3 +20175,95 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
 - Live (Lnxcsfix at the San d'Oria berth): Kazham's docked update came at 44.4 s and was applied at 45.0 s (yaw
   1.665 -> 1.571 at (-4, 10.45, 117)); San d'Oria's came at 25.6 s and was applied at 26.4 s (1.493 -> 1.571 at
   (-68, 10.45, 117)). Seen fixed by the user.
+
+## Lua mods: the add-on surveys (2026-11-01)
+The bar for the Lua layer (docs/lua-mods.md 1) is that every Windower 4 and Ashita add-on can be rebuilt on it. These
+are the surveys' findings it is measured against: counts are add-ons, from scans of their source (127 official
+Windower add-ons, 55 community ones and the plugins; 81 official Ashita v4 add-ons, 58 v3, 191 community ones).
+
+Windower 4, by capability:
+- Chat: write lines with a mode and inline colours `1F xx` / `1E xx` (86); read every line raw with its mode
+  (`incoming text`, 30) and player chat (sender, mode, GM); block or rewrite lines (19: battlemod, enternity strips
+  `7F 31` so NPC text advances, timestamp, translate...); the chat line's text (`chat.is_open`, get / set / add input);
+  logging to files (Logger, answeringmachine).
+- Commands: register (102) and catch unknown words (5); run commands with `wait` and plugin / add-on commands (51);
+  `bind` with modifiers and chat-state flags, aliases (6); type for the player with target tokens `<t> <st> <stpc>
+  <stnpc> <me> <p0..5> <pet> <ft> <bt> <lastst>` (26); block / rewrite typed lines (`outgoing text`, 7); eval Lua (15).
+- Input: keyboard events with block (8: Tab, Yush, Rhombus...); mouse move / buttons / wheel with hit-testing, drag and
+  swallowing (11 + the texts / images libraries); key synthesis `setkey` (3). No gamepad API.
+- State (getters plus change events): player (70: jobs, vitals, buffs, skills, merits, job points, LS), world (65: zone,
+  Mog House, time, weather, moon, chat / menu open, server), entities (43: by target tag / index / id / name, the zone
+  name list, models, claim, speed, pet / fellow / target indices, party flags), items with raw extdata (27), learned
+  spells / usable abilities / recasts (12), party (16), key items (4), BLU / PUP / MON job data (6), map position and
+  `<pos>`, camera matrices (1), the item in the help window; 58 read packets for the rest (pet vitals 0x067 / 0x068,
+  party buffs 0x076, lots 0x0D3, XP 0x02D / 0x061 / 0x063, RoE 0x111 / 0x112, widescan 0x0F4, synthesis 0x06F, music
+  0x05F, check 0x0C9).
+- Packets: read 58 (per packet, raw bytes, `parse` to named fields from 221 layouts, last of each id), modify 7
+  (battlemod 0x028 / 0x029, DressUp 0x00A / 0x00D / 0x051, indinope, VisibleFavor, music 0x05F), block 8 (event
+  starts 0x034 / 0x032 / 0x02E answered by the mod itself, 0x017, outgoing 0x01A / 0x03A), inject 21 (incoming 0x017,
+  0x029, 0x058, 0x05F; outgoing 0x016, 0x01A, 0x029, 0x036, 0x037, 0x03A, 0x050, 0x051, 0x05B, 0x074, 0x096, 0x0F1,
+  0x0F4, 0x100, 0x10C, 0x10D); injected packets re-enter the hooks flagged.
+- Drawing: text objects (42: font, size, colour, bold / italic, stroke, background and padding, justification,
+  extents), images (11: solid rects, PNG / BMP textures from files, tiling), hit-testing and drag with saved places,
+  placement next to the native party list / help window, world points projected through the camera (community).
+- Storage and time: settings with per-character files (77), files under the add-on folder plus JSON / XML (36), sqlite
+  (InfoBar); sleeping coroutines, per-frame events (22), `os.time` / `os.date`, the Timers plugin as a shared countdown
+  service (8 add-ons drive it).
+- Sound (4: WAV files) and music by rewriting 0x05F (4); IPC between instances (11), command relay, focus switching;
+  `open_url` (4), clipboard (3), `execute` (1); community add-ons use HTTP, UDP and native modules.
+- Direct actions: equip, item get / put / move / stack / drop, lot / pass, cancel buff, BLU spells and PUP attachments
+  set / reset, widescan tracking (13); movement `run` / `turn` / `follow` / `toggle_walk` (community: FastFollow,
+  HealBot, Trust...).
+- Visuals and engine: entity looks / names / effect bubbles by packet rewriting (DressUp, indinope, VisibleFavor,
+  `set_mob_name`), camera distance and pan by memory patch (XICamera), cutscene frame divisor, draw distance, aspect,
+  animation rate, footsteps, ambient light, gamma, wireframe; window geometry; screenshots.
+- Surprises: handlers may sleep; enternity edits dialogue codes upstream of the dialogue engine; equipviewer decodes
+  item icons from the DATs in Lua and boxdestroyer reads VTABLE / FTABLE; the deprecated `action` event is used by 10;
+  literal method calls (`'%s':format()`) in 37 add-ons; plugins are used from Lua as services (Timers 8, Config,
+  WinControl); 6 add-ons drive NPC menus purely by packets with the native UI suppressed; Treasury randomises its
+  delays; GearSwap is a platform (about 17.9k lines and 20 user callbacks).
+
+Ashita, beyond the above:
+- ImGui in 103 of 228 v4 add-ons, in two roles: ordinary windows (settings, lists, editors) and a HUD canvas (36
+  borderless, background-less, often click-through overlays painting bars, icons and text: XIUI, yunaui, HitPoints,
+  statustimers...). The toolkit must offer: windows that move, size and collapse; borderless overlays; auto-size and
+  saved places; scroll regions; groups, separators, indent, absolute placement; plain / coloured / wrapped / disabled
+  text; buttons, checkboxes, sliders, single-line and numeric inputs, combos, selectable rows (double-click), tabs,
+  tables (borders, fixed / stretch columns, frozen header, scrolling); tooltips (57 add-ons, about 700 calls: the most
+  used interaction) and the "(?)" help marker; colour pickers; item and status icons; progress bars; trees and
+  collapsing headers; popups and modals; per-widget style; font scale; text measuring; hover / click queries; custom
+  drawing (lines, rects, circles, triangles, polygons, images, gradients, clipping). A few need right-click menus,
+  menu bars, multi-line input, radio buttons, invisible hit areas, image buttons, sortable / resizable columns, long
+  virtual lists, mouse drag deltas, keyboard focus. Never used: docking, list boxes, multi-select.
+- Behaviours that are not widgets: hide the whole layer, hide while a game menu or event is open (XIUI reads the open
+  menu's name), click-through, never steal focus (21-23), per-character layout, clicks kept from the game.
+- Render tweaks done by memory writes today: scene and mob draw distance, aspect, frame divisor, clear colour, ambient,
+  wireframe, mipmaps, cel shading (toon), game font replaced; per entity: visible / occlusion / translucency, tint,
+  name, name colours, own name hidden, model size, race / face / look, appearance copy, doors open; camera distance,
+  battle distance, pan speeds, battle rotation range, first-person / locked flags; weather and music overrides.
+- Native UI by memory patch: hide the party / alliance lists, target box, cast bar, compass, clock, connection info,
+  chat windows, macro bar, the whole interface; all maps, compass enemy dots, Mog House or auction house anywhere,
+  commands while dead, IME, language filter, trimmed spell list, AH colours, chat history size; delays removed (AH,
+  chat, macro bar, equip sets, job change, engage lock, JA wait); open menus by command, advance dialogue, drive the
+  AH window from a better one (ahpro sends no packets), set any game config value.
+- Automation: commands from code (65), run macros, target, move / follow, widescan tracking, NPC menu flows (Porter,
+  Oseem), item management (Bellhop, Packer, sellit), combat helpers, equipment engines (LuAshitacast), multibox
+  (Multisend, Servo, SendTarget, cureplease).
+- Sound: WAV / MP3 with volume, the chime (`YmSePlayChime`), BGM override and mute. IPC: add-on events
+  (`RaiseEvent`), shared memory between clients, focus by character name, UDP / pipes / memory-mapped files to tools.
+  Network: HTTPS GET, UDP, TCP, open URL (9). OS: window geometry, borderless, focus, hide from capture, clipboard (5),
+  run programs.
+- FFXiMain memory: 86 read it, 37 patch it, 16 call its functions, 12 load DLLs. With no FFXiMain each use must become a
+  named call; the checklist: open menu name, event / cutscene active, interface hidden, chat log expanded, user camera,
+  Vana'diel time, weather, zone / sub-zone / zone flags, BLU and PUP sets, macros (books, pages, lines; run / stop /
+  set), special targets (`<bt>`, `<ht>`, `<r>`, `<lastst>`, `<scan>`), last teller, inventory loaded, the render and
+  native-UI items above, and the actions advance dialogue, open a menu, set a config value, play the chime, track an
+  entity, set target, drive autorun / follow.
+- Packets at depth: 106 read incoming, 44 modify, 33 inject (fake server packets too: 0x04C opens the AH, 0x0B4 sets
+  filters), with chunk-level ordering for gear engines (equips ahead of a held action, then release it). The most read
+  packet is 0x00A (55 add-ons), mostly to see zoning; `login` / `logout` / `zone_change` events remove that.
+- World-space drawing with depth (ZoneLines, HitboxDisplay, songcast, ScentHound...): lines, rings, boxes, quads and
+  text in world coordinates, plus world-to-screen; 8 read the view / projection matrices.
+- Controller input (tCrossBar, cBind) waits on gamepad support.
+
+Lessons from other games' mod layers (BG3 Script Extender, WoW, Skyrim, Factorio) are in docs/lua-mods.md 2.

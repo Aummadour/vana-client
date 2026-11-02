@@ -1,4 +1,4 @@
-//! The Friend List's windows (research friend_list_spec.md 1): flistmai (To List / Messages / Online Stat.) from
+//! The Friend List's windows (MODLOG "The Friend List"): flistmai (To List / Messages / Online Stat.) from
 //! commenu, the list "menu    friend" grouped under its category bars, flmes on a friend, olstat, and titlehan with our
 //! handle. The data is client/friends.rs's.
 

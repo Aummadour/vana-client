@@ -1051,7 +1051,7 @@ fn one_action(w: &mut World, a: &Action) {
     w.effects.on_action(a, attack.as_ref().map(|(_, n, _, _)| n.clone()));
     let delay = attack.map(|(d, _, _, _)| d);
     match delay {
-        // dada at T: atpr waits 4, then op 0x2b prints (triggers.md 2.2).
+        // dada at T: atpr waits 4, then op 0x2b prints (MODLOG "Effect schedulers").
         Some(d) => {
             let tick = Duration::from_secs_f32(1.0 / 60.0);
             w.pending.push(Pending { at: Instant::now() + d + tick * 4, messages });
@@ -1935,7 +1935,7 @@ mod tests {
         assert_eq!(rel(0x0100_0999, ME), Relation::Other);
     }
 
-    /// knockback_spec 1.2: from DAT_1035bc60, level 1 runs 47 ticks over 1.41 units (bf1 at tick 5), level 7 123 ticks
+    /// MODLOG "Knockback": from DAT_1035bc60, level 1 runs 47 ticks over 1.41 units (bf1 at tick 5), level 7 123 ticks
     /// over 10.61 (bf1 at 45); the same at 60 and 300 fps.
     #[test]
     fn knockback_levels() {

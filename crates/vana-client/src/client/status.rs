@@ -1,4 +1,4 @@
-//! The main menu's Status row (FUN_10140400 case 5 / child 1; spec ~/ffxi/lab/research/status_window_spec.md): persona
+//! The main menu's Status row (FUN_10140400 case 5 / child 1; MODLOG "Status window"): persona
 //! at (16, 16), level under it, statcom2 over the main menu, and the page statcom2 shows at (130, 48): profile,
 //! joblevel, masterle, btlskill, mgcskill or trdskill.
 

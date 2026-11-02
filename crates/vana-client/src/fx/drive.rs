@@ -1,7 +1,6 @@
 //! Ops 0x26 / 0x27 (CMoPathDriveActorTask, FUN_1005e890 / FUN_1005e9c0 / FUN_1005eef0) and 0xa9 / 0xaa
 //! (CMoActorRotationDriveTask, FUN_1005fa20 / FUN_1005fb30): an actor moved along a Vtx path or turned over an op's
-//! duration, children of the scheduler task that started them (spec ~/ffxi/lab/research/ship_actors_spec.md 3.4,
-//! 3.5, 3.8).
+//! duration, children of the scheduler task that started them (MODLOG "Ship actors").
 
 use super::spline::{self, Seg};
 use crate::dat::generator::KeyFrame;
@@ -195,7 +194,7 @@ pub fn path(vtx: &[u8]) -> Option<Vec<Seg>> {
 mod tests {
     use super::*;
 
-    /// ship_actors_spec 8: f(0.25) for modes 0..4; the ends.
+    /// The curves at f(0.25) for modes 0..4 (MODLOG "Ship actors"); the ends.
     #[test]
     fn curves() {
         for (m, want) in [(0, 0.25), (1, 0.382_683), (2, 0.076_120), (3, 0.353_553), (4, 0.146_447)] {

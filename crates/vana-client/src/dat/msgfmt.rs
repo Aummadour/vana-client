@@ -1,5 +1,5 @@
-//! The client message formatter (FUN_10153310 via FUN_10153150 / FUN_10153180; spec
-//! ~/ffxi/lab/research/msgfmt_spec.md): group 8 / 10 strings carry `FA 40 <code>` escapes for numbers, string
+//! The client message formatter (FUN_10153310 via FUN_10153150 / FUN_10153180; MODLOG
+//! "Message formatter"): group 8 / 10 strings carry `FA 40 <code>` escapes for numbers, string
 //! arguments, choices, compares and jumps, and item names. Plus the date / time builders FUN_101c8fd0 (Earth) and
 //! FUN_101c92b0 (Vana'diel) over the group 10 format rows.
 
@@ -202,7 +202,7 @@ mod tests {
         crate::dat::font::decode_sjis(&b)
     }
 
-    /// The group 10 rows of the spec's table, on the real file.
+    /// The group 10 date / time rows (MODLOG "Message formatter"), on the real file.
     #[test]
     fn date_time_rows() {
         let Some(m) = group10() else { return };
@@ -218,7 +218,7 @@ mod tests {
         assert_eq!(f(0x60, &[], &[5]), "May");
     }
 
-    /// The spec's example: Earth 2026-10-23 19:45:12 CDT = unix 1792802712, Vana t = 782991912.
+    /// MODLOG's /clock example: Earth 2026-10-23 19:45:12 CDT = unix 1792802712, Vana t = 782991912.
     #[test]
     fn clock_example() {
         let Some(m) = group10() else { return };

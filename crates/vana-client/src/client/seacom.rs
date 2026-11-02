@@ -1,6 +1,6 @@
 //! "menu    comment" (FUN_101dd2b0 / FUN_101ddcb0 / FUN_101dde60 / FUN_101dd330): three lines of 40 bytes. Mode 2 the
-//! own search comment (arealist_spec section 3: searchma's Edit Comment through comgenre), sent on close as c2s 0x0E0
-//! when it or the type changed; mode 0 our bazaar message (social_rows_spec B5: Set Bazaar's Edit Comment), as c2s
+//! own search comment (MODLOG "Search: arealist"; searchma's Edit Comment via comgenre), sent on close as c2s 0x0E0
+//! when it or the type changed; mode 0 our bazaar message (MODLOG "Set Bazaar": its Edit Comment), as c2s
 //! 0x0DE.
 
 use super::World;

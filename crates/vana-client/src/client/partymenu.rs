@@ -1,6 +1,6 @@
-//! The main menu's Party row (FUN_102016e0; spec ~/ffxi/lab/research/party_menu_spec.md): prty1 solo, prty2 a member,
-//! prty3 the leader, prty7 a leader in someone else's alliance; over them prty4 (Alliance), prty8 (Distribution),
-//! prty5us (Languages) and alarm; prtyjoin answers a pending invite (s2c 0x0DC).
+//! The main menu's Party row (FUN_102016e0; MODLOG "Party menu"): prty1 solo, prty2 a member, prty3 the leader, prty7 a
+//! leader in someone else's alliance; over them prty4 (Alliance), prty8 (Distribution), prty5us (Languages) and alarm;
+//! prtyjoin answers a pending invite (s2c 0x0DC).
 
 use super::World;
 use super::game_ui::GameUi;

@@ -1,6 +1,6 @@
-//! The Adventuring Primer (primer_spec.md): "menu    guide00" lists the categories (item records 0xf620.., at most
-//! 8), "menu    guide01" one category's topics (records 0xf630..0xf71f), and a topic's pages are illustrations the
-//! map window shows in mode 7 (map.rs `Mode::Primer`): file (number + 0x83b1) x 3 + page. No packets.
+//! The Adventuring Primer (MODLOG "The Adventuring Primer"): "menu    guide00" lists the categories (item records
+//! 0xf620.., at most 8), "menu    guide01" one category's topics (records 0xf630..0xf71f), and a topic's pages are
+//! illustrations the map window shows in mode 7 (map.rs `Mode::Primer`): file (number + 0x83b1) x 3 + page. No packets.
 
 use super::World;
 use super::game_ui::GameUi;

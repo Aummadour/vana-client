@@ -1,6 +1,7 @@
-//! Moblin Maze Mongers' Maze Tabula editor (mmm_maze_spec.md): using a tabula (or event op 0x71 0x20) opens prvdungp,
-//! the 5 x 5 grid, with BLU's bluinven fed by the maze list (vouchers, runes, placed runes), bluehelp and prvdunsi (the
-//! shape filter). s2c 0x0AD carries the learned vouchers and runes; an edited tabula sends c2s 0x0D8 as it closes.
+//! Moblin Maze Mongers' Maze Tabula editor (MODLOG "Moblin Maze Mongers"): using a tabula (or event op 0x71 0x20) opens
+//! prvdungp, the 5 x 5 grid, with BLU's bluinven fed by the maze list (vouchers, runes, placed runes), bluehelp and
+//! prvdunsi (the shape filter). s2c 0x0AD carries the learned vouchers and runes; an edited tabula sends c2s 0x0D8 as
+//! it closes.
 
 use super::World;
 use super::game_ui::GameUi;

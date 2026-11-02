@@ -1,6 +1,5 @@
 //! Positional effect sound: the sound element CYySoundElem (update FUN_100356c0, manager FUN_10035410) and the
-//! scheduler sound ops, with FUN_10035e50's distance volume and pan. Spec:
-//! ~/ffxi/lab/research/effects/footsteps_sound.md (sections 2 and 3).
+//! scheduler sound ops, with FUN_10035e50's distance volume and pan (MODLOG "Effect sound").
 
 use glam::{Mat4, Vec3};
 
@@ -227,7 +226,7 @@ mod tests {
         assert!(fx.solo.is_none());
     }
 
-    /// footsteps_sound.md 2.5: Cure's 0303 (far 60, near 3) on a target 12 units out and 1.5 up, behind the camera:
+    /// MODLOG "Effect sound": Cure's 0303 (far 60, near 3) on a target 12 units out and 1.5 up, behind the camera:
     /// volume 105, then x 0.65 = 68.
     #[test]
     fn cure_volume() {
@@ -240,7 +239,7 @@ mod tests {
         assert!(attenuate(64.0, 127, Vec3::new(70.0, 0.0, 0.0), eye, view, 0.0, 60.0, false, 0, 350.0).is_none());
     }
 
-    /// footsteps_sound.md 2.5: zone 232 effe/soun/se00 plays se 2009 (persistent) from the nearest point of the
+    /// MODLOG "Effect sound": zone 232 effe/soun/se00 plays se 2009 (persistent) from the nearest point of the
     /// harbour-edge chain 'se-s'; with the eye at (10, -6, 20) the source is 4.44 away: volume 120.
     #[test]
     fn harbour_loop() {

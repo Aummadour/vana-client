@@ -1,7 +1,6 @@
 # Lua mods: design
 
-Research behind it, outside the repo: `~/ffxi/lab/research/lua/windower_survey.md`, `ashita_survey.md`,
-`engines_survey.md`.
+The add-on surveys behind it are in MODLOG "Lua mods: the add-on surveys".
 
 ## State
 
@@ -432,8 +431,8 @@ mute music. The chime.
 ## 5. Proving the bar
 
 - **Coverage table:** the surveys' scan data gives every add-on and plugin as a row: its operations mapped to API
-  calls, and a status (covered / partly / missing). It is generated, kept in `~/ffxi/lab/research/lua/`, and re-run as
-  the API grows. A missing row is a bug in the API.
+  calls, and a status (covered / partly / missing). It is generated from the add-ons' sources, committed beside this file, and re-run
+  as the API grows. A missing row is a bug in the API.
 - **Reference ports,** written as real mods, chosen to cover the hard classes:
   - **GearSwap:** the platform, the 20 callbacks, a stock Mote-libs job file.
   - **battlemod:** filtering and rewriting combat text.

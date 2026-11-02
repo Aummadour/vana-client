@@ -236,7 +236,7 @@ pub fn hand_scheduler(pc: &PcMotion, out: bool, sub: bool) -> String {
 mod tests {
     use super::*;
 
-    /// mannequin_spec 7.8: pose bytes to (bank, motion) and the bank files.
+    /// MODLOG "Mog House mannequins": pose bytes to (bank, motion) and the bank files.
     #[test]
     fn mannequin_poses_and_files() {
         assert_eq!(mannequin_pose(0, None), (0, "mq0"));

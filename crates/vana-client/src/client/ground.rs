@@ -1262,7 +1262,7 @@ mod tests {
     #[test]
     fn east_ronfaure_river_is_fishable() {
         let Some(g) = zone(101) else { return };
-        // Standing in the river (fishing_spec.md 6): some facings have water 4 ahead; a dry bank point has none.
+        // Standing in the river (MODLOG "Fishing"): some facings have water 4 ahead; a dry bank point has none.
         let at = |x: f32, z: f32, y0: f32| {
             let y = g.snap(x, z, y0).unwrap_or(y0);
             let pos = Vec3::new(x, y, z);

@@ -1,4 +1,4 @@
-//! The compass's radar dots (FUN_102203b0; spec ~/ffxi/lab/research/radar_dots_spec.md): every entity within range,
+//! The compass's radar dots (FUN_102203b0; MODLOG "Compass radar dots"): every entity within range,
 //! coloured by its kind bits (FUN_1008e290), faded with distance and height, on the compass's rotated disk.
 
 use super::{Entity, World};
@@ -131,7 +131,7 @@ pub fn dots(w: &World, a: u32, s: &Sample) -> Vec<(f64, f64, u32)> {
 mod tests {
     use super::*;
 
-    /// The spec's vectors (radar_ref.py): WAR, A = 128.
+    /// Retail's vectors (MODLOG "Compass radar dots"): WAR, A = 128.
     #[test]
     fn fades() {
         let war = sample(1, 0, 0);

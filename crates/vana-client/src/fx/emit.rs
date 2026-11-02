@@ -1,6 +1,5 @@
-//! The CPU side of a generator: its per-frame update stream (FUN_10048740, generators.md section 4) and the
-//! emission stream that builds each new element (FUN_1004d920, section B). The element's per-frame stream
-//! runs on the GPU.
+//! The CPU side of a generator: its per-frame update stream (FUN_10048740) and the emission stream that builds
+//! each new element (FUN_1004d920); MODLOG "Effect generators". The element's per-frame stream runs on the GPU.
 
 use super::elem::{Elem, NONE, dk, st, w};
 use super::math::{Rng, euler, then, wrap};
@@ -649,7 +648,7 @@ pub fn emit(reg: &mut Registry, inst: &mut Instance, parent: Option<&Parent>, f:
                 let drag = find(2, 0x2c).map_or(1.0, |o| o.f32(1)) - 1.0;
                 let n = (inst.flags & 0x1ff) as usize + 1;
                 // Op 0x4e / 0x4f (0x1004ec2c): each particle starts at a point of the list, random per particle or
-                // the generator's emission count for all (fixed for the element's life, d3a_particles.md 4.4).
+                // the generator's emission count for all (fixed for the element's life).
                 let list = find(1, 0x4e).or_else(|| find(1, 0x4f)).and_then(|o| {
                     let r = parent_vtx.or_else(|| reg.resolve(lib, from, kind::VTX, o.u32(2)))?;
                     let d = reg.libs[r.0].data(r.1);

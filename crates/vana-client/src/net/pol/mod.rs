@@ -1,6 +1,6 @@
 //! Signing in to PlayOnline in place of the Viewer: the chat service's key agreement, then the profile
 //! service's member login and the game's session (the lobby's authCode and 16-byte value).
-//! research/pol_chat_spec.md, pol_profile_spec.md, pol_lobby_spec.md §10.
+//! MODLOG "PlayOnline sign-in".
 
 pub mod chat;
 pub mod cipher;

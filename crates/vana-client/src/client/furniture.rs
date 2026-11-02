@@ -1,4 +1,4 @@
-//! Mog House furniture (spec ~/ffxi/lab/research/furniture_spec.md): the installed pieces of Mog Safe and Mog Safe 2
+//! Mog House furniture (MODLOG "Mog House furniture"): the installed pieces of Mog Safe and Mog Safe 2
 //! (the scan FUN_101d2af0) drawn as static models at their grid places (FUN_101cdd90 / FUN_101cdf50), only in a
 //! furnished room (FUN_100f9650), a flowerpot's plant above it (FUN_101cda60).
 
@@ -41,7 +41,7 @@ pub struct State {
     pub pulses: std::collections::HashMap<(u8, u8), super::layout::Pulse>,
 }
 
-/// A mannequin actor (mannequin_spec 2.2 / 4.1): its record, id, look, pose bank and motion, and place.
+/// A mannequin actor (MODLOG "Mog House mannequins"): its record, id, look, pose bank and motion, and place.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Mannequin {
     pub key: (u8, u8),
@@ -318,7 +318,7 @@ pub fn changed(w: &mut World) -> Option<(u64, Vec<Key>, u16, u8)> {
 /// Item type 14.
 const MANNEQUIN: u16 = 14;
 
-/// The installed mannequins (mannequin_spec 1.3 / 2.2 / 4.1): race exdata[0x12] (0 as Hume male), face 30, gear from
+/// The installed mannequins (MODLOG "Mog House mannequins"): race exdata[0x12] (0 as Hume male), face 30, gear from
 /// the slot's s2c 0x026 record (none: bare), pose exdata[0x13]; each an actor 0x04000000 | index (0x1ff down) placed
 /// as its piece. A changed look rebuilds the actor (FUN_101cdd60); race and pose are read again then.
 fn mannequins(w: &mut World, keys: &[Key], map: u16, floor: u8) {
@@ -430,8 +430,8 @@ pub fn load(index: &DatIndex, keys: &Keys, seq: u64, want: &[Key], map: u16, flo
 mod tests {
     use super::*;
 
-    /// furniture_spec.md 6.6: a Simple Bed (4 x 6) at column 0 row 0 turned 0 / 1, a pot on a level-5 surface, a 1 x 1
-    /// piece on 2F, wall slot 3 (and San d'Oria's), 2F slot 40.
+    /// MODLOG "Mog House furniture": a Simple Bed (4 x 6) at column 0 row 0 turned 0 / 1, a pot on a level-5 surface,
+    /// a 1 x 1 piece on 2F, wall slot 3 (and San d'Oria's), 2F slot 40.
     #[test]
     fn places() {
         let bed = Furn { flags: 0, model: 2, size: [4, 6], height: 70 };

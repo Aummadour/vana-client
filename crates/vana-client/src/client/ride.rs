@@ -1,4 +1,4 @@
-//! Riding (mount_model_spec.md): a rider at status 5 / 0x55 sits on a second actor, the chocobo or mount
+//! Riding (MODLOG "Riding"): a rider at status 5 / 0x55 sits on a second actor, the chocobo or mount
 //! (FUN_1008f740, entity +0xa4), drawn at the rider's place; the rider gets its riding motion files and names and, on a
 //! mount, is moved onto the saddle (FUN_100c9330).
 

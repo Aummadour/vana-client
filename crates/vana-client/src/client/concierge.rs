@@ -1,6 +1,6 @@
-//! The Linkshell Concierge (ls_concierge_spec.md): s2c 0x048's sixteen slots (DAT_10488b08), the list event op 0x71
-//! sub 0x40 opens (link5 in mode 1 with link6 mode 1 and the language filter "menu    lscswin"), and the pick sub 0x41
-//! hands back. Text code `7f 81 n` prints a slot's shell name.
+//! The Linkshell Concierge (MODLOG "The Linkshell Concierge"): s2c 0x048's sixteen slots (DAT_10488b08), the list
+//! event op 0x71 sub 0x40 opens (link5 in mode 1 with link6 mode 1 and the language filter "menu    lscswin"), and the
+//! pick sub 0x41 hands back. Text code `7f 81 n` prints a slot's shell name.
 
 use super::World;
 use super::game_ui::GameUi;

@@ -1,4 +1,4 @@
-//! /check on a player (spec ~/ffxi/lab/research/check_spec.md): s2c 0x0CA (title line, bazaar message) and 0x0C9
+//! /check on a player (MODLOG "/check on a player"): s2c 0x0CA (title line, bazaar message) and 0x0C9
 //! (equipment, jobs, linkshell; handler LAB_100e5af0) fill the store at G+0x19adc; the first 0x0C9 opens
 //! "menu    inspect" (DAT_105781b8, vtable 0x103337e0) with the item info following the cursor.
 

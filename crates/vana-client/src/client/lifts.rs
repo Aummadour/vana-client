@@ -1,6 +1,6 @@
-//! Lifts (XiLiftActor, collision_actors_spec 2): a lift NPC (0x00E SubKind 3) names its shaft ('@' RID box and door
-//! group) at @0x34. A floor change plays the folder's `mv<old><new>`, whose op 0x1d takes the group's parts and the
-//! shaft's height to that floor by the packet's end time; whoever stands in the shaft rides at that height
+//! Lifts (XiLiftActor; MODLOG "Actor collision and lifts"): a lift NPC (0x00E SubKind 3) names its shaft ('@' RID box
+//! and door group) at @0x34. A floor change plays the folder's `mv<old><new>`, whose op 0x1d takes the group's parts
+//! and the shaft's height to that floor by the packet's end time; whoever stands in the shaft rides at that height
 //! (FUN_100a4ed0).
 
 use super::World;

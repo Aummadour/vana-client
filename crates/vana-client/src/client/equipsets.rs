@@ -1,4 +1,4 @@
-//! Equipment sets (spec ~/ffxi/lab/research/social_rows_spec.md M2): the store (DAT_106627d8) of 200 sets in
+//! Equipment sets (MODLOG "MacroPalette: equipment sets"): the store (DAT_106627d8) of 200 sets in
 //! USER/<id>/es<page>.dat (version 1, 20 records of 0x50 a page), equipping a set (c2s 0x051: /equipset, mcresmn
 //! Equip), lockstyle (c2s 0x053: /lockstyle, /lockstyleset, Set appearance, the field entry's Continue / Disable).
 //! The Monstrosity refusals are not done (we keep no Monstrosity state).

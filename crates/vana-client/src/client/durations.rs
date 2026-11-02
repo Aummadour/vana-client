@@ -1,5 +1,5 @@
-//! How long the effects we put on others last, as LSB reckons them (not retail: no client knows; spec
-//! ~/ffxi/lab/research/timers_durations_spec.md, tables data/timers/*.tsv made by ~/ffxi/lab/tools/timers_data.py):
+//! How long the effects we put on others last, as LSB reckons them (not retail: no client knows; MODLOG "Timers",
+//! tables data/timers/*.tsv made from LSB's scripts and data):
 //! which 0x028 result lands which effect, its length from our job, levels, merits, job points, gear and effects,
 //! and what it replaces. Resist rolls and random terms are unknown: those lengths are upper bounds, cut short by the
 //! server's wear-off message.
@@ -8,7 +8,7 @@ use super::World;
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
-/// The table an action is looked up in (spec 1.2).
+/// The table an action is looked up in (MODLOG "Timers", Lookup).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Kind {
     Spell,
@@ -279,7 +279,7 @@ impl Caster {
         c
     }
 
-    /// Mods our own effects add (spec 90.1 item 3) and the BRD job point gift.
+    /// Mods our own effects add (MODLOG "Timers", getMod) and the BRD job point gift.
     fn effect_mods(&mut self, w: &World) {
         let add = |c: &mut Caster, m: u16, v: f32| *c.mods.entry(m).or_default() += v;
         // REGEN_DURATION from Light Arts / Addendum: White and Tabula Rasa (SCH main).
@@ -368,7 +368,7 @@ pub fn slot_item(w: &World, slot: usize) -> Option<u16> {
 }
 
 /// An equipped item's duration mods: its table rows (latents by zone) and its augments, none while our main level is
-/// below the item's (level sync, spec 90.1).
+/// below the item's (level sync, MODLOG "Timers", getMod).
 pub fn item_mods(w: &World, slot: usize) -> Vec<(u16, f32)> {
     let t = tables();
     let Some(item) = slot_item(w, slot) else { return Vec::new() };
@@ -384,7 +384,7 @@ pub fn item_mods(w: &World, slot: usize) -> Vec<(u16, f32)> {
             out.push((m, v as f32));
         }
     }
-    // LSB reads slots 0..3 of every equipment's extdata as standard augments (spec 90.5).
+    // LSB reads slots 0..3 of every equipment's extdata as standard augments (MODLOG "Timers", Augments).
     let level = w.item_info.as_ref().and_then(|i| i.item(item)).map_or(0, |it| it.level);
     if let Some(ext) = w.inv.equip[slot].and_then(|at| w.inv.ext.get(&at))
         && main as u16 >= level
@@ -427,7 +427,7 @@ pub fn white(w: &World, spell: u16) -> bool {
     w.actions.as_ref().and_then(|a| a.spell(spell)).is_some_and(|s| s.kind == 1)
 }
 
-/// The weapon skill TP formula (spec 70.9) for the TP-scaled rows.
+/// The weapon skill TP formula (MODLOG "Timers", Weapon skills) for the TP-scaled rows.
 fn ws_tp(id: u16, tp: f32) -> Option<f32> {
     let f = |a: f32, b: f32, c: f32| if tp <= 2000.0 { a + (b - a) * (tp - 1000.0).max(0.0) / 1000.0 } else { b + (c - b) * (tp - 2000.0) / 1000.0 };
     Some(match id {
@@ -532,7 +532,7 @@ pub fn predict(c: &Caster, row: &Row, t: &Target, white: bool, prior: Option<f32
             d
         }
         "BLU_BUFF" | "BLU_BUFF_DIFF2" => {
-            // Diffusion's merit reaches only the caster (LSB, spec 40.3).
+            // Diffusion's merit reaches only the caster (LSB; MODLOG "Timers", Blue magic).
             let m = c.merit(3010);
             if c.has(356) && t.me && m > 0.0 {
                 if row.formula == "BLU_BUFF" { base + (m - 5.0) * base / 100.0 } else { base + base / 100.0 * m }
@@ -587,7 +587,7 @@ fn song_mod(c: &Caster, row: &Row) -> f32 {
     row.toks.iter().find_map(|t| if let Tok::Mod(m @ 433..=450) = t { (!matches!(m, 444 | 446 | 449 | 452..=454)).then(|| c.m(*m)) } else { None }).unwrap_or(0.0)
 }
 
-/// ENH (spec 10.2).
+/// ENH (MODLOG "Timers").
 fn enhancing(c: &Caster, row: &Row, t: &Target, white: bool) -> f32 {
     let mut d = match row.formula.as_str() {
         // Sneak / Invisible / Deodorize: 420 and a random 0 / 60 / 120 (the longest).
@@ -623,7 +623,7 @@ fn enhancing(c: &Caster, row: &Row, t: &Target, white: bool) -> f32 {
     d
 }
 
-/// ENF (spec 20.3), with the resist rate at 1 (an upper bound) and the monster taken as no NM.
+/// ENF (MODLOG "Timers"), with the resist rate at 1 (an upper bound) and the monster taken as no NM.
 fn enfeebling(c: &Caster, row: &Row, t: &Target) -> f32 {
     let mut d = match row.effect {
         11 => 60.0,
@@ -670,7 +670,7 @@ pub fn lands(row: &Row, message: u16, value: u32) -> bool {
 }
 
 /// The icons a status shows as (the 0x029 / 0x076 data): sleep II and lullaby as sleep, Copy Image by its
-/// shadows, Doubt as Intimidate (spec 80.4.2).
+/// shadows, Doubt as Intimidate (MODLOG "Timers", Ends).
 pub fn icon_matches(status: u16, icon: u16) -> bool {
     status == icon
         || match status {
@@ -691,8 +691,9 @@ pub fn flag(status: u16, f: char) -> bool {
     tables().rules.get(&status).is_some_and(|r| r.flags.contains(f))
 }
 
-/// Statuses a new one ends on the same target (spec 1.5): its `remove`, `negative` and exclusion group, Dia vs Bio,
-/// the stat boosts' and storms' own exclusivity. The same status is the caller's (several kinds keep copies).
+/// Statuses a new one ends on the same target (MODLOG "Timers", Replacement): its `remove`, `negative` and
+/// exclusion group, Dia vs Bio, the stat boosts' and storms' exclusivity. The same status is the caller's (several
+/// kinds keep copies).
 pub fn ends(status: u16) -> Vec<u16> {
     let t = tables();
     let Some(r) = t.rules.get(&status) else { return Vec::new() };
@@ -737,7 +738,7 @@ mod tests {
         assert_eq!(row(Kind::Spell, 57).effect, 33);
     }
 
-    /// Spec 20.3's worked example: RDM 99, 5/5 enfeebling duration merits, 20 job points, ENF_MAG_DURATION 20,
+    /// The ENF example (MODLOG "Timers"): RDM 99, 5/5 enfeebling duration merits, 20 job points, ENF_MAG_DURATION 20,
     /// Saboteur on a normal mob, Slow: 180 x 2 + 30 + 20 = 410, x 1.2 = 492.
     #[test]
     fn slow_example() {
@@ -770,7 +771,7 @@ mod tests {
         assert_eq!(predict(&c, row(Kind::Spell, 511), &low, true, None), Some(180.0));
     }
 
-    /// Spec 30.2: song+ 3, no abilities: floor(120 x 1.3) = 156; Troubadour 312.
+    /// MODLOG "Timers", Songs: song+ 3, no abilities: floor(120 x 1.3) = 156; Troubadour 312.
     #[test]
     fn songs() {
         let mut c = Caster { main: (10, 75), ..Default::default() };
@@ -815,7 +816,7 @@ mod tests {
         assert!(ends(134).contains(&135));
     }
 
-    /// Weapon skills by TP (spec 70.9): Armor Break 120 + 6 TP / 100, Full Break's TP term, Blade: Retsu's fTP.
+    /// Weapon skills by TP (MODLOG "Timers"): Armor Break 120 + 6 TP / 100, Full Break's TP term, Blade: Retsu's fTP.
     #[test]
     fn weapon_skills() {
         let mut c = Caster { main: (1, 75), tp: 2000.0, ..Default::default() };

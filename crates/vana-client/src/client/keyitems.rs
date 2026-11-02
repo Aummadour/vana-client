@@ -1,4 +1,4 @@
-//! The social page's Key Items row (/keyitem, 0x4c; quest_mission_spec section 7): "menu    evitem" (the ten
+//! The social page's Key Items row (/keyitem, 0x4c; MODLOG "Key Items"): "menu    evitem" (the ten
 //! categories, one category's key items in variable-height pages, a description) and "menu    evitem01" ("Examine
 //! %s?" on a new one, which marks it seen with c2s 0x064).
 

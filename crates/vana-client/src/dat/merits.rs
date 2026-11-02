@@ -1,4 +1,4 @@
-//! Merit point and job point tables (status_rows_spec.md 0.4), read raw as FUN_101c4740 does: merit categories (file 89)
+//! Merit point and job point tables (MODLOG "Merit Points"), read raw as FUN_101c4740 does: merit categories (file 89)
 //! and entries (file 88), job point categories (file 94) and entries (file 93), a job's gifts (file 100407 + job); the
 //! names and descriptions from the d_msg files of language slots 0x1d / 0x1e / 0x1f (strings 2i and 2i + 1).
 

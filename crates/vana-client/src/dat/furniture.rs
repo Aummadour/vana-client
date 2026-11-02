@@ -1,4 +1,4 @@
-//! Mog House furniture data (spec ~/ffxi/lab/research/furniture_spec.md 2): file 32922's 'furn' table (chunk 0x59,
+//! Mog House furniture data (MODLOG "Mog House furniture"): file 32922's 'furn' table (chunk 0x59,
 //! 1024 entries of 8 bytes by item id, FUN_101d31e0) and 'mode' plant table (chunk 0x5b, FUN_101d5ec0), and the model
 //! file formula (FUN_101cce00).
 
@@ -97,7 +97,7 @@ pub fn model_file(model: u16) -> Option<u32> {
 mod tests {
     use super::*;
 
-    /// The spec's checked entries (furniture_spec.md 2).
+    /// The checked entries in MODLOG "Mog House furniture".
     #[test]
     fn table_entries() {
         assert_eq!((model_file(2), model_file(0x108), model_file(0xe9f), model_file(0x200)), (Some(32929), Some(51447), Some(62970), None));

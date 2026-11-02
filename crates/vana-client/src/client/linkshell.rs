@@ -1,4 +1,4 @@
-//! The main menu's Linkshell row (FUN_10140400 case 9; menu_rows2_spec part L): "menu    link5" lists the linkshell
+//! The main menu's Linkshell row (FUN_10140400 case 9; MODLOG "Linkshell menu"): "menu    link5" lists the linkshell
 //! items in the inventory, Mog Satchel, Sack and Case, "menu    link6" above it shows the cursor row's shell. Enter
 //! opens link2 / link3 / link4 on an equipped holder / pearlsack / pearl, link13 on one not equipped, link1 on a new
 //! linkshell (all group 0x81, in the main menu's place); link1's Name Link opens link11 in link6's place.

@@ -1,6 +1,6 @@
 // Effect elements on the GPU (fx/elem.rs has the layout; constants are prepended from it). The compute pass is
 // the element update stream FUN_100499d0 plus the transforms of FUN_10043f00 / FUN_100440d0 / FUN_10044f00
-// (generators.md C.3, C.4, C.7); the render pass draws each element's mesh with its TFACTOR colour.
+// (MODLOG "Effect generators"); the render pass draws each element's mesh with its TFACTOR colour.
 
 struct Params {
     // dt (ticks), seconds, day fraction, element count
@@ -15,7 +15,7 @@ struct Params {
     eye: vec4<f32>,
     // moon phase, weekday
     extra: vec4<f32>,
-    // the zone's area light (DAT_106175ac, area_light.md)
+    // the zone's area light (DAT_106175ac, MODLOG "Effect area-light tint")
     area: vec4<f32>,
     // FUN_100467e0's light: the background light's travel direction (world), w = the light count (0 or 1)
     light: vec4<f32>,
@@ -456,7 +456,7 @@ fn update(@builtin(global_invocation_id) gid: vec3<u32>) {
                     if ((ops[r + 4u] & 1u) != 0u) { kill = 1u; }
                 }
             }
-            // Drag on the slot vector: S *= rec[1]^dt (__CIpow, d3a_particles.md 4.2).
+            // Drag on the slot vector: S *= rec[1]^dt (__CIpow; MODLOG "Effect generators").
             case 0x2cu: { set_slv3(b, s, slv3(b, s) * pow(opf(r), dt)); }
             case 0x2fu: { set_slv3(b, s, euler(ev3(b, E_ROT)) * slv3(b, s)); }
             // Point-light fields: 0x5b / 0x5c life keys (first value S[s+2]), 0x5d / 0x5e plain, 0x49 the day.
@@ -499,7 +499,8 @@ fn update(@builtin(global_invocation_id) gid: vec3<u32>) {
         ip = ip + len;
     }
 
-    // Transforms (model_draw.md 6). Local L = scale then rotation; orientation modes; world and view position.
+    // Transforms (MODLOG "Effect generators"). Local L = scale then rotation; orientation modes; world and view
+    // position.
     let flags = el[b + E_FLAGS];
     var a = vec3<f32>(1.0);
     var ks = vec3<f32>(1.0);
@@ -727,7 +728,7 @@ fn update(@builtin(global_invocation_id) gid: vec3<u32>) {
         outs[ob + 26u] = wpos.y;
         outs[ob + 27u] = wpos.z;
     }
-    // Batched particles (d3a_particles.md 4.4 / 4.5): count, t, placement M1 = parent rotation x inverse(V_b90).
+    // Batched particles (MODLOG "Effect generators"): count, t, placement M1 = parent rotation x inverse(V_b90).
     if (kind == DK_BATCHED) {
         let nn = el[b + E_PART_N];
         var n = nn;
@@ -1471,8 +1472,8 @@ fn fs_trail(i: TrailOut) -> @location(0) vec4<f32> {
 fn sat(x: f32) -> f32 { return clamp(x, 0.0, 1.0); }
 fn sat3(x: vec3<f32>) -> vec3<f32> { return clamp(x, vec3<f32>(0.0), vec3<f32>(1.0)); }
 
-// The texture stages of each path (model_draw.md 1.3 / 2, d3a_particles.md 2.2). Texture alpha comes doubled from
-// the upload (0x80 = 1.0), so retail's 2 x Ta is `t.a` here.
+// The texture stages of each path (MODLOG "Effect generators"). Texture alpha comes
+// doubled from the upload (0x80 = 1.0), so retail's 2 x Ta is `t.a` here.
 @fragment
 fn fs(i: VOut) -> @location(0) vec4<f32> {
     let flags = i.mode.x;

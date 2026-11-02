@@ -1,4 +1,4 @@
-//! Retail's per-actor ground shadow (FUN_10032f80 from the actor draw; research actor_shadow_spec.md). Per caster
+//! Retail's per-actor ground shadow (FUN_10032f80 from the actor draw; MODLOG "Actor ground shadows"). Per caster
 //! this frame: the projected blob (mode 0: "system  kage_tex" painted top-down on the collision faces of the 3 x 3
 //! cells around it), the silhouette (mode 1: the actor drawn flat white from its light into a layer, then laid on the
 //! same faces without the normal test) or the blob quad (mode 2: a flat square at its feet). Each darkens the frame

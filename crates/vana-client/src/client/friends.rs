@@ -1,4 +1,4 @@
-//! The Friend List's data (research friend_list_spec.md 2, 4.2): what polcore and FFXiMain's friend manager held, filled
+//! The Friend List's data (MODLOG "The Friend List"): what polcore and FFXiMain's friend manager held, filled
 //! from LSB's xi_profile (net/profile.rs): our open status, handle and characters, the friend and block lists, the
 //! friends' presence from the IRC notices.
 

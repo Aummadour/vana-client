@@ -1,4 +1,4 @@
-//! The weapon after-image (scheduler op 0x2c, CYyAfterImage FUN_1001bc80; research fx_afterimage_spec.md): an Afb's
+//! The weapon after-image (scheduler op 0x2c, CYyAfterImage FUN_1001bc80; MODLOG "Weapon after-image"): an Afb's
 //! two rails (blade tip A, grip B) placed through the actor's root, smoothed into an 80-sample ring that shrinks and
 //! fades. The CPU takes the Afb points and pushes samples once a retail frame (2 ticks), as retail's update does; each
 //! sample's aging is a closed form of its birth, evaluated per vertex on the GPU (effects.wgsl `vs_trail`) and here
@@ -230,8 +230,9 @@ impl Trail {
         self.ring[(self.head + RING - 1 - k % RING) % RING]
     }
 
-    /// FUN_1001c260 applied (aged - birth) times, in closed form (spec 6.3): both rails close along their line (A by
-    /// p, B by q, then swapping once they cross), alpha down per aging, RGB down per aging after the delay.
+    /// FUN_1001c260 applied (aged - birth) times, in closed form (MODLOG "Weapon after-image"): both rails close along
+    /// their line (A by p, B by q, then swapping once they cross), alpha down per aging, RGB down per aging after the
+    /// delay.
     pub fn aged_sample(&self, s: &Sample) -> Aged {
         let n = self.aged.saturating_sub(s.birth);
         let (p, q) = self.shrink;

@@ -1,4 +1,4 @@
-//! The mission and quest logs' name files (quest_mission_spec section 3): d_msg entries {u32 number, name,
+//! The mission and quest logs' name files (MODLOG "Missions"): d_msg entries {u32 number, name,
 //! description}, one file per mission log (15) and per quest area (11). English ids; ja = the table's ja column.
 
 use super::DatIndex;

@@ -1,4 +1,4 @@
-//! Linkshell's Link List (spec ~/ffxi/lab/research/menu_rows2_spec.md L4.5): "menu    link12", the scresult class on
+//! Linkshell's Link List (MODLOG "Linkshell: the Link List"): "menu    link12", the scresult class on
 //! its own object, listing the members of an equipped linkshell from the search server's group list (kind 2), and the
 //! member windows link7..10 (Tell, To Sack / To Pearl, Kick).
 

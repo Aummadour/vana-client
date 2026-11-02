@@ -37,8 +37,8 @@ pub struct Mesh {
     pub dist: Vec<std::ops::Range<u32>>,
 }
 
-/// A D3a sprite animation (chunk 0x21, FUN_1003d870; d3a_particles.md 1): frames of quads as triangle lists, one
-/// texture. `frames` = (first vertex, quad count).
+/// A D3a sprite animation (chunk 0x21, FUN_1003d870; MODLOG "Effect generators"): frames of quads as triangle lists,
+/// one texture. `frames` = (first vertex, quad count).
 #[derive(Clone, Debug)]
 pub struct Sprite {
     pub verts: Vec<MeshVertex>,
@@ -108,8 +108,8 @@ impl Sprite {
     }
 }
 
-/// A D3b morph mesh (chunk 0x25, FUN_1003e600 / FUN_1003ea60; classes2.md 4): K key meshes of V positions and N
-/// packed normals; corners (position index, normal index, colour doubled, uv) of T triangles.
+/// A D3b morph mesh (chunk 0x25, FUN_1003e600 / FUN_1003ea60; MODLOG "D3b morph elements"): K key meshes of V
+/// positions and N packed normals; corners (position index, normal index, colour doubled, uv) of T triangles.
 #[derive(Clone, Debug)]
 pub struct Morph {
     pub k: u32,

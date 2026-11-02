@@ -1,5 +1,5 @@
-//! The quest and mission store (s2c 0x056, LAB_10098ad0; quest_mission_spec section 2) and the rules that turn it into
-//! the mission and quest lists' rows (sections 5.2, 6.2).
+//! The quest and mission store (s2c 0x056, LAB_10098ad0; MODLOG "Missions") and the rules that turn it into
+//! the mission and quest lists' rows (MODLOG "Missions", "Quests").
 
 use crate::dat::journal::LogFile;
 

@@ -1,8 +1,8 @@
-//! The main menu's Search row (FUN_10140400 case 8; menu_rows2_spec part S): "menu    searchma" in the main menu's
+//! The main menu's Search row (FUN_10140400 case 8; MODLOG "Search menu"): "menu    searchma" in the main menu's
 //! place and the criterion windows in its place (all group 0x81: the walk shows only the newest). Each pick searches
 //! the current zone with that one criterion (FUN_1020d310 resets the condition whenever searchma has the focus) and
 //! hands over to the results window (client/search.rs). "menu    scsibori" (Refine, from the results header;
-//! arealist_spec section 2) and the windows opened from it work on the last search's condition instead.
+//! MODLOG "Search: arealist") and the windows opened from it work on the last search's condition instead.
 
 use super::World;
 use super::game_ui::GameUi;

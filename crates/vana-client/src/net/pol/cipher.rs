@@ -1,5 +1,6 @@
 //! polcore's stream cipher (both services): Blowfish-16 over tables expanded from the key by MD5 instead of pi, run
-//! as an output-feedback keystream that lets CR and LF through. Addresses polcore 73b1864b; research/pol_chat_spec.md.
+//! as an output-feedback keystream that lets CR and LF through. Addresses polcore 73b1864b;
+//! MODLOG "PlayOnline sign-in".
 
 /// MD5 of `data` from `state` with the length counted from zero: polcore's key expansion finalises one context and
 /// keeps hashing into it, so every round after the first starts from an all-zero state (0x10018910 zeroes it).

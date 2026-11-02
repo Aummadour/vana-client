@@ -1,4 +1,4 @@
-//! LSB's xi_profile, which stands in for PlayOnline's profile and IRC services (research friend_list_spec.md 3): TLS
+//! LSB's xi_profile, which stands in for PlayOnline's profile and IRC services (MODLOG "The Friend List"): TLS
 //! 1.3, every connection opening with {u32 account id, session hash}. The profile port answers one request per
 //! connection; the IRC port is one long session for presence and new-mail notices.
 
@@ -525,7 +525,7 @@ fn notice(payload: &str) -> Option<Irc> {
 mod tests {
     use super::*;
 
-    /// The spec's vectors (friend_list_spec.md 4.1, derived from LSB's codec).
+    /// Vectors derived from LSB's codec (MODLOG "The Friend List and PlayOnline messages").
     #[test]
     fn codec() {
         assert_eq!(checksum(&[1, 2, 3, 4, 5]), 0x0903_0201);

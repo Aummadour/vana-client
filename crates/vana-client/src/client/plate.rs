@@ -1,5 +1,5 @@
-//! Name plate icons (nameplate_icons_spec.md): fontshp glyph bytes 0x8e..0xb1 put in front of the name (FUN_10097840),
-//! the job master stars on a second line (FUN_100979b0), and the target window's glyph (FUN_101501a0).
+//! Name plate icons (MODLOG "Name plate icons"): fontshp glyph bytes 0x8e..0xb1 put in front of the name
+//! (FUN_10097840), the job master stars on a second line (FUN_100979b0), and the target window's glyph (FUN_101501a0).
 
 use super::net::{Marks, PlateExtra};
 

@@ -1,4 +1,4 @@
-//! Retail's actor ground shadows, the CPU half (render/shadow.rs draws them; research actor_shadow_spec.md): which
+//! Retail's actor ground shadows, the CPU half (render/shadow.rs draws them; MODLOG "Actor ground shadows"): which
 //! actors cast and how (FUN_100c9da0's mode gate, config 0x3a), a light-state slot per caster, the silhouette layers.
 
 use super::ground::Ground;

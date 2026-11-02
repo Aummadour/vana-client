@@ -1,6 +1,6 @@
-//! An element's state as the GPU keeps it: the CMoElem fields the update stream touches (generators.md C.2),
-//! one u32 array per element, floats as bits. The emission stream fills it on the CPU (fx/emit.rs); the
-//! update stream runs on the GPU every frame (render/effects.wgsl).
+//! An element's state as the GPU keeps it: the CMoElem fields the update stream touches (MODLOG "Effect
+//! generators"), one u32 array per element, floats as bits. The emission stream fills it on the CPU (fx/emit.rs);
+//! the update stream runs on the GPU every frame (render/effects.wgsl).
 
 /// Word offsets; each comment names the CMoElem field.
 pub mod w {
@@ -32,7 +32,7 @@ pub mod w {
     pub const SERIAL: usize = 29;
     /// D3a frame count (the draw-time wrap, FUN_1003dad0).
     pub const FRAMES: usize = 30;
-    /// Draw kind (kind::) and, for batched D3a, the particle block (d3a_particles.md 4.2): first particle in the
+    /// Draw kind (kind::) and, for batched D3a, the particle block (MODLOG "Effect generators"): first particle in the
     /// pool, N, elapsed ticks t, gravity, d = drag - 1.
     pub const KIND: usize = 31;
     pub const PART_BASE: usize = 32;
@@ -99,7 +99,7 @@ pub mod dk {
     pub const FLARE: u32 = 4;
     /// A D3b morph (CMoD3bElem); FRAMES holds its key count, SFRAMES its first word in the morph data.
     pub const MORPH: u32 = 5;
-    /// CMoDist (classes2.md 2.1).
+    /// CMoDist (MODLOG "Distortion / heat haze").
     pub const DIST: u32 = 6;
     /// CMoPointLightProgElem: draws nothing, updates its light.
     pub const LIGHT: u32 = 7;
@@ -520,7 +520,8 @@ mod lit_tests {
         (c.x, l)
     }
 
-    /// fx_element_render_spec 1.2's worked numbers: Cv 0x80, ambient 0x50 (Ga 40 / 255), light 0xc0 x 1.4.
+    /// The worked numbers (MODLOG "Lit D3b / D3m effect elements"): Cv 0x80, ambient 0x50 (Ga 40 / 255), light
+    /// 0xc0 x 1.4.
     #[test]
     fn lit_cases() {
         let close = |a: f32, b: f32| (a - b).abs() < 1e-4;

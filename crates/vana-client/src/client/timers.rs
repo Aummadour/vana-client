@@ -107,7 +107,7 @@ impl Bearer {
 const GRACE: f32 = 3.0;
 /// A party member's 0x076 list may be older than an effect that just landed.
 const LIST_LAG: f32 = 3.0;
-/// Our own effects that wore off this long ago still count for the action that used them (spec 1.1).
+/// Our own effects that wore off this long ago still count for the action that used them (MODLOG "Timers", Event flow).
 const LOST_FOR: f32 = 1.5;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -245,17 +245,17 @@ impl Timers {
 use super::durations::{self, Kind};
 
 /// 0x028 result messages removing the status in the value from the target (-na, Healing Waltz, Erase / Dispel /
-/// Finale, Larceny, steals: spec 80.3).
+/// Finale, Larceny, steals: MODLOG "Timers", Ends).
 const REMOVED: &[u16] = &[83, 123, 159, 321, 341, 343, 378, 453];
 /// A proc removing the status in its value.
 const PROC_REMOVED: u16 = 168;
 /// 0x028 messages of anyone's effect landing with its status in the value (replaces ours of the same status).
 const OTHERS_LANDED: &[u16] = &[127, 186, 230, 236, 237, 242, 243, 266, 267, 268, 271, 277, 278, 319, 320];
-/// 0x029: the effect with the icon in Data wore off (LSB sends only these two: spec 80.4.2).
+/// 0x029: the effect with the icon in Data wore off (LSB sends only these two: MODLOG "Timers", Wear-off).
 const WORN: &[u16] = &[204, 206];
 /// 0x029: the target was defeated.
 const DEFEATED: &[u16] = &[6, 20, 97];
-/// Weapon skill messages (category 3 is shared with some abilities: spec 80.2.2).
+/// Weapon skill messages (category 3 is shared with some abilities: MODLOG "Timers", Lookup).
 const WS_MSGS: &[u16] = &[185, 188, 189, 264, 282, 283];
 
 /// Our pet: its server id from the entity list (my_pet is its target index).
@@ -299,7 +299,7 @@ fn target_of(w: &World, id: u32, first: bool, c: &durations::Caster) -> duration
 }
 
 /// The TP our weapon skill used: the TP at its start, the gear's TP Bonus (not the off-hand's; not the ranged slot's
-/// for a melee skill, nor the main hand's for a ranged one), Fencer gear when single-wielding (spec 70.9).
+/// for a melee skill, nor the main hand's for a ranged one), Fencer gear when single-wielding (MODLOG "Timers").
 fn ws_tp(w: &World, ws: u16) -> f32 {
     let ranged = (192..=223).contains(&ws);
     let skip: &[usize] = if ranged { &[0, 1] } else { &[1, 2] };
@@ -364,7 +364,7 @@ pub fn on_action(w: &mut World, a: &Action) {
     let lost: Vec<u16> = w.timers.lost.iter().map(|l| l.0).collect();
     let tp = (kind == Kind::Ws).then(|| ws_tp(w, a.arg as u16));
     let mut c = durations::Caster::of(w, &lost, tp);
-    // A pet casting a spell has none of our inputs (spec 70.6 / 70.8).
+    // A pet casting a spell has none of our inputs (MODLOG "Timers", Pet casters).
     c.pet = !ours && kind == Kind::Spell;
     let Some(rows) = durations::tables().rows.get(&(kind, a.arg as u16)) else { return };
     let white = kind == Kind::Spell && durations::white(w, a.arg as u16);
@@ -447,8 +447,8 @@ fn land(w: &mut World, c: &durations::Caster, a: &Action, row: &durations::Row, 
     }
     if durations::duplicates(status) {
         if row.formula.starts_with("ENH_SONG") {
-            // Spec 30.3: the same song and tier is replaced (and, as LSB counts it, still fills its slot); at our cap
-            // the song of ours that ends first goes.
+            // MODLOG "Timers", Song slots: the same song and tier is replaced (and, as LSB counts it, still fills its
+            // slot); at our cap the song of ours that ends first goes.
             let ours = b.effects.iter().filter(|e| e.tier > 0 && (195..=223).contains(&e.status)).count();
             b.effects.retain(|e| !(e.status == status && e.tier == row.tier));
             if ours as f32 >= max_songs {
@@ -480,7 +480,7 @@ fn land(w: &mut World, c: &durations::Caster, a: &Action, row: &durations::Row, 
     b.effects.push(Applied { status, name, start: now, secs, told, tier: row.tier });
 }
 
-/// Our melee / ranged hit's additional effect (spec 75): the weapon's own length for it.
+/// Our melee / ranged hit's additional effect (MODLOG "Timers", Weapon procs): the weapon's own length for it.
 fn procs(w: &mut World, a: &Action) {
     let ranged = a.category == crate::net::action::category::RANGED_FINISH;
     let now = Instant::now();
@@ -534,7 +534,7 @@ fn others(w: &mut World, a: &Action) {
             }
         }
     }
-    // Arise accepted: the raised player's own category-4 Arise action (spec 10.5); Reraise for an hour, no origin.
+    // Arise accepted: the raised player's category-4 Arise action (MODLOG "Timers"); Reraise for an hour, no origin.
     if a.category == crate::net::action::category::MAGIC_FINISH && a.arg == 494 && w.timers.arise.iter().any(|x| x.0 == a.actor) {
         w.timers.arise.retain(|x| x.0 != a.actor);
         let name = source_name(w, Source::Spell(494));
@@ -600,8 +600,8 @@ pub fn on_gone(w: &mut World, id: u32, died: bool) {
     }
 }
 
-/// The luopan's life (spec 40.8): 600 s at most, or its HP over the drain each 3 s; Bolster and Blaze of Glory as
-/// they were at the cast.
+/// The luopan's life (MODLOG "Timers", Geomancy): 600 s at most, or its HP over the drain each 3 s; Bolster and
+/// Blaze of Glory as they were at the cast.
 fn luopan_life(c: &durations::Caster) -> f32 {
     let lvl = c.main.1 as f32;
     let bolster = c.has(513);

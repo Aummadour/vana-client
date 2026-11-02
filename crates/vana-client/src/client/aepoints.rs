@@ -1,4 +1,4 @@
-//! statcom2 row 13, Alter Ego Points (spec ~/ffxi/lab/research/status_rows_spec.md 5): fp_cat (the categories) with
+//! statcom2 row 13, Alter Ego Points (MODLOG "Alter Ego Points"): fp_cat (the categories) with
 //! fp_info and bluehelp, fp_cat2 over it (the category's attributes), raising through merityn.
 
 use super::World;

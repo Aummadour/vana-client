@@ -1,6 +1,6 @@
-//! Records of Eminence lists (roe_lists_spec.md): quest01 over quest00 in modes 2 Current, 3 Objective List (the
-//! category tree of dat/roe.rs) and 4 Vana'Bout, the description with its rewards, and the prompts that send c2s
-//! 0x10C (set), 0x10D (remove) and 0x10E (claim).
+//! Records of Eminence lists (MODLOG "Records of Eminence lists"): quest01 over quest00 in modes 2 Current, 3
+//! Objective List (the category tree of dat/roe.rs) and 4 Vana'Bout, the description with its rewards, and the
+//! prompts that send c2s 0x10C (set), 0x10D (remove) and 0x10E (claim).
 
 use super::World;
 use super::game_ui::GameUi;

@@ -1,4 +1,4 @@
-//! The equipment set slot editor (spec ~/ffxi/lab/research/social_rows_spec.md M2.6 / M2.7): "menu    mcresed" (the
+//! The equipment set slot editor (MODLOG "Equipment sets: the slot editor"): "menu    mcresed" (the
 //! 16-slot grid, an equipment window subclass), its item list ("menu    inventor" at (200, 48), three rows above the
 //! items) and "menu    mcrmogc" (Storage Options). An item asks the server (c2s 0x052), whose s2c 0x116 replaces the
 //! working copy; Remove / Keep change it here. The working copy goes back into the set when the editor closes.

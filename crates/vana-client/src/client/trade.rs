@@ -1,4 +1,4 @@
-//! Trading (spec ~/ffxi/lab/research/trade_spec.md). The NPC hand-over "menu    handover" (FUN_10139840): up to
+//! Trading (MODLOG "NPC trade", "Player trade"). The NPC hand-over "menu    handover" (FUN_10139840): up to
 //! eight inventory items and gil picked from the inventory list, OK sends c2s 0x036 at once and closes; the server's
 //! onTrade answers with an event, a line or nothing. Player trade (FUN_10151040): c2s 0x032 asks, the other side
 //! accepts by choosing Trade (0x033 Start), "menu    trade" (ours) and "menu    gift" (theirs) open on s2c 0x022

@@ -1,6 +1,6 @@
 //! The auto-translate dictionary (language slot 0x18; English file 55665) and the phrase blocks in text
-//! (`FD kind lang hi lo FD`, kept by font::decode_sjis as four private-use chars). Spec:
-//! ~/ffxi/lab/research/autotranslate_spec.md (loader FUN_101bb7a0, resolver FUN_101bc100, expander FUN_101ac990).
+//! (`FD kind lang hi lo FD`, kept by font::decode_sjis as four private-use chars). MODLOG "Auto-translate: the
+//! dictionary" (loader FUN_101bb7a0, resolver FUN_101bc100, expander FUN_101ac990).
 
 use super::DatIndex;
 use super::font::{PHRASE_BASE, decode_sjis};

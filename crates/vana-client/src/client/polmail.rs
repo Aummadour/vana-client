@@ -1,4 +1,4 @@
-//! PlayOnline messages (research friend_list_spec.md 1.8, 2.6): msgline the composer, msglist the unread messages,
+//! PlayOnline messages (MODLOG "The Friend List"): msgline the composer, msglist the unread messages,
 //! mes1rcv / mes2frnd the actions on a read one. The messages and the jobs are client/friends.rs's.
 
 use super::World;

@@ -1,4 +1,4 @@
-//! The ship voyage's state (spec ~/ffxi/lab/research/ship_voyage_spec.md 1.1..1.4): DAT_1065ca2c (t),
+//! The ship voyage's state (MODLOG "Ship voyages"): DAT_1065ca2c (t),
 //! DAT_10376ff0 (rate), DAT_1065ca28 (reverse), DAT_1047bc88 (route), DAT_1047bc8c (hold) and the zone's path.
 //! Never reset by a zone change: a zone-in without ship data keeps it, as retail.
 
@@ -76,7 +76,7 @@ mod tests {
         ShipData { start: 1_000_000, end: 1_000_944, reverse: false, route: 0 }
     }
 
-    /// Spec 6: a leg 236 s in is a quarter done, 1 / 56640 a tick.
+    /// A leg 236 s in is a quarter done, 1 / 56640 a tick.
     #[test]
     fn start() {
         let mut v = Voyage::default();

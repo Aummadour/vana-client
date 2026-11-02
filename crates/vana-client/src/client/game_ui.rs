@@ -255,8 +255,8 @@ pub struct GameUi {
     presses: std::cell::RefCell<std::collections::HashMap<String, (u16, f32)>>,
 }
 
-/// FUN_1015fa00's group walk (window_groups_spec.md): the windows wanted this frame and last with their raise
-/// stamps, and those the walk suspended for this frame.
+/// FUN_1015fa00's group walk (MODLOG "Window group walk"): the windows wanted this frame and last with their
+/// raise stamps, and those the walk suspended for this frame.
 #[derive(Default)]
 struct Walk {
     now: std::collections::HashMap<String, i64>,

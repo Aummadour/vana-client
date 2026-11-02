@@ -248,7 +248,7 @@ mod tests {
         println!("hume: {} points, point 0x2b {p:?}", hume.skeleton.points.len());
     }
 
-    /// Mount files (mount_model_spec.md 2.3): the raptor, the tiger's side-saddle for Hume F, the moogle whose `moun`
+    /// Mount files (MODLOG "Riding"): the raptor, the tiger's side-saddle for Hume F, the moogle whose `moun`
     /// comes before its `info`.
     #[test]
     fn mount_info() {

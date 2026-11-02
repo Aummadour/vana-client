@@ -44,7 +44,7 @@ struct Area {
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
 // Point lights (two vec4s each: position, range; colour rgb / 128 (0 when unlit), intensity I), from the effects
-// (classes2.md 3.2; D3D8 POINT, Att2 = 1 / I, or 1 when I <= 0).
+// (MODLOG "Point lights on scenery"; D3D8 POINT, Att2 = 1 / I, or 1 when I <= 0).
 @group(0) @binding(1) var<storage, read> plights: array<vec4<f32>>;
 @group(0) @binding(2) var<storage, read> areas: array<Area>;
 

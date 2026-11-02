@@ -1,8 +1,8 @@
-//! Main menu social row 5 Set Bazaar (spec ~/ffxi/lab/research/social_rows_spec.md part B): "menu    bazaar" (vtable
+//! Main menu social row 5 Set Bazaar (MODLOG "Set Bazaar"): "menu    bazaar" (vtable
 //! 0x10338e18: open FUN_101dcf80, messages FUN_101dcfa0) with Set Prices (the shop list's price source, shop.rs) and
 //! Edit Comment (the comment editor in mode 0, seacom.rs); and the seller's lines (s2c 0x108 / 0x10A).
 //!
-//! The buyer's side (spec ~/ffxi/lab/research/bazaar_spec.md): the wares store another player's bazaar fills (s2c
+//! The buyer's side (MODLOG "Buying from a player's bazaar"): the wares store another player's bazaar fills (s2c
 //! 0x105), the purchase result (0x106), the bazaar closing under us (0x107) and other customers' purchases (0x109); the
 //! list itself is the shop list's bazaar source (shop.rs View::Wares).
 

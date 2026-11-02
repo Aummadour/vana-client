@@ -1,5 +1,5 @@
 //! The treasure pool: s2c 0x0D2 (LAB_100ecb30, an item or gil found) and 0x0D3 (LAB_100ecf80, a lot, a win, a loss)
-//! into the slots at G+0x1951c, their log lines, and the windows (spec ~/ffxi/lab/research/loot_spec.md): "menu    loot"
+//! into the slots at G+0x1951c, their log lines, and the windows (MODLOG "Treasure pool window"): "menu    loot"
 //! (DAT_10578214, vtable 0x10333f28) lists the pool, "menu    lootope" (Cast Lot / Pass) opens beside a row, "menu    lnowin"
 //! (Option, Done) passes on the rest. Opened only by the action menu's Treasure row (FUN_1013f060).
 

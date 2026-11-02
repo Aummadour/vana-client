@@ -1,4 +1,4 @@
-//! Footsteps (FUN_100d2970; ~/ffxi/lab/research/effects/footsteps_sound.md section 1): the posed foot points 9 and
+//! Footsteps (FUN_100d2970; MODLOG "Footsteps"): the posed foot points 9 and
 //! 8 (and 0xb / 0xa for four-legged models) relative to the actor root, read back from the GPU; a point that comes
 //! down to root level (height from < 0 to >= 0) on a moving actor near the camera is a step, which plays the
 //! surface's footstep sound.
@@ -113,7 +113,7 @@ mod tests {
     use crate::fx::sound::SoundCmd;
     use glam::Vec3;
 
-    /// footsteps_sound.md 1.2 survey and 1.5: Hume M feet 8136 is kind 1 shoe 1, the orc 1300 (0, 9, 0); in zone 232
+    /// MODLOG "Footsteps": Hume M feet 8136 is kind 1 shoe 1, the orc 1300 (0, 9, 0); in zone 232
     /// running on surface 1 plays fses/0112 = se 101001 at 95 from 8 units out and 1.8 up, walking at 76.
     #[test]
     fn port_sandoria_step() {

@@ -1,4 +1,4 @@
-//! Fishing, the 2013 mini-game (fishing_spec.md): /fish's checks and request latch, the bite wait, the fight (arrows
+//! Fishing, the 2013 mini-game (MODLOG "Fishing"): /fish's checks and request latch, the bite wait, the fight (arrows
 //! against the fish's stamina) and its end. The client never decides a catch: Enter sends the stamina left (c2s 0x110
 //! mode 3) and LSB answers with the result status.
 

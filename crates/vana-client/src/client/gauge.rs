@@ -1,4 +1,4 @@
-//! "menu    gaugewin" (DAT_105781ec; spec ~/ffxi/lab/research/combat_mode_spec.md section 4): our HP / MP / TP at
+//! "menu    gaugewin" (DAT_105781ec; MODLOG "Engaged state"): our HP / MP / TP at
 //! (16, 48) while engaged (opened by the battle reset, closed when we leave status 1). Draw FUN_101393a0, update
 //! FUN_10139660.
 

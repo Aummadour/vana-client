@@ -73,9 +73,9 @@ pub fn dmgnum_glyphs(lib: &crate::dat::ui::SpriteLib, tw: f32, th: f32) -> [[f32
 /// Instances are element x PER_ELEM + (particle, or the shading variant for meshes).
 const PER_ELEM: u32 = 512;
 
-/// The camera matrices of FUN_100691d0 from the view V (model_draw.md 5), as column-major glam matrices: b90 =
-/// rotation only; d50 = world x / z kept as unit axes, V's image of world y kept; d10 = yaw only with world y as
-/// view y; c10 = d10 · d50.
+/// The camera matrices of FUN_100691d0 from the view V (MODLOG "Effect generators"), as column-major glam
+/// matrices: b90 = rotation only; d50 = world x / z kept as unit axes, V's image of world y kept; d10 = yaw only
+/// with world y as view y; c10 = d10 · d50.
 pub fn view_set(v: Mat4) -> [Mat4; 4] {
     let mut b90 = v;
     b90.w_axis = glam::Vec4::W;
@@ -1444,8 +1444,8 @@ mod tests {
     /// Port San d'Oria's auto-start generators (sea, water tint, lamps) run for a while on the GPU and through
     /// the CPU reference of the update stream; every live element must agree.
     #[test]
-    /// Op 0x6e on the GPU (fx_element_render_spec 1.7 item 8): DAT 129 `d_ba/effe/warp/aw01/gr01` at 5 / 12.5 / 18
-    /// from the eye: (w0, w1) = (0, 1), (0.5, 0.5), (1, 0).
+    /// Op 0x6e on the GPU (MODLOG "Lit D3b / D3m effect elements"): DAT 129 `d_ba/effe/warp/aw01/gr01` at 5 /
+    /// 12.5 / 18 from the eye: (w0, w1) = (0, 1), (0.5, 0.5), (1, 0).
     fn gpu_morph_crossfade() {
         let cfg = crate::config::Config::load();
         let Ok(index) = crate::dat::DatIndex::open(&cfg.ffxi_dir()) else { return };

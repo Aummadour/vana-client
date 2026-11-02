@@ -1,4 +1,4 @@
-//! The chair under a /sitchair sitter (~/ffxi/lab/research/chairs_spec.md): the chair is the sitter's second actor
+//! The chair under a /sitchair sitter (MODLOG "/sitchair: the chair"): the chair is the sitter's second actor
 //! (entity +0xa4, kind status - 2, file 100507 + status - 0x3f; FUN_1008f740) at the sitter's place and facing
 //! (FUN_100caf90), fading in by its own `init`. The sitter takes the chair motion files (tag 9, FUN_100d2bc0(4)), sits
 //! down by `chi0` and stands by `chi2` on both (FUN_1008b460 states 0x17..0x1a), its weapons hidden while seated.

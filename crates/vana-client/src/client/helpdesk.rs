@@ -1,4 +1,4 @@
-//! Social row 8 Help Desk and /helpdesk (spec ~/ffxi/lab/research/social_rows_spec.md part H): "menu    faqsub"
+//! Social row 8 Help Desk and /helpdesk (MODLOG "Help Desk: faqsub"): "menu    faqsub"
 //! (vtable 0x1033bcf8; the state machine FUN_10212760 / FUN_10212aa0) with its menu page (FUN_102133c0 / FUN_102136d0)
 //! and Config page (FUN_102157c0 / FUN_10215a50). Q&A runs in PlayOnline's knowledge base, which we do not have: it
 //! stays grey and refuses, as retail does when its files fail to load. The GM call: client/faqmain.rs. Not done: the

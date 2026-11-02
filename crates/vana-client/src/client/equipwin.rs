@@ -1,4 +1,4 @@
-//! The Equipment screen (spec ~/ffxi/lab/research/equip_screen_spec.md; FUN_10133130): "menu    persona", "money",
+//! The Equipment screen (MODLOG "Equipment screen as retail"; FUN_10133130): "menu    persona", "money",
 //! the item list "menu    inventor" at (314, 48) (source vt 0x103336c0) and the grid "menu    equip", with the list's
 //! Storage Options row and "menu    mnstorag". Mode 2 (slot first): Enter on a slot lists its pieces; mode 1 (Num+,
 //! item first): a picked item limits the grid to its slots. Equipping sends c2s 0x050 {index, slot, container}.

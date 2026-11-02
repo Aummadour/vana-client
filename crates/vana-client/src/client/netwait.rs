@@ -1,5 +1,5 @@
 //! The lobby's "menu    netwait" (the status line) and "menu    netbar" (the progress) while an operation runs
-//! (FUN_1023b550 / FUN_1023bb60). Spec `~/ffxi/lab/research/lobby_netwait_spec.md`.
+//! (FUN_1023b550 / FUN_1023bb60). MODLOG "Lobby: netwait and netbar".
 //!
 //! The retail step machine runs one step-function call per lobby frame (30 fps); each call may set a group 8 status
 //! text and moves the step's sub-step counter, and the bar is (finished steps' counts + sub) / the op's total. Ours

@@ -1,5 +1,5 @@
 //! Config-tool 0011 (Environment Animation): animated meshes (MMB type 2) sway along their per-vertex delta (FUN_10168eb0,
-//! FUN_101734f0; research stored_settings_spec.md section 2). Each animated instance runs a 300-tick timer from a random
+//! FUN_101734f0; MODLOG "Config tool 0011"). Each animated instance runs a 300-tick timer from a random
 //! start with a random curve of the current weather; every frame (on the GPU here) the timer advances by the frame's
 //! ticks, a wrap picks a new curve, and k = floor((N - 1) s) / (N - 1) with s = max(0, 1 - curve(timer / 300)) goes into
 //! the instance record's area.y, which vs_main scales the delta by (retail binds position buffer trunc((N - 1) s)).

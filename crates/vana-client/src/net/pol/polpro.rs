@@ -1,5 +1,5 @@
 //! PlayOnline's profile service, POLPRO (pp%03d.pol.com:51220), as Viewer 1.18.15e speaks it: the member login and the
-//! session FFXiMain hands the lobby. Addresses are polcore 73b1864b (1.18.15e); research/pol_profile_spec.md.
+//! session FFXiMain hands the lobby. Addresses are polcore 73b1864b (1.18.15e); MODLOG "PlayOnline sign-in".
 
 use anyhow::{Context, Result, bail};
 use md5::{Digest, Md5};

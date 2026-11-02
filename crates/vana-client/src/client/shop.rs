@@ -1,17 +1,17 @@
-//! NPC shops (spec ~/ffxi/lab/research/shop_spec.md): s2c 0x03E opens "menu    shopmain" (Buy / Sell), 0x03C fills the
+//! NPC shops (MODLOG "NPC shops"): s2c 0x03E opens "menu    shopmain" (Buy / Sell), 0x03C fills the
 //! 80-entry stock table; the list "menu    shop" shows the stock (buy) or the inventory (sell), then "menu    itemctrl"
 //! for the quantity and "menu    shopbuy" / "menu    shopsell" to confirm; c2s 0x083 buys, 0x084 appraises and 0x084 +
 //! 0x085 sell. Closing sends nothing.
 //!
-//! Guild shops (~/ffxi/lab/research/guild_shop_spec.md) use the same windows: s2c 0x086 opens "menu    guildsho", Buy
+//! Guild shops (MODLOG "Guild shops") use the same windows: s2c 0x086 opens "menu    guildsho", Buy
 //! asks for the list (c2s 0x0AB, s2c 0x083), Sell for the guild's wanted list (0x0AD, 0x085), whose rows lead to the
 //! inventory; c2s 0x0AA buys, 0x0AC sells, s2c 0x082 / 0x084 answer.
 //!
-//! Set Bazaar's Set Prices (social_rows_spec.md B3 / B4) is the same list with the price source (vtable 0x10338ed4):
+//! Set Bazaar's Set Prices (MODLOG "Set Bazaar") is the same list with the price source (vtable 0x10338ed4):
 //! the inventory, "menu    moneyctr" for the price and shopsell to confirm; c2s 0x10B on opening, 0x10A per price, 0x109
 //! on leaving with a priced row.
 //!
-//! A player's bazaar (/check's View Wares, spec ~/ffxi/lab/research/bazaar_spec.md) is the same list with the bazaar
+//! A player's bazaar (/check's View Wares, MODLOG "Buying from a player's bazaar") is the same list with the bazaar
 //! source (vtable 0x10338ea4): c2s 0x105 on opening, the rows from the wares store (bazaar.rs), itemctrl and shopbuy,
 //! c2s 0x106 to buy and 0x104 on every close; it closes past 50.0 from the seller.
 

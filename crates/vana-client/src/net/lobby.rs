@@ -586,8 +586,9 @@ mod create_tests {
         assert_eq!(pkt.len(), 0x44);
     }
 
-    /// A lobby as FFXiMain's -net 3 path expects it (pol_lobby_spec.md 2..5): every packet's MD5 checked both ways, the
-    /// authCode in 0x26, MD5(K16 ‖ counter) in each key field, the 0x07 hash; the map key two steps past 0x0B.
+    /// A lobby as FFXiMain's -net 3 path expects it (MODLOG "PlayOnline sign-in"): every packet's MD5 checked both
+    /// ways, the authCode in 0x26, MD5(K16 ‖ counter) in each key field, the 0x07 hash; the map key two steps past
+    /// 0x0B.
     #[test]
     fn playonline_dialect_against_a_spec_lobby() {
         use std::net::TcpListener;
@@ -659,7 +660,7 @@ mod create_tests {
         let mut l = Lobby::connect("127.0.0.1", port, 0, Session::PlayOnline { auth_code: auth, k16 }, b"dll", "30261006_0", 5, 0xfff, Default::default()).unwrap();
         let chars = l.characters().unwrap();
         let m = l.select(&chars[0]).unwrap();
-        // The 0x07 hashed c; 0x0B makes it c + 2 and world entry c + 4 (spec 5).
+        // The 0x07 hashed c; 0x0B makes it c + 2 and world entry c + 4 (MODLOG "PlayOnline sign-in").
         let c = server.join().unwrap();
         assert_eq!((m.char_id, m.map.1, m.key[..16].to_vec(), u32::from_le_bytes(m.key[16..].try_into().unwrap())), (2 << 16 | 0x1234, 54230, k16.to_vec(), c + 4));
     }
@@ -690,7 +691,7 @@ mod create_tests {
             s = s.wrapping_add(((b as i8 as i32) << ((i as u32 % 20) * 4 & 31)) as u32);
         }
         assert_eq!(ffximain_checksum(&d), s);
-        // The installed 30261006_0 (the lobby spec's value), when present.
+        // The installed 30261006_0 (its value in MODLOG "PlayOnline sign-in"), when present.
         let dll = crate::config::Config::load().ffxi_dir().join("FFXiMain.dll");
         if let Ok(b) = std::fs::read(dll)
             && b.len() == 2_901_584

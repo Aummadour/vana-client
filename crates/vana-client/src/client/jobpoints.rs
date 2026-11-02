@@ -1,4 +1,4 @@
-//! statcom2 row 8, Job Points (spec ~/ffxi/lab/research/status_rows_spec.md 2): merit2ca (the jobs) with levmeri2 and
+//! statcom2 row 8, Job Points (MODLOG "Merit Points and Job Points"): merit2ca (the jobs) with levmeri2 and
 //! bluehelp, jbpcat over it (page 0 the job's categories, page 1 its gifts), raising through merityn.
 
 use super::World;

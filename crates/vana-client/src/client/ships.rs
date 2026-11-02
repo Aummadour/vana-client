@@ -1,4 +1,4 @@
-//! Ships (0x00E SubKind 4 -> actor kind 5, the XiModelActor; spec ~/ffxi/lab/research/ship_actors_spec.md): the boats
+//! Ships (0x00E SubKind 4 -> actor kind 5, the XiModelActor; MODLOG "Ship actors"): the boats
 //! and airships seen from the docks, the overhead airships, the pirate ship. One MMB from the ship's own DAT, placed
 //! where the server first put it and then moved only by that file's sequences: states 0x12..0x19 play `seq0`..`seq7`
 //! (DAT_1032d42c) from the server's stamp, caught up when more than 10 s late (FUN_10097a80 / FUN_100c4730).
@@ -285,8 +285,8 @@ pub fn load(index: &DatIndex, keys: &Keys, (entity, seq, file): Job) -> Result<L
 mod tests {
     use super::*;
 
-    /// ship_actors_spec 8: ids 0..21 are files 31004..31025; `fune` for 0..6 and 13..21, `_fun` for 7..12; file
-    /// 31020 (the barge) takes `fune` over `su00`.
+    /// Ids 0..21 are files 31004..31025 (MODLOG "Ship actors"); `fune` for 0..6 and 13..21, `_fun` for 7..12;
+    /// file 31020 (the barge) takes `fune` over `su00`.
     #[test]
     fn files() {
         let cfg = crate::config::Config::load();

@@ -28,7 +28,7 @@ pub mod mode {
     pub const HELD: i32 = 4;
 }
 
-/// Pad bit each key function's callback 0 tests (PTR_FUN_10361e28; kspec dump.txt), i.e. the compact keys.
+/// Pad bit each key function's callback 0 tests (PTR_FUN_10361e28; MODLOG "Input layer"), i.e. the compact keys.
 const PAD: &[(u8, u64)] = &[
     (0x00, 0x40), (0x27, 0x40), (0x2b, 0x40), (0x31, 0x40),
     (0x01, 0x80), (0x28, 0x80), (0x2c, 0x80), (0x32, 0x80),
@@ -673,8 +673,8 @@ mod tests {
         Frame { ticks: 1.0, keyboard: 2, ..Default::default() }
     }
 
-    /// The tables match the kspec dump: Num* on 0x44 (not typing, no Ctrl / Alt), Ctrl / Alt + F and Num+ on 0x78,
-    /// 42 compact records, k1 / k2 rows.
+    /// The tables match retail's (MODLOG "Input layer"): Num* on 0x44 (not typing, no Ctrl / Alt), Ctrl / Alt + F and
+    /// Num+ on 0x78, 42 compact records, k1 / k2 rows.
     #[test]
     fn tables_from_ffximain() {
         let Some(i) = real() else { return };

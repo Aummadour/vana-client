@@ -1,7 +1,7 @@
 //! Scheduler tasks (CMoSchedularTask, interpreter FUN_10057000) as far as effects need them: generators started,
 //! stopped and killed on an actor pair, child schedulers looked up in the actors' files or by scope, dolls, record
 //! loops and the conditional stack ops. Motions, reactions and battle messages stay with client/combat.rs.
-//! Spec: ~/ffxi/lab/research/effects/triggers.md.
+//! MODLOG "Effect schedulers".
 
 use super::Ref;
 use crate::net::action::Action;
@@ -45,7 +45,7 @@ impl ActionCtx {
         self.action.records()
     }
 
-    /// FUN_10061950: scheduler variables (triggers.md 0.6).
+    /// FUN_10061950: scheduler variables (MODLOG "Effect schedulers").
     pub fn var(&self, idx: u32, actor1: Option<u32>) -> i64 {
         let recs = self.records();
         let r = recs.get(self.cur.min(recs.len().saturating_sub(1))).map(|r| r.1);

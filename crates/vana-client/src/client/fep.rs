@@ -1,6 +1,6 @@
 //! Auto-translate input in the chat line (FUN_101b5d10, English's direct path): Tab completes the word at the end
 //! of the line from the dictionary into "menu    fep" (FUN_1018f550); a phrase goes in as one unit (`FD id FD`,
-//! four private-use chars here, font::PHRASE_BASE). Spec: ~/ffxi/lab/research/autotranslate_spec.md section 3.
+//! four private-use chars here, font::PHRASE_BASE). MODLOG "Auto-translate input".
 
 use super::World;
 use super::game_ui::GameUi;

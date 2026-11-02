@@ -52,7 +52,7 @@ pub struct Object {
     pub flags: u32,
     /// +0xb4 / +0xb8: y range, checked before any of its triangles.
     pub y_range: (f32, f32),
-    /// +0xb0: the area 4cc (copied to the ground info on a floor hit, FUN_10162590; area_light.md).
+    /// +0xb0: the area 4cc (copied to the ground info on a floor hit, FUN_10162590; MODLOG "Effect area-light tint").
     pub area: u32,
     /// +0xac..+0xaf (records of 0xc0, version >= 0x1a): 1-based MZB light list refs, as their keys (0 none).
     pub lights: [u32; 4],
@@ -283,7 +283,7 @@ mod tests {
         crate::dat::zone::load_scene(&keys, &index.read(crate::dat::zone::file_id(zone)).ok()?).ok()?.collision
     }
 
-    /// East Ronfaure's river (fx_point_specials_spec 2.4): the wade heights over its type-9 beds.
+    /// East Ronfaure's river (MODLOG "The bone-0 drop, the wade point 0x35"): the wade heights over its type-9 beds.
     #[test]
     fn east_ronfaure_water() {
         let Some(c) = load(101) else { return };

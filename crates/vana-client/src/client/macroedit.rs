@@ -1,4 +1,4 @@
-//! Social row 6 MacroPalette (spec ~/ffxi/lab/research/social_rows_spec.md M1): "menu    mcrmenu" -> Edit Macro:
+//! Social row 6 MacroPalette (MODLOG "MacroPalette: Edit Macro"): "menu    mcrmenu" -> Edit Macro:
 //! the book list "menu    mcrselec" with its options "menu    mcrselop", the edit palettes "menu    mcr1edit" /
 //! "menu    mcr2edit" (mcr?edlo long) with "menu    mcrbedit", and the macro editor "menu    macro" with
 //! "menu    mcrledit". No packets: everything is the USER files (client/macros.rs). Edit Equip. Set: client/esmenu.rs.

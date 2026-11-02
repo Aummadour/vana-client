@@ -1,6 +1,6 @@
-//! Blue Mage set spells (blue_magic_spec.md): s2c 0x044's blocks, the cast rules they feed (client/magic.rs), and the
-//! Set Spells screen opened from blusortw row 3 (FUN_101df020): persona, bluepoin, bluequip (the slots), bluinven (the
-//! known spells), bluehelp and bluesibo (Refine by Type), sending c2s 0x102.
+//! Blue Mage set spells (MODLOG "Blue magic sets"): s2c 0x044's blocks, the cast rules they feed (client/magic.rs), and
+//! the Set Spells screen opened from blusortw row 3 (FUN_101df020): persona, bluepoin, bluequip (the slots), bluinven
+//! (the known spells), bluehelp and bluesibo (Refine by Type), sending c2s 0x102.
 
 use super::World;
 use super::game_ui::GameUi;

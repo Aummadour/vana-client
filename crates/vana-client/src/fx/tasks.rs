@@ -1752,7 +1752,7 @@ impl Effects {
         }
     }
 
-    /// Op 0x6b: the scheduler's stack machine (triggers.md 0.7).
+    /// Op 0x6b: the scheduler's stack machine (MODLOG "Effect schedulers").
     fn stack_op(&mut self, t: &mut Task, op: &SOp, actors: &dyn Actors) {
         let sub = op.u16_at(8);
         let pop = |t: &mut Task| t.stack.pop().unwrap_or(0.0);
@@ -1883,7 +1883,7 @@ impl Effects {
         }
     }
 
-    /// The frame's path and rotation drives, after the schedulers (ship_actors_spec 3.8): one whose scheduler ended
+    /// The frame's path and rotation drives, after the schedulers (MODLOG "Ship actors"): one whose scheduler ended
     /// goes first, so a backward drive never reaches its end snap; each sets its actor's pose for the client.
     pub(super) fn step_drives(&mut self, f: &Frame, actors: &dyn Actors) {
         self.actor_poses.clear();
@@ -1917,7 +1917,7 @@ impl Effects {
         self.actor_poses = poses;
     }
 
-    /// FUN_10056b20 + FUN_100575a0 (ship_actors_spec 3.3): task `i` caught up by `skip` ticks. The ops that came due
+    /// FUN_10056b20 + FUN_100575a0 (MODLOG "Ship actors"): task `i` caught up by `skip` ticks. The ops that came due
     /// meanwhile run in the catch-up subset, each told how long ago it came due; true when it ended inside the skip.
     fn fast_forward(&mut self, i: usize, skip: f32, actors: &dyn Actors) -> bool {
         let Some(mut t) = self.tasks[i].take() else { return true };
@@ -2015,7 +2015,7 @@ impl Effects {
     /// FUN_10052a50: instances of `g` on (a1, a2): killed now, or soft-stopped (emission ends, elements finish). No a1:
     /// every instance; a clone with no actor2 matches any a2 (asm 0x10052b38).
     fn stop_generator(&mut self, g: Ref, a1: Who, a2: Who, soft: bool) {
-        // An unattached static generator is stopped as its template, whatever the actors (generators.md D.3).
+        // An unattached static generator stops as its template, whatever the actors (MODLOG "Scheduler ops 0x3f").
         let any = self.template_wide(g);
         for i in 0..self.insts.len() {
             let hit = self.insts[i].as_ref().is_some_and(|x| x.src == g && (any || pair_match(x.actors, a1, a2)));
@@ -2659,9 +2659,9 @@ impl Effects {
     }
 }
 
-/// FUN_100ac4b0 (effect_filter.md): bit 0 limits the filter to the player's status 1 / 3; rows 1..16 hide when
-/// their config bit is set and the caster class (low nibble) and target class (high) match (table 0x10324fb4:
-/// caster mask 1 << ((b - 1) / 4), target mask 0x10 << ((b - 1) % 4)); bit 17 (screen shaking) has no row.
+/// FUN_100ac4b0 (MODLOG "Effects filter"): bit 0 limits the filter to the player's status 1 / 3; rows 1..16 hide when
+/// their config bit is set and the caster class (low nibble) and target class (high) match (table 0x10324fb4: caster
+/// mask 1 << ((b - 1) / 4), target mask 0x10 << ((b - 1) % 4)); bit 17 (screen shaking) has no row.
 pub fn effects_allowed(cfg: u32, battle: bool, class: u8) -> bool {
     if cfg == 0 || (cfg & 1 != 0 && !battle) {
         return true;
@@ -3267,8 +3267,8 @@ mod tests {
         }
     }
 
-    /// cast_fx_spec F5: a failed file is passed by, so a +0x298 lookup reaches DAT 0's stwh instead of waiting on it
-    /// for ever; part files are not looked in.
+    /// A failed file is passed by, so a +0x298 lookup reaches DAT 0's stwh instead of waiting on it for ever; part
+    /// files are not looked in (MODLOG "Effect lookups").
     #[test]
     fn failed_file_passed_by() {
         let cfg = crate::config::Config::load();
@@ -3384,7 +3384,7 @@ mod tests {
         assert_eq!(ripples(&fx), 0);
     }
 
-    /// footsteps_sound.md 1.3 step 7: a walking step in zone 232 bursts fses/fefs 'w100' once (attach mode 1,
+    /// MODLOG "Footsteps": a walking step in zone 232 bursts fses/fefs 'w100' once (attach mode 1,
     /// point 0x34 = the foot contact), and the clone goes when its elements have.
     #[test]
     fn walk_dust() {
@@ -3409,9 +3409,9 @@ mod tests {
         assert!(!fx.insts.iter().flatten().any(|x| &x.name == b"w100"));
     }
 
-    /// footsteps_sound.md 1.3 step 7.2: Caedarva Mire (zone DAT 179) has no 'z' steps, so a Heraldic Imp's (model
-    /// 52021, Cib 3 / 35) `01z1` comes from its model file's fses (se 147001, a wing beat), not DAT 0's 'foot' (se 12,
-    /// a plain tone); its later steps search that folder first.
+    /// MODLOG "Footsteps: the model file's folder": Caedarva Mire (zone DAT 179) has no 'z' steps, so a Heraldic
+    /// Imp's (model 52021, Cib 3 / 35) `01z1` comes from its model file's fses (se 147001, a wing beat), not DAT 0's
+    /// 'foot' (se 12, a plain tone); its later steps search that folder first.
     #[test]
     fn flyer_wing_beats() {
         let cfg = crate::config::Config::load();
@@ -3433,8 +3433,8 @@ mod tests {
         assert_eq!(fx.sounds.last().map(|s| s.se), Some(12));
     }
 
-    /// triggers.md 7.1: atk0 -> ati0 -> dada -> dam0 -> damg (orc) -> chit (Hume) -> ef h (fists) -> hit1 (DAT 0):
-    /// generators g010..g013 start after the swing's hit.
+    /// Hume fists on an orc (MODLOG "Effect schedulers"): atk0 -> ati0 -> dada -> dam0 -> damg (orc) -> chit (Hume)
+    /// -> ef h (fists) -> hit1 (DAT 0): generators g010..g013 start after the swing's hit.
     #[test]
     fn fist_hit_sparks() {
         let cfg = crate::config::Config::load();
@@ -3463,7 +3463,7 @@ mod tests {
                 }
             }
         }
-        // dada at 40 in Hume ati0; damg and its spark 5 ticks later (triggers.md 2.2).
+        // dada at 40 in Hume ati0; damg and its spark 5 ticks later (MODLOG "Effect schedulers").
         for g in ["g010", "g011", "g012", "g013"] {
             assert!(started.iter().any(|s| s.1 == g && s.0 == 45), "{g}: {started:?}");
         }
@@ -3485,9 +3485,9 @@ mod tests {
         }
     }
 
-    /// triggers.md 7.3: Cure. The cast start ("cawh" from the skeleton file) runs ner2's circle (gn2s, gn20, gn21);
-    /// the finish loads file 2801, ends the circle (stwh) and plays main: the caster's sparkle (shwh -> eis4) and
-    /// tgt0 on the target.
+    /// Cure (MODLOG "Effect schedulers"). The cast start ("cawh" from the skeleton file) runs ner2's circle (gn2s,
+    /// gn20, gn21); the finish loads file 2801, ends the circle (stwh) and plays main: the caster's sparkle (shwh ->
+    /// eis4) and tgt0 on the target.
     #[test]
     fn cure_cast() {
         let cfg = crate::config::Config::load();
@@ -3563,8 +3563,8 @@ mod tests {
         }
     }
 
-    /// triggers.md 3.1: Combo (weapon skill animation 16) from a Hume M is file 33227 + 16 = 33243, put on the
-    /// actor's motion list; its "main" plays a20? and starts g006 / g000.
+    /// Combo (weapon skill animation 16; MODLOG "Effect schedulers") from a Hume M is file 33227 + 16 = 33243, put
+    /// on the actor's motion list; its "main" plays a20? and starts g006 / g000.
     #[test]
     fn weapon_skill_files() {
         assert_eq!(skill_files(3, 16, 1, 0), Some((33243, None)));
@@ -3729,7 +3729,7 @@ mod skillchain_tests {
         }
     }
 
-    /// skillchain_spec.md 5: DAT 0 `proc` (op 0x80) with record 0's proc kind 14 plays Impaction (3268) on the
+    /// MODLOG "Skillchains": DAT 0 `proc` (op 0x80) with record 0's proc kind 14 plays Impaction (3268) on the
     /// target: hold 64, the reaction at t39, the proc message at `mprc` (t65); nothing for kind 0.
     #[test]
     fn impaction_burst() {
@@ -3773,7 +3773,7 @@ mod skillchain_tests {
 mod damage_number_tests {
     use super::*;
 
-    /// damage_display_spec.md 3.1: `damv` with 1234 starts dam0 at t0 and the glow dam1 at t2, both kind 0x5c
+    /// MODLOG "On-screen damage numbers": `damv` with 1234 starts dam0 at t0 and the glow dam1 at t2, both kind 0x5c
     /// elements carrying the glyphs and the colour; `misv` carries ':'.
     #[test]
     fn damv_elements() {
@@ -3877,7 +3877,7 @@ mod load_tests {
 mod filter_tests {
     use super::effects_allowed;
 
-    /// effect_filter.md: bit 2 = you -> monster, bit 5 = monster -> you, bit 0 limits it to battle.
+    /// MODLOG "Effects filter": bit 2 = you -> monster, bit 5 = monster -> you, bit 0 limits it to battle.
     #[test]
     fn filter_rows() {
         let you_hit_mob = 1 | 2 << 4;
@@ -4131,8 +4131,8 @@ mod auto_tests {
         a.distance(Vec3::from(b)) < 0.01
     }
 
-    /// ship_actors_spec 3.7: Selbina's arrival (file 31008 `seq0`): `path` backward from the staging point, its heading
-    /// following the course, then `pat2` sideways into the berth.
+    /// Selbina's arrival (file 31008 `seq0`; MODLOG "Ship actors"): `path` backward from the staging point, its
+    /// heading following the course, then `pat2` sideways into the berth.
     #[test]
     fn selbina_arrival() {
         let Some(run) = sail(31008, b"seq0", 0.0, 1201, Vec3::new(9.294, 0.0, -69.775)) else { return };

@@ -1,4 +1,4 @@
-//! Region Info (main menu row 11; menu_rows2_spec part R): "menu    region" picks Conquest, Besieged, Campaign or
+//! Region Info (main menu row 11; MODLOG "Region Info"): "menu    region" picks Conquest, Besieged, Campaign or
 //! Colonization, and cnqframe (FUN_101e7980, a map-window subclass) draws that map with the markers read from
 //! FFXiMain and the info windows of its mode. The data is s2c 0x05E / 0x071, asked for with c2s 0x05A at most every
 //! 120 s.

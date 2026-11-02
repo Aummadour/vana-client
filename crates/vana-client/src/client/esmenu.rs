@@ -1,4 +1,4 @@
-//! MacroPalette's Edit Equip. Set (spec ~/ffxi/lab/research/social_rows_spec.md M2.4 / M2.5): the set list
+//! MacroPalette's Edit Equip. Set (MODLOG "MacroPalette: equipment sets"): the set list
 //! "menu    mcres20" (ten pages of 20, mcralpha names, the in-row name field) and its menu "menu    mcresmn"
 //! (Edit, Name, Copy, Paste, Delete, Overwrite, Equip, Set appearance). The store and packets: client/equipsets.rs; the
 //! slot editor: client/esedit.rs.

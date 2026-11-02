@@ -1,4 +1,4 @@
-//! statcom2 row 11 Unity (spec ~/ffxi/lab/research/status_rows_spec.md 4): "menu    ut_menu" with "menu    ut_point",
+//! statcom2 row 11 Unity (MODLOG "Unity"): "menu    ut_menu" with "menu    ut_point",
 //! quest00 in modes 1 (Unity Information) / 2 (Ranking Information) and quest01 in modes 5 / 6 (the previous / current
 //! week's ranking), from s2c 0x063 type 7 and 0x061 @0x58 / @0x5c.
 

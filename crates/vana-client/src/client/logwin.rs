@@ -1,6 +1,6 @@
-//! The chat log windows (logwindo, base class FUN_1015b250; logwin2, config 0xb4, logwin2_spec.md) and the input line
-//! (msgline): width from the UI width, height from the visible line count, auto-shrink, slide-in, the channel caption,
-//! each line routed to a window by its mode and the window's mask.
+//! The chat log windows (logwindo, base class FUN_1015b250; logwin2, config 0xb4, MODLOG "Log window 2") and the
+//! input line (msgline): width from the UI width, height from the visible line count, auto-shrink, slide-in, the
+//! channel caption, each line routed to a window by its mode and the window's mask.
 
 use super::game_ui::GameUi;
 
@@ -157,8 +157,8 @@ pub struct LogWin {
     spool: Spool,
 }
 
-/// rem4line / rem4li2 (research log_overflow_spec.md 3): the open event message's page, pinned at the log's top-left
-/// once lines push it off a full log; shown until the message ends.
+/// rem4line / rem4li2 (MODLOG "rem4line / rem4li2 and spoolmsg / splmsg2"): the open event message's page,
+/// pinned at the log's top-left once lines push it off a full log; shown until the message ends.
 #[derive(Default)]
 pub struct Rem {
     /// The log's length once the message's first page had printed: only later rows can show it.
@@ -169,7 +169,7 @@ pub struct Rem {
     keyed: bool,
 }
 
-/// spoolmsg / splmsg2 (§4): a held chat line (config 0x34) caught as it scrolls off a full log stays pinned at the
+/// spoolmsg / splmsg2: a held chat line (config 0x34) caught as it scrolls off a full log stays pinned at the
 /// top-left until its period ends.
 #[derive(Default)]
 struct Spool {
@@ -820,7 +820,7 @@ impl LogWin {
         self.anim.chat_line(open, &cfg);
     }
 
-    /// FUN_10162560's second loop (§4.4): a held row at or past the visible rows of a full log is caught; every older
+    /// FUN_10162560's second loop: a held row at or past the visible rows of a full log is caught; every older
     /// waiting entry with it (+0x14a = 1), 8 to slide.
     fn reach(&mut self) {
         let (max, vis, draw) = (self.cfg.max as usize, self.anim.lines(), self.anim.draw_n());
@@ -843,7 +843,7 @@ impl LogWin {
         }
     }
 
-    /// FUN_10136560's test after this frame's rows (§3.2): the open message's page (wrapped rows, colour, waiting for a
+    /// FUN_10136560's test after this frame's rows: the open message's page (wrapped rows, colour, waiting for a
     /// key) shows pinned when the top drawn row of a full log is still the page's. `open_at`: the log's length once
     /// its first page printed, none when no message is open. True when it showed now.
     pub fn overflow(&mut self, chat: &super::combat::ChatLog, page: Option<(Vec<String>, [u8; 4], bool)>, open_at: Option<usize>) -> bool {

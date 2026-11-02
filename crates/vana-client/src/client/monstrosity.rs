@@ -1,5 +1,4 @@
-//! Monstrosity (main job MON): who is in it and the names Monipulators show. Spec
-//! `~/ffxi/lab/research/monstrosity_spec.md`.
+//! Monstrosity (main job MON): who is in it and the names Monipulators show. MODLOG "Monstrosity, part 1..10".
 
 use super::{Entity, World};
 use std::sync::OnceLock;
