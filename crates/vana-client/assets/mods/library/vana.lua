@@ -32,6 +32,7 @@
 ---| "action" # A decoded action packet (s2c 0x028): actor, category, param, info and targets with their results.
 ---| "battle_message" # A battle message (s2c 0x029 / 0x02D): actor, target, message id and its two parameters.
 ---| "damage" # A damage number: a battle message that puts one up (main and proc records), whatever the chat filters show.
+---| "ipc_message" # Text the same mod sent from another game window on this machine (ipc.send; needs multibox).
 ---| "item_change" # A bag slot's count changed.
 
 ---@class vana.Player
@@ -189,6 +190,8 @@ ui.native = {}
 render = {}
 audio = {}
 draw = {}
+net = {}
+ipc = {}
 packets = {}
 chat = {}
 input = {}
@@ -451,6 +454,21 @@ function draw.clear() end
 ---@param point {x: number, y: number, z: number} 
 ---@return {x: integer, y: integer, on_screen: boolean}?
 function draw.to_screen(point) end
+
+--- Starts an HTTP(S) request on its own thread: {url, method (GET, POST, PUT, PATCH, DELETE, HEAD), body, headers, timeout (s)}; the callback later gets {status, body, headers} or {error}. Bodies past 16 MB are cut. Needs net.
+---@param spec table 
+---@param callback fun(res: table) 
+---@return integer
+function net.request(spec, callback) end
+
+--- Opens an http(s) URL in the browser. Needs net.
+---@param url string 
+function net.open_url(url) end
+
+--- Sends text to the same mod in the other game windows on this machine (their ipc_message event), or only to one character's. Needs multibox.
+---@param text string 
+---@param character? string 
+function ipc.send(text, character) end
 
 --- Hooks received packets (one id, or every one when nil) before the client reads them. The handler gets {id, data, original, injected, blocked, outgoing} (data and original are the whole sub-packet, header included) and returns nil to leave it, false to block it, or new bytes. Hooks chain across mods: a blocked packet still reaches later ones. Needs packets.read; changing or blocking needs packets.write.
 ---@param id integer? packet id
@@ -1002,4 +1020,5 @@ function settings.get(key) end
 --   action(action: vana.Action): A decoded action packet (s2c 0x028): actor, category, param, info and targets with their results.
 --   battle_message(actor: integer, target: integer, message: integer, param1: integer, param2: integer): A battle message (s2c 0x029 / 0x02D): actor, target, message id and its two parameters.
 --   damage(actor: integer, target: integer, value: integer, message: integer): A damage number: a battle message that puts one up (main and proc records), whatever the chat filters show.
+--   ipc_message(text: string, from: string): Text the same mod sent from another game window on this machine (ipc.send; needs multibox).
 --   item_change(bag: integer, slot: integer, id: integer, count: integer, previous: integer): A bag slot's count changed.

@@ -74,6 +74,9 @@ pub const FUNCS: &[Func] = &[
     Func { ns: "draw", name: "remove", doc: "Removes a shape.", params: &[("id", "string", "")], ret: "" },
     Func { ns: "draw", name: "clear", doc: "Removes every shape of the mod.", params: &[], ret: "" },
     Func { ns: "draw", name: "to_screen", doc: "Where a world point is on the screen this frame (window pixels, as hud places take), or nil behind the camera.", params: &[("point", "{x: number, y: number, z: number}", "")], ret: "{x: integer, y: integer, on_screen: boolean}?" },
+    Func { ns: "net", name: "request", doc: "Starts an HTTP(S) request on its own thread: {url, method (GET, POST, PUT, PATCH, DELETE, HEAD), body, headers, timeout (s)}; the callback later gets {status, body, headers} or {error}. Bodies past 16 MB are cut. Needs net.", params: &[("spec", "table", ""), ("callback", "fun(res: table)", "")], ret: "integer" },
+    Func { ns: "net", name: "open_url", doc: "Opens an http(s) URL in the browser. Needs net.", params: &[("url", "string", "")], ret: "" },
+    Func { ns: "ipc", name: "send", doc: "Sends text to the same mod in the other game windows on this machine (their ipc_message event), or only to one character's. Needs multibox.", params: &[("text", "string", ""), ("character?", "string", "")], ret: "" },
     Func { ns: "packets", name: "on_in", doc: "Hooks received packets (one id, or every one when nil) before the client reads them. The handler gets {id, data, original, injected, blocked, outgoing} (data and original are the whole sub-packet, header included) and returns nil to leave it, false to block it, or new bytes. Hooks chain across mods: a blocked packet still reaches later ones. Needs packets.read; changing or blocking needs packets.write.", params: &[("id", "integer?", "packet id"), ("handler", "fun(p: vana.Packet): (string|false|nil)", "")], ret: "integer" },
     Func { ns: "packets", name: "on_out", doc: "Hooks packets about to be sent, after the client built them; as on_in.", params: &[("id", "integer?", "packet id"), ("handler", "fun(p: vana.Packet): (string|false|nil)", "")], ret: "integer" },
     Func { ns: "packets", name: "off", doc: "Removes a packet hook.", params: &[("id", "integer", "what on_in / on_out returned")], ret: "" },
@@ -222,6 +225,7 @@ pub const EVENTS: &[Event] = &[
     Event { name: "action", doc: "A decoded action packet (s2c 0x028): actor, category, param, info and targets with their results.", args: &[("action", "vana.Action")] },
     Event { name: "battle_message", doc: "A battle message (s2c 0x029 / 0x02D): actor, target, message id and its two parameters.", args: &[("actor", "integer"), ("target", "integer"), ("message", "integer"), ("param1", "integer"), ("param2", "integer")] },
     Event { name: "damage", doc: "A damage number: a battle message that puts one up (main and proc records), whatever the chat filters show.", args: &[("actor", "integer"), ("target", "integer"), ("value", "integer"), ("message", "integer")] },
+    Event { name: "ipc_message", doc: "Text the same mod sent from another game window on this machine (ipc.send; needs multibox).", args: &[("text", "string"), ("from", "string")] },
     Event { name: "item_change", doc: "A bag slot's count changed.", args: &[("bag", "integer"), ("slot", "integer"), ("id", "integer"), ("count", "integer"), ("previous", "integer")] },
 ];
 

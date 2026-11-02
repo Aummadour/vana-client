@@ -111,6 +111,10 @@ pub(super) struct ModState {
     pub hud_handlers: Vec<(String, RegistryKey)>,
     /// World shapes (draw.*).
     pub shapes: Vec<super::draw::Shape>,
+    /// HTTP requests in flight (net.request): their callbacks, and the channel their answers come back on.
+    pub net_pending: Vec<(u64, RegistryKey)>,
+    pub net_rx: Option<std::sync::mpsc::Receiver<super::net::Answer>>,
+    pub net_tx: Option<std::sync::mpsc::Sender<super::net::Answer>>,
 }
 
 impl ModState {

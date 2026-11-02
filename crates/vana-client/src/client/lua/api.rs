@@ -410,6 +410,18 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     super::render::install(lua, &g, &m.id)?;
     super::audio::install(lua, &g, vm)?;
     super::draw::install(lua, &g)?;
+    super::net::install(lua, &g)?;
+    let me = m.id.clone();
+    let ipc = lua.create_table()?;
+    ipc.set(
+        "send",
+        lua.create_function(move |lua, (text, to): (String, Option<String>)| {
+            need(lua, "multibox")?;
+            state(lua).borrow_mut().ops.push(Op::Ipc(me.clone(), to, text));
+            Ok(())
+        })?,
+    )?;
+    g.set("ipc", ipc)?;
     let start = Instant::now();
     g.set("clock", lua.create_function(move |_, ()| Ok(start.elapsed().as_secs_f64()))?)?;
 

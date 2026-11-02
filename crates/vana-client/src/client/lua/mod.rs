@@ -7,6 +7,8 @@ mod api;
 pub(super) mod audio;
 mod docs;
 mod draw;
+mod ipc;
+mod net;
 mod hud;
 pub(super) mod input;
 mod manifest;
@@ -41,6 +43,8 @@ pub(super) enum Op {
     /// The camera's distance (the zoom's scale).
     CameraDistance(f32),
     Sound(audio::Sound),
+    /// A message to the same mod in the other clients: (mod, the character it is for, text).
+    Ipc(String, Option<String>, String),
 }
 
 /// The mods of this session.
@@ -75,6 +79,8 @@ pub struct Host {
     dir: runtime::Shared,
     /// Sounds the mods asked for, for the app's mixer.
     pub(in crate::client) sounds: Vec<audio::Sound>,
+    /// The bus to the other clients, open while a mod holds multibox.
+    ipc: Option<ipc::Bus>,
     /// What the UI knows that mods read (the map grid).
     info: std::rc::Rc<std::cell::RefCell<state::FrameInfo>>,
     /// HUD elements clicked since the last mod phase: (mod, element, button).
@@ -681,6 +687,18 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
         }
         let events = std::mem::take(&mut host.events);
         let ui_events = std::mem::take(&mut host.ui_events);
+        // The bus to the other clients, and what they sent (to the same mod, when it holds multibox).
+        if host.ipc.is_none() && host.vms.iter().any(|v| v.st.borrow().granted.iter().any(|g| g == "multibox")) {
+            host.ipc = ipc::Bus::open();
+        }
+        let msgs: Vec<ipc::Msg> = host.ipc.as_ref().map(|b| b.rx.try_iter().collect()).unwrap_or_default();
+        for (m, from, to, text) in msgs {
+            if !to.is_empty() && !to.eq_ignore_ascii_case(&w.name) {
+                continue;
+            }
+            let Some(vm) = host.vms.iter().find(|v| v.manifest.id == m && v.suspended.is_none() && v.st.borrow().granted.iter().any(|g| g == "multibox")) else { continue };
+            lend(vm, w, |vm| vm.emit("ipc_message", (text.clone(), from.clone())));
+        }
         for (m, id, button) in std::mem::take(&mut host.hud_clicks) {
             let Some(vm) = host.vms.iter().find(|v| v.manifest.id == m && v.suspended.is_none()) else { continue };
             let f = vm.st.borrow().hud_handlers.iter().find(|h| h.0 == id).and_then(|h| vm.lua.registry_value::<mlua::Function>(&h.1).ok());
@@ -721,6 +739,7 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
                         vm.call_input(f, (win, t));
                     }
                 }
+                net::poll(vm);
                 vm.timers();
                 vm.wake();
                 if vm.has_handler("frame") {
@@ -819,6 +838,11 @@ fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
         Op::Interface(show) => w.ui_hidden = !show,
         Op::CameraDistance(k) => super::camera::set_distance(w, k),
         Op::Sound(s) => w.lua.sounds.push(s),
+        Op::Ipc(mod_id, to, text) => {
+            if let Some(b) = &w.lua.ipc {
+                b.send(&mod_id, &w.name, to.as_deref(), &text);
+            }
+        }
         Op::Config(id, v) => {
             if w.game.set(id, v) {
                 super::cfgapply::apply(w, id);
