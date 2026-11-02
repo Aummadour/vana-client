@@ -58,6 +58,8 @@ pub(super) struct ModState {
     pub chat_filters: Vec<(u64, RegistryKey)>,
     pub typed_filters: Vec<(u64, RegistryKey)>,
     pub filters_dirty: bool,
+    /// The user's setting values by key (account and character scopes merged); declared defaults fill the rest.
+    pub settings: serde_json::Map<String, serde_json::Value>,
 }
 
 impl ModState {

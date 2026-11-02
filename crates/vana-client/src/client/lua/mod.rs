@@ -32,6 +32,8 @@ pub struct Host {
     prev: Option<Snap>,
     /// The chat filter must be rebuilt (a mod loaded, unloaded or changed its filters).
     filters_dirty: bool,
+    /// `/lua settings`: open Extras on this mod's page (taken by the app).
+    pub(super) open_page: Option<String>,
 }
 
 /// What the derived events watch (Windower's change events).
@@ -207,9 +209,10 @@ impl Host {
         }
         let data = data_dir().join(&m.id);
         let storage = (read_json(&data.join("account.json")), read_json(&data.join(Self::char_file(w))));
-        let settings = read_json(&data.join("settings.json"));
+        let settings = load_settings(&m, &data, &Self::char_file(w));
         let vm = Vm::new(m, dir).map_err(|e| format!("{e:#}"))?;
-        api::install(&vm.lua, &vm, storage, settings).map_err(|e| format!("{e}"))?;
+        vm.st.borrow_mut().settings = settings;
+        api::install(&vm.lua, &vm, storage).map_err(|e| format!("{e}"))?;
         log::info!("lua mod {} {} loaded from {}", vm.manifest.id, vm.manifest.version, vm.dir.display());
         lend(&vm, w, |vm| {
             vm.run_entry();
@@ -313,21 +316,26 @@ impl Host {
             },
             "set" => match (args.get(1), args.get(2), args.get(3)) {
                 (Some(id), Some(key), Some(_)) => {
-                    let path = data_dir().join(id).join("settings.json");
-                    let mut v = read_json(&path);
-                    if !v.is_object() {
-                        v = serde_json::json!({});
-                    }
                     let raw = args[3..].join(" ");
                     let value = serde_json::from_str(&raw).unwrap_or(serde_json::Value::String(raw));
-                    v[*key] = value;
-                    let _ = std::fs::create_dir_all(path.parent().unwrap());
-                    let _ = std::fs::write(&path, serde_json::to_vec_pretty(&v).unwrap_or_default());
-                    out.push((format!("{id}: {key} set (reload the mod to apply)."), super::WHITE));
+                    match self.vms.iter().find(|v| v.manifest.id.eq_ignore_ascii_case(id)).map(|v| v.manifest.id.clone()) {
+                        Some(id) => {
+                            self.apply_setting(w, &id, key, value);
+                            out.push((format!("{id}: {key} set."), super::WHITE));
+                        }
+                        None => out.push(("No such mod loaded.".into(), ERROR)),
+                    }
                 }
                 _ => out.push(("/lua set <mod> <key> <value>".into(), ERROR)),
             },
-            other => out.push((format!("/lua {other}: list, load, unload, reload, run, set"), ERROR)),
+            "settings" => {
+                let id = args.get(1).and_then(|id| find(&self.vms, id)).or((!self.vms.is_empty()).then_some(0)).map(|k| self.vms[k].manifest.id.clone());
+                match id {
+                    Some(id) => self.open_page = Some(id),
+                    None => out.push(("No Lua mods loaded.".into(), ERROR)),
+                }
+            }
+            other => out.push((format!("/lua {other}: list, load, unload, reload, run, set, settings"), ERROR)),
         }
     }
 }
@@ -453,6 +461,17 @@ pub(super) fn frame(w: &mut World) {
         w.chat.filter = host.chat_filter();
         w.chat.mode_colours = w.battle.as_ref().map(|b| std::rc::Rc::new(b.code_tables(&w.game).1));
     }
+    // `/lua settings`: the modern UI shows Extras inside the Config window (its Extras entry, page open); the classic
+    // page stands alone.
+    if host.open_page.is_some() && w.settings.is_none() {
+        if w.modern {
+            let mut c = super::configui::ConfigUi::open("configwi");
+            (c.m_entry, c.m_open, c.m_row) = (super::modern::extras_entry(), true, 0);
+            w.config = Some(c);
+            w.menu = None;
+        }
+        w.want_settings = Some(super::settings::Kind::Extras);
+    }
     w.lua = host;
     for (line, colour) in out {
         w.chat.push_colour(line, colour);
@@ -490,7 +509,7 @@ mod tests {
     #[test]
     fn docs_match_bindings() {
         let vm = Vm::new(manifest::Manifest::default(), PathBuf::from(".")).unwrap();
-        api::install(&vm.lua, &vm, (serde_json::Value::Null, serde_json::Value::Null), serde_json::Value::Null).unwrap();
+        api::install(&vm.lua, &vm, (serde_json::Value::Null, serde_json::Value::Null)).unwrap();
         let g = vm.lua.globals();
         for f in docs::FUNCS {
             let v: Value = if f.ns.is_empty() { g.get(f.name).unwrap() } else { g.get::<Table>(f.ns).unwrap().get(f.name).unwrap() };
@@ -608,4 +627,86 @@ pub(super) fn filter_typed(w: &mut World, line: &str) -> Option<String> {
     }
     w.lua = host;
     (!blocked).then_some(line)
+}
+
+/// A mod's settings: the account file's keys, then the character file's for character-scoped ones.
+fn load_settings(m: &manifest::Manifest, data: &std::path::Path, char_file: &str) -> serde_json::Map<String, serde_json::Value> {
+    let mut out = serde_json::Map::new();
+    let account = read_json(&data.join("settings.json"));
+    let character = read_json(&data.join(format!("settings-{char_file}")));
+    for (key, decl) in &m.settings {
+        let src = if decl.scope == "character" { &character } else { &account };
+        if let Some(v) = src.get(key) {
+            out.insert(key.clone(), v.clone());
+        }
+    }
+    // Keys set by /lua set before a declaration existed stay readable.
+    if let serde_json::Value::Object(o) = account {
+        for (k, v) in o {
+            out.entry(k).or_insert(v);
+        }
+    }
+    out
+}
+
+impl Host {
+    /// The Extras pages of the running mods: their declared settings that buttons and sliders can show (bool, enum,
+    /// int and number).
+    pub(super) fn settings_pages(&self) -> Vec<super::settings::ModPage> {
+        use super::settings::{ModPage, ModRow};
+        let mut pages = Vec::new();
+        for vm in &self.vms {
+            let st = vm.st.borrow();
+            let mut rows = Vec::new();
+            for (key, d) in &vm.manifest.settings {
+                let current = st.settings.get(key).cloned().or_else(|| d.default.as_ref().and_then(|v| serde_json::to_value(v).ok())).unwrap_or(serde_json::Value::Null);
+                let choices: Vec<(String, serde_json::Value)> = match d.kind.as_str() {
+                    "bool" => vec![("ON".into(), true.into()), ("OFF".into(), false.into())],
+                    "enum" => d.options.iter().map(|o| (o.clone(), o.as_str().into())).collect(),
+                    "int" | "number" => {
+                        let (min, max) = (d.min.unwrap_or(0.0), d.max.unwrap_or(100.0));
+                        let step = d.step.unwrap_or(if d.kind == "int" { 1.0 } else { (max - min) / 20.0 }).max(f64::EPSILON);
+                        let n = (((max - min) / step).floor() as usize).min(200);
+                        (0..=n)
+                            .map(|i| {
+                                let v = min + step * i as f64;
+                                if d.kind == "int" { (format!("{}", v.round() as i64), (v.round() as i64).into()) } else { (format!("{v}"), v.into()) }
+                            })
+                            .collect()
+                    }
+                    _ => continue,
+                };
+                let at = choices.iter().position(|c| c.1 == current || c.1.as_f64().zip(current.as_f64()).is_some_and(|(a, b)| (a - b).abs() < 1e-9)).unwrap_or(0);
+                let label = if d.label.is_empty() { key.clone() } else { d.label.clone() };
+                rows.push(ModRow { key: key.clone(), label, help: d.help.clone(), choices, at });
+            }
+            if !rows.is_empty() {
+                pages.push(ModPage { id: vm.manifest.id.clone(), name: vm.manifest.name.clone(), rows });
+            }
+        }
+        pages
+    }
+
+    /// A setting changed on its Extras page: kept, written to its scope's file, and `settings_changed` sent.
+    pub(super) fn apply_setting(&mut self, w: &World, id: &str, key: &str, value: serde_json::Value) {
+        let Some(vm) = self.vms.iter().find(|v| v.manifest.id == id) else { return };
+        vm.st.borrow_mut().settings.insert(key.to_string(), value.clone());
+        let scope = vm.manifest.settings.get(key).map_or("account", |d| d.scope.as_str());
+        let dir = data_dir().join(id);
+        let file = if scope == "character" { dir.join(format!("settings-{}", Self::char_file(w))) } else { dir.join("settings.json") };
+        let mut v = read_json(&file);
+        if !v.is_object() {
+            v = serde_json::json!({});
+        }
+        v[key] = value.clone();
+        let _ = std::fs::create_dir_all(&dir);
+        if let Err(e) = std::fs::write(&file, serde_json::to_vec_pretty(&v).unwrap_or_default()) {
+            log::warn!("lua mod {id}: saving {}: {e}", file.display());
+        }
+        lend(vm, w, |vm| {
+            use mlua::LuaSerdeExt;
+            let v = vm.lua.to_value(&value).unwrap_or(mlua::Value::Nil);
+            vm.emit("settings_changed", (key.to_string(), v));
+        });
+    }
 }

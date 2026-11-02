@@ -191,6 +191,8 @@ enum Val {
     ModernScale,
     ModernOpacity,
     ResetPlaces,
+    /// A Lua mod's declared setting: its row on the mod's page (docs/lua-mods.md 4.12).
+    Mod(usize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -200,7 +202,7 @@ enum Sizes {
     Ui,
 }
 
-struct Row {
+struct SRow {
     label: &'static str,
     help: &'static str,
     val: Val,
@@ -209,11 +211,45 @@ struct Row {
     when: When,
 }
 
+/// A row as the page uses it: a static table's, or a mod setting's.
+#[derive(Clone)]
+struct Row {
+    label: String,
+    help: String,
+    val: Val,
+    choices: Vec<(u32, String)>,
+    when: When,
+}
+
+impl From<&SRow> for Row {
+    fn from(r: &SRow) -> Self {
+        Row { label: r.label.into(), help: r.help.into(), val: r.val, choices: r.choices.iter().map(|c| (c.0, c.1.to_string())).collect(), when: r.when }
+    }
+}
+
+/// A Lua mod's page on Extras: its declared settings that buttons and sliders can show.
+#[derive(Clone, Debug)]
+pub struct ModPage {
+    pub id: String,
+    pub name: String,
+    pub rows: Vec<ModRow>,
+}
+
+/// A mod setting: its key, heading, help, the choices (label, value) and the one that holds.
+#[derive(Clone, Debug)]
+pub struct ModRow {
+    pub key: String,
+    pub label: String,
+    pub help: String,
+    pub choices: Vec<(String, serde_json::Value)>,
+    pub at: usize,
+}
+
 const OFF_ON: &[(u32, &str)] = &[(1, "ON"), (0, "OFF")];
 const MODERN_SCALES: &[(u32, &str)] = &[(50, "50%"), (55, "55%"), (60, "60%"), (65, "65%"), (70, "70%"), (75, "75%"), (80, "80%"), (85, "85%"), (90, "90%"), (95, "95%"), (100, "100%"), (105, "105%"), (110, "110%"), (115, "115%"), (120, "120%"), (125, "125%"), (130, "130%"), (135, "135%"), (140, "140%"), (145, "145%"), (150, "150%")];
 
-const fn row(label: &'static str, help: &'static str, val: Val, choices: &'static [(u32, &'static str)], when: When) -> Row {
-    Row { label, help, val, choices, when }
+const fn row(label: &'static str, help: &'static str, val: Val, choices: &'static [(u32, &'static str)], when: When) -> SRow {
+    SRow { label, help, val, choices, when }
 }
 
 const TABS: [&str; 8] = ["General", "Screen", "Textures", "Effects", "Sound", "Misc.", "Client", "Mods"];
@@ -223,15 +259,15 @@ const EXTRA_TABS: [&str; 3] = ["Maps", "Timers", "Misc."];
 
 /// `in_game`: the volumes are the Gameplay page's there, so the Sound page leaves them out. `modern`: the minimap's and
 /// the Timers' place and size are set by dragging them there, so those rows are left out.
-fn rows(kind: Kind, tab: usize, in_game: bool, modern: bool) -> &'static [Row] {
+fn rows(kind: Kind, tab: usize, in_game: bool, modern: bool) -> &'static [SRow] {
     use Val::*;
     use When::*;
-    const GENERAL: &[Row] = &[
+    const GENERAL: &[SRow] = &[
         row("Window Mode", "0034: full screen, a window, or borderless at the window size or the desktop's.", Tool("0034"), &[(0, "Full Screen"), (1, "Windowed"), (2, "Borderless"), (3, "Desktop")], Now),
         row("MIP Mapping", "0000: lower-resolution textures on distant objects.", Tool("0000"), OFF_ON, NextZone),
         row("Gamma Base", "0028: base gamma, added to the Gameplay page's R / G / B.", Gamma, &[], Now),
     ];
-    const SCREEN: &[Row] = &[
+    const SCREEN: &[SRow] = &[
         row("Resolution", "0001 / 0002: the window's size.", Size("0001", "0002", Sizes::Window), &[], Now),
         row("Monitor", "The monitor the game opens on, in every window mode (not retail).", Monitor, &[], Now),
         row("GPU", "The graphics card to draw with; Default is the high-performance one (not retail).", Gpu, &[], Restart),
@@ -240,19 +276,19 @@ fn rows(kind: Kind, tab: usize, in_game: bool, modern: bool) -> &'static [Row] {
         row("3D Aspect", "Window: the window's shape. Config: retail's ratio from Misc. 2 / the lobby Config.", RetailAspect, &[(0, "Window"), (1, "Config")], Now),
         row("Draw Distance", "How far scenery, characters and effects draw: Retail is the game's distance, the others farther (not retail).", DrawDistance, &[(100, "Retail"), (150, "1.5x"), (200, "2x"), (300, "3x"), (0, "Unlimited")], Now),
     ];
-    const TEXTURES: &[Row] = &[
+    const TEXTURES: &[SRow] = &[
         row("Textures", "0018: compressed (BC1 / BC2) or uncompressed textures.", Tool("0018"), &[(0, "High"), (1, "Low"), (2, "Full")], NextZone),
         row("2-D Mapping", "0019: map images compressed (DXT3) or at full quality.", Tool("0019"), &[(0, "Compressed"), (1, "Full")], NextZone),
         row("Fonts", "0036: the font texture quality.", Tool("0036"), &[(0, "Compressed"), (1, "Full"), (2, "High")], Restart),
     ];
-    const EFFECTS: &[Row] = &[
+    const EFFECTS: &[SRow] = &[
         row("Lamp Lights", "Baked: the lamplight painted onto the walls, as retail. Real: point lights at the lamps (not retail).", LampLights, &[(0, "Baked"), (1, "Real")], Now),
         row("Environment Animation", "0011: swaying vegetation (Normal 16 steps, Smooth 32).", Tool("0011"), &[(0, "Off"), (1, "Normal"), (2, "Smooth")], Now),
         row("Bump Mapping", "0017: normal-mapped scenery; off lights it with the sun and moon together.", Tool("0017"), OFF_ON, NextZone),
         row("Graphics Stabilization", "0040: On interpolates the shine overlay's coordinates plainly (no seam wrap).", Tool("0040"), OFF_ON, Now),
         row("3D LCD Mode", "0030: side-by-side stereo for 3D screens.", Tool("0030"), OFF_ON, Now),
     ];
-    const SOUND: &[Row] = &[
+    const SOUND: &[SRow] = &[
         row("Sound", "0007: sound on or off.", Tool("0007"), OFF_ON, Now),
         row("Sound Effect Channels", "0029: sound effects playing at once.", Tool("0029"), &[(12, "12"), (13, "13"), (14, "14"), (15, "15"), (16, "16"), (17, "17"), (18, "18"), (19, "19"), (20, "20")], Now),
         row("Sound in Background", "0035: keep playing sound while the window is not focused.", Tool("0035"), OFF_ON, Now),
@@ -260,14 +296,14 @@ fn rows(kind: Kind, tab: usize, in_game: bool, modern: bool) -> &'static [Row] {
         row("Music Volume", "The volume before you are in game (the lobby's; in game, the Gameplay page's sliders).", Music, &[], Now),
         row("Sound Effects Volume", "The volume before you are in game (the lobby's; in game, the Gameplay page's sliders).", Effects, &[], Now),
     ];
-    const MISC: &[Row] = &[
+    const MISC: &[SRow] = &[
         row("Hardware Mouse", "0021: the game folder's cursor files (.ani) instead of the cursor the game draws.", Tool("0021"), OFF_ON, Now),
         row("Cursor Size", "The drawn cursor's size (Hardware Mouse off); Auto grows it with the window (not retail).", CursorSize, &[(0, "Auto"), (100, "1x"), (150, "1.5x"), (200, "2x"), (300, "3x"), (400, "4x")], Now),
         row("Opening Movie", "0022: play the opening movie before the title; any key skips it.", Tool("0022"), OFF_ON, Restart),
         row("Simple Character Creation", "0023: character creation with 2-D portraits instead of the 3D models.", Tool("0023"), OFF_ON, Now),
         row("Screenshot Size", "0043: also save each screenshot at the screen size (ffxiuser/screenshots).", Tool("0043"), OFF_ON, Now),
     ];
-    const CLIENT: &[Row] = &[
+    const CLIENT: &[SRow] = &[
         row("Frame Limit", "Frames drawn a second; game time stays at 60 ticks.", FrameLimit, &[], Now),
         row("Anisotropic Filtering", "Anisotropic texture filtering.", Aniso, &[(1, "Off"), (2, "2x"), (4, "4x"), (8, "8x"), (16, "16x")], NextZone),
         row("Party TP", "Show TP in the party window (retail config 0xae, off there).", PartyTp, OFF_ON, Now),
@@ -276,24 +312,24 @@ fn rows(kind: Kind, tab: usize, in_game: bool, modern: bool) -> &'static [Row] {
         row("Panel Opacity", "How opaque the modern interface's window backgrounds are (not retail).", ModernOpacity, &[], Now),
         row("Panel Places", "Reset puts this character's modern windows back where they start (not retail).", ResetPlaces, &[(0, "As Moved"), (1, "Reset")], Now),
     ];
-    const MAPS: &[Row] = &[
+    const MAPS: &[SRow] = &[
         row("Map Overlay", "Ctrl / Alt + O shows the zone map over the screen, as the map add-ons do.", MapOverlay, OFF_ON, Now),
         row("Map Overlay Opacity", "How opaque the map overlay is.", MapOpacity, &[], Now),
         row("Minimap", "The zone map in a corner, centred on you, with what is near; the mouse wheel over it zooms.", Minimap, OFF_ON, Now),
         row("Minimap Position", "Where the minimap stands: the top right (beside the menus while one is open), or the top left under the cast bar.", MinimapDock, &[(0, "Top Right"), (1, "Top Left")], Now),
         row("Minimap Size", "How big the minimap is.", MinimapSize, &[(0, "Small"), (1, "Medium"), (2, "Large")], Now),
     ];
-    const TIMERS_ROW: Row = row("Timers", "Recasts, our effects and the ones we put on others and on monsters, in a window that slides in and out (/timers).", Timers, OFF_ON, Now);
-    const REGIME_ROW: Row = row("Training Regime", "While a Fields or Grounds of Valor regime is on, its targets and kills in a window beside the timers (from a manual's page, or the kills).", Regime, OFF_ON, Now);
-    const SKILLCHAIN_ROW: Row = row("Skillchain Helper", "In a party: the skillchains it can make and their elements, and on your target the open one, what closes it and when to burst.", Skillchains, OFF_ON, Now);
-    const TIMERS: &[Row] = &[
+    const TIMERS_ROW: SRow = row("Timers", "Recasts, our effects and the ones we put on others and on monsters, in a window that slides in and out (/timers).", Timers, OFF_ON, Now);
+    const REGIME_ROW: SRow = row("Training Regime", "While a Fields or Grounds of Valor regime is on, its targets and kills in a window beside the timers (from a manual's page, or the kills).", Regime, OFF_ON, Now);
+    const SKILLCHAIN_ROW: SRow = row("Skillchain Helper", "In a party: the skillchains it can make and their elements, and on your target the open one, what closes it and when to burst.", Skillchains, OFF_ON, Now);
+    const TIMERS: &[SRow] = &[
         TIMERS_ROW,
         row("Timers Position", "Where the timers window docks: the left edge, the right edge above the party list, or the top.", TimersDock, &[(0, "Left"), (1, "Right"), (2, "Top")], Now),
         REGIME_ROW,
         SKILLCHAIN_ROW,
     ];
-    const TIMERS_MODERN: &[Row] = &[TIMERS_ROW, REGIME_ROW, SKILLCHAIN_ROW];
-    const EXTRA_MISC: &[Row] = &[
+    const TIMERS_MODERN: &[SRow] = &[TIMERS_ROW, REGIME_ROW, SKILLCHAIN_ROW];
+    const EXTRA_MISC: &[SRow] = &[
         row("Synthesis Amount", "After Synthesize, ask how many to make and make them one after another.", SynthAmount, OFF_ON, Now),
         row("Timestamps on All Lines", "Every log line gets the time, not only chat (the format of /timestamp; seconds while it is off).", StampAll, OFF_ON, Now),
         row("Target Distance", "How far your target is, centre to centre, in the target window.", TargetDistance, OFF_ON, Now),
@@ -306,8 +342,8 @@ fn rows(kind: Kind, tab: usize, in_game: bool, modern: bool) -> &'static [Row] {
         row("Text Auto-Advance", "An event's message waiting for a key goes on by itself after this many seconds.", AutoAdvance, &[(0, "OFF"), (3, "3 s"), (5, "5 s"), (8, "8 s")], Now),
     ];
     match kind {
-        Kind::Extras if modern => [&MAPS[..3], TIMERS_MODERN, EXTRA_MISC][tab.min(2)],
-        Kind::Extras => [MAPS, TIMERS, EXTRA_MISC][tab.min(2)],
+        Kind::Extras if modern => [&MAPS[..3], TIMERS_MODERN, EXTRA_MISC].get(tab).copied().unwrap_or(&[]),
+        Kind::Extras => [MAPS, TIMERS, EXTRA_MISC].get(tab).copied().unwrap_or(&[]),
         Kind::Settings if in_game && tab == 4 => &SOUND[..3],
         Kind::Settings if tab == MODS => &[],
         // Panel Places (the last Linux row) is a character's: in game only.
@@ -365,6 +401,9 @@ pub struct SettingsUi {
     /// The modern Mods page's cursor (stop, button) and a removal being asked (pack, Yes on the cursor).
     pub m_mods: (usize, usize),
     pub m_remove: Option<(usize, bool)>,
+    /// Extras: the Lua mods' pages after our own, and their changes for the app to apply (mod, key, value).
+    pub mod_pages: Vec<ModPage>,
+    pub mod_changes: Vec<(String, String, serde_json::Value)>,
 }
 
 /// What a row's controls are.
@@ -379,17 +418,37 @@ impl SettingsUi {
     }
 
     pub fn open_kind(c: &Config, window: [u32; 2], kind: Kind) -> Self {
-        let mut s = Self { kind, s: Settings::of(c), monitors: Vec::new(), gpus: Vec::new(), window, in_game: false, tab: 0, row: 0, col: 0, edit: false, sounds: Vec::new(), dirty: false, hover: false, mods_ui: None, m_mods: (0, 0), m_remove: None };
+        let mut s = Self { kind, s: Settings::of(c), monitors: Vec::new(), gpus: Vec::new(), window, in_game: false, tab: 0, row: 0, col: 0, edit: false, sounds: Vec::new(), dirty: false, hover: false, mods_ui: None, m_mods: (0, 0), m_remove: None, mod_pages: Vec::new(), mod_changes: Vec::new() };
         s.col = s.marked_col();
         s
     }
 
-    fn tabs(&self) -> &'static [&'static str] {
-        if self.kind == Kind::Extras { &EXTRA_TABS } else { &TABS }
+    fn tabs(&self) -> Vec<String> {
+        if self.kind == Kind::Extras {
+            EXTRA_TABS.iter().map(|t| t.to_string()).chain(self.mod_pages.iter().map(|p| p.name.clone())).collect()
+        } else {
+            TABS.iter().map(|t| t.to_string()).collect()
+        }
     }
 
-    fn rows(&self) -> &'static [Row] {
-        rows(self.kind, self.tab, self.in_game, self.s.modern_ui)
+    /// The Lua mod page on screen (Extras, past our own pages).
+    fn mod_page(&self) -> Option<&ModPage> {
+        if self.kind != Kind::Extras {
+            return None;
+        }
+        self.mod_pages.get(self.tab.checked_sub(EXTRA_TABS.len())?)
+    }
+
+    fn rows(&self) -> Vec<Row> {
+        if let Some(p) = self.mod_page() {
+            return p
+                .rows
+                .iter()
+                .enumerate()
+                .map(|(i, r)| Row { label: r.label.clone(), help: r.help.clone(), val: Val::Mod(i), choices: r.choices.iter().enumerate().map(|(k, c)| (k as u32, c.0.clone())).collect(), when: When::Now })
+                .collect();
+        }
+        rows(self.kind, self.tab, self.in_game, self.s.modern_ui).iter().map(Row::from).collect()
     }
 
     fn ctl(r: &Row) -> Ctl {
@@ -460,6 +519,7 @@ impl SettingsUi {
             Val::Effects => self.s.effects,
             Val::RetailAspect => self.s.retail_aspect as u32,
             Val::CursorSize => self.s.cursor_size,
+            Val::Mod(i) => self.mod_page().and_then(|p| p.rows.get(i)).map_or(0, |r| r.at as u32),
         }
     }
 
@@ -494,6 +554,17 @@ impl SettingsUi {
             Val::MinimapSize => self.s.minimap_size = x,
             Val::RetailAspect => self.s.retail_aspect = x != 0,
             Val::CursorSize => self.s.cursor_size = x,
+            Val::Mod(i) => {
+                let Some(k) = self.tab.checked_sub(EXTRA_TABS.len()) else { return };
+                if let Some(p) = self.mod_pages.get_mut(k)
+                    && let Some(r) = p.rows.get_mut(i)
+                    && let Some(c) = r.choices.get(x as usize)
+                    && r.at != x as usize
+                {
+                    r.at = x as usize;
+                    self.mod_changes.push((p.id.clone(), r.key.clone(), c.1.clone()));
+                }
+            }
             _ => {}
         }
     }
@@ -600,8 +671,8 @@ impl SettingsUi {
         if self.on_mods() {
             return self.mods_marked();
         }
-        let Some(r) = self.row.checked_sub(1).and_then(|i| self.rows().get(i)) else { return 0 };
-        match Self::ctl(r) {
+        let Some(r) = self.row.checked_sub(1).and_then(|i| self.rows().get(i).cloned()) else { return 0 };
+        match Self::ctl(&r) {
             Ctl::Buttons(_) => r.choices.iter().position(|c| c.0 == self.get(r.val)).unwrap_or(0),
             Ctl::Slider => 0,
         }
@@ -611,9 +682,9 @@ impl SettingsUi {
         if self.on_mods() {
             return self.mods_cols(row);
         }
-        match row.checked_sub(1).and_then(|i| self.rows().get(i)) {
+        match row.checked_sub(1).and_then(|i| self.rows().get(i).cloned()) {
             None => 1,
-            Some(r) => match Self::ctl(r) {
+            Some(r) => match Self::ctl(&r) {
                 Ctl::Buttons(n) => n,
                 Ctl::Slider => 1,
             },
@@ -636,8 +707,8 @@ impl SettingsUi {
         if self.on_mods() {
             return self.mods_enter();
         }
-        let Some(r) = self.row.checked_sub(1).and_then(|i| self.rows().get(i)) else { return };
-        match Self::ctl(r) {
+        let Some(r) = self.row.checked_sub(1).and_then(|i| self.rows().get(i).cloned()) else { return };
+        match Self::ctl(&r) {
             Ctl::Buttons(_) => {
                 let before = self.s.clone();
                 if let Some(c) = r.choices.get(self.col) {
@@ -666,11 +737,11 @@ impl SettingsUi {
             return self.mods_key(key, page_mod);
         }
         if self.edit {
-            let r = &self.rows()[self.row - 1];
-            let (n, i) = self.stops(r);
+            let r = self.rows()[self.row - 1].clone();
+            let (n, i) = self.stops(&r);
             match key {
-                egui::Key::ArrowRight if i + 1 < n => self.set_stop(r, i + 1),
-                egui::Key::ArrowLeft if i > 0 => self.set_stop(r, i - 1),
+                egui::Key::ArrowRight if i + 1 < n => self.set_stop(&r, i + 1),
+                egui::Key::ArrowLeft if i > 0 => self.set_stop(&r, i - 1),
                 egui::Key::Enter | egui::Key::Escape => {
                     self.edit = false;
                     self.sounds.push(if key == egui::Key::Enter { Se::Select } else { Se::Cancel });
@@ -733,7 +804,7 @@ impl SettingsUi {
             let y = Self::TOP + PITCH * i as f32 + 14.0;
             // conf2win's two 88-px and conf3win's three 64-px columns; a caption that does not fit (12 px of the
             // button are its ends) widens every button of the row, from the bullets' column.
-            let need = r.choices.iter().map(|c| super::super::render::screens::label_width(c.1) + 12.0).fold(0.0, f32::max);
+            let need = r.choices.iter().map(|c| super::super::render::screens::label_width(&c.1) + 12.0).fold(0.0, f32::max);
             match Self::ctl(r) {
                 Ctl::Buttons(n) if n <= 2 && need <= 88.0 => {
                     for (c, x) in WIDE.iter().enumerate().take(n) {
@@ -785,12 +856,12 @@ impl SettingsUi {
         if !clicked {
             return;
         }
-        if let Some(rw) = self.rows().get(row - 1)
-            && matches!(Self::ctl(rw), Ctl::Slider)
+        if let Some(rw) = self.rows().get(row - 1).cloned()
+            && matches!(Self::ctl(&rw), Ctl::Slider)
         {
-            let (n, _) = self.stops(rw);
+            let (n, _) = self.stops(&rw);
             let f = ((p.0 - x - r[0]) / r[2]).clamp(0.0, 1.0);
-            self.set_stop(rw, (f * (n - 1) as f32).round() as usize);
+            self.set_stop(&rw, (f * (n - 1) as f32).round() as usize);
             self.edit = false;
             self.sounds.push(Se::Select);
             return;
@@ -807,7 +878,7 @@ impl SettingsUi {
         // miss00: the arrows and the page's name.
         gu.sprite("menu    frames", 25, x + ARROWS[0], y + ARROW_Y, N);
         gu.sprite("menu    frames", 26, x + ARROWS[1], y + ARROW_Y, N);
-        gu.text(self.tabs()[self.tab], x + NAME_XY.0, y + NAME_XY.1, 0, [0x80; 4]);
+        gu.text(&self.tabs()[self.tab], x + NAME_XY.0, y + NAME_XY.1, 0, [0x80; 4]);
         if self.row == 0 {
             gu.cursor(x + NAME_XY.0 - 4.0, y + NAME_XY.1);
         }
@@ -824,10 +895,10 @@ impl SettingsUi {
             if let Some(b) = gu.cell_bounds("menu    windowps", 465, 2) {
                 gu.sprite_cells("menu    windowps", 465, 2..3, x + 20.0 - b[0], hy + 2.0 - b[1], N);
             }
-            gu.label(r.label, x + 32.0, hy, N, false);
+            gu.label(&r.label, x + 32.0, hy, N, false);
             // A slider's value at the heading's end, right-aligned to the slider's (cut to the room left).
             if matches!(Self::ctl(r), Ctl::Slider) {
-                let room = SLIDER_X + SLIDER_W - 32.0 - gu.label_width(r.label) - 16.0;
+                let room = SLIDER_X + SLIDER_W - 32.0 - gu.label_width(&r.label) - 16.0;
                 let mut v = self.shown(r);
                 while gu.label_width(&v) > room && v.pop().is_some() {}
                 let vw = gu.label_width(&v);
@@ -839,7 +910,7 @@ impl SettingsUi {
                     Ctl::Buttons(_) => {
                         let d = if on { -1.0 } else { 0.0 };
                         button(gu, [x + b[0] + d, y + b[1] + d, b[2], b[3]], if on { ON } else { N });
-                        gu.label(r.choices[*c].1, x + b[0] + 5.0 + d, y + b[1] + 1.0 + d, if on { ON } else { N }, true);
+                        gu.label(&r.choices[*c].1, x + b[0] + 5.0 + d, y + b[1] + 1.0 + d, if on { ON } else { N }, true);
                         if r.choices[*c].0 == self.get(r.val) {
                             marker(gu, x + b[0], y + b[1], b[2]);
                         }
@@ -882,12 +953,19 @@ impl SettingsUi {
         }
     }
 
+    /// Extras turned to a Lua mod's page (`/lua settings`).
+    pub fn goto_mod(&mut self, id: &str) {
+        if let Some(k) = self.mod_pages.iter().position(|p| p.id == id) {
+            self.goto(EXTRA_TABS.len() + k, 1);
+        }
+    }
+
     /// The help bar's text for the cursor's row, with when a change shows.
     pub fn help(&self) -> String {
         if self.on_mods() {
             return if self.s.modern_ui { self.modern_mods_help() } else { self.mods_help() };
         }
-        let Some(r) = self.row.checked_sub(1).and_then(|i| self.rows().get(i)) else {
+        let Some(r) = self.row.checked_sub(1).and_then(|i| self.rows().get(i).cloned()) else {
             return format!("Left / Right: another page of {}.", self.title().to_lowercase());
         };
         let when = match r.when {
@@ -918,7 +996,7 @@ pub enum VCtl {
 /// The page as the modern layer draws it; the cursor's row (0 the page name) and column, a slider being edited.
 pub struct View {
     pub title: &'static str,
-    pub tabs: &'static [&'static str],
+    pub tabs: Vec<String>,
     pub tab: usize,
     pub rows: Vec<VRow>,
     pub row: usize,
@@ -1010,11 +1088,11 @@ impl SettingsUi {
     /// A slider set to stop `i` by the pointer.
     pub fn m_slide(&mut self, row: usize, i: usize) {
         self.sounds.clear();
-        let Some(r) = row.checked_sub(1).and_then(|k| self.rows().get(k)) else { return };
+        let Some(r) = row.checked_sub(1).and_then(|k| self.rows().get(k).cloned()) else { return };
         (self.row, self.col, self.edit) = (row, 0, false);
-        let (_, at) = self.stops(r);
+        let (_, at) = self.stops(&r);
         if at != i {
-            self.set_stop(r, i);
+            self.set_stop(&r, i);
             self.sounds.push(Se::Cursor);
         }
     }

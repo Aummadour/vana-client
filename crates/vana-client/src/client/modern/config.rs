@@ -465,6 +465,11 @@ fn reset_answer(c: &mut ConfigUi, v: &mut Values, yes: bool, out: &mut configui:
 }
 
 /// Our page kind for a Config list entry.
+/// The entry of our Extras page.
+pub fn extras_entry() -> usize {
+    ENTRIES.iter().position(|e| matches!(e.1, Entry::Extras)).unwrap_or(0)
+}
+
 fn settings_kind(k: usize) -> Option<settings::Kind> {
     match ENTRIES.get(k)?.1 {
         Entry::Extras => Some(settings::Kind::Extras),
@@ -691,7 +696,7 @@ enum Do {
 fn settings_page(ui: &mut Ui, m: &super::Modern, v: &settings::View, open: bool, follow: bool, act: &mut Vec<Do>) {
     if !v.tabs.is_empty() {
         ui.set_max_width(PAGE_W);
-        if let Some(k) = kit::tab_strip(ui, m, "settings tabs", v.tabs, v.tab, open && v.row == 0) {
+        if let Some(k) = kit::tab_strip(ui, m, "settings tabs", &v.tabs.iter().map(String::as_str).collect::<Vec<_>>(), v.tab, open && v.row == 0) {
             act.push(Do::Tab(k));
         }
     }
@@ -740,7 +745,7 @@ enum ModDo {
 fn mods_page(ui: &mut Ui, m: &super::Modern, s: &SettingsUi, open: bool, follow: bool, act: &mut Vec<ModDo>) {
     let v = s.view();
     let at = if open { Some(s.m_mods) } else { None };
-    if let Some(k) = kit::tab_strip(ui, m, "settings tabs", v.tabs, v.tab, at.is_some_and(|a| a.0 == 0)) {
+    if let Some(k) = kit::tab_strip(ui, m, "settings tabs", &v.tabs.iter().map(String::as_str).collect::<Vec<_>>(), v.tab, at.is_some_and(|a| a.0 == 0)) {
         act.push(ModDo::Tab(k));
     }
     let state = s.mods_state();

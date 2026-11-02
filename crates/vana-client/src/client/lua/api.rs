@@ -31,7 +31,7 @@ fn next_id(st: &Rc<RefCell<ModState>>) -> u64 {
 }
 
 /// Every global, for the mod `vm`.
-pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value, serde_json::Value), settings: serde_json::Value) -> mlua::Result<()> {
+pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value, serde_json::Value)) -> mlua::Result<()> {
     let g = lua.globals();
     let m = &vm.manifest;
 
@@ -525,7 +525,7 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     settings_table.set(
         "get",
         lua.create_function(move |lua, key: String| {
-            if let Some(v) = settings.get(&key) {
+            if let Some(v) = state(lua).borrow().settings.get(&key) {
                 return lua.to_value(v);
             }
             match decl.get(&key).and_then(|s| s.default.as_ref()) {

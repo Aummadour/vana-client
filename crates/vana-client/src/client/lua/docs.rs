@@ -72,6 +72,7 @@ pub const EVENTS: &[Event] = &[
     Event { name: "login", doc: "The character is in the world, once per session.", args: &[("name", "string")] },
     Event { name: "logout", doc: "The character is leaving the world.", args: &[] },
     Event { name: "zone_change", doc: "A new zone has loaded.", args: &[("zone", "integer"), ("previous", "integer?")] },
+    Event { name: "settings_changed", doc: "The user changed one of the mod's settings (its Extras page, or /lua set).", args: &[("key", "string"), ("value", "any")] },
     Event { name: "frame", doc: "Every frame (prefer timers and events: this one costs time every frame).", args: &[("dt", "number")] },
     Event { name: "hp_change", doc: "Our HP changed.", args: &[("hp", "integer"), ("previous", "integer")] },
     Event { name: "mp_change", doc: "Our MP changed.", args: &[("mp", "integer"), ("previous", "integer")] },

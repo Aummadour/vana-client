@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
-use std::collections::BTreeMap;
+use indexmap::IndexMap;
 use std::path::Path;
 
 /// The API version this client speaks; a mod declaring a newer one is not loaded.
@@ -25,7 +25,7 @@ pub struct Manifest {
     /// The VM lives from the start of the process (lobby screens) rather than from login. Not used yet.
     pub lobby: bool,
     /// Declared settings by key, drawn by the client (docs/lua-mods.md 4.12).
-    pub settings: BTreeMap<String, Setting>,
+    pub settings: IndexMap<String, Setting>,
 }
 
 impl Default for Manifest {
@@ -40,7 +40,7 @@ impl Default for Manifest {
             entry: "init.lua".into(),
             permissions: Vec::new(),
             lobby: false,
-            settings: BTreeMap::new(),
+            settings: IndexMap::new(),
         }
     }
 }

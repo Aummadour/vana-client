@@ -11903,10 +11903,25 @@ impl App {
                     s.monitors = self.monitors.clone();
                     s.gpus = self.gpus.clone();
                     s.in_game = true;
+                    if kind == settings::Kind::Extras {
+                        s.mod_pages = world.lua.settings_pages();
+                        if let Some(id) = world.lua.open_page.take() {
+                            s.goto_mod(&id);
+                        }
+                    }
                     world.settings = Some(s);
                 }
                 if let Some(s) = world.settings.as_mut() {
                     s.tick();
+                }
+                // The Lua mods' settings changed on their Extras pages.
+                let changes = world.settings.as_mut().map(|s| std::mem::take(&mut s.mod_changes)).unwrap_or_default();
+                if !changes.is_empty() {
+                    let mut mods = std::mem::take(&mut world.lua);
+                    for (id, key, value) in changes {
+                        mods.apply_setting(world, &id, &key, value);
+                    }
+                    world.lua = mods;
                 }
                 if let Some(s) = world.settings.as_mut().filter(|s| s.dirty) {
                     s.dirty = false;
