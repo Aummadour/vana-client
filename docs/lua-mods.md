@@ -42,7 +42,9 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   - elements: text, buttons and options, slider, scrolling list, gauge, separator
   - keys and mouse in both UIs: the classic UI draws Config pages, the modern UI kit panels with saved places
   - HUD windows (no focus, frameless, placed)
-- **Packets** (`packets.read` / `packets.write`, granted with `/lua grant`, kept in mod-data/grants.json):
+- **Permissions:** each one a mod asks for is a row on its Extras page (ON / OFF, with what it allows on the help
+  line), or `/lua grant` / `revoke`; kept in mod-data/grants.json. A mod loaded without them says where to allow them.
+- **Packets** (`packets.read` / `packets.write`):
   - `packets.on_in` / `on_out` (one id or all) see each packet before the client reads it or after it built it, as
     a chain: original and current bytes, blocked, injected; a handler returns new bytes, `false` to block, or nothing
   - `inject_in` (decoded as if the server sent it) and `inject_out`, both through the hooks; `build`; `last`
@@ -60,7 +62,7 @@ Built (client/lua/, modern/modwin.rs), each checked live:
 - **Bundled mods:** `/dps` (the first Extra ported).
 - **Mods folder:** `mods/<id>/` (enabled through config `mods`); a test run uses `mods` beside its FFXI_CONFIG copy.
 
-Next (docs/lua-mods.md 6): the Mods page's permissions; packet layouts and decoded views, batch order (the rest of
+Next (docs/lua-mods.md 6): packet layouts and decoded views, batch order (the rest of
 phase 4); the rest of phase 5 (trade, shops, BLU / PUP sets as actions; `input`; `ui.native`; `render`); the other
 Extras as bundled mods; then world-space drawing, audio, ipc / net, and the coverage table.
 

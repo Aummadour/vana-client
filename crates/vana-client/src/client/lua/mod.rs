@@ -311,7 +311,7 @@ impl Host {
         vm.st.borrow_mut().granted = granted;
         if !missing.is_empty() {
             let id = vm.manifest.id.clone();
-            vm.st.borrow_mut().notices.push(format!("{} asks for {}: /lua grant {id} {} to allow.", vm.manifest.name, missing.join(", "), missing.join(" ")));
+            vm.st.borrow_mut().notices.push(format!("{} asks for {}: allow it on its Extras page (/lua settings {id}) or with /lua grant {id} {}.", vm.manifest.name, missing.join(", "), missing.join(" ")));
         }
         vm.lua.set_app_data(self.last.clone());
         api::install(&vm.lua, &vm, storage).map_err(|e| format!("{e}"))?;
@@ -536,22 +536,11 @@ impl Host {
             }
             "grant" | "revoke" => match args.get(1).and_then(|id| find(&self.vms, id)) {
                 Some(k) => {
-                    let id = self.vms[k].manifest.id.clone();
-                    let mut g = grants();
-                    let mut list: Vec<String> = g.get(&id).and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
                     for p in &args[2..] {
-                        if args[0] == "grant" {
-                            if manifest::PERMISSIONS.contains(p) && !list.iter().any(|x| x == p) {
-                                list.push(p.to_string());
-                            }
-                        } else {
-                            list.retain(|x| x != p);
-                        }
+                        self.set_grant(k, p, args[0] == "grant");
                     }
-                    g.insert(id.clone(), list.clone().into());
-                    save_grants(&g);
-                    let asked = self.vms[k].manifest.permissions.clone();
-                    self.vms[k].st.borrow_mut().granted = asked.into_iter().filter(|p| list.contains(p)).collect();
+                    let id = self.vms[k].manifest.id.clone();
+                    let list = self.vms[k].st.borrow().granted.clone();
                     out.push((format!("{id}: granted {}.", if list.is_empty() { "nothing".into() } else { list.join(", ") }), super::WHITE));
                 }
                 None => out.push(("/lua grant <mod> <permission...> | /lua revoke <mod> <permission...>".into(), ERROR)),
@@ -960,6 +949,13 @@ impl Host {
                 let label = if d.label.is_empty() { key.clone() } else { d.label.clone() };
                 rows.push(ModRow { key: key.clone(), label, help: d.help.clone(), choices, at });
             }
+            // The permissions it asks for, each allowed or not (docs/lua-mods.md 3.5).
+            for p in &vm.manifest.permissions {
+                let (label, help) = permission_text(p);
+                let on = st.granted.contains(p);
+                let choices = vec![("ON".into(), true.into()), ("OFF".into(), false.into())];
+                rows.push(ModRow { key: format!("{PERM}{p}"), label: label.into(), help: help.into(), choices, at: if on { 0 } else { 1 } });
+            }
             if !rows.is_empty() {
                 pages.push(ModPage { id: vm.manifest.id.clone(), name: vm.manifest.name.clone(), rows });
             }
@@ -969,6 +965,12 @@ impl Host {
 
     /// A setting changed on its Extras page: kept, written to its scope's file, and `settings_changed` sent.
     pub(super) fn apply_setting(&mut self, w: &World, id: &str, key: &str, value: serde_json::Value) {
+        if let Some(p) = key.strip_prefix(PERM) {
+            if let Some(k) = self.vms.iter().position(|v| v.manifest.id == id) {
+                self.set_grant(k, p, value.as_bool() == Some(true));
+            }
+            return;
+        }
         let Some(vm) = self.vms.iter().find(|v| v.manifest.id == id) else { return };
         vm.st.borrow_mut().settings.insert(key.to_string(), value.clone());
         let scope = vm.manifest.settings.get(key).map_or("account", |d| d.scope.as_str());
@@ -1146,6 +1148,43 @@ fn grants() -> serde_json::Map<String, serde_json::Value> {
     match read_json(&data_dir().join("grants.json")) {
         serde_json::Value::Object(o) => o,
         _ => serde_json::Map::new(),
+    }
+}
+
+/// A setting row's key prefix for a permission (the mod's Extras page).
+const PERM: &str = "@permission:";
+
+/// A permission's row label and help line.
+fn permission_text(p: &str) -> (&'static str, &'static str) {
+    match p {
+        "actions" => ("Allow game actions", "Casting, items, equipment and the like when you use its commands or windows."),
+        "automation" => ("Allow automation", "Game actions on its own: casting, targeting, moving, trading, answering NPCs."),
+        "packets.read" => ("Allow reading packets", "Sees every packet the server sends and the client sends."),
+        "packets.write" => ("Allow changing packets", "Changes, blocks and sends packets of its own."),
+        "input.capture" => ("Allow taking input", "Takes keys and the mouse from the game and presses keys."),
+        "files.shared" => ("Allow shared files", "Reads and writes files outside its own folder, in the shared mod data."),
+        "net" => ("Allow network", "Connects to the internet (web requests, sockets)."),
+        "exec" => ("Allow running programs", "Starts programs on this computer."),
+        "multibox" => ("Allow multibox", "Talks to your other game windows on this computer."),
+        "ui.native" => ("Allow game windows", "Opens, hides and drives the game's own windows."),
+        _ => ("Allow", ""),
+    }
+}
+
+impl Host {
+    /// Allows or withdraws permission `p` (one the mod asks for) for the mod at `k`; kept in grants.json.
+    fn set_grant(&mut self, k: usize, p: &str, on: bool) {
+        let id = self.vms[k].manifest.id.clone();
+        let mut g = grants();
+        let mut list: Vec<String> = g.get(&id).and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
+        list.retain(|x| x != p);
+        if on && manifest::PERMISSIONS.contains(&p) {
+            list.push(p.to_string());
+        }
+        g.insert(id, list.clone().into());
+        save_grants(&g);
+        let asked = self.vms[k].manifest.permissions.clone();
+        self.vms[k].st.borrow_mut().granted = asked.into_iter().filter(|p| list.contains(p)).collect();
     }
 }
 
