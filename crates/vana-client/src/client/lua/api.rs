@@ -32,6 +32,31 @@ pub(super) fn gu(lua: &Lua) -> mlua::Result<&super::super::game_ui::GameUi> {
     Ok(unsafe { &*p })
 }
 
+/// A language's name tables: the world's own, else loaded once on a thread (none until they are in).
+fn names_in(w: &World, lang: crate::dat::items::Lang) -> Option<std::sync::Arc<crate::dat::names::Names>> {
+    use crate::dat::names::Names;
+    use std::sync::{Arc, Mutex};
+    type Slot = Option<Option<Arc<Names>>>;
+    static LOADED: Mutex<Vec<(crate::dat::items::Lang, Arc<Mutex<Slot>>)>> = Mutex::new(Vec::new());
+    if let Some(n) = w.names.as_ref().filter(|n| n.lang == lang) {
+        return Some(n.clone());
+    }
+    let mut all = LOADED.lock().ok()?;
+    if let Some((_, s)) = all.iter().find(|e| e.0 == lang) {
+        return s.lock().ok()?.clone().flatten();
+    }
+    let index = w.index.clone()?;
+    let slot: Arc<Mutex<Slot>> = Arc::default();
+    all.push((lang, slot.clone()));
+    std::thread::spawn(move || {
+        let n = Names::load(&index, lang).map_err(|e| log::warn!("lua: the {lang:?} names: {e:#}")).ok().map(Arc::new);
+        if let Ok(mut s) = slot.lock() {
+            *s = Some(n);
+        }
+    });
+    None
+}
+
 /// A serde value (JSON) as Lua, null as nil.
 pub(super) fn to_lua(lua: &Lua, v: &(impl serde::Serialize + ?Sized)) -> mlua::Result<Value> {
     lua.to_value_with(v, mlua::serde::SerializeOptions::new().serialize_none_to_null(false).serialize_unit_to_null(false))
@@ -948,6 +973,59 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
                 out.push(t)?;
             }
             Ok(Some(out))
+        })?,
+    )?;
+    res.set(
+        "name",
+        lua.create_function(|lua, (kind, id, lang): (String, u32, Option<String>)| {
+            use crate::dat::names::NameSource;
+            let w = world(lua)?;
+            let lang = crate::dat::items::Lang::parse(lang.as_deref().unwrap_or("en")).ok_or_else(|| mlua::Error::runtime("lang: ja, en, de or fr"))?;
+            let Some(n) = names_in(w, lang) else { return Ok(None) };
+            Ok(match kind.as_str() {
+                "item" => n.item(id).map(|x| x.bare),
+                "key_item" => n.key_item(id).map(|x| x.bare),
+                "spell" => n.spell(id),
+                "ability" => n.ability(id),
+                "zone" => n.place(id),
+                "title" => n.title(id),
+                _ => return Err(mlua::Error::runtime("kind: item, key_item, spell, ability, zone or title")),
+            })
+        })?,
+    )?;
+    res.set(
+        "dat",
+        lua.create_function(|lua, id: u32| {
+            let w = world(lua)?;
+            match w.index.as_ref().map(|i| i.read(id)) {
+                Some(Ok(b)) => lua.create_string(b).map(Some),
+                _ => Ok(None),
+            }
+        })?,
+    )?;
+    res.set("dat_path", lua.create_function(|lua, id: u32| Ok(world(lua)?.index.as_ref().and_then(|i| i.path(id)).map(|p| p.display().to_string())))?)?;
+    res.set(
+        "model_files",
+        lua.create_function(|lua, v: Value| {
+            let out = lua.create_table()?;
+            match v {
+                Value::Integer(m) => out.set("file", crate::dat::npc::model_file(m as u16))?,
+                Value::Table(t) => {
+                    let g = |k: &str| -> mlua::Result<u16> { Ok(t.get::<Option<u16>>(k)?.unwrap_or(0)) };
+                    let look = crate::dat::character::Look { race: t.get::<Option<u8>>("race")?.unwrap_or(0), face: g("face")?, head: g("head")?, body: g("body")?, hands: g("hands")?, legs: g("legs")?, feet: g("feet")?, main: g("main")?, sub: g("sub")?, range: g("range")? };
+                    let (skel, parts) = crate::dat::character::file_ids(&look).map_err(|e| mlua::Error::runtime(format!("{e:#}")))?;
+                    out.set("skeleton", skel)?;
+                    let list = lua.create_table()?;
+                    for (slot, model, file) in parts {
+                        let p = lua.create_table()?;
+                        (p.set("slot", slot)?, p.set("model", model)?, p.set("file", file)?);
+                        list.push(p)?;
+                    }
+                    out.set("parts", list)?;
+                }
+                _ => return Err(mlua::Error::runtime("res.model_files takes an NPC model id or a look {race, face, head, ...}")),
+            }
+            Ok(out)
         })?,
     )?;
     res.set("weather", lua.create_function(|_, id: usize| Ok(WEATHER.get(id).map(|w| w.0)))?)?;

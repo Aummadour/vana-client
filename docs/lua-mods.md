@@ -43,6 +43,10 @@ Built (client/lua/, modern/modwin.rs), each checked live:
     decoded as the item window shows it: lines, the short line, message id / value pairs; checked live)
   - `res.message` (a battle / system message expanded as the log prints it, with actor, target and values),
     `mob_skill`, `skill`, `day`, `moon`, `weather` / `weather_element`, `element`, `mount`; checked live
+  - `res.name(kind, id, lang)` (item, key item, spell, ability, zone and title names in ja / en / de / fr; another
+    language loads on a thread, nil until in), `res.dat` / `dat_path` (a file's bytes through the DAT overlay, and
+    where it is read from), `res.model_files` (an NPC model's file, a look's skeleton and part files); checked live
+    (Japanese item, zone and spell names, a DAT read, a look and a model resolved)
   - `res.autotranslate(word?, group?)` (the dictionary's entries: text, group, id and the phrase as a string) and
     `autotranslate_groups`; `text.phrase(group, id)` and `text.autotranslate(text)` (an exact entry) give a phrase to
     put in `chat.send` / `chat.add` / `/echo`, which print it braced as the log does; checked live

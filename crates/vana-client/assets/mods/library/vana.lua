@@ -1135,6 +1135,28 @@ function res.autotranslate(word, group) end
 ---@return table[]?
 function res.autotranslate_groups() end
 
+--- A name in a language's tables: kind item, key_item, spell, ability (name-table id), zone or title; lang ja, en (the default), de or fr. Another language than the client's loads on its first call: nil until its tables are in (a moment).
+---@param kind string 
+---@param id integer 
+---@param lang? string 
+---@return string?
+function res.name(kind, id, lang) end
+
+--- A game file's bytes by file id, as the client reads it (through the mods' DAT overlay); nil when the install has none.
+---@param id integer file id
+---@return string?
+function res.dat(id) end
+
+--- Where a file id is read from (a mod's file when an overlay replaces it).
+---@param id integer file id
+---@return string?
+function res.dat_path(id) end
+
+--- The file ids a model loads: an NPC model id gives {file}; a look {race, face, head, body, hands, legs, feet, main, sub, range} (Entity.look with its race) gives {skeleton, parts = {slot, model, file}}.
+---@param model integer|table 
+---@return table
+function res.model_files(model) end
+
 --- A weather's name by id (0 Clear .. 19 Darkness).
 ---@param id integer 
 ---@return string?

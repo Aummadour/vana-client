@@ -47,7 +47,7 @@ Settled for every row:
 
 | Set | Rows | Covered | Partly | Missing |
 | --- | --: | --: | --: | --: |
-| Windower official add-ons | 128 | 127 | 1 | 0 |
+| Windower official add-ons | 128 | 128 | 0 | 0 |
 | Windower plugins | 17 | 15 | 1 | 1 |
 | Windower deprecated plugins | 26 | 26 | 0 | 0 |
 | Windower features | 11 | 9 | 1 | 1 |
@@ -57,13 +57,13 @@ Settled for every row:
 | Ashita v3 official add-ons | 13 | 13 | 0 | 0 |
 | Ashita v4 plugins | 10 | 9 | 0 | 1 |
 | Ashita v3 plugins | 27 | 25 | 0 | 2 |
-| Ashita community plugins | 37 | 31 | 5 | 1 |
+| Ashita community plugins | 37 | 32 | 4 | 1 |
 | Ashita v4 community add-ons | 147 | 142 | 2 | 3 |
 | Ashita v3 community add-ons | 22 | 22 | 0 | 0 |
 | Ashita add-ons rated from descriptions | 28 | 28 | 0 | 0 |
-| Windower, all | 250 | 243 | 4 | 3 |
-| Ashita, all | 365 | 346 | 7 | 12 |
-| **Total** | **615** | **589** | **11** | **15** |
+| Windower, all | 250 | 244 | 3 | 3 |
+| Ashita, all | 365 | 347 | 6 | 12 |
+| **Total** | **615** | **591** | **9** | **15** |
 
 ## Open gaps
 
@@ -85,10 +85,8 @@ Ranked by the rows each one blocks (listed outside parentheses).
 11. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it).
     Blocks fastswap.
 12. **network send timing**, 1 row: changing when the client sends its packets. Blocks PacketFlow.
-13. **raw DAT reads**, 1 row: DAT file ids and bytes by model or file id. Blocks DatSeeker.
-14. **res names in Japanese**, 1 row: names in the Japanese tables. Blocks translate.
-15. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
-16. **zone collision mesh**, 1 row: the zone's collision mesh. Blocks Novo.
+13. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
+14. **zone collision mesh**, 1 row: the zone's collision mesh. Blocks Novo.
 
 Most wanted non-blocking gaps (rows that list them in parentheses):
 
@@ -249,7 +247,7 @@ Most wanted non-blocking gaps (rows that list them in parentheses):
 | Tickle | Resting tick countdown | `status_change`; `hp_change` / `mp_change`; hud.text; timer.every | covered | - |
 | timestamp | Time stamps on every line | filters.chat; os.date | covered | - |
 | TParty | Target HP% and party TP beside the party list | game.party / target; hud.text; hud.screen | covered | (native window bounds) |
-| translate | Rough JP to EN translation of chat | filters.chat; `chat_message`; text.from_shift_jis / plain; res.item / spell; res.autotranslate; text.autotranslate / phrase | partly | res names in Japanese |
+| translate | Rough JP to EN translation of chat | filters.chat; `chat_message`; text.from_shift_jis / plain; res.item / spell; res.autotranslate; text.autotranslate / phrase; res.name(kind, id, 'ja') | covered | - |
 | TreasurePool | Pool window with drop timers and lots | game.treasure; packets.on_in(0x0D2); hud.text | covered | (treasure drop time; packet layouts: 0x0D2) |
 | Treasury | Lots, passes and drops by list; stacks | game.treasure; actions.lot / pass / drop / sort; ipc.send; res.item | covered | - |
 | Trusts | Saved trust sets | actions.cast; commands.run('/retr ...'); game.party / spells / recasts / key_items; res.spell | covered | - |
@@ -570,7 +568,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | ChatHistoryPlus | Longer chat history | native: the session log is not capped (inferred from code) | covered | - |
 | ChatLogFix | Chat buffer race fix | not needed natively | covered | - |
 | Crossbar | Controller macro crossbar | hud.image / icon / on; binds.set; actions.* (keys work, the pad does not) | partly | gamepad input (deferred) |
-| DatSeeker | Model ids and ROM paths of gear as worn | game.entity look; game.equipment | partly | raw DAT reads: ROM paths of models |
+| DatSeeker | Model ids and ROM paths of gear as worn | game.entity look; game.equipment; res.dat / dat_path; res.model_files; Entity.model / look | covered | - |
 | Deeps | Damage meter | as Deeps (v3 plugin) | covered | - |
 | Defrag | Combines item stacks | actions.sort | covered | - |
 | DiscordRPC | Discord rich presence | none; client.run could start a bridge program; net.pipe | covered | - |
