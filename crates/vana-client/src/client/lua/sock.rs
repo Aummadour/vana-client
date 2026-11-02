@@ -16,14 +16,15 @@ static NEXT: AtomicU64 = AtomicU64::new(1 << 40);
 
 /// What the threads report.
 pub(super) enum Msg {
-    Open(u64, TcpStream),
+    Open(u64, Closer),
     Data(u64, Vec<u8>, Option<SocketAddr>),
-    Accept(u64, u64, SocketAddr, Sender<Vec<u8>>, TcpStream),
+    Accept(u64, u64, SocketAddr, Sender<Vec<u8>>, Closer),
     Closed(u64, Option<String>),
 }
 
 pub(super) enum Kind {
-    Tcp { tx: Sender<Vec<u8>>, stream: Option<TcpStream>, stop: Arc<AtomicBool> },
+    /// A stream (TCP, a Unix socket, a pipe): its writer's queue and what shuts it.
+    Tcp { tx: Sender<Vec<u8>>, stream: Option<Closer>, stop: Arc<AtomicBool> },
     Listen { stop: Arc<AtomicBool> },
     Udp { socket: UdpSocket, stop: Arc<AtomicBool> },
 }
@@ -39,8 +40,8 @@ impl Drop for Sock {
         match &self.kind {
             Kind::Tcp { stream, stop, .. } => {
                 stop.store(true, Ordering::Relaxed);
-                if let Some(s) = stream {
-                    let _ = s.shutdown(Shutdown::Both);
+                if let Some(close) = stream {
+                    close();
                 }
             }
             Kind::Listen { stop } | Kind::Udp { stop, .. } => stop.store(true, Ordering::Relaxed),
@@ -59,9 +60,23 @@ fn reports(lua: &Lua) -> Sender<Msg> {
     s.sock_tx.clone().expect("made above")
 }
 
-/// A connected stream's reader and writer threads; the writer's sender.
-fn run_stream(id: u64, stream: &TcpStream, report: Sender<Msg>, out: Receiver<Vec<u8>>) -> std::io::Result<()> {
-    let mut w = stream.try_clone()?;
+/// Shuts a stream, which ends its reader.
+pub(super) type Closer = Box<dyn Fn() + Send>;
+
+fn tcp_closer(s: TcpStream) -> Closer {
+    Box::new(move || {
+        let _ = s.shutdown(Shutdown::Both);
+    })
+}
+
+/// A TCP stream's reader and writer threads, and what shuts it.
+fn run_tcp(id: u64, s: &TcpStream, report: Sender<Msg>, out: Receiver<Vec<u8>>) -> std::io::Result<Closer> {
+    run_stream(id, s.try_clone()?, s.try_clone()?, report, out)?;
+    Ok(tcp_closer(s.try_clone()?))
+}
+
+/// A connected stream's reader and writer threads (the writer takes what `out` queues).
+fn run_stream<R: Read + Send + 'static, W: Write + Send + 'static>(id: u64, mut r: R, mut w: W, report: Sender<Msg>, out: Receiver<Vec<u8>>) -> std::io::Result<()> {
     std::thread::Builder::new().name("lua-tcp-w".into()).spawn(move || {
         for b in out {
             if w.write_all(&b).is_err() {
@@ -69,7 +84,6 @@ fn run_stream(id: u64, stream: &TcpStream, report: Sender<Msg>, out: Receiver<Ve
             }
         }
     })?;
-    let mut r = stream.try_clone()?;
     std::thread::Builder::new().name("lua-tcp-r".into()).spawn(move || {
         let mut buf = vec![0u8; 65536];
         loop {
@@ -103,6 +117,32 @@ fn keep(lua: &Lua, id: u64, handlers: Table, kind: Kind) -> mlua::Result<()> {
     Ok(())
 }
 
+/// A local endpoint another program offers: a Unix socket (a bare name in the runtime folder, as Discord's
+/// `discord-ipc-0`), or on Windows the named pipe `\\.\pipe\<name>`.
+#[cfg(unix)]
+fn open_pipe(name: &str) -> std::io::Result<(Box<dyn Read + Send>, Box<dyn Write + Send>, Closer)> {
+    use std::os::unix::net::UnixStream;
+    let path = if name.contains('/') {
+        std::path::PathBuf::from(name)
+    } else {
+        let dir = std::env::var_os("XDG_RUNTIME_DIR").or_else(|| std::env::var_os("TMPDIR")).map_or_else(|| std::path::PathBuf::from("/tmp"), std::path::PathBuf::from);
+        dir.join(name)
+    };
+    let s = UnixStream::connect(path)?;
+    let (r, w, c) = (s.try_clone()?, s.try_clone()?, s);
+    Ok((Box::new(r), Box::new(w), Box::new(move || {
+        let _ = c.shutdown(Shutdown::Both);
+    })))
+}
+
+#[cfg(windows)]
+fn open_pipe(name: &str) -> std::io::Result<(Box<dyn Read + Send>, Box<dyn Write + Send>, Closer)> {
+    let path = if name.starts_with('\\') { name.to_string() } else { format!(r"\\.\pipe\{name}") };
+    let f = std::fs::OpenOptions::new().read(true).write(true).open(path)?;
+    let w = f.try_clone()?;
+    Ok((Box::new(f), Box::new(w), Box::new(|| {})))
+}
+
 pub(super) fn install(lua: &Lua, t: &Table) -> mlua::Result<()> {
     t.set(
         "connect",
@@ -120,11 +160,11 @@ pub(super) fn install(lua: &Lua, t: &Table) -> mlua::Result<()> {
                     match s {
                         Ok(s) if !flag.load(Ordering::Relaxed) => {
                             let _ = s.set_nodelay(true);
-                            match (s.try_clone(), run_stream(id, &s, report.clone(), rx)) {
-                                (Ok(c), Ok(())) => {
+                            match run_tcp(id, &s, report.clone(), rx) {
+                                Ok(c) => {
                                     let _ = report.send(Msg::Open(id, c));
                                 }
-                                (_, Err(e)) | (Err(e), _) => {
+                                Err(e) => {
                                     let _ = report.send(Msg::Closed(id, Some(e.to_string())));
                                 }
                             }
@@ -136,6 +176,28 @@ pub(super) fn install(lua: &Lua, t: &Table) -> mlua::Result<()> {
                     }
                 })
                 .map_err(|e| mlua::Error::runtime(format!("net.connect: {e}")))?;
+            keep(lua, id, handlers, Kind::Tcp { tx, stream: None, stop })?;
+            Ok(id)
+        })?,
+    )?;
+    t.set(
+        "pipe",
+        lua.create_function(|lua, (name, handlers): (String, Table)| {
+            need(lua, "net")?;
+            let id = next_id(&state(lua));
+            let report = reports(lua);
+            let (tx, rx) = channel::<Vec<u8>>();
+            let stop = Arc::new(AtomicBool::new(false));
+            std::thread::Builder::new()
+                .name("lua-pipe".into())
+                .spawn(move || {
+                    let r = open_pipe(&name).and_then(|(r, w, close)| run_stream(id, r, w, report.clone(), rx).map(|_| close));
+                    let _ = report.send(match r {
+                        Ok(close) => Msg::Open(id, close),
+                        Err(e) => Msg::Closed(id, Some(format!("{name}: {e}"))),
+                    });
+                })
+                .map_err(|e| mlua::Error::runtime(format!("net.pipe: {e}")))?;
             keep(lua, id, handlers, Kind::Tcp { tx, stream: None, stop })?;
             Ok(id)
         })?,
@@ -162,7 +224,7 @@ pub(super) fn install(lua: &Lua, t: &Table) -> mlua::Result<()> {
                                 let _ = s.set_nodelay(true);
                                 let cid = NEXT.fetch_add(1, Ordering::Relaxed);
                                 let (tx, rx) = channel::<Vec<u8>>();
-                                if let (Ok(c), Ok(())) = (s.try_clone(), run_stream(cid, &s, report.clone(), rx))
+                                if let Ok(c) = run_tcp(cid, &s, report.clone(), rx)
                                     && report.send(Msg::Accept(id, cid, peer, tx, c)).is_err()
                                 {
                                     return;

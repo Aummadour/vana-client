@@ -545,6 +545,12 @@ function net.request(spec, callback) end
 ---@return integer
 function net.connect(host, port, handlers) end
 
+--- Opens a local endpoint another program offers (Discord's IPC and the like): a Unix socket (a bare name is in the runtime folder, e.g. 'discord-ipc-0'; a path as given), on Windows the named pipe \\.\pipe\<name>; handlers and sending as net.connect's. Needs net.
+---@param name string 
+---@param handlers table 
+---@return integer
+function net.pipe(name, handlers) end
+
 --- Listens for TCP connections (on 127.0.0.1 unless options.host); port 0 picks one. handlers {accept(listener, id, peer_ip, peer_port), data(id, bytes), close(id, error?)} serve every connection. Returns the listener's id and its port. Needs net.
 ---@param port integer 
 ---@param handlers table 

@@ -97,7 +97,8 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   phase; `net`), `net.open_url`; `ipc.send` and the `ipc_message` event between game windows on one machine (local
   UDP, ports listed in the runtime folder; `multibox`). Checked live against a local server and a stand-in window.
   Sockets for companion programs (`net`): `net.connect` / `listen` (TCP out and in, 127.0.0.1 unless asked),
-  `net.udp`, `net.send`, `net.close`; reading on threads, handlers (open, data, accept, close) in later mod phases.
+  `net.udp`, `net.pipe` (a Unix socket or a Windows named pipe another program offers, such as Discord's IPC),
+  `net.send`, `net.close`; reading on threads, handlers (open, data, accept, close) in later mod phases.
   Checked live (a listener with an echo, UDP both ways, a refused connection).
 - **The game window and the system:** `client.window` (place, size, focus) and the `focus_change` event;
   `client.set_window` (move, size through the Settings' sizing path; always on top, minimised, borderless full
