@@ -76,6 +76,9 @@ Built (client/lua/, modern/modwin.rs), each checked live:
 - **Network and other windows:** `net.request` (HTTP(S) on its own thread, the answer to a callback in a later mod
   phase; `net`), `net.open_url`; `ipc.send` and the `ipc_message` event between game windows on one machine (local
   UDP, ports listed in the runtime folder; `multibox`). Checked live against a local server and a stand-in window.
+  Sockets for companion programs (`net`): `net.connect` / `listen` (TCP out and in, 127.0.0.1 unless asked),
+  `net.udp`, `net.send`, `net.close`; reading on threads, handlers (open, data, accept, close) in later mod phases.
+  Checked live (a listener with an echo, UDP both ways, a refused connection).
 - **Permissions:** each one a mod asks for is a row on its Extras page (ON / OFF, with what it allows on the help
   line), or `/lua grant` / `revoke`; kept in mod-data/grants.json. A mod loaded without them says where to allow them.
 - **Packets** (`packets.read` / `packets.write`):

@@ -15,6 +15,7 @@ mod manifest;
 mod native;
 pub(super) mod render;
 mod runtime;
+mod sock;
 mod state;
 mod vm;
 pub(super) mod window;
@@ -751,6 +752,7 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
                     }
                 }
                 net::poll(vm);
+                sock::poll(vm);
                 vm.timers();
                 vm.wake();
                 if vm.has_handler("frame") {

@@ -104,6 +104,7 @@ pub(super) fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
             r.map(|_| ()).map_err(|e| mlua::Error::runtime(format!("open_url: {e}")))
         })?,
     )?;
+    super::sock::install(lua, &t)?;
     g.set("net", t)?;
     Ok(())
 }

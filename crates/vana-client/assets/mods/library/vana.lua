@@ -491,6 +491,38 @@ function draw.to_screen(point) end
 ---@return integer
 function net.request(spec, callback) end
 
+--- Opens a TCP connection (for a companion program); handlers {open(id), data(id, bytes), close(id, error?)} run in later mod phases. Needs net.
+---@param host string 
+---@param port integer 
+---@param handlers table 
+---@return integer
+function net.connect(host, port, handlers) end
+
+--- Listens for TCP connections (on 127.0.0.1 unless options.host); port 0 picks one. handlers {accept(listener, id, peer_ip, peer_port), data(id, bytes), close(id, error?)} serve every connection. Returns the listener's id and its port. Needs net.
+---@param port integer 
+---@param handlers table 
+---@param options? {host: string?} 
+---@return integer, integer
+function net.listen(port, handlers, options) end
+
+--- Binds a UDP socket (127.0.0.1 unless options.host; nil or 0 picks a port); handlers {data(id, bytes, from_ip, from_port)}. Returns its id and port. Needs net.
+---@param port? integer 
+---@param handlers table 
+---@param options? {host: string?} 
+---@return integer, integer
+function net.udp(port, handlers, options) end
+
+--- Sends bytes on a TCP connection, or a UDP datagram to host and port. Needs net.
+---@param id integer 
+---@param data string 
+---@param host? string UDP
+---@param port? integer UDP
+function net.send(id, data, host, port) end
+
+--- Closes a socket (a connection, a listener, a UDP socket).
+---@param id integer 
+function net.close(id) end
+
 --- Opens an http(s) URL in the browser. Needs net.
 ---@param url string 
 function net.open_url(url) end
