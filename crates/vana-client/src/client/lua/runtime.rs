@@ -455,7 +455,7 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
             Ok(pid)
         })?,
     )?;
-    super::process::install(lua, &client)?;
+    super::process::install(lua, &client, &vm.manifest.id)?;
     g.set("client", client)?;
     Ok(())
 }

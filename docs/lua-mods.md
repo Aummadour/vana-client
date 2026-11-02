@@ -129,6 +129,9 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   - `devices.list` / `open` / `write` / `close` (`devices`): HID devices by their raw reports (G-keys, Stream Decks),
     hidraw on Linux, the HID interfaces on Windows; checked live on Linux (the list with ids, interfaces and report
     descriptors; a device opened and closed); Windows type-checked, not run
+  - `client.record` / `stop_recording` / `recording` (`exec`): the window as drawn to an H.264 file through ffmpeg
+    (a ring of readback buffers, never waited on; a frame due with none free repeats the last); checked live (4 s at
+    30 fps: 120 frames, 1920 x 1080)
   - `client.process` / `set_affinity` / `set_priority` (`process`): the cores every thread may run on and the
     scheduling priority; checked live on Linux (cores 0-3, low, back to normal).
   - Rules as switches too: `move_lock` (our abilities' and the weapon draw's move lock, scheduler op 0x2e), `all_maps`

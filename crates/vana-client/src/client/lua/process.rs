@@ -118,7 +118,31 @@ fn level_of(nice: i32) -> &'static str {
     LEVELS.iter().min_by_key(|l| (l.1 - nice).abs()).map_or("normal", |l| l.0)
 }
 
-pub(super) fn install(lua: &Lua, client: &Table) -> mlua::Result<()> {
+pub(super) fn install(lua: &Lua, client: &Table, mod_id: &str) -> mlua::Result<()> {
+    let me = mod_id.to_string();
+    client.set(
+        "record",
+        lua.create_function(move |lua, (name, opts): (Option<String>, Option<Table>)| {
+            need(lua, "exec")?;
+            let fps = opts.map(|o| o.get::<Option<u32>>("fps")).transpose()?.flatten().unwrap_or(30).clamp(1, 120);
+            let stamp = jiff::Zoned::now().strftime("%Y%m%d-%H%M%S").to_string();
+            let name = name.unwrap_or(stamp).replace(['/', '\\'], "_");
+            let path = crate::config::data_dir().join("ffxiuser").join("videos").join(format!("{name}.mp4"));
+            super::api::state(lua).borrow_mut().ops.push(super::Op::Record(Some((me.clone(), path.clone(), fps))));
+            Ok(path.display().to_string())
+        })?,
+    )?;
+    client.set(
+        "stop_recording",
+        lua.create_function(|lua, ()| {
+            super::api::state(lua).borrow_mut().ops.push(super::Op::Record(None));
+            Ok(())
+        })?,
+    )?;
+    client.set(
+        "recording",
+        lua.create_function(|lua, ()| Ok(lua.app_data_ref::<super::Recording>().and_then(|r| r.0.borrow().as_ref().map(|p| p.display().to_string()))))?,
+    )?;
     client.set(
         "process",
         lua.create_function(|lua, ()| {

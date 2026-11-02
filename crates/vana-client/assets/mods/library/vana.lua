@@ -1359,6 +1359,19 @@ function devices.write(id, report) end
 ---@param id integer 
 function devices.close(id) end
 
+--- Records the game window as drawn to an H.264 video (ffmpeg must be installed) under the client's ffxiuser/videos folder, as `name`.mp4 (the date and time when none): options {fps (30)}. It ends with stop_recording, a new window size, or the mod unloading. Returns the file's path. Needs exec.
+---@param name? string 
+---@param options? {fps: integer?} 
+---@return string
+function client.record(name, options) end
+
+--- Ends the recording (ffmpeg finishes the file).
+function client.stop_recording() end
+
+--- The file being recorded, or nil (as of the last frame).
+---@return string?
+function client.recording() end
+
 --- The client's process: pid, cores (how many), affinity (the cores it may run on, from 0; empty where unknown) and priority (idle, low, below_normal, normal, above_normal, high).
 ---@return {pid: integer, cores: integer, affinity: integer[], priority: string}
 function client.process() end

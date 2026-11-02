@@ -66,6 +66,8 @@ pub(super) enum Op {
     Timer { mod_id: String, name: Option<String>, secs: Option<f32>, section: usize, group: Option<String>, icon: Option<(String, u16)>, total: f32, fills: bool },
     /// A lobby action (sign in, play a character), for the app before login.
     Lobby(lobby::Act),
+    /// A recording started (mod, file, frames a second) or stopped (client.record).
+    Record(Option<(String, std::path::PathBuf, u32)>),
 }
 
 /// What a mod asked of the game window.
@@ -250,6 +252,9 @@ pub struct Host {
     lobby_started: bool,
     lobby_screen: Option<&'static str>,
     lobby: lobby::Shared,
+    /// A recording asked for (taken by the app), and the file being recorded, as the app sets it.
+    pub(in crate::client) record_req: Option<Option<(String, std::path::PathBuf, u32)>>,
+    pub(in crate::client) recording: std::rc::Rc<std::cell::RefCell<Option<std::path::PathBuf>>>,
 }
 
 impl Drop for Host {
@@ -535,6 +540,7 @@ impl Host {
         vm.lua.set_app_data(self.dir.clone());
         vm.lua.set_app_data(self.info.clone());
         vm.lua.set_app_data(self.lobby.clone());
+        vm.lua.set_app_data(Recording(self.recording.clone()));
         api::install(&vm.lua, &vm, storage).map_err(|e| format!("{e}"))?;
         self.dir.borrow_mut().mods.push(runtime::Entry { id: vm.manifest.id.clone(), name: vm.manifest.name.clone(), version: vm.manifest.version.clone(), lua: vm.lua.weak(), st: vm.st.clone() });
         log::info!("lua mod {} {} loaded from {}", vm.manifest.id, vm.manifest.version, vm.dir.display());
@@ -1081,6 +1087,9 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
     }
 }
 
+/// The file the app is recording, shared with the mods (client.recording).
+pub(super) struct Recording(pub std::rc::Rc<std::cell::RefCell<Option<std::path::PathBuf>>>);
+
 /// What the lobby mods asked of the app this frame.
 #[derive(Default)]
 pub(in crate::client) struct LobbyOut {
@@ -1213,6 +1222,7 @@ fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
         Op::Interface(show) => w.ui_hidden = !show,
         // In the world there is no lobby to act on.
         Op::Lobby(_) => {}
+        Op::Record(r) => w.lua.record_req = Some(r),
         Op::CameraDistance(k) => super::camera::set_distance(w, k),
         Op::Camera(speed, max, battle) => super::camera::set_mod(w, speed, max, battle),
         Op::Sound(s) => w.lua.sounds.push(s),

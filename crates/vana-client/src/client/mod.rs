@@ -3,6 +3,7 @@
 pub mod ground;
 pub mod combat;
 mod actmotion;
+mod record;
 mod chair;
 mod battlemod;
 pub mod opening;
@@ -6630,6 +6631,8 @@ pub struct App {
     synth_events: Vec<egui::Event>,
     /// The lobby mods before login (in the world, the World's host holds them).
     lobby_mods: lua::Host,
+    /// A mod's recording (client.record).
+    recorder: Option<record::Recorder>,
     /// Frames per second, 0 = unlimited (config frame_limit), and the present mode must be picked again.
     frame_limit: u32,
     present_dirty: bool,
@@ -6876,6 +6879,7 @@ impl App {
             input: input::Input::default(),
             synth_events: Vec::new(),
             lobby_mods: Default::default(),
+            recorder: None,
             frame_limit,
             present_dirty: false,
             window_dirty: false,
@@ -14081,6 +14085,35 @@ impl App {
             gfx.egui_renderer.free_texture(id);
         }
         textures.clear();
+        // A mod's recording: started or stopped as asked, ended with its mod or a new size, a frame copied for it.
+        if let Phase::World(w) = &mut self.phase
+            && let Some(req) = w.lua.record_req.take()
+        {
+            if let Some(r) = self.recorder.take() {
+                r.stop();
+            }
+            if let Some((owner, path, fps)) = req.filter(|_| gfx.config.usage.contains(wgpu::TextureUsages::COPY_SRC)) {
+                match record::Recorder::start(&gfx.gpu, size, gfx.config.format, path, fps, owner) {
+                    Ok(r) => self.recorder = Some(r),
+                    Err(e) => log::warn!("record: {e:#}"),
+                }
+            }
+        }
+        let ids = match &self.phase {
+            Phase::World(w) => w.lua.mod_ids(),
+            _ => self.lobby_mods.mod_ids(),
+        };
+        if self.recorder.as_ref().is_some_and(|r| r.size != size || !ids.contains(&r.owner))
+            && let Some(r) = self.recorder.take()
+        {
+            r.stop();
+        }
+        if let Some(r) = self.recorder.as_mut() {
+            r.copy(&mut encoder, &frame.texture);
+        }
+        if let Phase::World(w) = &self.phase {
+            *w.lua.recording.borrow_mut() = self.recorder.as_ref().map(|r| r.path.clone());
+        }
         let row = (size[0] * 4).div_ceil(256) * 256;
         let capture = (shoot && gfx.config.usage.contains(wgpu::TextureUsages::COPY_SRC)).then(|| {
             let buf = gfx.gpu.device.create_buffer(&wgpu::BufferDescriptor {
@@ -14102,6 +14135,9 @@ impl App {
         perf::timed(|| "submit".into(), || gfx.gpu.queue.submit(extra.into_iter().chain([encoder.finish()])));
         if let Some(t) = gpu_time.as_mut() {
             t.after_submit();
+        }
+        if let Some(r) = self.recorder.as_mut() {
+            r.after_submit(&gfx.gpu);
         }
         self.gpu_time = gpu_time;
         if let (Some(eg), Phase::World(w)) = (&mut self.effects_gpu, &mut self.phase) {

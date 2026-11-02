@@ -50,20 +50,20 @@ Settled for every row:
 | Windower official add-ons | 128 | 128 | 0 | 0 |
 | Windower plugins | 17 | 17 | 0 | 0 |
 | Windower deprecated plugins | 26 | 26 | 0 | 0 |
-| Windower features | 11 | 10 | 0 | 1 |
+| Windower features | 11 | 11 | 0 | 0 |
 | Windower community add-ons | 55 | 54 | 1 | 0 |
 | Windower community capabilities | 13 | 12 | 0 | 1 |
 | Ashita v4 official add-ons | 81 | 79 | 0 | 2 |
 | Ashita v3 official add-ons | 13 | 13 | 0 | 0 |
 | Ashita v4 plugins | 10 | 9 | 0 | 1 |
-| Ashita v3 plugins | 27 | 26 | 0 | 1 |
+| Ashita v3 plugins | 27 | 27 | 0 | 0 |
 | Ashita community plugins | 37 | 35 | 2 | 0 |
 | Ashita v4 community add-ons | 147 | 143 | 1 | 3 |
 | Ashita v3 community add-ons | 22 | 22 | 0 | 0 |
 | Ashita add-ons rated from descriptions | 28 | 28 | 0 | 0 |
-| Windower, all | 250 | 247 | 1 | 2 |
-| Ashita, all | 365 | 355 | 3 | 7 |
-| **Total** | **615** | **602** | **4** | **9** |
+| Windower, all | 250 | 248 | 1 | 1 |
+| Ashita, all | 365 | 356 | 3 | 6 |
+| **Total** | **615** | **604** | **4** | **7** |
 
 ## Open gaps
 
@@ -71,14 +71,13 @@ Ranked by the rows each one blocks (listed outside parentheses).
 
 1. **gamepad input (deferred)**, 6 rows: pad buttons and sticks as events and binds (deferred with gamepad support).
    Blocks Capability: gamepad input, cBind, Crossbar, tCrossBar, trigger, XIVCrossbar.
-2. **video capture**, 2 rows: recording the game window. Blocks DashCam, Video capture.
-3. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
-4. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
-5. **native list options**, 1 row: options for native lists (the spell list trimmed; what its shortcut list is was not
+2. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
+3. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
+4. **native list options**, 1 row: options for native lists (the spell list trimmed; what its shortcut list is was not
    found). Blocks trimspells.
-6. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it). Blocks
+5. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it). Blocks
    fastswap.
-7. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
+6. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
 
 Most wanted non-blocking gaps (rows that list them in parentheses):
 
@@ -317,7 +316,7 @@ Most wanted non-blocking gaps (rows that list them in parentheses):
 | Render knobs | Wireframe, gamma, forced ambient light | native Gamma setting; client.set_option(ambient / wireframe) | covered | - |
 | Screenshots | `screenshot` bmp / jpg / png, optionally without overlays | native screenshot key (PNG, interface hidden); client.screenshot | covered | - |
 | showfps | FPS counter | `frame` event `dt` + `hud.text`; F12 overlay | covered | - |
-| Video capture | `video start` / `stop` | none | missing | video capture |
+| Video capture | `video start` / `stop` | client.record / stop_recording | covered | - |
 | Window and process | Minimise, exit, terminate, resize, frame, full screen | `commands.run('/shutdown')`; client.window / set_window (move, size, minimised, fullscreen, border) | covered | - |
 
 ### Windower community add-ons
@@ -527,7 +526,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | Ashitacast | XML gear swaps around every action | filters.typed; actions.equip; event `action`; packets.on_out | covered | (packet batch order) |
 | Bellhop | Batch get / put / drop / sell / buy / trade / sort | actions.move / drop / sell / buy / trade / sort; game.shop; packets.inject_out (player trade, bazaar) | covered | (packet layouts) |
 | Crafty | Repeated synthesis with stop conditions | native synthesis amount extra; packets.inject_out(0x096); event `chat_message`; game.bag_size | covered | (packet layouts) |
-| DashCam | Records the game to video | none (client.screenshot takes single frames) | missing | video capture |
+| DashCam | Records the game to video | client.record / stop_recording | covered | - |
 | Dats | Replacement DAT files | native mod manager (DAT overlays) | covered | - |
 | Deeps | Damage meter with bars | events `action` / `damage`; hud.bar; the bundled /dps mod; hud.image | covered | - |
 | DressMe | Fetches a profile's gear from storage | game.items; actions.move | covered | - |
