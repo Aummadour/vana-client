@@ -20296,3 +20296,18 @@ Ashita, beyond the above:
 - Controller input (tCrossBar, cBind) waits on gamepad support.
 
 Lessons from other games' mod layers (BG3 Script Extender, WoW, Skyrim, Factorio) are in docs/lua-mods.md 2.
+
+## Chat line: the system IME (2026-11-02, ours)
+
+- Not retail (the English client takes no IME input: the Windower and Ashita IME plugins add it). Ours takes the
+  desktop's input method while the chat line is open (both UIs): the frame's platform output carries an IME area at the
+  caret (classic: the line's caret in GameUi units over ui_k and pixels per point; modern: chat.rs input's caret rect),
+  so egui-winit allows the IME and places its candidate window there; with the line closed there is no area and the IME
+  is off, so it never takes game keys.
+- Ime::Commit inserts at the caret as typed text does (fep::insert); Ime::Preedit is drawn at the caret, underlined,
+  over what follows it; while a preedit is up the line ignores key events (the IME's Enter, Backspace and arrows).
+- Seen: with the IME allowed, the desktop's input method sends an empty preedit nearly every frame (egui-winit sets the
+  cursor area whenever there are events); harmless.
+- Live: a committed 日本語 (script step `ime:`) in both UIs, sent with /echo and printed in the game font and the modern
+  one. A real composition (preedit and candidate window from a Japanese input method) not tried.
+

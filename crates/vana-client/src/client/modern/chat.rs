@@ -290,6 +290,8 @@ pub struct InputView {
     pub sel: Option<(usize, usize)>,
     /// The auto-translate list (Tab): the candidates and the cursor.
     pub fep: Option<(Vec<String>, usize)>,
+    /// An IME's text being composed at the caret.
+    pub preedit: String,
 }
 
 /// The channel a line goes to (chatctrl::line_mode's codes).
@@ -327,7 +329,7 @@ fn view_keep(w: &World, keep: usize) -> ChatView<'_> {
     let all: Vec<_> = w.chat.iter_timed().zip(modes.iter().copied()).collect();
     let from = all.len().saturating_sub(keep);
     let lines = all[from..].iter().enumerate().map(|(i, (((line, c), (time, chat, _)), mode))| (stamp_of(stamps, *time, *chat), line.as_str(), *c, *mode, incoming(*mode) && mentions(line, &w.name), from + i)).collect();
-    let input = w.typing.then(|| InputView { channel: channel(super::super::chatctrl::line_mode(&w.chat_input, w.chat_mode)), pieces: fep::pieces(w, &w.chat_input), caret: fep::caret(w), sel: fep::selection(w), fep: w.fep.as_ref().map(|f| (f.cands.iter().map(|c| c.text.clone()).collect(), f.sel)) });
+    let input = w.typing.then(|| InputView { channel: channel(super::super::chatctrl::line_mode(&w.chat_input, w.chat_mode)), pieces: fep::pieces(w, &w.chat_input), caret: fep::caret(w), sel: fep::selection(w), fep: w.fep.as_ref().map(|f| (f.cands.iter().map(|c| c.text.clone()).collect(), f.sel)), preedit: w.ime_preedit.clone() });
     ChatView { lines, input, waiting: event::prompt(w), unread: [0; 11] }
 }
 
@@ -372,8 +374,16 @@ fn input(ui: &mut Ui, m: &Modern, v: &InputView, t: f32, size: f32, r: Rect) {
     if v.caret >= chars {
         caret_x = x;
     }
-    // The caret blinks as the retail line's (10..24 of 26 frames at 30 a second).
-    if (10..=24).contains(&((t * 30.0) as u64 % 26)) {
+    let (top, bottom) = (r.center().y - size * 0.55, r.center().y + size * 0.55);
+    m.ime_caret.set(Some(Rect::from_min_max(pos2(caret_x, top), pos2(caret_x + 2.0, bottom))));
+    // An IME's composition at the caret, underlined, over what follows it.
+    if !v.preedit.is_empty() {
+        let g = ui.fonts_mut(|f| f.layout_no_wrap(v.preedit.clone(), font.clone(), m.theme.color("text")));
+        let box_r = Rect::from_min_size(pos2(caret_x, top - 2.0), vec2(g.size().x + 2.0, bottom - top + 4.0));
+        p.rect_filled(box_r, 2.0, m.theme.color("charcoal"));
+        p.text(pos2(caret_x + 1.0, r.center().y), egui::Align2::LEFT_CENTER, &v.preedit, font.clone(), m.theme.color("text"));
+        p.hline((caret_x + 1.0)..=(caret_x + 1.0 + g.size().x), bottom + 1.0, egui::Stroke::new(1.0, m.theme.color("text")));
+    } else if (10..=24).contains(&((t * 30.0) as u64 % 26)) {
         p.vline(caret_x + 1.0, (r.center().y - size * 0.55)..=(r.center().y + size * 0.55), egui::Stroke::new(1.5, m.theme.color("text")));
     }
     if let Some((cands, sel)) = &v.fep {

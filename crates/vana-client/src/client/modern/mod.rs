@@ -134,6 +134,8 @@ pub struct Modern {
     log_text: std::cell::RefCell<Option<String>>,
     line_req: std::cell::Cell<Option<(usize, Option<usize>)>>,
     line_sel: std::cell::Cell<bool>,
+    /// The chat line's caret this frame, for an IME's candidate window.
+    pub ime_caret: std::cell::Cell<Option<egui::Rect>>,
     chat_menu: std::cell::RefCell<Option<chatsel::Menu>>,
     chat_act: std::cell::RefCell<Option<chatsel::Act>>,
     /// The retail windows drawn this frame: the edge windows give way to them (they draw under every panel).
@@ -188,6 +190,7 @@ impl Modern {
             log_text: Default::default(),
             line_req: Default::default(),
             line_sel: Default::default(),
+            ime_caret: Default::default(),
             chat_menu: Default::default(),
             chat_act: Default::default(),
             dirty: false,

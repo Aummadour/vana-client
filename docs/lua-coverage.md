@@ -48,12 +48,12 @@ Settled for every row:
 | Set | Rows | Covered | Partly | Missing |
 | --- | --: | --: | --: | --: |
 | Windower official add-ons | 128 | 128 | 0 | 0 |
-| Windower plugins | 17 | 15 | 1 | 1 |
+| Windower plugins | 17 | 16 | 1 | 0 |
 | Windower deprecated plugins | 26 | 26 | 0 | 0 |
 | Windower features | 11 | 9 | 1 | 1 |
 | Windower community add-ons | 55 | 54 | 1 | 0 |
 | Windower community capabilities | 13 | 12 | 0 | 1 |
-| Ashita v4 official add-ons | 81 | 78 | 0 | 3 |
+| Ashita v4 official add-ons | 81 | 79 | 0 | 2 |
 | Ashita v3 official add-ons | 13 | 13 | 0 | 0 |
 | Ashita v4 plugins | 10 | 9 | 0 | 1 |
 | Ashita v3 plugins | 27 | 26 | 0 | 1 |
@@ -61,9 +61,9 @@ Settled for every row:
 | Ashita v4 community add-ons | 147 | 143 | 1 | 3 |
 | Ashita v3 community add-ons | 22 | 22 | 0 | 0 |
 | Ashita add-ons rated from descriptions | 28 | 28 | 0 | 0 |
-| Windower, all | 250 | 244 | 3 | 3 |
-| Ashita, all | 365 | 353 | 4 | 8 |
-| **Total** | **615** | **597** | **7** | **11** |
+| Windower, all | 250 | 245 | 3 | 2 |
+| Ashita, all | 365 | 354 | 4 | 7 |
+| **Total** | **615** | **599** | **7** | **9** |
 
 ## Open gaps
 
@@ -71,17 +71,16 @@ Ranked by the rows each one blocks (listed outside parentheses).
 
 1. **gamepad input (deferred)**, 6 rows: pad buttons and sticks as events and binds (deferred with gamepad support).
    Blocks Capability: gamepad input, cBind, Crossbar, tCrossBar, trigger, XIVCrossbar.
-2. **IME text input**, 2 rows: Japanese IME composition in the chat line. Blocks ime (Ashita v4), IME (Windower plugin).
-3. **vendor input devices**, 2 rows: G-keys, Stream Deck and other HID devices directly. Blocks Binder, GBinder.
-4. **video capture**, 2 rows: recording the game window. Blocks DashCam, Video capture.
-5. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
-6. **engine settings from Lua**, 1 row: wireframe from Lua. Blocks Render knobs.
-7. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
-8. **native list options**, 1 row: options for native lists (the spell list trimmed; what its shortcut list is was not
+2. **vendor input devices**, 2 rows: G-keys, Stream Deck and other HID devices directly. Blocks Binder, GBinder.
+3. **video capture**, 2 rows: recording the game window. Blocks DashCam, Video capture.
+4. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
+5. **engine settings from Lua**, 1 row: wireframe from Lua. Blocks Render knobs.
+6. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
+7. **native list options**, 1 row: options for native lists (the spell list trimmed; what its shortcut list is was not
    found). Blocks trimspells.
-9. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it). Blocks
+8. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it). Blocks
    fastswap.
-10. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
+9. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
 
 Most wanted non-blocking gaps (rows that list them in parentheses):
 
@@ -266,7 +265,7 @@ Most wanted non-blocking gaps (rows that list them in parentheses):
 | FFXIDB | Minimap: drag, zoom, opacity, kind toggles, range circles, target lines | native Minimap Extra (zoom, entity dots); draw.ring / line; hud.rect / image; game.map / map_pos; hud.map | covered | - |
 | FishingCrashFix | Patches an old client crash | not applicable (our code) | covered | - |
 | Guildwork | Syncs character data with a guild site | `net.request`; `game.items` / `stats` / `jobs` | covered | - |
-| IME | Japanese IME input in the chat line | none (client feature, not built) | missing | IME text input |
+| IME | Japanese IME input in the chat line | native: the chat line takes the system IME (composition at the caret, commits, the candidate window there); text.to_shift_jis | covered | - |
 | InfoBar | Target info bar | `game.target`, `target_change`, `hud.text` | covered | - |
 | Run | Starts / stops external programs | client.run | covered | (stopping a started program) |
 | Sandbox | Per-instance copies of shared files for multiboxing | native: `FFXI_CONFIG` per instance; `storage.character` | covered | - |
@@ -451,7 +450,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | hideobs | Hides the game window from screen capture | client.set_window {capture = false} (where the system allows it) | covered | - |
 | hideparty | Hides the party lists | ui.native.hide('party') | covered | - |
 | hideui | Hides every add-on's drawing | its elements: hud.set / ui.close; everything: the UI-hide key; /lua hide | covered | - |
-| ime | Japanese IME and character sets in chat | text.to_shift_jis (encoding only) | missing | IME text input |
+| ime | Japanese IME and character sets in chat | native: the chat line takes the system IME (composition at the caret, commits, the candidate window there); text.to_shift_jis | covered | - |
 | imguistyle | Per-character ImGui style | not needed: mod windows follow the active UI theme (by design) | covered | - |
 | instantah | No delay on AH results | client.set_option('ah_result_delay', false) | covered | - |
 | instantchat | No delay adding chat lines | client.set_option('log_slide', false) | covered | - |

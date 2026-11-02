@@ -2008,6 +2008,9 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
     if let Some(p) = input.pointer.filter(|_| input.clicked) {
         gu.press_at(p);
     }
+    if !world.typing {
+        world.ime_preedit.clear();
+    }
     for ev in input.events.iter().filter(|_| !input_open) {
         match ev {
             // Ctrl+V with the chat line closed opens it with the text (ours).
@@ -2016,6 +2019,15 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
                 let t: String = t.chars().filter(|c| !c.is_control()).collect();
                 fep::insert(world, &t);
             }
+            // An IME's composition and its result (ours); its keys stay the IME's while it composes.
+            egui::Event::Ime(egui::ImeEvent::Commit(t)) if world.typing && !opened => {
+                world.ime_preedit.clear();
+                world.line_hist.edited();
+                let t: String = t.chars().filter(|c| !c.is_control()).collect();
+                fep::insert(world, &t);
+            }
+            egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) if world.typing => world.ime_preedit = text.clone(),
+            egui::Event::Key { .. } if world.typing && !world.ime_preedit.is_empty() => {}
             egui::Event::Text(t) | egui::Event::Paste(t) if world.typing && !opened => {
                 world.line_hist.edited();
                 let t = if std::mem::take(&mut world.space_open) { t.strip_prefix(' ').unwrap_or(t) } else { t.as_str() };
@@ -3446,9 +3458,16 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
         // The caret: a '|' after the text before it, not counted in the width, while inline +0x20 (0..25 a draw at 30
         // fps) is 10..24.
         let phase = (world.started.elapsed().as_secs_f32() * 30.0) as u64 % 26;
-        if (10..=24).contains(&phase) {
+        // An IME's composition over the line at the caret, underlined (ours).
+        if !world.ime_preedit.is_empty() {
+            let pw = gu.text_width(&world.ime_preedit);
+            gu.rect(caret_x, y + 2.0, pw + 2.0, 18.0, [0.05, 0.05, 0.1, 0.9]);
+            gu.text(&world.ime_preedit, caret_x + 1.0, y + 3.0, 0, WHITE);
+            gu.rect(caret_x + 1.0, y + 18.0, pw, 1.0, [1.0, 1.0, 1.0, 0.9]);
+        } else if (10..=24).contains(&phase) {
             gu.text("|", caret_x, y + 3.0, 0, WHITE);
         }
+        world.ime_at.set(Some([caret_x, y + 3.0, 2.0, 16.0]));
         blockers.push([x, y, w, 22.0]);
         if let Some(f) = &world.fep {
             blockers.push(fep::draw(gu, f, word_x - 8.0, y));
@@ -5637,6 +5656,10 @@ struct World {
     vis_list: Vec<u32>,
     chat: combat::ChatLog,
     chat_input: String,
+    /// An IME's text being composed at the caret (ours; MODLOG "Chat line: the system IME"), and the caret's
+    /// rect in the classic line (GameUi units) for the candidate window.
+    ime_preedit: String,
+    ime_at: std::cell::Cell<Option<[f32; 4]>>,
     /// The chat line's caret (char index; None the end of the line, where every new line starts).
     chat_caret: Option<usize>,
     /// The other end of the chat line's selection (Shift + arrows; ours), and text for the clipboard this frame.
@@ -7732,6 +7755,8 @@ impl App {
                             vis_list: Vec::new(),
                             chat: Default::default(),
                             chat_input: String::new(),
+                            ime_preedit: String::new(),
+                            ime_at: Default::default(),
                             chat_caret: None,
                             chat_anchor: None,
                             copied: None,
@@ -12976,6 +13001,21 @@ impl App {
             platform.cursor_icon = if self.cfg.tool("0021") == 0 { egui::CursorIcon::None } else { egui::CursorIcon::Default };
         } else {
             self.mouse.invalidate();
+        }
+        // The open chat line takes an IME (ours): its caret places the candidate window; closed, the IME is off.
+        if let Phase::World(w) = &self.phase
+            && w.typing
+            && platform.ime.is_none()
+        {
+            let (ppp, k) = (ctx.pixels_per_point(), self.ui_k);
+            let caret = if w.modern {
+                self.modern.as_ref().and_then(|m| m.ime_caret.take())
+            } else {
+                w.ime_at.take().map(|r| egui::Rect::from_min_size(egui::pos2(r[0] / k.0 / ppp, r[1] / k.1 / ppp), egui::vec2(r[2] / k.0 / ppp, r[3] / k.1 / ppp)))
+            };
+            if let Some(rect) = caret {
+                platform.ime = Some(egui::output::IMEOutput { purpose: egui::IMEPurpose::Normal, rect, cursor_rect: rect, should_interrupt_composition: false });
+            }
         }
         gfx.egui_state.handle_platform_output(&gfx.window, platform);
         let jobs = ctx.tessellate(output.shapes, output.pixels_per_point);
