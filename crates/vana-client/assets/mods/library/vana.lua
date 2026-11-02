@@ -339,7 +339,7 @@ function ui.is_open(id) end
 ---@param handler fun(window: string, event: {kind: string, id: string?, index: integer?, text: string?, value: table?, open: boolean?, column: integer?, x: number?, y: number?}) 
 function ui.on(id, handler) end
 
---- Creates or replaces a HUD text: x, y (window pixels; negative from the right or bottom edge), text (\n for lines), size (1 = the UI's text), colour and bg ({r, g, b, a} 0..255), align (left, center, right), pad, layer, visible. It draws under the windows in the active UI's font and hides with the UI.
+--- Creates or replaces a HUD text: x, y (window pixels; negative from the right or bottom edge), text (\n for lines), size (1 = the UI's text), colour and bg ({r, g, b, a} 0..255), align (left, center, right), pad, layer, visible, font ('game' the game's font, 'regular' / 'bold' the modern faces, in either UI; else the active UI's), outline ({r, g, b, a}) and outline_width, shadow. It draws under the windows and hides with the UI.
 ---@param id string 
 ---@param spec table 
 function hud.text(id, spec) end

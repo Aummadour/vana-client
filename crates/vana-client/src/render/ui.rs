@@ -540,13 +540,18 @@ impl UiBatch {
 
     /// Game-font quads; `atlas` is the texture name the font atlas was loaded under.
     pub fn push_text(&mut self, quads: &[crate::dat::font::Quad], atlas: &str) {
+        self.push_text_as(quads, atlas, false);
+    }
+
+    /// As push_text; `alpha` blends the glyphs over what is under them instead of adding (dark text, outlines).
+    pub fn push_text_as(&mut self, quads: &[crate::dat::font::Quad], atlas: &str, alpha: bool) {
         use crate::dat::font::{BLEND_ADD, Source};
         for q in quads {
             let texture = match &q.source {
                 Source::Atlas => atlas.to_string(),
                 Source::Texture(n) => crate::dat::ui::norm_name(n.as_bytes()),
             };
-            let blend = if q.blend == BLEND_ADD { Blend::Glyph } else { Blend::from_ps2(q.blend[0], q.blend[1], q.blend[2]) };
+            let blend = if q.blend == BLEND_ADD { if alpha { Blend::Alpha } else { Blend::Glyph } } else { Blend::from_ps2(q.blend[0], q.blend[1], q.blend[2]) };
             // BGRA, 0x80 = 1.0; the shader's texture * colour is MODULATE2X on that scale.
             let color = [ps2(q.color[2]), ps2(q.color[1]), ps2(q.color[0]), ps2(q.color[3])];
             let [u0, v0, u1, v1] = q.uv;

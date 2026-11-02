@@ -2,11 +2,13 @@
 //! (negative from the right or bottom edge), drawn under the windows in the active UI's fonts. Hidden with the UI.
 
 use super::World;
+use super::super::game_ui::HudFace;
 use mlua::{Lua, Table, Value};
 
 #[derive(Clone)]
 pub(super) enum Kind {
-    Text { text: String, size: f32, colour: Option<[u8; 4]>, bg: Option<[u8; 4]>, align: u8, pad: f32 },
+    /// `font` None follows the UI; an outline (its colour and width) or a drop shadow under the text.
+    Text { text: String, size: f32, colour: Option<[u8; 4]>, bg: Option<[u8; 4]>, align: u8, pad: f32, font: Option<HudFace>, outline: Option<[u8; 4]>, outline_w: f32, shadow: bool },
     Rect { w: f32, h: f32, colour: [u8; 4] },
     Bar { w: f32, h: f32, value: f32, colour: Option<[u8; 4]>, kind: String },
     Icon { item: bool, id: u16, size: f32 },
@@ -50,7 +52,7 @@ fn apply(e: &mut Elem, t: &Table) -> mlua::Result<()> {
         e.layer = v;
     }
     match &mut e.kind {
-        Kind::Text { text, size, colour: c, bg, align, pad } => {
+        Kind::Text { text, size, colour: c, bg, align, pad, font, outline, outline_w, shadow } => {
             if let Some(v) = t.get::<Option<String>>("text")? {
                 *text = v;
             }
@@ -72,6 +74,24 @@ fn apply(e: &mut Elem, t: &Table) -> mlua::Result<()> {
             }
             if let Some(v) = t.get::<Option<f32>>("pad")? {
                 *pad = v.max(0.0);
+            }
+            if let Some(v) = t.get::<Option<String>>("font")? {
+                *font = match v.to_ascii_lowercase().as_str() {
+                    "game" => Some(HudFace::Game),
+                    "regular" => Some(HudFace::Regular),
+                    "bold" => Some(HudFace::Bold),
+                    // Any other name follows the UI's own face.
+                    _ => None,
+                };
+            }
+            if t.contains_key("outline")? {
+                *outline = colour(t.get("outline")?)?;
+            }
+            if let Some(v) = t.get::<Option<f32>>("outline_width")? {
+                *outline_w = v.clamp(0.5, 4.0);
+            }
+            if let Some(v) = t.get::<Option<bool>>("shadow")? {
+                *shadow = v;
             }
         }
         Kind::Rect { w, h, colour: c } => {
@@ -179,7 +199,7 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
             put(lua, id, Kind::Image { key, img: std::sync::Arc::new(img), w: iw, h: ih, tint: [255; 4] }, spec)
         })?,
     )?;
-    t.set("text", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Text { text: String::new(), size: 1.0, colour: None, bg: None, align: 0, pad: 4.0 }, spec))?)?;
+    t.set("text", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Text { text: String::new(), size: 1.0, colour: None, bg: None, align: 0, pad: 4.0, font: None, outline: None, outline_w: 1.0, shadow: false }, spec))?)?;
     t.set("rect", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Rect { w: 100.0, h: 20.0, colour: [0, 0, 0, 160] }, spec))?)?;
     t.set("bar", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Bar { w: 120.0, h: 8.0, value: 0.0, colour: None, kind: "hp".into() }, spec))?)?;
     t.set("icon", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Icon { item: false, id: 0, size: 32.0 }, spec))?)?;
@@ -304,9 +324,9 @@ pub(super) fn draw(gu: &mut super::super::game_ui::GameUi, w: &World) {
         let py = if e.y < 0.0 { win[1] + e.y } else { e.y };
         let (x, y) = (px * k.0, py * k.1);
         let r = match &e.kind {
-            Kind::Text { text, size, colour, bg, align, pad } => {
+            Kind::Text { text, size, colour, bg, align, pad, font, outline, outline_w, shadow } => {
                 let lines: Vec<&str> = text.split('\n').collect();
-                let lw = lines.iter().map(|l| gu.text_width(l) * size).fold(0.0, f32::max);
+                let lw = lines.iter().map(|l| gu.width_in(l, *font) * size).fold(0.0, f32::max);
                 let lh = 16.0 * size;
                 let th = lh * lines.len() as f32;
                 let left = match align {
@@ -319,7 +339,19 @@ pub(super) fn draw(gu: &mut super::super::game_ui::GameUi, w: &World) {
                 }
                 let c = tint(colour.unwrap_or([255, 255, 255, 255]));
                 for (n, l) in lines.iter().enumerate() {
-                    gu.text_scaled(l, left, y + lh * n as f32, c, *size);
+                    let ly = y + lh * n as f32;
+                    // An outline drawn round the text in 8 directions, or a drop shadow, under it.
+                    if let Some(o) = outline {
+                        let (oc, d) = (tint(*o), outline_w * size.max(1.0));
+                        for (dx, dy) in [(-1.0, -1.0), (0.0, -1.0), (1.0, -1.0), (-1.0, 0.0), (1.0, 0.0), (-1.0, 1.0), (0.0, 1.0), (1.0, 1.0)] {
+                            gu.text_in(l, left + dx * d, ly + dy * d, oc, *size, *font);
+                        }
+                    }
+                    if *shadow {
+                        let d = 1.5 * size.max(1.0);
+                        gu.text_in(l, left + d, ly + d, tint([0, 0, 0, 200]), *size, *font);
+                    }
+                    gu.text_in(l, left, ly, c, *size, *font);
                 }
                 let p = if bg.is_some() { *pad } else { 0.0 };
                 [left - p, y - p / 2.0, lw + p * 2.0, th + p]

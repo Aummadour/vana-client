@@ -180,6 +180,14 @@ impl GameUi {
     }
 }
 
+/// A face for HUD text whatever the UI: the game's font, or the modern UI's regular or bold.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum HudFace {
+    Game,
+    Regular,
+    Bold,
+}
+
 /// The English words of the interface's texts (menu help, titles, lobby, area names, item formats, augments), lower
 /// case: what settles a doubtful gap in a menu caption.
 fn caption_words(d: &GameUiData) -> std::collections::HashSet<String> {
@@ -586,6 +594,39 @@ impl GameUi {
     }
 
     /// A line of game text scaled about its top left (the modern skin's: its font at `scale` times the em).
+    /// Text in a chosen face in either UI (a Lua HUD's choice); None follows the UI. The game font is alpha
+    /// blended here (retail adds its glyphs), so dark text and outlines show.
+    pub fn text_in(&mut self, s: &str, x: f32, y: f32, color: [u8; 4], scale: f32, face: Option<HudFace>) {
+        let f = match face {
+            None if self.batch.modern.is_some() => return self.text_scaled(s, x, y, color, scale),
+            None | Some(HudFace::Game) => {
+                let sjis = encode_sjis(s);
+                let mut quads = Vec::new();
+                // The glyphs are MODULATE2X with PS2 alpha (0x80 opaque): blended, colour and alpha double (0xff = 2.0).
+                let c2 = color.map(|v| v.saturating_mul(2));
+                self.data.font.layout_line(&sjis, x.round() as i32, y.round() as i32, c2, [scale, scale], &mut quads);
+                self.batch.push_text_as(&quads, ATLAS, true);
+                return;
+            }
+            Some(HudFace::Regular) => Face::Regular,
+            Some(HudFace::Bold) => Face::Bold,
+        };
+        let mut x = x;
+        for (t, c) in self.modern_runs(s, color) {
+            let col = [c[2], c[1], c[0], c[3]].map(|v| (v as f32 / 128.0).min(1.0));
+            x = self.batch.push_mtext(&t, f, mtext::TEXT_EM * scale, x, y + mtext::TEXT_DY * scale, col, false);
+        }
+    }
+
+    /// text_in's width at scale 1.
+    pub fn width_in(&self, s: &str, face: Option<HudFace>) -> f32 {
+        match face {
+            None => self.text_width(s),
+            Some(HudFace::Game) => self.data.font.text_width(&encode_sjis(s)) as f32,
+            Some(f) => self.modern_runs(s, [0x80; 4]).iter().map(|(t, _)| mtext::width(t, if f == HudFace::Bold { Face::Bold } else { Face::Regular }, mtext::TEXT_EM)).sum(),
+        }
+    }
+
     pub fn text_scaled(&mut self, s: &str, x: f32, y: f32, color: [u8; 4], scale: f32) {
         if self.batch.modern.is_some() {
             let mut x = x;

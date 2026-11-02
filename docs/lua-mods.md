@@ -60,8 +60,9 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   - keys and mouse in both UIs: the classic UI draws Config pages, the modern UI kit panels with saved places
   - HUD windows (no focus, frameless, placed)
   - the HUD layer (`hud`): retained text (size, colour, background, alignment, lines), rects, bars and item / status
-    icons in window pixels (negative from the right or bottom edge), drawn under the windows in the active UI's font
-    and hidden with the UI; PNG images from the mod's folder (`hud.image`, sized and tinted); `hud.on` takes left / right clicks on an element from the game; `hud.screen` (size,
+    icons in window pixels (negative from the right or bottom edge), drawn under the windows and hidden with the UI;
+    text in the active UI's face or a chosen one in either UI (the game font, alpha blended so dark text shows; the
+    modern regular or bold), with an outline (colour, width) or a drop shadow (checked live in both UIs); PNG images from the mod's folder (`hud.image`, sized and tinted); `hud.on` takes left / right clicks on an element from the game; `hud.screen` (size,
     pixels per UI unit), `hud.bounds`. Checked live in both UIs, clicks too
 - **Native windows** (`ui.native`): the game's open windows by name and whether one has the keys; the whole
   interface hidden or shown; HUD pieces hidden in both UIs while the mod runs (party, target, buffs, compass /
