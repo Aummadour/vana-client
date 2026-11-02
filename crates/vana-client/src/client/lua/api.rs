@@ -388,6 +388,124 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     game.set("key_items", lua.create_function(|lua, ()| Ok(world(lua)?.key_items.clone()))?)?;
     g.set("game", game)?;
 
+    // res: the game's static data from its DATs (docs/lua-mods.md 4.9).
+    let res = lua.create_table()?;
+    res.set(
+        "item",
+        lua.create_function(|lua, id: u16| {
+            let w = world(lua)?;
+            let Some(it) = w.item_info.as_ref().and_then(|c| c.item(id)) else { return Ok(None) };
+            let t = lua.create_table()?;
+            t.set("id", id)?;
+            t.set("name", it.name.as_str())?;
+            t.set("description", it.description.as_str())?;
+            t.set("kind", it.kind.map(|k| format!("{k:?}")))?;
+            t.set("flags", it.flags)?;
+            t.set("stack", it.stack)?;
+            t.set("type", it.item_type)?;
+            t.set("targets", it.targets)?;
+            t.set("level", it.level)?;
+            t.set("slots", it.slots)?;
+            t.set("races", it.races)?;
+            t.set("jobs", it.jobs)?;
+            t.set("superior_level", it.superior_level)?;
+            t.set("damage", it.damage)?;
+            t.set("delay", it.delay)?;
+            t.set("skill", it.skill)?;
+            t.set("max_charges", it.max_charges)?;
+            t.set("cast_time", it.cast_time)?;
+            t.set("use_delay", it.use_delay)?;
+            t.set("reuse_delay", it.reuse_delay)?;
+            Ok(Some(t))
+        })?,
+    )?;
+    res.set(
+        "spell",
+        lua.create_function(|lua, id: u16| {
+            use crate::dat::names::NameSource;
+            let w = world(lua)?;
+            let Some(s) = w.actions.as_ref().and_then(|a| a.spell(id)) else { return Ok(None) };
+            let t = lua.create_table()?;
+            t.set("id", id)?;
+            t.set("name", w.names.as_ref().and_then(|n| n.spell(id as u32)))?;
+            t.set("description", w.names.as_ref().and_then(|n| n.spell_description(id as u32)))?;
+            t.set("kind", s.kind)?;
+            t.set("element", s.element)?;
+            t.set("targets", s.targets)?;
+            t.set("skill", s.skill)?;
+            t.set("mp", s.mp)?;
+            t.set("cast_time", f32::from(s.cast) / 4.0)?;
+            t.set("recast", f32::from(s.recast) / 4.0)?;
+            t.set("range", s.range)?;
+            let levels = lua.create_table()?;
+            for (job, l) in s.levels.iter().enumerate() {
+                if *l >= 0 {
+                    levels.set(job, *l)?;
+                }
+            }
+            t.set("levels", levels)?;
+            Ok(Some(t))
+        })?,
+    )?;
+    res.set(
+        "ability",
+        lua.create_function(|lua, id: u16| {
+            use crate::dat::names::NameSource;
+            let w = world(lua)?;
+            let Some(a) = w.actions.as_ref().and_then(|a| a.abilities.iter().find(|x| x.id == id)) else { return Ok(None) };
+            let t = lua.create_table()?;
+            t.set("id", id)?;
+            t.set("name", w.names.as_ref().and_then(|n| n.ability(id as u32)))?;
+            t.set("description", w.names.as_ref().and_then(|n| n.ability_description(id as u32)))?;
+            t.set("kind", a.kind)?;
+            t.set("cost", a.cost)?;
+            t.set("recast_id", a.timer)?;
+            t.set("targets", a.targets)?;
+            t.set("tp", a.tp)?;
+            t.set("level", a.level)?;
+            Ok(Some(t))
+        })?,
+    )?;
+    res.set(
+        "status",
+        lua.create_function(|lua, id: u16| {
+            let w = world(lua)?;
+            Ok(w.battle.as_ref().map(|b| b.status_title(id)).filter(|n| !n.is_empty()))
+        })?,
+    )?;
+    res.set(
+        "zone",
+        lua.create_function(|lua, id: u32| {
+            use crate::dat::names::NameSource;
+            let w = world(lua)?;
+            Ok(w.names.as_ref().and_then(|n| n.place(id)))
+        })?,
+    )?;
+    res.set(
+        "title",
+        lua.create_function(|lua, id: u32| {
+            use crate::dat::names::NameSource;
+            let w = world(lua)?;
+            Ok(w.names.as_ref().and_then(|n| n.title(id)))
+        })?,
+    )?;
+    res.set(
+        "key_item",
+        lua.create_function(|lua, id: u32| {
+            use crate::dat::names::NameSource;
+            let w = world(lua)?;
+            let Some(n) = w.names.as_ref() else { return Ok(None) };
+            let Some(noun) = n.key_item(id) else { return Ok(None) };
+            let t = lua.create_table()?;
+            t.set("id", id)?;
+            t.set("name", noun.bare.as_str())?;
+            t.set("description", n.key_item_description(id))?;
+            Ok(Some(t))
+        })?,
+    )?;
+    res.set("job", lua.create_function(|_, id: usize| Ok(super::super::items::JOBS.get(id).filter(|s| !s.is_empty()).map(|s| s.to_string())))?)?;
+    g.set("res", res)?;
+
     // storage.account / storage.character: plain data, saved at logout, unload and storage.save().
     let st_table = lua.create_table()?;
     st_table.set("account", json_table(lua, &storage.0)?)?;
