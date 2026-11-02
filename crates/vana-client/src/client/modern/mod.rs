@@ -29,6 +29,8 @@ mod lobby;
 mod lists;
 mod loot;
 mod macros;
+mod modwin;
+pub use modwin::Click as ModClick;
 mod minor;
 mod paint;
 pub mod plates;
@@ -254,6 +256,7 @@ impl Modern {
         items::draw(&mut p, w);
         equip::draw(&mut p, w);
         config::draw(&mut p, w);
+        modwin::draw(&mut p, w);
         status::draw(&mut p, w);
         points::draw(&mut p, w);
         journal::draw(&mut p, w);

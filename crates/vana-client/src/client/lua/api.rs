@@ -186,6 +186,81 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     )?;
     g.set("filters", filters)?;
 
+    // ui: the mod's windows (docs/lua-mods.md 4.10), drawn by the active UI.
+    let ui = lua.create_table()?;
+    ui.set(
+        "window",
+        lua.create_function(|lua, (id, spec): (String, Table)| {
+            let st = state(lua);
+            let mut s = st.borrow_mut();
+            let k = match s.windows.iter().position(|w| w.id == id) {
+                Some(k) => k,
+                None => {
+                    s.windows.push(super::window::Window::new(&id));
+                    s.windows.len() - 1
+                }
+            };
+            let w = &mut s.windows[k];
+            w.title = spec.get::<Option<String>>("title")?.unwrap_or_default();
+            w.width = spec.get::<Option<f32>>("width")?.unwrap_or(0.0);
+            w.help = spec.get::<Option<String>>("help")?.unwrap_or_default();
+            let elems: Option<Table> = spec.get("elements")?;
+            w.elems = match elems {
+                Some(t) => t.sequence_values::<Table>().map(|e| e.and_then(|e| elem(&e))).collect::<mlua::Result<_>>()?,
+                None => Vec::new(),
+            };
+            w.settle();
+            Ok(())
+        })?,
+    )?;
+    ui.set(
+        "update",
+        lua.create_function(|lua, (id, eid, fields): (String, String, Table)| {
+            let st = state(lua);
+            let mut s = st.borrow_mut();
+            let w = s.windows.iter_mut().find(|w| w.id == id).ok_or_else(|| mlua::Error::runtime(format!("no window {id:?}")))?;
+            let e = w.elems.iter_mut().find(|e| e.id() == Some(eid.as_str())).ok_or_else(|| mlua::Error::runtime(format!("no element {eid:?} in {id:?}")))?;
+            update(e, &fields)?;
+            w.settle();
+            Ok(())
+        })?,
+    )?;
+    ui.set(
+        "open",
+        lua.create_function(|lua, id: String| {
+            let st = state(lua);
+            let mut s = st.borrow_mut();
+            let w = s.windows.iter_mut().find(|w| w.id == id).ok_or_else(|| mlua::Error::runtime(format!("no window {id:?}")))?;
+            w.open = true;
+            w.settle();
+            s.focus_request = Some(id);
+            Ok(())
+        })?,
+    )?;
+    ui.set(
+        "close",
+        lua.create_function(|lua, id: String| {
+            let st = state(lua);
+            if let Some(w) = st.borrow_mut().windows.iter_mut().find(|w| w.id == id) {
+                (w.open, w.focus, w.edit) = (false, false, false);
+            }
+            Ok(())
+        })?,
+    )?;
+    ui.set("is_open", lua.create_function(|lua, id: String| Ok(state(lua).borrow().windows.iter().any(|w| w.id == id && w.open)))?)?;
+    ui.set(
+        "on",
+        lua.create_function(|lua, (id, func): (String, Function)| {
+            let st = state(lua);
+            let key = lua.create_registry_value(func)?;
+            let mut s = st.borrow_mut();
+            s.window_handlers.retain(|(w, _)| *w != id);
+            s.window_handlers.push((id, key));
+            Ok(())
+        })?,
+    )?;
+    g.set("ui", ui)?;
+
     // chat.add(text[, mode]): a log line in the mode's colour, like a game line.
     let chat = lua.create_table()?;
     chat.set(
@@ -666,4 +741,53 @@ fn player(lua: &Lua) -> mlua::Result<Table> {
     }
     t.set("target", w.target)?;
     Ok(t)
+}
+
+/// One element of a window spec ({type = "text" | "buttons" | "slider" | "list" | "separator", ...}).
+fn elem(t: &Table) -> mlua::Result<super::window::Elem> {
+    use super::window::Elem;
+    let kind: String = t.get("type")?;
+    let id = || -> mlua::Result<String> { t.get::<Option<String>>("id")?.ok_or_else(|| mlua::Error::runtime(format!("a {kind} element needs an id"))) };
+    let index = |k: &str| -> mlua::Result<Option<usize>> { Ok(t.get::<Option<i64>>(k)?.map(|i| (i.max(1) - 1) as usize)) };
+    Ok(match kind.as_str() {
+        "text" => Elem::Text { text: t.get::<Option<String>>("text")?.unwrap_or_default(), dim: t.get::<Option<bool>>("dim")?.unwrap_or(false) },
+        "buttons" => Elem::Buttons { id: id()?, label: t.get::<Option<String>>("label")?.unwrap_or_default(), items: t.get::<Option<Vec<String>>>("items")?.unwrap_or_default(), marked: index("marked")? },
+        "slider" => {
+            let n = t.get::<Option<usize>>("steps")?.unwrap_or(2).max(1);
+            Elem::Slider { id: id()?, label: t.get::<Option<String>>("label")?.unwrap_or_default(), n, at: index("at")?.unwrap_or(0).min(n - 1), shown: t.get::<Option<String>>("shown")?.unwrap_or_default() }
+        }
+        "list" => Elem::List { id: id()?, rows: t.get::<Option<Vec<String>>>("rows")?.unwrap_or_default(), at: index("at")?.unwrap_or(0), top: 0, height: t.get::<Option<usize>>("height")?.unwrap_or(8).max(1) },
+        "separator" => Elem::Separator,
+        other => return Err(mlua::Error::runtime(format!("unknown element type {other:?}"))),
+    })
+}
+
+/// ui.update: the fields given replace the element's.
+fn update(e: &mut super::window::Elem, t: &Table) -> mlua::Result<()> {
+    use super::window::Elem;
+    match e {
+        Elem::Text { text, dim } => {
+            if let Some(v) = t.get::<Option<String>>("text")? { *text = v; }
+            if let Some(v) = t.get::<Option<bool>>("dim")? { *dim = v; }
+        }
+        Elem::Buttons { label, items, marked, .. } => {
+            if let Some(v) = t.get::<Option<String>>("label")? { *label = v; }
+            if let Some(v) = t.get::<Option<Vec<String>>>("items")? { *items = v; }
+            if let Some(v) = t.get::<Option<i64>>("marked")? { *marked = Some((v.max(1) - 1) as usize); }
+        }
+        Elem::Slider { label, n, at, shown, .. } => {
+            if let Some(v) = t.get::<Option<String>>("label")? { *label = v; }
+            if let Some(v) = t.get::<Option<usize>>("steps")? { *n = v.max(1); }
+            if let Some(v) = t.get::<Option<i64>>("at")? { *at = (v.max(1) - 1) as usize; }
+            if let Some(v) = t.get::<Option<String>>("shown")? { *shown = v; }
+            *at = (*at).min(*n - 1);
+        }
+        Elem::List { rows, at, height, .. } => {
+            if let Some(v) = t.get::<Option<Vec<String>>>("rows")? { *rows = v; }
+            if let Some(v) = t.get::<Option<i64>>("at")? { *at = (v.max(1) - 1) as usize; }
+            if let Some(v) = t.get::<Option<usize>>("height")? { *height = v.max(1); }
+        }
+        Elem::Separator => {}
+    }
+    Ok(())
 }

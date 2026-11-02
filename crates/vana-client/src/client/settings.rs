@@ -1421,7 +1421,7 @@ pub(super) fn button(gu: &mut GameUi, r: [f32; 4], tint: u32) {
 
 /// The chosen button's red underline: windowps 387 at (x + 37, y + 4) for an 88-px button, 412 for a 64-px one
 /// (FUN_1018f4a0 / FUN_1018f510); other widths stretch 387's middle.
-fn marker(gu: &mut GameUi, x: f32, y: f32, w: f32) {
+pub(super) fn marker(gu: &mut GameUi, x: f32, y: f32, w: f32) {
     match w as u32 {
         88 => {
             gu.sprite("menu    windowps", 387, x + 37.0, y + 4.0, 0x8080_8080);

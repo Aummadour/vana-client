@@ -60,6 +60,11 @@ pub(super) struct ModState {
     pub filters_dirty: bool,
     /// The user's setting values by key (account and character scopes merged); declared defaults fill the rest.
     pub settings: serde_json::Map<String, serde_json::Value>,
+    /// The mod's windows (docs/lua-mods.md 4.10) and each one's handler.
+    pub windows: Vec<super::window::Window>,
+    pub window_handlers: Vec<(String, RegistryKey)>,
+    /// A window opened this phase takes the focus (the host moves it there).
+    pub focus_request: Option<String>,
 }
 
 impl ModState {

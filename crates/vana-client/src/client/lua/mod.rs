@@ -6,6 +6,7 @@ mod api;
 mod docs;
 mod manifest;
 mod vm;
+pub(super) mod window;
 
 use super::World;
 use std::path::PathBuf;
@@ -34,6 +35,8 @@ pub struct Host {
     filters_dirty: bool,
     /// `/lua settings`: open Extras on this mod's page (taken by the app).
     pub(super) open_page: Option<String>,
+    /// Window events for the mods' handlers: (mod, window, event).
+    ui_events: Vec<(String, String, window::Event)>,
 }
 
 /// What the derived events watch (Windower's change events).
@@ -418,6 +421,7 @@ pub(super) fn frame(w: &mut World) {
             }
         }
         let events = std::mem::take(&mut host.events);
+        let ui_events = std::mem::take(&mut host.ui_events);
         for vm in host.vms.iter().filter(|v| v.suspended.is_none()) {
             lend(vm, w, |vm| {
                 use mlua::LuaSerdeExt;
@@ -427,6 +431,14 @@ pub(super) fn frame(w: &mut World) {
                     }
                     let vals: Vec<mlua::Value> = args.iter().map(|a| vm.lua.to_value(a).unwrap_or(mlua::Value::Nil)).collect();
                     vm.emit(name, mlua::MultiValue::from_iter(vals));
+                }
+                let mine: Vec<(String, window::Event)> = ui_events.iter().filter(|e| e.0 == vm.manifest.id).map(|e| (e.1.clone(), e.2.clone())).collect();
+                for (win, ev) in mine {
+                    let f = vm.st.borrow().window_handlers.iter().find(|h| h.0 == win).and_then(|h| vm.lua.registry_value::<mlua::Function>(&h.1).ok());
+                    if let Some(f) = f {
+                        let t = vm.lua.to_value(&ev.json()).unwrap_or(mlua::Value::Nil);
+                        vm.call(f, (win, t));
+                    }
                 }
                 vm.timers();
                 vm.wake();
@@ -454,6 +466,15 @@ pub(super) fn frame(w: &mut World) {
         ops.extend(vm_ops);
         if save_now {
             save(vm, w);
+        }
+    }
+    // A window opened this phase takes the focus from every other.
+    let wanted: Option<(usize, String)> = host.vms.iter().enumerate().find_map(|(k, v)| v.st.borrow_mut().focus_request.take().map(|id| (k, id)));
+    if let Some((k, id)) = wanted {
+        for (j, vm) in host.vms.iter().enumerate() {
+            for win in vm.st.borrow_mut().windows.iter_mut() {
+                win.focus = j == k && win.id == id && win.open;
+            }
         }
     }
     let dirty = std::mem::take(&mut host.filters_dirty) | host.vms.iter().fold(false, |d, v| d | std::mem::take(&mut v.st.borrow_mut().filters_dirty));
@@ -708,5 +729,81 @@ impl Host {
             let v = vm.lua.to_value(&value).unwrap_or(mlua::Value::Nil);
             vm.emit("settings_changed", (key.to_string(), v));
         });
+    }
+}
+
+impl Host {
+    /// Whether a mod window has the keys.
+    pub(super) fn focused(&self) -> bool {
+        self.vms.iter().any(|v| v.suspended.is_none() && v.st.borrow().windows.iter().any(|w| w.open && w.focus))
+    }
+}
+
+/// A key for the focused mod window, if any (its events go to the mod's handler next phase).
+pub(super) fn window_key(w: &mut World, key: egui::Key) -> bool {
+    let host = &mut w.lua;
+    let mut hit = None;
+    for vm in host.vms.iter().filter(|v| v.suspended.is_none()) {
+        let mut st = vm.st.borrow_mut();
+        if let Some(win) = st.windows.iter_mut().find(|w| w.open && w.focus) {
+            let (ev, se) = win.key(key);
+            hit = Some((vm.manifest.id.clone(), win.id.clone(), ev, se));
+            break;
+        }
+    }
+    let Some((id, win, ev, se)) = hit else { return false };
+    host.ui_events.extend(ev.into_iter().map(|e| (id.clone(), win.clone(), e)));
+    w.sounds.extend(se.into_iter().map(|s| s as u32));
+    true
+}
+
+/// The open mod windows in the classic UI, cascaded from the Config pages' place; their rects.
+pub(super) fn draw_classic(gu: &mut super::game_ui::GameUi, w: &World) -> Vec<[f32; 4]> {
+    let mut out = Vec::new();
+    let mut k = 0.0;
+    for vm in w.lua.vms.iter().filter(|v| v.suspended.is_none()) {
+        for win in vm.st.borrow().windows.iter().filter(|w| w.open) {
+            out.push(win.draw_classic(gu, 16.0 + 24.0 * k, 48.0 + 24.0 * k));
+            k += 1.0;
+        }
+    }
+    out
+}
+
+impl Host {
+    /// The open windows (mod id, a copy of the window), for the modern UI's panels.
+    pub(super) fn open_windows(&self) -> Vec<(String, window::Window)> {
+        let mut out = Vec::new();
+        for vm in self.vms.iter().filter(|v| v.suspended.is_none()) {
+            for win in vm.st.borrow().windows.iter().filter(|w| w.open) {
+                out.push((vm.manifest.id.clone(), win.clone()));
+            }
+        }
+        out
+    }
+}
+
+/// The pointer on a mod window (modern UI): it takes the focus, then the click acts as the window model says.
+pub(super) fn window_click(w: &mut World, mod_id: &str, win_id: &str, click: super::modern::ModClick) {
+    use super::modern::ModClick as C;
+    let host = &mut w.lua;
+    let mut out = None;
+    for vm in host.vms.iter() {
+        let mut st = vm.st.borrow_mut();
+        let mine = vm.manifest.id == mod_id;
+        for win in st.windows.iter_mut() {
+            win.focus = mine && win.id == win_id && win.open;
+            if win.focus {
+                out = Some(match click {
+                    C::Button(i, c) => win.click_button(i, c),
+                    C::Slide(i, s) => win.slide(i, s),
+                    C::Row(i, r) => win.pick(i, r),
+                });
+            }
+        }
+    }
+    if let Some((ev, se)) = out {
+        host.ui_events.extend(ev.into_iter().map(|e| (mod_id.to_string(), win_id.to_string(), e)));
+        w.sounds.extend(se.into_iter().map(|s| s as u32));
     }
 }
