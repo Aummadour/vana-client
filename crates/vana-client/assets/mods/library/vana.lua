@@ -968,6 +968,32 @@ function res.key_item(id) end
 ---@return {lines: string[]?, short: string?, pairs: {id: integer, value: integer}[]?}
 function res.augments(item, extdata) end
 
+--- A battle / system message expanded as the log prints it: options {actor, target (server ids or names), values {param1, param2, ...}}; {text, mode} or nil for an id without text.
+---@param id integer message id
+---@param options? table 
+---@return {text: string, mode: integer?}?
+function res.message(id, options) end
+
+--- A monster ability's name (ids from 256).
+---@param id integer 
+---@return string?
+function res.mob_skill(id) end
+
+--- A combat or magic skill's name by skill id.
+---@param id integer 
+---@return string?
+function res.skill(id) end
+
+--- A Vana'diel weekday's name (0 Firesday).
+---@param weekday integer 
+---@return string?
+function res.day(weekday) end
+
+--- A moon phase's name.
+---@param phase integer 
+---@return string?
+function res.moon(phase) end
+
 --- A job's abbreviation (1 WAR .. 22 RUN).
 ---@param id integer 
 ---@return string?

@@ -35,6 +35,8 @@ Built (client/lua/, modern/modwin.rs), each checked live:
     grid), `camera`, `npc_names` (the zone list); checked live
   - `res.item`, `spell`, `ability`, `status`, `zone`, `title`, `key_item`, `job`, `augments` (an item's extdata
     decoded as the item window shows it: lines, the short line, message id / value pairs; checked live)
+  - `res.message` (a battle / system message expanded as the log prints it, with actor, target and values),
+    `mob_skill`, `skill`, `day`, `moon`; checked live
 - **Chat and commands:**
   - `chat.add` (mode colours)
   - `filters.chat` (keep, drop or rewrite every line) and `filters.typed` (typed lines before the parser)

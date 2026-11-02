@@ -782,6 +782,46 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
             Ok(out)
         })?,
     )?;
+    res.set(
+        "message",
+        lua.create_function(|lua, (id, opts): (u16, Option<Table>)| {
+            let w = world(lua)?;
+            let Some(bt) = w.battle.as_ref() else { return Ok(None) };
+            let who = |v: Value| -> Option<crate::dat::battle::Who> {
+                match v {
+                    Value::Integer(i) => {
+                        let id = i as u32;
+                        if id == w.my_id {
+                            return Some(crate::dat::battle::Who { name: w.name.clone(), pc: true, ..Default::default() });
+                        }
+                        w.entities.get(&id).map(|e| crate::dat::battle::Who { name: e.name.clone(), pc: id < 0x0100_0000, named: e.named, plural: e.plural, female: e.female, colour: 0 })
+                    }
+                    Value::String(s) => Some(crate::dat::battle::Who { name: s.to_string_lossy(), pc: true, ..Default::default() }),
+                    _ => None,
+                }
+            };
+            let (mut actor, mut target, mut work) = (None, None, [0i32; 5]);
+            if let Some(o) = &opts {
+                actor = who(o.get("actor")?);
+                target = who(o.get("target")?);
+                if let Some(v) = o.get::<Option<Vec<i64>>>("values")? {
+                    for (k, x) in v.iter().take(5).enumerate() {
+                        work[k] = *x as i32;
+                    }
+                }
+            }
+            let ctx = crate::dat::battle::Ctx { actor, target, me: w.name.clone(), work, ..Default::default() };
+            let Some(line) = bt.expand(id, &ctx) else { return Ok(None) };
+            let t = lua.create_table()?;
+            t.set("text", line.lines.join("\n"))?;
+            t.set("mode", line.mode)?;
+            Ok(Some(t))
+        })?,
+    )?;
+    res.set("mob_skill", lua.create_function(|lua, id: u16| Ok(world(lua)?.battle.as_ref().map(|b| b.mob_skill(id)).filter(|s| !s.is_empty() && !s.starts_with('#'))))?)?;
+    res.set("skill", lua.create_function(|lua, id: u32| Ok(world(lua)?.battle.as_ref().and_then(|b| b.kind_name(2, id)).map(|s| crate::dat::font::decode_sjis(&s)).filter(|s| !s.is_empty())))?)?;
+    res.set("day", lua.create_function(|lua, d: usize| Ok(world(lua)?.battle.as_ref().and_then(|b| b.day_name(d))))?)?;
+    res.set("moon", lua.create_function(|lua, p: usize| Ok(world(lua)?.battle.as_ref().and_then(|b| b.moon_name(p))))?)?;
     res.set("job", lua.create_function(|_, id: usize| Ok(super::super::items::JOBS.get(id).filter(|s| !s.is_empty()).map(|s| s.to_string())))?)?;
     g.set("res", res)?;
 
