@@ -1289,6 +1289,12 @@ fn hold_bit(mode: u8) -> Option<u32> {
     })
 }
 
+/// A line's auto-translate phrases as their braced text.
+fn expand_phrases(world: &World, line: &str) -> String {
+    let names = world.names.as_deref().map(|n| n as &dyn crate::dat::names::NameSource);
+    world.battle.as_ref().and_then(|bt| bt.phrases.as_ref()).map_or_else(|| line.to_string(), |d| d.expand(line, names))
+}
+
 /// A chat line in its mode, `gm` from s2c 0x017's Attr bit 0, `who` its record's name.
 fn push_chat_line(world: &mut World, line: String, mode: u8, kind: u8, gm: bool, who: Option<(String, u8)>) {
     if let Some(n) = world.battle.as_ref().and_then(|bt| call_sound(bt, &line, mode)) {
@@ -1296,8 +1302,7 @@ fn push_chat_line(world: &mut World, line: String, mode: u8, kind: u8, gm: bool,
     }
     let (colour, line, indent) = match world.battle.clone() {
         Some(bt) => {
-            let names = world.names.clone();
-            let line = bt.phrases.as_ref().map_or(line.clone(), |d| d.expand(&line, names.as_deref().map(|n| n as &dyn crate::dat::names::NameSource)));
+            let line = expand_phrases(world, &line);
             (bt.colour_in(mode, &world.game), line, bt.indents(mode))
         }
         None => (cfgapply::chat_colour(&world.game, kind), line, false),

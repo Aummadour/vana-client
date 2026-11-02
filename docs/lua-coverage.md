@@ -2,7 +2,7 @@
 
 The bar for the mod API (docs/lua-mods.md, section 1): every existing Windower and Ashita add-on and plugin must be
 re-implementable on it. Running them unmodified does not matter. This table tracks that, one row per add-on, plugin or
-feature, rated against the API as of commit 478e408: the generated stubs
+feature, rated against the API as of 2 November 2026 (auto-translate and every gap filled before it): the generated stubs
 (`crates/vana-client/assets/mods/library/vana.lua`) and the State list in docs/lua-mods.md. A row that is not covered
 points at a gap in the API; when a gap is filled, re-rate the rows it lists.
 
@@ -48,22 +48,22 @@ Settled for every row:
 | Set | Rows | Covered | Partly | Missing |
 | --- | --: | --: | --: | --: |
 | Windower official add-ons | 128 | 126 | 1 | 1 |
-| Windower plugins | 17 | 14 | 2 | 1 |
+| Windower plugins | 17 | 15 | 1 | 1 |
 | Windower deprecated plugins | 26 | 26 | 0 | 0 |
 | Windower features | 11 | 9 | 1 | 1 |
 | Windower community add-ons | 55 | 54 | 1 | 0 |
-| Windower community capabilities | 13 | 11 | 1 | 1 |
-| Ashita v4 official add-ons | 81 | 65 | 8 | 8 |
+| Windower community capabilities | 13 | 12 | 0 | 1 |
+| Ashita v4 official add-ons | 81 | 67 | 7 | 7 |
 | Ashita v3 official add-ons | 13 | 13 | 0 | 0 |
 | Ashita v4 plugins | 10 | 8 | 1 | 1 |
 | Ashita v3 plugins | 27 | 25 | 0 | 2 |
-| Ashita community plugins | 37 | 29 | 5 | 3 |
-| Ashita v4 community add-ons | 147 | 125 | 9 | 13 |
+| Ashita community plugins | 37 | 31 | 5 | 1 |
+| Ashita v4 community add-ons | 147 | 137 | 3 | 7 |
 | Ashita v3 community add-ons | 22 | 22 | 0 | 0 |
 | Ashita add-ons rated from descriptions | 28 | 27 | 0 | 1 |
-| Windower, all | 250 | 240 | 6 | 4 |
-| Ashita, all | 365 | 314 | 23 | 28 |
-| **Total** | **615** | **554** | **29** | **32** |
+| Windower, all | 250 | 242 | 4 | 4 |
+| Ashita, all | 365 | 330 | 16 | 19 |
+| **Total** | **615** | **572** | **20** | **23** |
 
 ## Open gaps
 
@@ -71,53 +71,37 @@ Ranked by the rows each one blocks (listed outside parentheses).
 
 1. **gamepad input (deferred)**, 6 rows: pad buttons and sticks as events and binds (deferred with gamepad support).
    Blocks Capability: gamepad input, cBind, Crossbar, tCrossBar, trigger, XIVCrossbar.
-2. **engine settings from Lua**, 4 rows: animation rate, wireframe, ambient light, clear colour, minimap zoom from Lua.
-   Blocks clearcolor, Config (Windower plugin), minimap-helper, Render knobs.
-3. **map data**, 4 rows: the zone's map images and the world-to-map transform. Blocks boussole, Capability: small API
-   gaps, GlamourUI, yunaui.
-4. **auto-translate dictionary and encode**, 3 rows: the auto-translate dictionary as data, and encoding phrases. Blocks
-   autotrans, translataru, translate.
-5. **lobby-phase mods**, 3 rows: mods running before character login (manifest `lobby`, parsed but not used yet). Blocks
+2. **lobby-phase mods**, 3 rows: mods running before character login (manifest `lobby`, parsed but not used yet). Blocks
    autoenterkey (Windower), autologin, extraslots.
-6. **native window list rows and cursor**, 3 rows: reading and driving a game window's list rows and cursor. Blocks
+3. **native window list rows and cursor**, 3 rows: reading and driving a game window's list rows and cursor. Blocks
    ahpro, PriceCheck, wiki.
-7. **world-space text and textured quads**, 3 rows: text and textured quads placed in the world. Blocks magiccircle,
-   Novo, Occlude3d.
-8. **action lock patches**, 2 rows: removing the job-ability and engage movement locks. Blocks ButterFeet, nolock.
-9. **IME text input**, 2 rows: Japanese IME composition in the chat line. Blocks ime (Ashita v4), IME (Windower plugin).
-10. **macros**, 2 rows: reading, running and editing macro books, sets and lines. Blocks XIUI, yunaui.
-11. **map unlock switch**, 2 rows: every map without its key item. Blocks allmaps, cartographer.
-12. **Mog House / AH anywhere rule**, 2 rows: opening the Mog House menu or the AH outside their places. Blocks ahgo,
-    nomad.
-13. **named pipes and Unix sockets**, 2 rows: local IPC endpoints other programs offer, such as Discord's (`net` has TCP
-    and UDP). Blocks DiscordRPC, HXIPresence.
-14. **native list options**, 2 rows: options for native lists (AH row colours, the spell list trimmed). Blocks ahcolors,
-    trimspells.
-15. **process control**, 2 rows: CPU affinity and similar process settings. Blocks Affinity (Ashita v3 plugin), affinity
-    (Ashita v4).
-16. **ui.native.hide: more pieces**, 2 rows: hiding the clock, the macro palette and connection info (the alliance
-    lists, log windows, timers and regime window hide now). Blocks HXIUIBegone, XIUI.
-17. **vendor input devices**, 2 rows: G-keys, Stream Deck and other HID devices directly. Blocks Binder, GBinder.
-18. **video capture**, 2 rows: recording the game window. Blocks DashCam, Video capture.
-19. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
-20. **commands-while-dead rule**, 1 row: commands allowed while dead. Blocks paranormal.
-21. **compass monster dots switch**, 1 row: enemy dots on the compass for every job. Blocks mapdot.
-22. **drag and drop**, 1 row: dragging between elements in `ui.window` (a canvas takes clicks only). Blocks boussole.
-23. **entity hitbox size**, 1 row: each entity's model radius. Blocks Ashita4-HitboxDisplay.
-24. **entity occlusion switch**, 1 row: drawing entities the client culls or occludes. Blocks truesight.
-25. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
-26. **global mod HUD hide**, 1 row: hiding every mod's drawing at once. Blocks hideui.
-27. **installed mods list**, 1 row: mods installed but not loaded. Blocks addonmgr.
-28. **mod memory stats**, 1 row: memory and time per mod (`mods.list` has neither). Blocks MemScope.
-29. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it).
+4. **action lock patches**, 2 rows: removing the job-ability and engage movement locks. Blocks ButterFeet, nolock.
+5. **IME text input**, 2 rows: Japanese IME composition in the chat line. Blocks ime (Ashita v4), IME (Windower plugin).
+6. **map unlock switch**, 2 rows: every map without its key item. Blocks allmaps, cartographer.
+7. **Mog House / AH anywhere rule**, 2 rows: opening the Mog House menu or the AH outside their places. Blocks ahgo,
+   nomad.
+8. **native list options**, 2 rows: options for native lists (AH row colours, the spell list trimmed). Blocks ahcolors,
+   trimspells.
+9. **process control**, 2 rows: CPU affinity and similar process settings. Blocks Affinity (Ashita v3 plugin), affinity
+   (Ashita v4).
+10. **vendor input devices**, 2 rows: G-keys, Stream Deck and other HID devices directly. Blocks Binder, GBinder.
+11. **video capture**, 2 rows: recording the game window. Blocks DashCam, Video capture.
+12. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
+13. **commands-while-dead rule**, 1 row: commands allowed while dead. Blocks paranormal.
+14. **compass monster dots switch**, 1 row: enemy dots on the compass for every job. Blocks mapdot.
+15. **drag and drop**, 1 row: dragging between elements in `ui.window` (a canvas takes clicks only). Blocks boussole.
+16. **engine settings from Lua**, 1 row: wireframe from Lua. Blocks Render knobs.
+17. **entity occlusion switch**, 1 row: drawing entities the client culls or occludes. Blocks truesight.
+18. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
+19. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it).
     Blocks fastswap.
-30. **network send timing**, 1 row: changing when the client sends its packets. Blocks PacketFlow.
-31. **open game menus by name**, 1 row: opening the magic, ability and other client menus by name. Blocks openmenus.
-32. **per-entity collision switch**, 1 row: walking through moving players. Blocks casper.
-33. **raw DAT reads**, 1 row: DAT file ids and bytes by model or file id. Blocks DatSeeker.
-34. **res names in Japanese**, 1 row: names in the Japanese tables. Blocks translate.
-35. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
-36. **zone collision mesh**, 1 row: the zone's collision mesh. Blocks Novo.
+20. **network send timing**, 1 row: changing when the client sends its packets. Blocks PacketFlow.
+21. **open game menus by name**, 1 row: opening the magic, ability and other client menus by name. Blocks openmenus.
+22. **per-entity collision switch**, 1 row: walking through moving players. Blocks casper.
+23. **raw DAT reads**, 1 row: DAT file ids and bytes by model or file id. Blocks DatSeeker.
+24. **res names in Japanese**, 1 row: names in the Japanese tables. Blocks translate.
+25. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
+26. **zone collision mesh**, 1 row: the zone's collision mesh. Blocks Novo.
 
 Most wanted non-blocking gaps (rows that list them in parentheses):
 
@@ -132,13 +116,6 @@ Most wanted non-blocking gaps (rows that list them in parentheses):
 - **gamepad input (deferred)**, 6 rows: pad input. In Binder, ffxi-balloon-ashitav4, GlamourUI, Warn, XIUI, yunaui.
 - **look / race override in render**, 6 rows: look, race and face slots in `render.entity`. In BlinkMeNot, Cosplay,
   DressUp, GearLock, PlasticSurgeon, Stylist.
-- **res weather / element names**, 6 rows: weather and element names in `res`. In autoex, GearSwap, GearSwap job-file
-  API, InfoBar (Windower), InfoReplacer, obiaway.
-- **map data**, 4 rows: map images and the world-to-map transform. In FFXIDB, Minimap (Ashita v3 plugin), minimap
-  (Ashita v4 plugin), questmarks.
-- **party_invite / examined / emote events**, 4 rows: derived events for invites, examines and emotes. In autoex,
-  AutoExec, autojoin (Windower), chatmon (Windower).
-- **res mounts**, 4 rows: mount names in `res`. In HideActions, MountRoulette, shortcuts, XIUI.
 - **dialogue text by id**, 3 rows: zone dialogue text by message id. In boxdestroyer (Windower), omen (Ashita v4
   community), pointwatch.
 - **engine settings from Lua**, 3 rows: frame limit, draw distance from Lua (native settings cover them). In autofps,
@@ -157,11 +134,10 @@ Most wanted non-blocking gaps (rows that list them in parentheses):
 - **res monstrosity**, 2 rows: Monstrosity species and instincts in `res`. In GearSwap, shortcuts.
 - **SQLite**, 2 rows: SQLite (JSON files do the job). In captain, Trust.
 - One row each: `<lastst>` target tag (SubTarget); arc primitive (nextauto); encumbrance flags (equipviewer (Windower));
-  job change action (JobChange); linkshell name / linkshell_change (chatPorter); multi-line text input (repl); named
-  pipes and Unix sockets (Pipes and MMF input); res item grammar (battlemod); res log-form status names (SimpleLog); res
-  spell effects and durations (Debuffed); res.ability range (DistancePlus); RoE objectives in game (roe); stopping a
-  started program (Run); synthesis event (craft); treasure drop time (TreasurePool); WebSocket framing (buddypal); Wide
-  Scan results (widescan).
+  job change action (JobChange); linkshell name / linkshell_change (chatPorter); multi-line text input (repl); res item
+  grammar (battlemod); res log-form status names (SimpleLog); res spell effects and durations (Debuffed); res.ability
+  range (DistancePlus); RoE objectives in game (roe); stopping a started program (Run); synthesis event (craft);
+  treasure drop time (TreasurePool); WebSocket framing (buddypal); Wide Scan results (widescan).
 
 ## The tables
 
@@ -173,9 +149,9 @@ Most wanted non-blocking gaps (rows that list them in parentheses):
 | answeringmachine | Records tells for later recall | `chat_message` (kind 3); filters.typed (sent tells); input.on_key / on_mouse (idle); hud.text; storage | covered | - |
 | autocontrol | PUP attachment sets, burden tracker | actions.attach / detach; game.job_data; `action`; `buff_gain` / `buff_lose`; game.recasts; res.item / ability; hud.text; timers.add | covered | - |
 | autoenterkey | Presses Enter at start to clear the login warning, then unloads | input.press; commands.run('/lua unload') | missing | lobby-phase mods |
-| autoex | Runs commands on game events, rules in XML | events.on (vitals, buffs, time, day, moon, weather, zone, job, level, chat); `battle_message` (exp); game.equipment (no ammo); commands.run; load; fs | covered | (party_invite / examined / emote events; res weather / element names) |
+| autoex | Runs commands on game events, rules in XML | events.on (vitals, buffs, time, day, moon, weather, zone, job, level, chat); `battle_message` (exp); game.equipment (no ammo); commands.run; load; fs; `emote` / `party_invite` / `examined`; res.weather / weather_element / element | covered | - |
 | autoinvite | Invites players who send a keyword tell | `chat_message`; actions.invite; game.party | covered | - |
-| autojoin | Accepts or declines party invites by list | packets.on_in(0x0DC); actions.join / decline; settings | covered | (party_invite / examined / emote events; packet layouts: 0x0DC) |
+| autojoin | Accepts or declines party invites by list | packets.on_in(0x0DC); actions.join / decline; settings; `emote` / `party_invite` / `examined` | covered | (packet layouts: 0x0DC) |
 | AutoRA | Repeats ranged attacks like auto-attack | `action`; actions.ranged; binds.set; settings | covered | - |
 | azureSets | Saved BLU spell sets | actions.blue_set / blue_remove; game.job_data; game.spells; res.spell; `job_change`; timers.add | covered | - |
 | barfiller | Experience / limit bar above the help window | game.stats; `battle_message`; `level_up` / `level_down`; hud.bar (kind experience); hud.text; hud.screen; hud.image | covered | - |
@@ -192,7 +168,7 @@ Most wanted non-blocking gaps (rows that list them in parentheses):
 | cellhelp | Salvage cells, lot order, lot profiles | filters.chat; hud.text; game.player; game.treasure; actions.lot / pass; timers.add | covered | (font families) |
 | chars | `<tags>` to special characters in typed text | filters.typed; text.to_shift_jis | covered | - |
 | ChatLink | Numbered links for URLs in chat | filters.chat; net.open_url; client.copy | covered | - |
-| chatmon | Sound alerts on chat, tells, emotes, examines, invites | `chat_message`; filters.chat; audio.play; text.plain; client.focus; `focus_change` | covered | (party_invite / examined / emote events) |
+| chatmon | Sound alerts on chat, tells, emotes, examines, invites | `chat_message`; filters.chat; audio.play; text.plain; client.focus; `focus_change`; `emote` / `party_invite` / `examined` | covered | - |
 | chatPorter | Relays tell / party / linkshell chat between game windows | `chat_message`; ipc.send / `ipc_message`; hud.text; commands.run('/t ...') | covered | (linkshell name / linkshell_change; font families) |
 | checkparam | Sums the gear stats of a /checked player | packets.on_in(0x0C9); res.item (description); game.entity; res.augments | covered | (packet layouts: 0x0C9) |
 | Clock | On-screen clock in several time zones | hud.text; os.date; timer.every | covered | - |
@@ -216,13 +192,13 @@ Most wanted non-blocking gaps (rows that list them in parentheses):
 | ffocolor | Moves FFOChat lines to a chosen mode and colour | filters.chat (new text and mode) | covered | - |
 | findAll | Searches every character's bags; on-screen tracker | game.items (all bags) / key_items; fs (shared/); storage.account; ipc.send; hud.text; res.item / key_item | covered | (extdata layouts: storage slips) |
 | gametime | Vana'diel time, day, moon, travel times | game.time; `time_change` / `day_change` / `moon_change`; hud.text | covered | - |
-| GearSwap | Gear swaps around actions, driven by user job files | filters.typed; packets.on_out / inject_out; actions.equip / cast / ability / ranged / use_item; events; game.*; binds; load (env); fs; client.copy; hud; res.augments; timers.add; the pet entity's mpp / tp; res.message; res.mob_skill | covered | (packet batch order; res monstrosity; res merits; res weather / element names; packet layouts: 0x01A / 0x037 / 0x050 / 0x051) |
-| GearSwap job-file API | get_sets / precast / midcast / aftercast callbacks, equip, set_combine, state tables | as GearSwap: the callbacks and the player / pet / party / buffactive / world tables built from game.* and events; res.augments; the pet entity's mpp / tp | covered | (packet batch order; res merits; res weather / element names) |
+| GearSwap | Gear swaps around actions, driven by user job files | filters.typed; packets.on_out / inject_out; actions.equip / cast / ability / ranged / use_item; events; game.*; binds; load (env); fs; client.copy; hud; res.augments; timers.add; the pet entity's mpp / tp; res.message; res.mob_skill; res.weather / weather_element / element | covered | (packet batch order; res monstrosity; res merits; packet layouts: 0x01A / 0x037 / 0x050 / 0x051) |
+| GearSwap job-file API | get_sets / precast / midcast / aftercast callbacks, equip, set_combine, state tables | as GearSwap: the callbacks and the player / pet / party / buffactive / world tables built from game.* and events; res.augments; the pet entity's mpp / tp; res.weather / weather_element / element | covered | (packet batch order; res merits) |
 | giltracker | Gil HUD | game.gil; `item_change`; hud.text; input.on_key; hud.image | covered | - |
 | highlight | Recolours party members' names in chat | filters.chat; game.party; `party_change` | covered | - |
 | indinope | Hides Indi- bubbles | packets.on_in (modify 0x00D / 0x037) | covered | (effect bubble override in render; packet layouts: 0x00D / 0x037) |
-| InfoBar | Target info bar with a mob database and notes | game.target; `target_change`; game.time; res.zone; hud.text; fs / json in place of its sqlite3 files | covered | (res weather / element names) |
-| InfoReplacer | %tokens in typed text become game info | filters.typed; game.target / player / items / camera / time / weather; res.item / zone | covered | (res weather / element names) |
+| InfoBar | Target info bar with a mob database and notes | game.target; `target_change`; game.time; res.zone; hud.text; fs / json in place of its sqlite3 files; res.weather / weather_element / element | covered | - |
+| InfoReplacer | %tokens in typed text become game info | filters.typed; game.target / player / items / camera / time / weather; res.item / zone; res.weather / weather_element / element | covered | - |
 | instaLS | Linkshell chat right after zoning | filters.typed; packets.on_out (modify 0x0B5); game.items | covered | (packet layouts: 0x0B5) |
 | invtracker | Inventory slot grid HUD | game.items / bag_size; `item_add` / `item_remove`; hud.rect; input.on_key; hud.image | covered | - |
 | itemizer | Moves items between bags; fetches items for /item | actions.move / sort; filters.typed; game.items / bag_size; res.item | covered | - |
@@ -236,12 +212,12 @@ Most wanted non-blocking gaps (rows that list them in parentheses):
 | macrochanger | Macro book and set by job | `job_change`; commands.run('/macro book N', '/macro set N') | covered | - |
 | MobCompass | Compass around the target for Sneak Attack / GEO | hud.text; game.target; game.player (heading); input.on_mouse | covered | - |
 | MountMuzzle | Changes or mutes mount music | packets.on_in (modify 0x00A / 0x05F) / inject_in(0x05F); `zone_change`; audio.music / mute_music | covered | (packet layouts: 0x00A / 0x05F) |
-| MountRoulette | Random mount | actions.mount; game.key_items; res.key_item | covered | (res mounts) |
+| MountRoulette | Random mount | actions.mount; game.key_items; res.key_item; res.mount | covered | - |
 | MyHome | Picks and uses a warp spell or item | actions.cast / use_item / equip; game.spells / recasts / items (extdata); ipc.send | covered | (extdata layouts: charges, use timer) |
 | NoCampaignMusic | No campaign music in Shadowreign zones | packets.on_in (modify 0x00A / 0x05F); game.zone; audio.music / mute_music | covered | (packet layouts: 0x00A / 0x05F) |
 | Nostrum | Click-to-cure party grid | game.party / target; hud.rect / text / bar + hud.on; input.on_mouse / on_key; actions.cast; hud.image | covered | (font families) |
 | NyzulHelper | Nyzul floor, time, objective, tokens | filters.chat; game.key_items / party; hud.text | covered | - |
-| obiaway | Fetches and stores elemental obis by day and weather | actions.move; `buff_gain` / `buff_lose` / `day_change` / `weather_change`; game.items / weather | covered | (res weather / element names) |
+| obiaway | Fetches and stores elemental obis by day and weather | actions.move; `buff_gain` / `buff_lose` / `day_change` / `weather_change`; game.items / weather; res.weather / weather_element / element | covered | - |
 | ohShi | Procs, mob casts and TP moves, rolls | `action`; `battle_message`; filters.chat; res.spell / ability / status; hud.text; res.mob_skill; hud.image | covered | - |
 | Omen | Omen objectives window | filters.chat; hud.text; audio.play; `zone_change` | covered | - |
 | organizer | Gathers gear for job sets between bags and storage | actions.move / unequip; actions.talk (moogle); game.items / bag_size (extdata); fs; res.item; res.augments | covered | (extdata layouts: slips) |
@@ -266,7 +242,7 @@ Most wanted non-blocking gaps (rows that list them in parentheses):
 | send | Runs commands on other game windows | ipc.send / `ipc_message`; commands.run; game.party | covered | - |
 | setbgm | Sets any music | packets.inject_in(0x05F); audio.music / mute_music | covered | (packet layouts: 0x05F) |
 | SetTarget | Target by id | actions.target | covered | - |
-| shortcuts | Spellcast-style command and target completion | filters.typed; game.entities / spells / abilities / job_data / key_items; res.spell / ability | covered | (res mounts; res monstrosity; packet layouts: 0x0AE) |
+| shortcuts | Spellcast-style command and target completion | filters.typed; game.entities / spells / abilities / job_data / key_items; res.spell / ability; res.mount | covered | (res monstrosity; packet layouts: 0x0AE) |
 | shoutHelper | Editable alliance job list | ui.window / hud.text; commands.register | covered | - |
 | Silence | Drops repeated equipment-change lines | filters.chat; filters.typed | covered | - |
 | SpeedChecker | Movement speed modifier | game.entity (speed); hud.text | covered | - |
@@ -286,7 +262,7 @@ Most wanted non-blocking gaps (rows that list them in parentheses):
 | Tickle | Resting tick countdown | `status_change`; `hp_change` / `mp_change`; hud.text; timer.every | covered | - |
 | timestamp | Time stamps on every line | filters.chat; os.date | covered | - |
 | TParty | Target HP% and party TP beside the party list | game.party / target; hud.text; hud.screen | covered | (native window bounds) |
-| translate | Rough JP to EN translation of chat | filters.chat; `chat_message`; text.from_shift_jis / plain; res.item / spell | partly | auto-translate dictionary and encode; res names in Japanese |
+| translate | Rough JP to EN translation of chat | filters.chat; `chat_message`; text.from_shift_jis / plain; res.item / spell; res.autotranslate; text.autotranslate / phrase | partly | res names in Japanese |
 | TreasurePool | Pool window with drop timers and lots | game.treasure; packets.on_in(0x0D2); hud.text | covered | (treasure drop time; packet layouts: 0x0D2) |
 | Treasury | Lots, passes and drops by list; stacks | game.treasure; actions.lot / pass / drop / sort; ipc.send; res.item | covered | - |
 | Trusts | Saved trust sets | actions.cast; commands.run('/retr ...'); game.party / spells / recasts / key_items; res.spell | covered | - |
@@ -302,12 +278,12 @@ Most wanted non-blocking gaps (rows that list them in parentheses):
 
 | Add-on | What it does | API used | Status | Missing |
 | --- | --- | --- | --- | --- |
-| AutoExec | Runs commands on events (login, job, time, chat, buffs, zone, weather, HP thresholds, no ammo, examined); wildcards, run once | `events.on` (login, job_change, time_change, chat_message, buff_gain / lose, zone_change, weather_change, hpp_change), `filters.chat`, `game.equipment`, `commands.run` | covered | (party_invite / examined / emote events) |
+| AutoExec | Runs commands on events (login, job, time, chat, buffs, zone, weather, HP thresholds, no ammo, examined); wildcards, run once | `events.on` (login, job_change, time_change, chat_message, buff_gain / lose, zone_change, weather_change, hpp_change), `filters.chat`, `game.equipment`, `commands.run`; `emote` / `party_invite` / `examined` | covered | - |
 | Binder | G-keys, Stream Deck and similar devices fire aliases | `binds.set` / `input.on_key` for devices set to send keys; `input.on_mouse` back / forward | partly | vendor input devices: G-keys, Stream Deck; (gamepad input, deferred) |
 | ChatMon | Sound alerts on tells, name mentions, emotes, examines, invites | `chat_message`, `filters.chat` (system lines), `audio.play` / `play_se` | covered | - |
-| Config | Engine settings: aspect, animation rate, draw distance, footsteps, frame rate divisor, auto target | native Settings (frame limit, Draw Distance, 3D aspect); `ui.native.set_config` for game options | partly | engine settings from Lua: animation rate |
+| Config | Engine settings: aspect, animation rate, draw distance, footsteps, frame rate divisor, auto target | native Settings (frame limit, Draw Distance, 3D aspect); `ui.native.set_config` for game options; client.set_option(animation_rate) | covered | - |
 | DelayMeNot | Removes the macro palette's display delay | client.set_option('macro_palette_delay', false) | covered | - |
-| FFXIDB | Minimap: drag, zoom, opacity, kind toggles, range circles, target lines | native Minimap Extra (zoom, entity dots); draw.ring / line; hud.rect / image | covered | (map data: map images, world-to-map transform) |
+| FFXIDB | Minimap: drag, zoom, opacity, kind toggles, range circles, target lines | native Minimap Extra (zoom, entity dots); draw.ring / line; hud.rect / image; game.map / map_pos; hud.map | covered | - |
 | FishingCrashFix | Patches an old client crash | not applicable (our code) | covered | - |
 | Guildwork | Syncs character data with a guild site | `net.request`; `game.items` / `stats` / `jobs` | covered | - |
 | IME | Japanese IME input in the chat line | none (client feature, not built) | missing | IME text input |
@@ -360,8 +336,8 @@ Most wanted non-blocking gaps (rows that list them in parentheses):
 | Console | Console: echo, font, colour, fade, log to file, `exec` scripts, `lua exec` | `print` / `chat.add` to the log, `//` commands on the chat line, `/lua run`; script files by `fs.read` + `commands.run` | covered | - |
 | Input commands | `input`, `type`, `paste`, `setkey` down / up, block keyboard / mouse | `commands.run`, `chat.set_line`, `input.send` / `press`, `input.on_key` / `on_mouse` returning true; client.paste | covered | - |
 | Launcher profiles | Resolution, UI scale, super sampling, window mode, sound, bump / mip mapping, gamma, which add-ons load | native Settings screen, Mods page, `FFXI_CONFIG` per instance | covered | - |
-| Pipes and MMF input | Named pipes and memory-mapped key input for external programs | net.listen (a local TCP port for external programs); commands.run; input.press | covered | (named pipes and Unix sockets: programs connect over TCP) |
-| Render knobs | Wireframe, gamma, forced ambient light | native Gamma setting | partly | engine settings from Lua: wireframe, ambient light |
+| Pipes and MMF input | Named pipes and memory-mapped key input for external programs | net.listen (a local TCP port for external programs); commands.run; input.press; net.pipe | covered | - |
+| Render knobs | Wireframe, gamma, forced ambient light | native Gamma setting; client.set_option(ambient) | partly | engine settings from Lua: wireframe |
 | Screenshots | `screenshot` bmp / jpg / png, optionally without overlays | native screenshot key (PNG, interface hidden); client.screenshot | covered | - |
 | showfps | FPS counter | `frame` event `dt` + `hud.text`; F12 overlay | covered | - |
 | Video capture | `video start` / `stop` | none | missing | video capture |
@@ -401,7 +377,7 @@ Most wanted non-blocking gaps (rows that list them in parentheses):
 | PartyBuffs | Buff icons beside the party list | native party status icons; `game.party` buffs, `hud.icon` | covered | - |
 | PorterPacker | Job gear in / out of Porter Moogle slips | `actions.trade`, `packets.*`, raw `Item.extdata` | covered | (extdata layouts: slips; packet layouts) |
 | Pricer | Price lookup on a web site | `net.request`, `commands.register`, `chat.add` | covered | - |
-| questmarks | Quest markers over NPCs in the 3D world | `draw.to_screen` + `hud.text`, `game.npc_names` / `entities`; hud.image | covered | (quest / mission state in game; map data) |
+| questmarks | Quest markers over NPCs in the 3D world | `draw.to_screen` + `hud.text`, `game.npc_names` / `entities`; hud.image; game.map / map_pos; hud.map | covered | (quest / mission state in game) |
 | React | Reactions to monster moves (face away, run, gear) | `action` event, `actions.turn` / `run` / `equip`, `commands.run`; res.mob_skill; res.skill | covered | - |
 | renamer | Renames entities | `render.entity` name | covered | - |
 | revisible | Invisible players drawn translucent (DLL) | `packets.on_in` 0x00D / 0x037 flag rewrite (raw) + `render.entity` alpha | covered | - |
@@ -443,7 +419,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | Capability: outbound HTTP(S) | Price lookups, LLM calls, update checks | `net.request` | covered | - |
 | Capability: running downloaded code | Fetch a Lua bundle and run it | `net.request` + text `load` | covered | - |
 | Capability: shell and process access | Directory listing, mkdir, curl, start a companion program | `fs.list` / `mkdir`, `net.request`; client.run | covered | - |
-| Capability: small API gaps | Text extents / location / border, `mp change` / `hpp change`, `drop_item`, `last_outgoing`, map calibration, item augments | `hud.bounds`, `hud.text` pad, `mp_change` / `hpp_change`, `actions.drop`, `packets.last('out', id)`; res.augments | partly | map data: calibration |
+| Capability: small API gaps | Text extents / location / border, `mp change` / `hpp change`, `drop_item`, `last_outgoing`, map calibration, item augments | `hud.bounds`, `hud.text` pad, `mp_change` / `hpp_change`, `actions.drop`, `packets.last('out', id)`; res.augments; game.map / map_pos; hud.map | covered | - |
 | Capability: sockets to companion programs | UDP to companion programs; sync between instances | `ipc.send` between game windows; net.connect / listen / udp | covered | - |
 | Capability: Timers as a service | `timers c` / `d` commands from other add-ons (Singer, Mote-based job files, Silmaril) | timers.add / remove (rows in the Timers window); commands.register for the `timers` commands | covered | - |
 
@@ -474,7 +450,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | checker | Richer /check text on monsters | packets.on_in(0x029, 0x0F4), blocking; chat.add | covered | (packet layouts) |
 | chime | Plays the game's chime | audio.play_se | covered | - |
 | cleancs | Hides add-on drawing in cutscenes | game.event / game.info().event; hud.set visible | covered | - |
-| clearcolor | Sets the scene's background colour | ui.window (colour) | missing | engine settings from Lua: clear colour |
+| clearcolor | Sets the scene's background colour | ui.window (colour); client.set_option(clear_colour) | covered | - |
 | clock | Earth and Vana'diel clocks on screen | native Clock extra; game.time; os.date; hud.text | covered | (font families) |
 | config | Sets any game config value by command | ui.native.config / set_config | covered | - |
 | craftmon | Synthesis result as soon as the synth starts | packets.on_in(0x030, 0x06F); res.item; chat.add | covered | (packet layouts) |
@@ -494,7 +470,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | hideconsole | Hides the boot console | not needed: no console window | covered | - |
 | hideobs | Hides the game window from screen capture | client.set_window {capture = false} (where the system allows it) | covered | - |
 | hideparty | Hides the party lists | ui.native.hide('party') | covered | - |
-| hideui | Hides every add-on's drawing | its elements: hud.set / ui.close; everything: the UI-hide key | partly | global mod HUD hide |
+| hideui | Hides every add-on's drawing | its elements: hud.set / ui.close; everything: the UI-hide key; /lua hide | covered | - |
 | ime | Japanese IME and character sets in chat | text.to_shift_jis (encoding only) | missing | IME text input |
 | imguistyle | Per-character ImGui style | not needed: mod windows follow the active UI theme (by design) | covered | - |
 | instantah | No delay on AH results | client.set_option('ah_result_delay', false) | covered | - |
@@ -558,7 +534,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | addons | Hosts Lua add-ons | the mod runtime (a VM per mod) | covered | - |
 | extraslots | More stored accounts at sign-in | native login remembers one account | partly | lobby-phase mods |
 | hardwaremouse | Forces a hardware cursor | not needed natively | covered | - |
-| minimap | Themed minimap overlay | native Minimap extra; ui.native.hide('minimap'); hud.image | covered | (map data) |
+| minimap | Themed minimap overlay | native Minimap extra; ui.native.hide('minimap'); hud.image; game.map / map_pos; hud.map | covered | - |
 | quicky | Faster launcher sign-in | not needed: the client's login screen | covered | - |
 | sandbox | Runs POL / FFXI without an install (registry, COM) | not needed natively | covered | - |
 | screenshot | Back-buffer screenshots, add-on UI optional | native Print Screen (with the UI hidden only); client.screenshot | covered | - |
@@ -584,7 +560,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | Guildwork | Syncs character data with a site through a helper | net.request to the site (as Windower's Guildwork plugin); client.run; net.connect / listen / udp | covered | - |
 | HardwareMouse | Hardware cursor | not needed natively | covered | - |
 | Lootwhore | Auto lot / pass / drop / move by profile | game.treasure; actions.lot / pass / drop / move | covered | - |
-| Minimap | Minimap overlay | as minimap (v4 plugin); hud.image | covered | (map data) |
+| Minimap | Minimap overlay | as minimap (v4 plugin); hud.image; game.map / map_pos; hud.map | covered | - |
 | MultiSend | Commands to boxed clients on this PC; follow | ipc.send; event `ipc_message`; commands.run; actions.follow | covered | - |
 | No-ckback | No knockback on us | packets.on_in(0x028) edit | covered | (packet layouts) |
 | Repeat | Repeats commands with random jitter | timer.after; math.random; commands.run | covered | - |
@@ -610,7 +586,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | DatSeeker | Model ids and ROM paths of gear as worn | game.entity look; game.equipment | partly | raw DAT reads: ROM paths of models |
 | Deeps | Damage meter | as Deeps (v3 plugin) | covered | - |
 | Defrag | Combines item stacks | actions.sort | covered | - |
-| DiscordRPC | Discord rich presence | none; client.run could start a bridge program | missing | named pipes and Unix sockets: Discord's local IPC |
+| DiscordRPC | Discord rich presence | none; client.run could start a bridge program; net.pipe | covered | - |
 | EquipViewer | Equipment grid overlay | game.equipment; hud.icon / rect | covered | - |
 | FindAll | All characters' bags cached; instant bag load after zoning | game.items; fs under shared/; packets.inject_in replaying cached bag packets | covered | (packet layouts) |
 | FocuserHelper.dll | Enumerates and focuses game windows | ipc.send to each window; client.focus; `focus_change` | covered | - |
@@ -621,8 +597,8 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | Lootwhore | As Lootwhore (v3 plugin) | as Lootwhore (v3 plugin) | covered | - |
 | Multisend | Command broadcast, groups, follow | ipc.send (to a character or all); commands.run; actions.follow | covered | - |
 | Nameplate | Nameplate aspect fix | not needed: our renderer | covered | - |
-| Novo | Navmeshes: build, draw, test; collision export | draw.line (if it had the mesh) | missing | zone collision mesh; world-space text and textured quads |
-| Occlude3d | Depth-tested world markers, lines, text | draw.line / ring / box (depth-tested); draw.to_screen; mods.call | partly | world-space text and textured quads |
+| Novo | Navmeshes: build, draw, test; collision export | draw.line (if it had the mesh); draw.text / draw.image | partly | zone collision mesh |
+| Occlude3d | Depth-tested world markers, lines, text | draw.line / ring / box (depth-tested); draw.to_screen; mods.call; draw.text / draw.image | covered | - |
 | Packer | Moves gear between bags for a job's sets | actions.move; mods.call / mods.emit with the gear mod | covered | - |
 | PacketFlow | Changes the client's packet send timing | none | missing | network send timing |
 | portfix | Fixes port-era effects drawn wrong | not needed: our renderer | covered | - |
@@ -645,11 +621,11 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | Add-on | What it does | API used | Status | Missing |
 | --- | --- | --- | --- | --- |
 | addon-emoji | Inline emoji icons in chat | filters.chat | missing | chat inline icons |
-| addonmgr | Loads, unloads and reloads add-ons from a panel | commands.run('/lua ...'); mods.list; ui.window (input, tabs) | partly | installed mods list |
+| addonmgr | Loads, unloads and reloads add-ons from a panel | commands.run('/lua ...'); mods.list; ui.window (input, tabs); mods.installed | covered | - |
 | ahpro | The auction house in one window over the native one | input.press; game.items; res.item; hud.icon; ui.window (input, tabs, section, choice, tips, canvas); ui.prompt / menu | missing | native window list rows and cursor |
 | ASCII-Joy | MUD-style text interface over the game | game.*; packets.on_in / on_out / inject_out; filters.chat; hud.text / rect; res.mob_skill; Entity.target_index; game.cast | covered | (font families) |
 | ashita-hush | Hides yells, teleport requests and other spam | filters.chat; ui.window (options); storage | covered | - |
-| Ashita4-HitboxDisplay | 3D hitboxes and ranges | game.entities; draw.ring / box / line; ui.window (choice, colour) | partly | entity hitbox size |
+| Ashita4-HitboxDisplay | 3D hitboxes and ranges | game.entities; draw.ring / box / line; ui.window (choice, colour); Entity.hitbox | covered | - |
 | Ashita4-Soul | Soul plate and reflector viewer | game.items (extdata bytes); res.item | covered | - |
 | AshitaFishaid | Bigger fishing messages | packets.on_in(0x037, 0x00A); filters.chat; hud.text | covered | (font families; packet layouts) |
 | Auctioneer | Auction house by command, price lookups | packets.inject_out(0x04E) / inject_in(0x04B, 0x04C); net.request; net.open_url; ui.window (input, columns, tabs, choice, tips, canvas); ui.prompt / menu | covered | (packet layouts) |
@@ -660,11 +636,11 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | autofps | Moves the fps divisor to a stable rate | native frame limit (default 300); event `frame` dt | covered | (engine settings from Lua) |
 | autonin | Ninja housekeeping (shadows, tools) | game.buffs / items / recasts; actions.cast / cancel; packets.on_out; input.on_key | covered | - |
 | autora | Repeats ranged attacks | event `action`; actions.ranged; binds.set; storage | covered | - |
-| autotrans | [[ ]] in typed commands to auto-translate phrases | filters.typed | missing | auto-translate dictionary and encode |
+| autotrans | [[ ]] in typed commands to auto-translate phrases | filters.typed; res.autotranslate; text.autotranslate / phrase | covered | - |
 | BGMBard | Day / night music in any zone | packets.on_in(0x00A music ids); ui.window (input, choice, section) | covered | (packet layouts) |
 | bludex | Blue magic codex and set planner | game.job_data / spells; res.spell; actions.blue_set / blue_remove; hud.image / on; ui.window (canvas) | covered | (packet layouts) |
 | bluspells | Builds blue magic sets visually | game.job_data; res.spell; actions.blue_set; ui.window | covered | - |
-| boussole | Replacement map with markers and tracked mobs | game.entities / party; packets; draw.to_screen; hud.*; ui.window (input, columns, tabs, section, choice, colour, tips, canvas); fs; ui.prompt / menu; client.paste | missing | map data; drag and drop |
+| boussole | Replacement map with markers and tracked mobs | game.entities / party; packets; draw.to_screen; hud.*; ui.window (input, columns, tabs, section, choice, colour, tips, canvas); fs; ui.prompt / menu; client.paste; game.map / map_pos; hud.map | partly | drag and drop |
 | boxhelper | Hints for brown treasure casket numbers | filters.chat; packets.on_in(0x034); ui.window (columns) | covered | (packet layouts) |
 | ButterFeet | Removes the job-ability movement wait (ja0wait patch) | none | missing | action lock patches |
 | calculator | In-game calculator | ui.window (buttons, text) | covered | - |
@@ -696,17 +672,17 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | fishaid | Bigger fishing messages | packets.on_in; filters.chat; hud.text | covered | (font families; packet layouts) |
 | Focuser | Switches focus between game windows | ipc.send; client.focus; `focus_change`; ui.window (input, tips) | covered | - |
 | gambler | Corsair auto-roll by rules | event `action`; game.buffs / recasts; actions.ability; ui.window (input, columns, tabs) | covered | - |
-| GlamourUI | Themed party list, target bar, chat and map | game.party / target / entity / buffs / recasts; packets.on_in / on_out; hud.*; ui.window (tabs, section, choice, colour, tips, canvas); ui.native.hide / config; input.held; res.mob_skill; game.cast; ui.prompt / menu | partly | map data; (gamepad input, deferred) |
+| GlamourUI | Themed party list, target bar, chat and map | game.party / target / entity / buffs / recasts; packets.on_in / on_out; hud.*; ui.window (tabs, section, choice, colour, tips, canvas); ui.native.hide / config; input.held; res.mob_skill; game.cast; ui.prompt / menu; game.map / map_pos; hud.map | covered | (gamepad input, deferred) |
 | GMTools | GM command helper | commands.run; game.*; ui.window (input, columns, tabs, choice, tips); client.copy; client.paste; ui.prompt / menu | covered | - |
 | HGather | Gathering tracker | filters.chat; packets.on_out; input.on_key / on_mouse; ui.window (input, tabs, tips) | covered | - |
-| HideActions | Hides chosen spells, abilities and mounts from lists | packets.on_in(0x0AA, 0x0AC, 0x0AE); res.spell / ability | covered | (res mounts; packet layouts) |
+| HideActions | Hides chosen spells, abilities and mounts from lists | packets.on_in(0x0AA, 0x0AC, 0x0AE); res.spell / ability; res.mount | covered | (packet layouts) |
 | HitPoints | Target and engaged-enemy bars | game.target / entities; hud.bar / text / image; Entity.target_index; ui.window (tabs, choice, tips, canvas) | covered | (font families) |
 | HorizonScout | Nearby alerts, aggro warnings, compass radar | game.entities / target / info; packets.on_in; hud.*; audio.play; actions.target; client.paste; ui.window (input, tabs, section, tips, canvas) | covered | (font families) |
 | hticks | Time to the next resting tick | event `status_change`; timer; hud.text; input.on_mouse; ui.window (colour, tips) | covered | (font families) |
 | Hush | Hides yells, teleport requests and other spam | filters.chat; game.party; ui.window (options); storage | covered | - |
 | HXIChecklist | Quest and mission checklist | packets.on_in(0x055, 0x056); game.items / key_items; ui.window (input, columns, tabs, choice, tips); net.open_url | covered | (packet layouts) |
-| HXIPresence | Discord rich presence | game.player / zone; ui.window; client.run could start a bridge program | missing | named pipes and Unix sockets: Discord's local IPC |
-| HXIUIBegone | Hides chosen parts of the native UI | ui.native.hide; ui.window (tips); ui.prompt / menu | partly | ui.native.hide: more pieces: clock, connection info |
+| HXIPresence | Discord rich presence | game.player / zone; ui.window; client.run could start a bridge program; net.pipe | covered | - |
+| HXIUIBegone | Hides chosen parts of the native UI | ui.native.hide; ui.window (tips); ui.prompt / menu | covered | - |
 | imrecast | Recast timers | game.recasts; res.spell / ability; hud.text | covered | - |
 | invite | Invites listed players automatically | commands.register; timer.every; actions.invite | covered | - |
 | j-roller | Corsair auto-roller | event `action`; game.buffs / recasts; actions.ability; ui.window (section, choice, tips) | covered | - |
@@ -715,10 +691,10 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | LuAshitacast | Gear swaps from Lua profiles | packets.on_out (block) and inject_out (0x050 / 0x051 / 0x053, then the action); actions.equip; game.*; res.*; fs; load; mods.emit; ui.window (tabs, choice, tips); hud.text; client.run | covered | (font families; packet batch order; packet layouts) |
 | luopantime | Luopan countdown | game.entities; hud.text; timer | covered | (font families) |
 | macromaster | Switches macro book and set by command or job | commands.run('/macro book', '/macro set'); event `job_change`; storage | covered | - |
-| magiccircle | Textured magic circle in the world (Occlude3d) | draw.ring; ui.window (colour, tips) | partly | world-space text and textured quads: textured |
+| magiccircle | Textured magic circle in the world (Occlude3d) | draw.ring; ui.window (colour, tips); draw.text / draw.image | covered | - |
 | maneuver | PUP maneuver tracker | events `buff_gain` / `buff_lose`; filters.chat; game.buffs; hud.image / bar / text | covered | - |
-| MemScope | Memory monitor for add-ons | mods.list; ui.window (input, columns, choice, tips, canvas); ui.prompt / menu | missing | mod memory stats |
-| minimap-helper | Minimap zoom per zone | event `zone_change`; packets.on_in(0x00A) | missing | engine settings from Lua: minimap zoom |
+| MemScope | Memory monitor for add-ons | mods.list; ui.window (input, columns, choice, tips, canvas); ui.prompt / menu | covered | - |
+| minimap-helper | Minimap zoom per zone | event `zone_change`; packets.on_in(0x00A); client.set_option(minimap_span) | covered | - |
 | mobdb | Monster information from bundled data | game.target; require (data); hud.*; ui.window (input, tips); mods.emit | covered | - |
 | mountme | Mounts by command | commands.register; game.key_items; res.key_item; actions.mount | covered | - |
 | muffins | Sortie gallimaufry count | filters.chat; hud.text | covered | (font families) |
@@ -770,7 +746,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | timers | Durations of our spells and abilities, buffs on others | events `action` / `battle_message`; game.buffs / recasts; packets.on_in / on_out; hud.bar / text; input.on_mouse; ui.window (input, tabs, colour, tips) | covered | (font families; packet layouts) |
 | TitleCheck | Prints titles not yet earned | packets.on_in(0x033); res.title; game.stats | covered | (packet layouts) |
 | toastynotif | Toast notifications with sounds | filters.chat; packets.on_in(0x0D2); hud.image / text; audio.play; fs.list; ui.window (columns, section, choice) | covered | (packet layouts) |
-| translataru | [[ ]] in typed text to auto-translate phrases | filters.typed | missing | auto-translate dictionary and encode |
+| translataru | [[ ]] in typed text to auto-translate phrases | filters.typed; res.autotranslate; text.autotranslate / phrase | covered | - |
 | trials | Trial weapon weapon-skill points | event `action`; game.items (extdata bytes); ui.window (columns) | covered | - |
 | trigger | Controller shoulder buttons to commands | none | missing | gamepad input (deferred) |
 | trustme | Searchable trust list with wiki links | game.spells; res.spell; actions.cast; net.request; net.open_url; ui.window (input, columns, tabs, section, choice, colour, tips); ui.prompt / menu | covered | - |
@@ -786,8 +762,8 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | xicamera | Camera distance, battle distance, pan speeds | render.set_camera {distance, battle_distance, speed}; ui.window (section, tips) | covered | (camera rotation and pitch limits) |
 | xichats | Chat channels in a window | packets.on_in(0x017) / on_out(0x0B5); event `chat_message`; ui.window (input); commands.run; fs | covered | (inline colours in window text) |
 | xitools | UI toolkit: target, recast, crafting, fishing and more | game.*; packets; hud.*; ui.window (input, columns, tabs, section, colour, tips, canvas); res.day / moon; Entity.target_index; game.cast; ui.prompt / menu | covered | - |
-| XIUI | Full HUD suite: bars, party, target, hotbar, more | game.*; actions.lot / pass; packets; hud.*; ui.window (input, columns, section, choice, colour, tips, canvas); ui.native.windows / hide / interface_hidden; audio.play; res.mob_skill; Entity.target_index; game.cast; ui.prompt / menu | partly | macros; ui.native.hide: more pieces: macro bar; (gamepad input, deferred; res mounts; font families) |
-| yunaui | Full HUD suite with chat and damage meter | game.*; packets; hud.*; ui.window (input, colour, tips, canvas); input.*; audio.play; res.mob_skill; Entity.target_index; game.cast; client.paste; ui.prompt / menu | partly | macros; map data; (gamepad input, deferred) |
+| XIUI | Full HUD suite: bars, party, target, hotbar, more | game.*; actions.lot / pass; packets; hud.*; ui.window (input, columns, section, choice, colour, tips, canvas); ui.native.windows / hide / interface_hidden; audio.play; res.mob_skill; Entity.target_index; game.cast; ui.prompt / menu; game.macros; actions.macro / macro_set / macro_edit; ui.native.hide; res.mount | covered | (gamepad input, deferred; font families) |
+| yunaui | Full HUD suite with chat and damage meter | game.*; packets; hud.*; ui.window (input, colour, tips, canvas); input.*; audio.play; res.mob_skill; Entity.target_index; game.cast; client.paste; ui.prompt / menu; game.macros; actions.macro / macro_set / macro_edit; game.map / map_pos; hud.map | covered | (gamepad input, deferred) |
 | zenihelper | ZNM pops, trophies and key items | game.items / key_items; packets.inject_out(0x10F) / on_in(0x113); ui.window (tips) | covered | (packet layouts) |
 | ZoneLines | Zone line boundaries marked on the ground | game.zone / player; draw.line / box / ring; draw.to_screen; hud.text; require (bundled data); ui.window (columns, section, choice, colour, tips) | covered | (font families) |
 | zonename | Zone name while zoning | event `zone_change`; res.zone; hud.text | covered | (font families) |

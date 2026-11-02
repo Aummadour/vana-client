@@ -972,16 +972,16 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
 fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
     match op {
         Op::Print(text) => w.chat.push_colour(text, DIM),
-        Op::Chat { text, mode, colour } => match (mode, colour) {
-            (Some(m), _) => {
+        Op::Chat { text, mode, colour } => match (mode, colour, super::expand_phrases(w, &text)) {
+            (Some(m), _, text) => {
                 let (colour, indent) = w.battle.as_ref().map_or((super::WHITE, false), |b| (b.colour_in(m, &w.game), b.indents(m)));
                 w.chat.push_event(text, colour, indent, m);
             }
-            (None, Some(c)) => {
+            (None, Some(c), text) => {
                 let colour = w.battle.as_ref().map_or(super::WHITE, |b| b.colour_in(c, &w.game));
                 w.chat.push_colour(text, colour);
             }
-            (None, None) => w.chat.push(text),
+            (None, None, text) => w.chat.push(text),
         },
         // A mod's line for a mod runs as the mod's own, not the player's input.
         Op::Run(line) if line.starts_with('/') && w.lua.takes(&line) => w.lua.typed.push((line, false)),

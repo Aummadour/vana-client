@@ -916,6 +916,35 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
             Ok(Some(t))
         })?,
     )?;
+    res.set(
+        "autotranslate",
+        lua.create_function(|lua, (word, group): (Option<String>, Option<u8>)| {
+            let w = world(lua)?;
+            let Some(d) = w.battle.as_ref().and_then(|b| b.phrases.as_ref()) else { return Ok(None) };
+            let (hits, _) = d.query(word.as_deref().unwrap_or(""), group);
+            let out = lua.create_table()?;
+            for (text, id) in hits {
+                let t = lua.create_table()?;
+                (t.set("text", text)?, t.set("group", id[2])?, t.set("id", id[3])?, t.set("phrase", super::runtime::phrase(id))?);
+                out.push(t)?;
+            }
+            Ok(Some(out))
+        })?,
+    )?;
+    res.set(
+        "autotranslate_groups",
+        lua.create_function(|lua, ()| {
+            let w = world(lua)?;
+            let Some(d) = w.battle.as_ref().and_then(|b| b.phrases.as_ref()) else { return Ok(None) };
+            let out = lua.create_table()?;
+            for g in &d.groups {
+                let t = lua.create_table()?;
+                (t.set("group", g.id)?, t.set("title", g.title.as_str())?, t.set("count", g.phrases.len())?);
+                out.push(t)?;
+            }
+            Ok(Some(out))
+        })?,
+    )?;
     res.set("weather", lua.create_function(|_, id: usize| Ok(WEATHER.get(id).map(|w| w.0)))?)?;
     res.set("weather_element", lua.create_function(|_, id: usize| Ok(WEATHER.get(id).and_then(|w| w.1)))?)?;
     res.set("element", lua.create_function(|_, id: usize| Ok(ELEMENTS.get(id).copied()))?)?;

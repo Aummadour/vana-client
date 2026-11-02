@@ -1111,6 +1111,16 @@ function res.augments(item, extdata) end
 ---@return {text: string, mode: integer?}?
 function res.message(id, options) end
 
+--- The auto-translate dictionary: the entries whose completion key starts with `word` (none: the group titles), or a group's entries: {text, group, id, phrase (the in-line string: put it in a chat line)}; nil before the dictionary loads.
+---@param word? string 
+---@param group? integer 
+---@return table[]?
+function res.autotranslate(word, group) end
+
+--- The auto-translate groups: {group, title, count}.
+---@return table[]?
+function res.autotranslate_groups() end
+
 --- A weather's name by id (0 Clear .. 19 Darkness).
 ---@param id integer 
 ---@return string?
@@ -1239,6 +1249,17 @@ function text.from_shift_jis(bytes) end
 ---@param text string 
 ---@return string
 function text.to_shift_jis(text) end
+
+--- An auto-translate phrase as a line holds it (group, id from res.autotranslate); put it in chat text.
+---@param group integer 
+---@param id integer 
+---@return string
+function text.phrase(group, id) end
+
+--- The phrase whose text is exactly `text` (ignoring case), as a line holds it; nil when the dictionary has none.
+---@param text string 
+---@return string?
+function text.autotranslate(text) end
 
 --- A line with its auto-translate phrases as plain words.
 ---@param text string 

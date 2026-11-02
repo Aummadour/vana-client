@@ -296,6 +296,22 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
     text.set("from_shift_jis", lua.create_function(|_, b: mlua::LuaString| Ok(crate::dat::font::decode_sjis(&b.as_bytes())))?)?;
     text.set("to_shift_jis", lua.create_function(|lua, s: String| lua.create_string(crate::dat::font::encode_sjis(&s)))?)?;
     text.set("plain", lua.create_function(|lua, s: String| Ok(super::super::fep::plain(world(lua)?, &s)))?)?;
+    text.set("phrase", lua.create_function(|_, (group, id): (u8, u8)| Ok(phrase([2, 2, group, id])))?)?;
+    text.set(
+        "autotranslate",
+        lua.create_function(|lua, s: String| {
+            let w = world(lua)?;
+            let Some(d) = w.battle.as_ref().and_then(|b| b.phrases.as_ref()) else { return Ok(None) };
+            let want = s.trim().to_lowercase();
+            let hit = d.groups.iter().find_map(|g| {
+                if g.title.to_lowercase().trim_matches(|c| c == '【' || c == '】') == want.as_str() {
+                    return Some([2, 2, g.id, 0]);
+                }
+                g.phrases.iter().find(|p| p.1.to_lowercase() == want).map(|p| [2, 2, g.id, p.0])
+            });
+            Ok(hit.map(phrase))
+        })?,
+    )?;
     g.set("text", text)?;
 
     // client: the clipboard and the window.
@@ -441,6 +457,12 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
     )?;
     g.set("client", client)?;
     Ok(())
+}
+
+/// An auto-translate phrase as the line holds it: its block (kind, language, group, id) as four private-use chars,
+/// which the Shift-JIS encoder writes back as `FD .. FD`.
+pub(super) fn phrase(b: [u8; 4]) -> String {
+    b.iter().enumerate().filter_map(|(k, &x)| char::from_u32(crate::dat::font::PHRASE_BASE + 0x100 * k as u32 + x as u32)).collect()
 }
 
 /// mods.call: the other mod's provided function with copies of the values (plain data), in its own VM.

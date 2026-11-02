@@ -43,6 +43,9 @@ Built (client/lua/, modern/modwin.rs), each checked live:
     decoded as the item window shows it: lines, the short line, message id / value pairs; checked live)
   - `res.message` (a battle / system message expanded as the log prints it, with actor, target and values),
     `mob_skill`, `skill`, `day`, `moon`, `weather` / `weather_element`, `element`, `mount`; checked live
+  - `res.autotranslate(word?, group?)` (the dictionary's entries: text, group, id and the phrase as a string) and
+    `autotranslate_groups`; `text.phrase(group, id)` and `text.autotranslate(text)` (an exact entry) give a phrase to
+    put in `chat.send` / `chat.add` / `/echo`, which print it braced as the log does; checked live
   - events `emote` (s2c 0x05A), `party_invite` (0x0DC), `examined` (message 89); an entity's `hitbox` (its model
     radius, ours from 0x037); emote and hitbox checked live, invite and examined not (they need a second player)
 - **Chat and commands:**

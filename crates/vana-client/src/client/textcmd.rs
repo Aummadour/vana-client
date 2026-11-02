@@ -761,6 +761,7 @@ fn handle(w: &mut World, cid: u16, args: &[String], line: &str, mode: Mode) -> D
                 && let Some(bt) = w.battle.clone()
             {
                 let colour = bt.colour_in(0xce, &w.game);
+                let text = super::expand_phrases(w, &text);
                 w.chat.push_colour(text, colour);
             }
             Ok(())
