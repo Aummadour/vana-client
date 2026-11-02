@@ -39,6 +39,18 @@ pub const FUNCS: &[Func] = &[
     Func { ns: "timer", name: "cancel", doc: "Stops a timer.", params: &[("id", "integer", "what timer.after / timer.every returned")], ret: "" },
     Func { ns: "game", name: "player", doc: "Our character: name, id, index, zone, pos {x, y, z}, heading, status, hp / mp / tp and their percents, maxima, jobs and levels, target id.", params: &[], ret: "vana.Player" },
     Func { ns: "game", name: "zone", doc: "The zone id, or nil while zoning.", params: &[], ret: "integer?" },
+    Func { ns: "game", name: "entity", doc: "An entity in range by server id or index, or nil.", params: &[("key", "integer", "server id or index")], ret: "vana.Entity?" },
+    Func { ns: "game", name: "entities", doc: "Every entity in range, by index.", params: &[("filter?", "{distance: number?, kinds: ('player'|'npc'|'mob')[]?}", "")], ret: "vana.Entity[]" },
+    Func { ns: "game", name: "target", doc: "The current target, or nil.", params: &[], ret: "vana.Entity?" },
+    Func { ns: "game", name: "party", doc: "The party and alliance members (slot 0..5 our party, 6..17 the others).", params: &[], ret: "vana.Member[]" },
+    Func { ns: "game", name: "items", doc: "A bag's items in the list's order (0 inventory, 1 safe, 2 storage, 3 temporary, 4 locker, 5 satchel, 6 sack, 7 case, 8.. wardrobes).", params: &[("bag", "integer", "")], ret: "vana.Item[]" },
+    Func { ns: "game", name: "bag_size", doc: "How many slots a bag has (nil before the server said).", params: &[("bag", "integer", "")], ret: "integer?" },
+    Func { ns: "game", name: "equipment", doc: "What is equipped, by equipment slot (0 main .. 15 back): {bag, slot, id}.", params: &[], ret: "table<integer, {bag: integer, slot: integer, id: integer}>" },
+    Func { ns: "game", name: "buffs", doc: "Our status effects: id, and seconds remaining when timed.", params: &[], ret: "{id: integer, remaining: number?}[]" },
+    Func { ns: "game", name: "recasts", doc: "Seconds left on recasts: spells by spell id, abilities by recast id (only those still counting).", params: &[], ret: "{spells: table<integer, number>, abilities: table<integer, number>}" },
+    Func { ns: "game", name: "time", doc: "The Vana'diel clock: earth (seconds since the Vana'diel epoch), year, month, day, hour, minute, weekday (0 Firesday), moon_phase, moon (percent).", params: &[], ret: "vana.Time" },
+    Func { ns: "game", name: "weather", doc: "The weather id.", params: &[], ret: "integer" },
+    Func { ns: "game", name: "key_items", doc: "The key item ids we hold.", params: &[], ret: "integer[]" },
     Func { ns: "storage", name: "save", doc: "Writes storage.account and storage.character now (they are also written at logout and unload).", params: &[], ret: "" },
     Func { ns: "settings", name: "get", doc: "A setting declared in mod.toml: the user's value, else its default.", params: &[("key", "string", "")], ret: "any" },
 ];
@@ -50,6 +62,29 @@ pub const EVENTS: &[Event] = &[
     Event { name: "logout", doc: "The character is leaving the world.", args: &[] },
     Event { name: "zone_change", doc: "A new zone has loaded.", args: &[("zone", "integer"), ("previous", "integer?")] },
     Event { name: "frame", doc: "Every frame (prefer timers and events: this one costs time every frame).", args: &[("dt", "number")] },
+    Event { name: "hp_change", doc: "Our HP changed.", args: &[("hp", "integer"), ("previous", "integer")] },
+    Event { name: "mp_change", doc: "Our MP changed.", args: &[("mp", "integer"), ("previous", "integer")] },
+    Event { name: "tp_change", doc: "Our TP changed.", args: &[("tp", "integer"), ("previous", "integer")] },
+    Event { name: "hpp_change", doc: "Our HP percent changed.", args: &[("hpp", "integer"), ("previous", "integer")] },
+    Event { name: "mpp_change", doc: "Our MP percent changed.", args: &[("mpp", "integer"), ("previous", "integer")] },
+    Event { name: "status_change", doc: "Our status changed (0 idle, 1 engaged, 2 / 3 dead, 33 resting...).", args: &[("status", "integer"), ("previous", "integer")] },
+    Event { name: "job_change", doc: "Our main or sub job changed.", args: &[("main", "integer"), ("main_level", "integer"), ("sub", "integer"), ("sub_level", "integer")] },
+    Event { name: "level_up", doc: "Our main job's level went up.", args: &[("level", "integer")] },
+    Event { name: "level_down", doc: "Our main job's level went down.", args: &[("level", "integer")] },
+    Event { name: "buff_gain", doc: "We gained a status effect.", args: &[("id", "integer")] },
+    Event { name: "buff_lose", doc: "We lost a status effect.", args: &[("id", "integer")] },
+    Event { name: "target_change", doc: "Our target changed (nil: none).", args: &[("id", "integer?"), ("previous", "integer?")] },
+    Event { name: "time_change", doc: "A Vana'diel minute passed (minutes since midnight).", args: &[("minute", "integer"), ("previous", "integer")] },
+    Event { name: "day_change", doc: "A new Vana'diel day (0 Firesday).", args: &[("weekday", "integer"), ("previous", "integer")] },
+    Event { name: "moon_change", doc: "The moon's phase changed.", args: &[("phase", "integer"), ("previous", "integer")] },
+    Event { name: "weather_change", doc: "The weather changed.", args: &[("weather", "integer"), ("previous", "integer")] },
+    Event { name: "party_change", doc: "The party or alliance changed (members joined, left or moved).", args: &[] },
+    Event { name: "item_add", doc: "An item appeared in a bag slot.", args: &[("bag", "integer"), ("slot", "integer"), ("id", "integer"), ("count", "integer")] },
+    Event { name: "item_remove", doc: "An item left a bag slot.", args: &[("bag", "integer"), ("slot", "integer"), ("id", "integer"), ("count", "integer")] },
+    Event { name: "chat_message", doc: "A chat line from a player (or a GM): its text, sender, kind (0 say, 1 shout, 3 tell, 4 party, 5 linkshell, 0x1a yell, 0x1b linkshell 2, 0x21 unity) and whether a GM sent it.", args: &[("text", "string"), ("sender", "string"), ("kind", "integer"), ("gm", "boolean")] },
+    Event { name: "action", doc: "A decoded action packet (s2c 0x028): actor, category, param, info and targets with their results.", args: &[("action", "vana.Action")] },
+    Event { name: "battle_message", doc: "A battle message (s2c 0x029 / 0x02D): actor, target, message id and its two parameters.", args: &[("actor", "integer"), ("target", "integer"), ("message", "integer"), ("param1", "integer"), ("param2", "integer")] },
+    Event { name: "item_change", doc: "A bag slot's count changed.", args: &[("bag", "integer"), ("slot", "integer"), ("id", "integer"), ("count", "integer"), ("previous", "integer")] },
 ];
 
 /// LuaLS stubs (`---@meta`) for the whole API.
@@ -60,6 +95,11 @@ pub fn stubs() -> String {
         s += &format!("---| \"{}\" # {}\n", e.name, e.doc);
     }
     s += "\n---@class vana.Player\n---@field name string\n---@field id integer\n---@field index integer\n---@field zone integer?\n---@field pos {x: number, y: number, z: number}\n---@field heading number\n---@field status integer\n---@field hp integer?\n---@field mp integer?\n---@field tp integer?\n---@field hpp integer?\n---@field mpp integer?\n---@field hp_max integer?\n---@field mp_max integer?\n---@field main_job integer?\n---@field main_level integer?\n---@field sub_job integer?\n---@field sub_level integer?\n---@field target integer?\n\n";
+    s += "---@class vana.Entity\n---@field id integer\n---@field index integer\n---@field name string\n---@field kind 'player'|'npc'|'mob'\n---@field pos {x: number, y: number, z: number}\n---@field heading number\n---@field distance number\n---@field hpp integer\n---@field status integer\n---@field speed number\n---@field claim integer\n---@field targetable boolean\n---@field hidden boolean\n\n";
+    s += "---@class vana.Member\n---@field slot integer\n---@field party integer\n---@field id integer\n---@field index integer\n---@field name string\n---@field hp integer\n---@field mp integer\n---@field tp integer\n---@field hpp integer\n---@field mpp integer\n---@field zone integer\n---@field in_zone boolean\n---@field main_job integer\n---@field main_level integer\n---@field sub_job integer\n---@field sub_level integer\n---@field leader boolean\n---@field alliance_leader boolean\n---@field buffs integer[]\n\n";
+    s += "---@class vana.Item\n---@field bag integer\n---@field slot integer\n---@field id integer\n---@field count integer\n---@field extdata string? 24 raw bytes\n---@field locked integer\n---@field price integer?\n\n";
+    s += "---@class vana.Action\n---@field actor integer\n---@field category integer\n---@field param integer\n---@field info integer\n---@field targets {id: integer, results: {miss: integer, kind: integer, animation: integer, info: integer, scale: integer, value: integer, message: integer, bit: integer, proc: table?, react: table?}[]}[]\n\n";
+    s += "---@class vana.Time\n---@field earth integer\n---@field year integer\n---@field month integer\n---@field day integer\n---@field hour integer\n---@field minute integer\n---@field weekday integer\n---@field moon_phase integer\n---@field moon integer\n\n";
     s += "---@class vana.Mod\n---@field id string\n---@field name string\n---@field version string\n---@field api integer\n---@field path string\n\n---@type vana.Mod\nmod = {}\n\n";
     s += "storage = {\n    ---@type table plain data kept for every character of the account\n    account = {},\n    ---@type table plain data kept for this character\n    character = {},\n}\n\n";
     let mut seen = Vec::new();

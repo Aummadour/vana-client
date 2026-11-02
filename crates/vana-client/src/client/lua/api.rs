@@ -194,6 +194,149 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     let game = lua.create_table()?;
     game.set("player", lua.create_function(|lua, ()| player(lua))?)?;
     game.set("zone", lua.create_function(|lua, ()| Ok(world(lua)?.zone))?)?;
+    game.set(
+        "entity",
+        lua.create_function(|lua, key: u32| {
+            let w = world(lua)?;
+            let e = w.entities.get(&key).map(|e| (key, e)).or_else(|| w.entities.iter().find(|(_, e)| u32::from(e.index) == key).map(|(id, e)| (*id, e)));
+            e.map(|(id, e)| entity(lua, w, id, e)).transpose()
+        })?,
+    )?;
+    game.set(
+        "entities",
+        lua.create_function(|lua, opts: Option<Table>| {
+            let w = world(lua)?;
+            let max = opts.as_ref().and_then(|o| o.get::<f32>("distance").ok());
+            let kinds: Option<Vec<String>> = opts.as_ref().and_then(|o| o.get::<Vec<String>>("kinds").ok());
+            let out = lua.create_table()?;
+            let mut list: Vec<(&u32, &super::super::Entity)> = w.entities.iter().collect();
+            list.sort_by_key(|(_, e)| e.index);
+            for (id, e) in list {
+                if max.is_some_and(|m| e.pos.distance(w.pos) > m) {
+                    continue;
+                }
+                if kinds.as_ref().is_some_and(|k| !k.iter().any(|k| k == kind_name(e))) {
+                    continue;
+                }
+                out.push(entity(lua, w, *id, e)?)?;
+            }
+            Ok(out)
+        })?,
+    )?;
+    game.set(
+        "target",
+        lua.create_function(|lua, ()| {
+            let w = world(lua)?;
+            w.target.and_then(|id| w.entities.get(&id).map(|e| (id, e))).map(|(id, e)| entity(lua, w, id, e)).transpose()
+        })?,
+    )?;
+    game.set("party", lua.create_function(|lua, ()| party(lua))?)?;
+    game.set(
+        "items",
+        lua.create_function(|lua, bag: u8| {
+            let w = world(lua)?;
+            let out = lua.create_table()?;
+            for s in w.inv.viewed(bag) {
+                let (id, count) = w.inv.slots.get(&(bag, s.index)).copied().unwrap_or((0, 0));
+                let t = lua.create_table()?;
+                t.set("bag", bag)?;
+                t.set("slot", s.index)?;
+                t.set("id", id)?;
+                t.set("count", count)?;
+                if let Some(x) = w.inv.ext.get(&(bag, s.index)) {
+                    t.set("extdata", lua.create_string(x)?)?;
+                }
+                t.set("locked", w.inv.locks.get(&(bag, s.index)).copied().unwrap_or(0))?;
+                if let Some(p) = w.inv.prices.get(&(bag, s.index)) {
+                    t.set("price", *p)?;
+                }
+                out.push(t)?;
+            }
+            Ok(out)
+        })?,
+    )?;
+    game.set(
+        "bag_size",
+        lua.create_function(|lua, bag: u8| {
+            let w = world(lua)?;
+            Ok(w.inv.sizes.get(bag as usize).map(|s| s.saturating_sub(1)))
+        })?,
+    )?;
+    game.set(
+        "equipment",
+        lua.create_function(|lua, ()| {
+            let w = world(lua)?;
+            let out = lua.create_table()?;
+            for (slot, at) in w.inv.equip.iter().enumerate() {
+                if let Some((bag, index)) = at {
+                    let t = lua.create_table()?;
+                    t.set("bag", *bag)?;
+                    t.set("slot", *index)?;
+                    t.set("id", w.inv.item(*bag, *index))?;
+                    out.set(slot, t)?;
+                }
+            }
+            Ok(out)
+        })?,
+    )?;
+    game.set(
+        "buffs",
+        lua.create_function(|lua, ()| {
+            let w = world(lua)?;
+            let now = (super::super::vana_now(w) as u32).wrapping_mul(60);
+            let out = lua.create_table()?;
+            for (id, end) in super::super::buffs::icons(w) {
+                let t = lua.create_table()?;
+                t.set("id", id)?;
+                if end != 0x7fff_ffff {
+                    t.set("remaining", (end.wrapping_sub(now) as i32).max(0) as f64 / 60.0)?;
+                }
+                out.push(t)?;
+            }
+            Ok(out)
+        })?,
+    )?;
+    game.set(
+        "recasts",
+        lua.create_function(|lua, ()| {
+            let w = world(lua)?;
+            let now = Instant::now();
+            let left = |at: &Instant| at.saturating_duration_since(now).as_secs_f64();
+            let spells = lua.create_table()?;
+            for (id, at) in &w.spell_recast {
+                spells.set(*id, left(at))?;
+            }
+            let abilities = lua.create_table()?;
+            for (id, at) in &w.ability_recast {
+                abilities.set(*id, left(at))?;
+            }
+            let t = lua.create_table()?;
+            t.set("spells", spells)?;
+            t.set("abilities", abilities)?;
+            Ok(t)
+        })?,
+    )?;
+    game.set(
+        "time",
+        lua.create_function(|lua, ()| {
+            let w = world(lua)?;
+            let earth = super::super::vana_now(w);
+            let p = crate::dat::msgfmt::VanaParts::of(earth);
+            let t = lua.create_table()?;
+            t.set("earth", earth)?;
+            t.set("year", p.year)?;
+            t.set("month", p.month)?;
+            t.set("day", p.day)?;
+            t.set("hour", p.hour)?;
+            t.set("minute", p.minute)?;
+            t.set("weekday", p.weekday)?;
+            t.set("moon_phase", p.phase)?;
+            t.set("moon", p.moon)?;
+            Ok(t)
+        })?,
+    )?;
+    game.set("weather", lua.create_function(|lua, ()| Ok(world(lua)?.weather))?)?;
+    game.set("key_items", lua.create_function(|lua, ()| Ok(world(lua)?.key_items.clone()))?)?;
     g.set("game", game)?;
 
     // storage.account / storage.character: plain data, saved at logout, unload and storage.save().
@@ -234,6 +377,70 @@ fn json_table(lua: &Lua, v: &serde_json::Value) -> mlua::Result<Value> {
         serde_json::Value::Object(o) if !o.is_empty() => lua.to_value(v),
         _ => Ok(Value::Table(lua.create_table()?)),
     }
+}
+
+fn kind_name(e: &super::super::Entity) -> &'static str {
+    match (e.kind, e.mob) {
+        (super::super::net::EntityKind::Player, _) => "player",
+        (_, true) => "mob",
+        _ => "npc",
+    }
+}
+
+/// An entity as a table: who, where, how it stands.
+fn entity(lua: &Lua, w: &World, id: u32, e: &super::super::Entity) -> mlua::Result<Table> {
+    let t = lua.create_table()?;
+    t.set("id", id)?;
+    t.set("index", e.index)?;
+    t.set("name", e.name.as_str())?;
+    t.set("kind", kind_name(e))?;
+    let pos = lua.create_table()?;
+    pos.set("x", e.pos.x)?;
+    pos.set("y", e.pos.y)?;
+    pos.set("z", e.pos.z)?;
+    t.set("pos", pos)?;
+    t.set("heading", e.yaw)?;
+    t.set("distance", e.pos.distance(w.pos))?;
+    t.set("hpp", e.hpp)?;
+    t.set("status", e.motion.status)?;
+    t.set("speed", f32::from(e.motion.speed) / 10.0)?;
+    t.set("claim", e.claim)?;
+    t.set("targetable", e.flags & 6 == 0 && !e.untargetable && !e.target_off)?;
+    t.set("hidden", e.flags & 2 != 0)?;
+    Ok(t)
+}
+
+/// game.party(): every member of the party and alliance, by slot (0..5 our party, 6..17 the others).
+fn party(lua: &Lua) -> mlua::Result<Table> {
+    let w = world(lua)?;
+    let s = w.party.slots();
+    let out = lua.create_table()?;
+    for (slot, m) in s.slots.iter().enumerate() {
+        let Some(m) = m else { continue };
+        let t = lua.create_table()?;
+        t.set("slot", slot)?;
+        t.set("party", slot / 6)?;
+        t.set("id", m.id)?;
+        t.set("index", m.index)?;
+        t.set("name", m.name.as_str())?;
+        t.set("hp", m.hp)?;
+        t.set("mp", m.mp)?;
+        t.set("tp", m.tp)?;
+        t.set("hpp", m.hpp)?;
+        t.set("mpp", m.mpp)?;
+        t.set("zone", m.zone)?;
+        t.set("in_zone", m.away == 0)?;
+        t.set("main_job", m.jobs[0])?;
+        t.set("main_level", m.jobs[1])?;
+        t.set("sub_job", m.jobs[2])?;
+        t.set("sub_level", m.jobs[3])?;
+        t.set("leader", s.leaders.get(slot / 6).is_some_and(|l| *l == m.id))?;
+        t.set("alliance_leader", s.alliance_leader == m.id)?;
+        let buffs: Vec<u16> = w.party_buffs.get(&m.id).map(|b| b.iter().copied().filter(|&b| b != 0xffff && b != 0).collect()).unwrap_or_default();
+        t.set("buffs", buffs)?;
+        out.push(t)?;
+    }
+    Ok(out)
 }
 
 /// game.player(): who and where we are, vitals and jobs.

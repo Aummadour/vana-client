@@ -28,6 +28,126 @@ pub struct Host {
     /// Lines typed for mods (a registered command, or /lua), run in the next mod phase.
     typed: Vec<String>,
     last_frame: Option<std::time::Instant>,
+    /// Last frame's state, for the derived change events.
+    prev: Option<Snap>,
+}
+
+/// What the derived events watch (Windower's change events).
+#[derive(Clone, Default, PartialEq)]
+struct Snap {
+    vitals: Option<(u32, u32, u32, u8, u8)>,
+    status: u8,
+    jobs: Option<(u8, u8, u8, u8)>,
+    buffs: Vec<u16>,
+    target: Option<u32>,
+    minute: Option<i32>,
+    weekday: Option<usize>,
+    moon: Option<usize>,
+    weather: u16,
+    party: Vec<u32>,
+    items: Option<std::collections::BTreeMap<(u8, u8), (u16, u32)>>,
+}
+
+impl Snap {
+    fn of(w: &World, items: bool) -> Self {
+        let clock = w.clock.map(|_| crate::dat::msgfmt::VanaParts::of(super::vana_now(w)));
+        let mut buffs: Vec<u16> = w.buffs.iter().copied().filter(|&b| b != 0xffff).collect();
+        buffs.sort_unstable();
+        Self {
+            vitals: w.vitals,
+            status: w.my_motion.status,
+            jobs: w.stats.as_ref().map(|s| (s.main.0, s.main.1, s.sub.0, s.sub.1)),
+            buffs,
+            target: w.target,
+            minute: clock.as_ref().map(|p| p.hour * 60 + p.minute),
+            weekday: clock.as_ref().map(|p| p.weekday),
+            moon: clock.as_ref().map(|p| p.phase),
+            weather: w.weather,
+            party: w.party.slots().slots.iter().flatten().map(|m| m.id).collect(),
+            items: items.then(|| w.inv.slots.clone()),
+        }
+    }
+}
+
+/// The change events between two snapshots: (name, arguments).
+fn changes(a: &Snap, b: &Snap) -> Vec<(&'static str, Vec<serde_json::Value>)> {
+    use serde_json::Value as J;
+    let mut out = Vec::new();
+    if let (Some(o), Some(n)) = (a.vitals, b.vitals) {
+        for (name, nv, ov) in [("hp_change", n.0, o.0), ("mp_change", n.1, o.1), ("tp_change", n.2, o.2), ("hpp_change", n.3 as u32, o.3 as u32), ("mpp_change", n.4 as u32, o.4 as u32)] {
+            if nv != ov {
+                out.push((name, vec![nv.into(), ov.into()]));
+            }
+        }
+    }
+    if a.status != b.status {
+        out.push(("status_change", vec![b.status.into(), a.status.into()]));
+    }
+    if let (Some(o), Some(n)) = (a.jobs, b.jobs) {
+        if o.0 != n.0 || o.2 != n.2 {
+            out.push(("job_change", vec![n.0.into(), n.1.into(), n.2.into(), n.3.into()]));
+        } else if n.1 > o.1 {
+            out.push(("level_up", vec![n.1.into()]));
+        } else if n.1 < o.1 {
+            out.push(("level_down", vec![n.1.into()]));
+        }
+    }
+    // Buffs as multisets: each id gained or lost once per copy.
+    let mut lost = a.buffs.clone();
+    for id in &b.buffs {
+        match lost.iter().position(|x| x == id) {
+            Some(k) => {
+                lost.remove(k);
+            }
+            None => out.push(("buff_gain", vec![(*id).into()])),
+        }
+    }
+    for id in lost {
+        out.push(("buff_lose", vec![id.into()]));
+    }
+    if a.target != b.target {
+        out.push(("target_change", vec![b.target.map_or(J::Null, J::from), a.target.map_or(J::Null, J::from)]));
+    }
+    if let (Some(o), Some(n)) = (a.minute, b.minute)
+        && o != n
+    {
+        out.push(("time_change", vec![n.into(), o.into()]));
+    }
+    if let (Some(o), Some(n)) = (a.weekday, b.weekday)
+        && o != n
+    {
+        out.push(("day_change", vec![n.into(), o.into()]));
+    }
+    if let (Some(o), Some(n)) = (a.moon, b.moon)
+        && o != n
+    {
+        out.push(("moon_change", vec![n.into(), o.into()]));
+    }
+    if a.weather != b.weather {
+        out.push(("weather_change", vec![b.weather.into(), a.weather.into()]));
+    }
+    if a.party != b.party {
+        out.push(("party_change", vec![]));
+    }
+    if let (Some(o), Some(n)) = (&a.items, &b.items) {
+        for (&(bag, slot), &(id, count)) in n {
+            match o.get(&(bag, slot)) {
+                Some(&(oid, ocount)) if oid == id && ocount == count => {}
+                Some(&(oid, ocount)) if oid == id => out.push(("item_change", vec![bag.into(), slot.into(), id.into(), count.into(), ocount.into()])),
+                Some(&(oid, ocount)) => {
+                    out.push(("item_remove", vec![bag.into(), slot.into(), oid.into(), ocount.into()]));
+                    out.push(("item_add", vec![bag.into(), slot.into(), id.into(), count.into()]));
+                }
+                None => out.push(("item_add", vec![bag.into(), slot.into(), id.into(), count.into()])),
+            }
+        }
+        for (&(bag, slot), &(id, count)) in o {
+            if !n.contains_key(&(bag, slot)) {
+                out.push(("item_remove", vec![bag.into(), slot.into(), id.into(), count.into()]));
+            }
+        }
+    }
+    out
 }
 
 /// Where mods keep their settings and storage: beside an FFXI_CONFIG copy for test runs.
@@ -133,6 +253,7 @@ impl Host {
             self.unload(w, 0);
         }
         self.started = false;
+        self.prev = None;
     }
 
     /// `/lua ...`: list, load, unload, reload, run, set.
@@ -248,6 +369,14 @@ pub(super) fn frame(w: &mut World) {
         }
         host.start(w);
     }
+    // The derived change events (items only while someone listens: the bags are big).
+    let items = host.vms.iter().any(|v| ["item_add", "item_remove", "item_change"].iter().any(|e| v.has_handler(e)));
+    let snap = Snap::of(w, items);
+    if let Some(prev) = &host.prev {
+        let found = changes(prev, &snap);
+        host.events.extend(found);
+    }
+    host.prev = Some(snap);
     let now = std::time::Instant::now();
     let dt = host.last_frame.map_or(0.0, |t| now.duration_since(t).as_secs_f64());
     host.last_frame = Some(now);
@@ -369,4 +498,23 @@ mod tests {
             }
         }
     }
+}
+
+/// A decoded s2c 0x028 for the `action` event (Windower's action table, our field names).
+pub(super) fn action_json(a: &crate::net::action::Action) -> serde_json::Value {
+    use serde_json::json;
+    let side = |s: &Option<crate::net::action::Side>| s.as_ref().map(|s| json!({"kind": s.kind, "info": s.info, "value": s.value, "message": s.message}));
+    let targets: Vec<serde_json::Value> = a
+        .targets
+        .iter()
+        .map(|t| {
+            let results: Vec<serde_json::Value> = t
+                .results
+                .iter()
+                .map(|r| json!({"miss": r.miss, "kind": r.kind, "animation": r.animation, "info": r.info, "scale": r.scale, "value": r.value, "message": r.message, "bit": r.bit, "proc": side(&r.proc), "react": side(&r.react)}))
+                .collect();
+            json!({"id": t.id, "results": results})
+        })
+        .collect();
+    json!({"actor": a.actor, "category": a.category, "param": a.arg, "info": a.info, "targets": targets})
 }

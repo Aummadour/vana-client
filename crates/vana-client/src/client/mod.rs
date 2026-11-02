@@ -8893,6 +8893,7 @@ impl App {
                     if kind != 0x19 && attr & 1 == 0 && partyreq::blacklisted(world, &from) == 1 {
                         continue;
                     }
+                    world.lua.raise("chat_message", vec![text.as_str().into(), from.as_str().into(), kind.into(), (attr & 1 != 0).into()]);
                     // Tells (and kind 0x15) go into the reply history.
                     if matches!(kind, 3 | 0x15) && !from.is_empty() {
                         world.tells.retain(|t| *t != from);
@@ -8950,6 +8951,7 @@ impl App {
                     timers::on_party_effects(world);
                 }
                 NetEvent::Battle(m) => {
+                    world.lua.raise("battle_message", vec![m.actor.into(), m.target.into(), m.message.into(), m.data[0].into(), m.data[1].into()]);
                     timers::on_message(world, m.target, m.data[0] as u32, m.message);
                     regime::on_battle(world, &m);
                     combat::on_battle_message(world, &m);
@@ -9096,6 +9098,7 @@ impl App {
                 NetEvent::Monstrosity { kind, data } => monstrosity::on_data(world, kind, data),
                 NetEvent::SkillBase(s) => world.skill_base = Some(s),
                 NetEvent::Action(a) => {
+                    world.lua.raise("action", vec![lua::action_json(&a)]);
                     timers::on_action(world, &a);
                     combat::on_action(world, &a);
                 }
