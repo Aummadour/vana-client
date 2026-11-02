@@ -56,6 +56,9 @@ pub(super) enum Op {
     Shot(String),
     /// The clipboard read for client.paste.
     Paste,
+    /// A timer in the Timers window added or replaced (mod, name, seconds, section, group, icon kind and id, total,
+    /// fills), or removed (seconds None), or all the mod's removed (name None).
+    Timer { mod_id: String, name: Option<String>, secs: Option<f32>, section: usize, group: Option<String>, icon: Option<(String, u16)>, total: f32, fills: bool },
 }
 
 /// What a mod asked of the game window.
@@ -893,6 +896,23 @@ fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
         Op::Window(r) => w.lua.win_reqs.push(r),
         Op::Shot(name) => w.lua.shot = Some(name),
         Op::Paste => w.lua.paste_wanted = true,
+        Op::Timer { mod_id, name, secs, section, group, icon, total, fills } => {
+            let Some(name) = name else {
+                w.timers.mods.retain(|t| t.mod_id != mod_id);
+                return;
+            };
+            w.timers.mods.retain(|t| !(t.mod_id == mod_id && t.name == name));
+            if let Some(s) = secs {
+                use super::timers::Icon;
+                let icon = match icon {
+                    Some((k, id)) if k == "status" => Icon::Status(id),
+                    Some((k, id)) => super::magic::list_icon_of(w, k == "spell", id).map_or(Icon::None, |(l, i)| Icon::List(l, i)),
+                    None => Icon::None,
+                };
+                let end = std::time::Instant::now() + std::time::Duration::from_secs_f32(s.max(0.0));
+                w.timers.mods.push(super::timers::ModTimer { mod_id, section, group, icon, name, end, total: if total > 0.0 { total } else { s.max(0.0) }, fills });
+            }
+        }
         Op::Interface(show) => w.ui_hidden = !show,
         Op::CameraDistance(k) => super::camera::set_distance(w, k),
         Op::Camera(speed, max, battle) => super::camera::set_mod(w, speed, max, battle),
@@ -1256,6 +1276,11 @@ impl Host {
     /// Whether a mod window has the keys.
     pub(super) fn focused(&self) -> bool {
         self.vms.iter().any(|v| v.suspended.is_none() && v.st.borrow().windows.iter().any(|w| w.open && w.focus))
+    }
+
+    /// The loaded mods' ids.
+    pub(super) fn mod_ids(&self) -> std::collections::HashSet<String> {
+        self.vms.iter().map(|v| v.manifest.id.clone()).collect()
     }
 
     /// The open modal window (vm, id), the last opened when there are several.

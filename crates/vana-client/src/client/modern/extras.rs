@@ -45,7 +45,7 @@ pub(super) type IconPainter<'a> = dyn Fn(&egui::Painter, (usize, usize, usize), 
 /// fold (timers_body).
 fn timers_panel(p: &mut Panels, w: &mut World) {
     let Some(gu) = p.gu else { return };
-    if !w.extra_timers || hidden(w) {
+    if !(w.extra_timers || !w.timers.mods.is_empty()) || hidden(w) {
         return;
     }
     let secs = timers::sections(w, gu);

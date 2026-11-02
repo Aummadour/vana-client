@@ -352,6 +352,48 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     super::native::install(lua, &ui, &m.id)?;
     g.set("ui", ui)?;
 
+    // timers: rows in the Timers window (the Extra's drawer, shown for them even when the Extra is off).
+    let timers = lua.create_table()?;
+    let me = m.id.clone();
+    timers.set(
+        "add",
+        lua.create_function(move |lua, (name, secs, opts): (String, f32, Option<Table>)| {
+            let (mut section, mut group, mut icon, mut total, mut fills) = (1, None, None, 0.0, false);
+            if let Some(o) = &opts {
+                section = match o.get::<Option<String>>("section")?.as_deref() {
+                    Some("recast") | Some("recasts") => 0,
+                    Some("debuff") | Some("debuffs") => 2,
+                    _ => 1,
+                };
+                group = o.get("group")?;
+                if let Some(i) = o.get::<Option<Table>>("icon")? {
+                    icon = Some((i.get::<Option<String>>("kind")?.unwrap_or_else(|| "status".into()), i.get::<u16>("id")?));
+                }
+                total = o.get::<Option<f32>>("total")?.unwrap_or(0.0);
+                fills = o.get::<Option<bool>>("fills")?.unwrap_or(section == 0);
+            }
+            state(lua).borrow_mut().ops.push(super::Op::Timer { mod_id: me.clone(), name: Some(name), secs: Some(secs), section, group, icon, total, fills });
+            Ok(())
+        })?,
+    )?;
+    let me = m.id.clone();
+    timers.set(
+        "remove",
+        lua.create_function(move |lua, name: String| {
+            state(lua).borrow_mut().ops.push(super::Op::Timer { mod_id: me.clone(), name: Some(name), secs: None, section: 0, group: None, icon: None, total: 0.0, fills: false });
+            Ok(())
+        })?,
+    )?;
+    let me = m.id.clone();
+    timers.set(
+        "clear",
+        lua.create_function(move |lua, ()| {
+            state(lua).borrow_mut().ops.push(super::Op::Timer { mod_id: me.clone(), name: None, secs: None, section: 0, group: None, icon: None, total: 0.0, fills: false });
+            Ok(())
+        })?,
+    )?;
+    g.set("timers", timers)?;
+
     // packets (docs/lua-mods.md 4.7): hooks both ways with Windower's chain, injection, the last of each id.
     let packets = lua.create_table()?;
     for (name, out) in [("on_in", false), ("on_out", true)] {

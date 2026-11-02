@@ -47,6 +47,9 @@ Built (client/lua/, modern/modwin.rs), each checked live:
 - **Settings and storage:**
   - declared settings (bool, enum, int, number) on an Extras page per mod, in both UIs; per-scope files
   - `storage.account` / `storage.character`
+- **Timers** (`timers.add` / `remove` / `clear`): a mod's rows in the Timers window (recasts, buffs or debuffs,
+  under a heading, with a status, spell or ability icon), shown even with the Timers Extra off; dropped when the mod
+  unloads. Checked live in both UIs.
 - **Windows:**
   - `ui.window` / `update` / `get` / `open` / `show` / `close` / `on` / `prompt` / `menu`
   - elements: text, buttons and options, slider, scrolling list, gauge, separator; tabs (elements on pages), typed
