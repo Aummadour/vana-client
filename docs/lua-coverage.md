@@ -53,17 +53,17 @@ Settled for every row:
 | Windower features | 11 | 9 | 1 | 1 |
 | Windower community add-ons | 55 | 54 | 1 | 0 |
 | Windower community capabilities | 13 | 12 | 0 | 1 |
-| Ashita v4 official add-ons | 81 | 76 | 0 | 5 |
+| Ashita v4 official add-ons | 81 | 77 | 0 | 4 |
 | Ashita v3 official add-ons | 13 | 13 | 0 | 0 |
 | Ashita v4 plugins | 10 | 9 | 0 | 1 |
-| Ashita v3 plugins | 27 | 25 | 0 | 2 |
+| Ashita v3 plugins | 27 | 26 | 0 | 1 |
 | Ashita community plugins | 37 | 32 | 4 | 1 |
 | Ashita v4 community add-ons | 147 | 142 | 2 | 3 |
 | Ashita v3 community add-ons | 22 | 22 | 0 | 0 |
 | Ashita add-ons rated from descriptions | 28 | 28 | 0 | 0 |
 | Windower, all | 250 | 244 | 3 | 3 |
-| Ashita, all | 365 | 347 | 6 | 12 |
-| **Total** | **615** | **591** | **9** | **15** |
+| Ashita, all | 365 | 349 | 6 | 10 |
+| **Total** | **615** | **593** | **9** | **13** |
 
 ## Open gaps
 
@@ -74,19 +74,17 @@ Ranked by the rows each one blocks (listed outside parentheses).
 2. **IME text input**, 2 rows: Japanese IME composition in the chat line. Blocks ime (Ashita v4), IME (Windower plugin).
 3. **native list options**, 2 rows: options for native lists (AH row colours, the spell list trimmed). Blocks ahcolors,
    trimspells.
-4. **process control**, 2 rows: CPU affinity and similar process settings. Blocks Affinity (Ashita v3 plugin), affinity
-   (Ashita v4).
-5. **vendor input devices**, 2 rows: G-keys, Stream Deck and other HID devices directly. Blocks Binder, GBinder.
-6. **video capture**, 2 rows: recording the game window. Blocks DashCam, Video capture.
-7. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
-8. **drag and drop**, 1 row: dragging between elements in `ui.window` (a canvas takes clicks only). Blocks boussole.
-9. **engine settings from Lua**, 1 row: wireframe from Lua. Blocks Render knobs.
-10. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
-11. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it).
+4. **vendor input devices**, 2 rows: G-keys, Stream Deck and other HID devices directly. Blocks Binder, GBinder.
+5. **video capture**, 2 rows: recording the game window. Blocks DashCam, Video capture.
+6. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
+7. **drag and drop**, 1 row: dragging between elements in `ui.window` (a canvas takes clicks only). Blocks boussole.
+8. **engine settings from Lua**, 1 row: wireframe from Lua. Blocks Render knobs.
+9. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
+10. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it).
     Blocks fastswap.
-12. **network send timing**, 1 row: changing when the client sends its packets. Blocks PacketFlow.
-13. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
-14. **zone collision mesh**, 1 row: the zone's collision mesh. Blocks Novo.
+11. **network send timing**, 1 row: changing when the client sends its packets. Blocks PacketFlow.
+12. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
+13. **zone collision mesh**, 1 row: the zone's collision mesh. Blocks Novo.
 
 Most wanted non-blocking gaps (rows that list them in parentheses):
 
@@ -414,7 +412,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | --- | --- | --- | --- | --- |
 | actionparse | Shows decoded action packets in a table; copies to the clipboard | event `action`; ui.window (list, columns, tips); client.copy | covered | - |
 | activemon | Image showing whether this game window has focus | hud.icon (game icons only); client.focus; `focus_change`; hud.image | covered | - |
-| affinity | Sets the process CPU affinity | none | missing | process control |
+| affinity | Sets the process CPU affinity | client.set_affinity / set_priority / process (permission process) | covered | - |
 | ahcolors | Recolours AH list rows (learned / learnable / unlearnable) | none | missing | native list options |
 | ahgo | Opens the AH anywhere (fake s2c 0x04C); moving with it open | packets.inject_in(0x04C) opens our AH; client.set_option('menu_reach', false) | covered | - |
 | allmaps | Every map in /map without the key items | packets.on_in(0x055) can fake the map key items (they then show in Key Items too); client.set_option('all_maps', true) | covered | - |
@@ -531,7 +529,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 
 | Add-on | What it does | API used | Status | Missing |
 | --- | --- | --- | --- | --- |
-| Affinity | Sets the process CPU affinity | none | missing | process control |
+| Affinity | Sets the process CPU affinity | client.set_affinity / set_priority / process (permission process) | covered | - |
 | Ashitacast | XML gear swaps around every action | filters.typed; actions.equip; event `action`; packets.on_out | covered | (packet batch order) |
 | Bellhop | Batch get / put / drop / sell / buy / trade / sort | actions.move / drop / sell / buy / trade / sort; game.shop; packets.inject_out (player trade, bazaar) | covered | (packet layouts) |
 | Crafty | Repeated synthesis with stop conditions | native synthesis amount extra; packets.inject_out(0x096); event `chat_message`; game.bag_size | covered | (packet layouts) |

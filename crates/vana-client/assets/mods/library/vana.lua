@@ -1310,6 +1310,20 @@ function client.copy(text) end
 ---@param handler fun(text: string) 
 function client.paste(handler) end
 
+--- The client's process: pid, cores (how many), affinity (the cores it may run on, from 0; empty where unknown) and priority (idle, low, below_normal, normal, above_normal, high).
+---@return {pid: integer, cores: integer, affinity: integer[], priority: string}
+function client.process() end
+
+--- Runs every thread of the client on these cores (from 0). Needs process. Returns true, or false and why.
+---@param cores integer[] 
+---@return boolean, string?
+function client.set_affinity(cores) end
+
+--- The client's scheduling priority: idle, low, below_normal, normal, above_normal or high (above normal usually needs privileges on Linux). Needs process. Returns true, or false and why.
+---@param level string 
+---@return boolean, string?
+function client.set_priority(level) end
+
 --- A behaviour switch's value (see set_option); a value set shows from the next frame.
 ---@param name string 
 ---@return boolean|number|table

@@ -9,6 +9,7 @@ mod docs;
 mod draw;
 mod ipc;
 pub(super) mod lobby;
+mod process;
 mod net;
 mod hud;
 pub(super) mod input;
@@ -1873,6 +1874,7 @@ fn permission_text(p: &str) -> (&'static str, &'static str) {
         "clipboard" => ("Allow reading the clipboard", "Reads the text you copied."),
         "multibox" => ("Allow multibox", "Talks to your other game windows on this computer."),
         "ui.native" => ("Allow game windows", "Opens, hides and drives the game's own windows."),
+        "process" => ("Allow process settings", "Sets which CPU cores the game runs on, and its priority."),
         _ => ("Allow", ""),
     }
 }
