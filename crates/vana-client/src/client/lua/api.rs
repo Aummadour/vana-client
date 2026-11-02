@@ -146,6 +146,46 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     )?;
     g.set("commands", commands)?;
 
+    // filters.chat(fn) / filters.typed(fn) -> id; filters.off(id). Run inline: no sleeping, no game state.
+    let filters = lua.create_table()?;
+    for (name, typed) in [("chat", false), ("typed", true)] {
+        filters.set(
+            name,
+            lua.create_function(move |lua, func: Function| {
+                let st = state(lua);
+                let id = next_id(&st);
+                let key = lua.create_registry_value(func)?;
+                let mut s = st.borrow_mut();
+                if typed { s.typed_filters.push((id, key)) } else { s.chat_filters.push((id, key)) }
+                s.filters_dirty = true;
+                Ok(id)
+            })?,
+        )?;
+    }
+    filters.set(
+        "off",
+        lua.create_function(|lua, id: u64| {
+            let st = state(lua);
+            let gone: Vec<mlua::RegistryKey> = {
+                let mut guard = st.borrow_mut();
+                let s: &mut ModState = &mut guard;
+                let mut gone = Vec::new();
+                for list in [&mut s.chat_filters, &mut s.typed_filters] {
+                    let (g, keep): (Vec<_>, Vec<_>) = std::mem::take(list).into_iter().partition(|(i, _)| *i == id);
+                    *list = keep;
+                    gone.extend(g.into_iter().map(|(_, k)| k));
+                }
+                s.filters_dirty = true;
+                gone
+            };
+            for k in gone {
+                lua.remove_registry_value(k)?;
+            }
+            Ok(())
+        })?,
+    )?;
+    g.set("filters", filters)?;
+
     // chat.add(text[, mode]): a log line in the mode's colour, like a game line.
     let chat = lua.create_table()?;
     chat.set(

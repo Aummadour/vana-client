@@ -8924,6 +8924,7 @@ impl App {
                     log::info!("logged out of the zone (0x00B state {state})");
                     let mut mods = std::mem::take(&mut world.lua);
                     mods.stop(world);
+                    world.chat.filter = None;
                     if let Some(dir) = world.macros.as_ref().map(|m| m.dir().to_path_buf()) {
                         synth::save_history(world, &dir);
                         partyreq::save(world, &dir);

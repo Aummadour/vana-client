@@ -54,7 +54,29 @@ pub(super) struct ModState {
     /// Lines for the chat log about this mod (errors, budget), printed by the host.
     pub notices: Vec<String>,
     pub save: bool,
+    /// Filters (docs/lua-mods.md 3.2): chat lines before they are kept, typed lines before the parser.
+    pub chat_filters: Vec<(u64, RegistryKey)>,
+    pub typed_filters: Vec<(u64, RegistryKey)>,
+    pub filters_dirty: bool,
 }
+
+impl ModState {
+    /// An error: reported once per distinct message, counted toward suspension.
+    pub fn record(&mut self, name: &str, e: &mlua::Error) {
+        let text = clean(e);
+        let now = Instant::now();
+        self.errors.push_back(now);
+        while self.errors.front().is_some_and(|t| now.duration_since(*t) > ERROR_WINDOW) {
+            self.errors.pop_front();
+        }
+        if self.reported.insert(text.clone()) {
+            self.notices.push(format!("{name}: {text}"));
+        }
+    }
+}
+
+/// A filter's budget per call (it runs inside the game's own paths).
+pub(super) const FILTER_CAP: Duration = Duration::from_millis(20);
 
 pub(super) struct Handler {
     pub id: u64,
@@ -308,17 +330,8 @@ impl Vm {
 
     /// Reports an error once per distinct message; too many suspend the mod.
     pub fn error(&self, e: &mlua::Error) {
-        let text = clean(e);
         log::warn!("lua mod {}: {e}", self.manifest.id);
-        let mut st = self.st.borrow_mut();
-        let now = Instant::now();
-        st.errors.push_back(now);
-        while st.errors.front().is_some_and(|t| now.duration_since(*t) > ERROR_WINDOW) {
-            st.errors.pop_front();
-        }
-        if st.reported.insert(text.clone()) {
-            st.notices.push(format!("{}: {text}", self.manifest.name));
-        }
+        self.st.borrow_mut().record(&self.manifest.name, e);
     }
 
     /// Whether the mod should be suspended now (too many errors).

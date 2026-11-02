@@ -39,6 +39,17 @@ pub struct ChatLog {
     folds: u64,
     /// Lines restored from the last session (with their divider): never saved again.
     restored: usize,
+    /// Ours (docs/lua-mods.md 4.3): the mods' filters, run on every line before it is kept, and each mode's colour for
+    /// a line a filter moves to another mode.
+    pub filter: Option<std::rc::Rc<dyn Fn(&str, u16) -> Filtered>>,
+    pub mode_colours: Option<std::rc::Rc<[[u8; 4]; 256]>>,
+}
+
+/// What the mods' filters made of a line.
+pub enum Filtered {
+    Keep,
+    Block,
+    Replace(String, u16),
 }
 
 pub const NO_MODE: u16 = 0xffff;
@@ -97,7 +108,21 @@ impl ChatLog {
         }
     }
 
-    fn push_line(&mut self, s: String, colour: [u8; 4], chat: bool, indent: bool, mode: u16) {
+    fn push_line(&mut self, mut s: String, mut colour: [u8; 4], chat: bool, indent: bool, mut mode: u16) {
+        if let Some(f) = self.filter.clone() {
+            match f(&s, mode) {
+                Filtered::Keep => {}
+                Filtered::Block => return,
+                Filtered::Replace(t, m) => {
+                    if m != mode
+                        && let Some(c) = &self.mode_colours
+                    {
+                        colour = c[(m & 0xff) as usize];
+                    }
+                    (s, mode) = (t, m);
+                }
+            }
+        }
         log::debug!(target: "chat", "{}", crate::dat::font::strip_codes(&s));
         // Players' lines are never folded; system and battle lines are, when the last one is the same.
         if self.fold

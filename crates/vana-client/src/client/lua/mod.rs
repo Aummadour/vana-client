@@ -30,6 +30,8 @@ pub struct Host {
     last_frame: Option<std::time::Instant>,
     /// Last frame's state, for the derived change events.
     prev: Option<Snap>,
+    /// The chat filter must be rebuilt (a mod loaded, unloaded or changed its filters).
+    filters_dirty: bool,
 }
 
 /// What the derived events watch (Windower's change events).
@@ -214,12 +216,14 @@ impl Host {
             vm.emit("load", ());
         });
         self.vms.push(vm);
+        self.filters_dirty = true;
         Ok(())
     }
 
     /// Sends `unload`, saves its storage and drops the VM.
     fn unload(&mut self, w: &World, k: usize) {
         let vm = self.vms.remove(k);
+        self.filters_dirty = true;
         lend(&vm, w, |vm| vm.emit("unload", ()));
         save(&vm, w);
         log::info!("lua mod {} unloaded", vm.manifest.id);
@@ -444,6 +448,11 @@ pub(super) fn frame(w: &mut World) {
             save(vm, w);
         }
     }
+    let dirty = std::mem::take(&mut host.filters_dirty) | host.vms.iter().fold(false, |d, v| d | std::mem::take(&mut v.st.borrow_mut().filters_dirty));
+    if dirty {
+        w.chat.filter = host.chat_filter();
+        w.chat.mode_colours = w.battle.as_ref().map(|b| std::rc::Rc::new(b.code_tables(&w.game).1));
+    }
     w.lua = host;
     for (line, colour) in out {
         w.chat.push_colour(line, colour);
@@ -517,4 +526,86 @@ pub(super) fn action_json(a: &crate::net::action::Action) -> serde_json::Value {
         })
         .collect();
     json!({"actor": a.actor, "category": a.category, "param": a.arg, "info": a.info, "targets": targets})
+}
+
+impl Host {
+    /// The chat filter over every running mod's `filters.chat` functions, in load order; none when there are none.
+    fn chat_filter(&self) -> Option<std::rc::Rc<dyn Fn(&str, u16) -> super::combat::Filtered>> {
+        type Entry = (String, mlua::Lua, mlua::Function, std::rc::Rc<std::cell::RefCell<vm::ModState>>);
+        let mut list: Vec<Entry> = Vec::new();
+        for vm in self.vms.iter().filter(|v| v.suspended.is_none()) {
+            for (_, k) in &vm.st.borrow().chat_filters {
+                if let Ok(f) = vm.lua.registry_value::<mlua::Function>(k) {
+                    list.push((vm.manifest.name.clone(), vm.lua.clone(), f, vm.st.clone()));
+                }
+            }
+        }
+        if list.is_empty() {
+            return None;
+        }
+        Some(std::rc::Rc::new(move |text: &str, mode: u16| {
+            use super::combat::{Filtered, NO_MODE, is_battle};
+            let (mut text, mut mode, mut changed) = (text.to_string(), mode, false);
+            for (name, lua, f, st) in &list {
+                let game_mode = (mode != NO_MODE && mode != super::combat::BATTLE_MODE).then_some(mode as u8);
+                st.borrow_mut().deadline = Some(std::time::Instant::now() + vm::FILTER_CAP);
+                let r = f.call::<mlua::MultiValue>((text.as_str(), game_mode, is_battle(mode)));
+                st.borrow_mut().deadline = None;
+                let _ = lua;
+                match r {
+                    Err(e) => {
+                        log::warn!("lua mod {name}: chat filter: {e}");
+                        st.borrow_mut().record(name, &e);
+                    }
+                    Ok(v) => match v.front() {
+                        Some(mlua::Value::Boolean(false)) => return Filtered::Block,
+                        Some(mlua::Value::String(t)) => {
+                            text = t.to_string_lossy();
+                            if let Some(m) = v.get(1).and_then(|m| m.as_integer()) {
+                                mode = if is_battle(mode) { super::combat::BATTLE | (m as u16 & 0xff) } else { m as u16 & 0xff };
+                            }
+                            changed = true;
+                        }
+                        _ => {}
+                    },
+                }
+            }
+            if changed { Filtered::Replace(text, mode) } else { Filtered::Keep }
+        }))
+    }
+}
+
+/// The mods' typed-line filters (docs/lua-mods.md 4.3), before our command parser: the line as they left it, or none
+/// when one blocked it.
+pub(super) fn filter_typed(w: &mut World, line: &str) -> Option<String> {
+    if w.lua.vms.iter().all(|v| v.st.borrow().typed_filters.is_empty()) {
+        return Some(line.to_string());
+    }
+    let host = std::mem::take(&mut w.lua);
+    let mut line = line.to_string();
+    let mut blocked = false;
+    for vm in host.vms.iter().filter(|v| v.suspended.is_none()) {
+        let funcs: Vec<mlua::Function> = vm.st.borrow().typed_filters.iter().filter_map(|(_, k)| vm.lua.registry_value(k).ok()).collect();
+        lend(vm, w, |vm| {
+            for f in funcs {
+                if blocked {
+                    return;
+                }
+                vm.st.borrow_mut().deadline = Some(std::time::Instant::now() + vm::FILTER_CAP);
+                let r = f.call::<mlua::Value>(line.as_str());
+                vm.st.borrow_mut().deadline = None;
+                match r {
+                    Err(e) => vm.error(&e),
+                    Ok(mlua::Value::Boolean(false)) => blocked = true,
+                    Ok(mlua::Value::String(t)) => line = t.to_string_lossy(),
+                    Ok(_) => {}
+                }
+            }
+        });
+        if blocked {
+            break;
+        }
+    }
+    w.lua = host;
+    (!blocked).then_some(line)
 }

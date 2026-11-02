@@ -604,6 +604,12 @@ pub fn run(w: &mut World, line: &str, mode: Mode) {
         w.lua.type_line(line);
         return;
     }
+    // The mods' typed-line filters may rewrite or block it (once: not again when a sub-target prompt completes it).
+    let Some(filtered) = (if mode == Mode::SubTarget { Some(line.to_string()) } else { super::lua::filter_typed(w, line) }) else { return };
+    let line = filtered.trim();
+    if line.is_empty() {
+        return;
+    }
     // A line without a command goes to the chat mode (/chatmode).
     let line = if line.starts_with('/') { line.to_string() } else { format!("{}{line}", w.chat_prefix) };
     let first = line.split([' ', '\t']).next().unwrap_or("");
