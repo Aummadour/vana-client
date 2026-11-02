@@ -6232,8 +6232,11 @@ struct World {
     regime: regime::Tracker,
     /// The ship voyage (kept across zone changes, as retail's globals).
     voyage: voyage::Voyage,
-    /// "menu    casttime" (FUN_1012c1d0): total and remaining ticks of our cast.
+    /// "menu    casttime" (FUN_1012c1d0): total and remaining ticks of our cast, and the spell (0 an event's bar).
     cast_bar: Option<(f32, f32)>,
+    cast_spell: u16,
+    /// Our pet's vitals and target (s2c 0x068 type 4).
+    pet_sync: Option<net::PetSync>,
     /// The cast bar was opened by an event (op 0xb4 7, mode 4): it shows the time left (FUN_1012bfe0).
     cast_event: bool,
     /// "menu    eventtim" (FUN_1012c500, op 0xb4 0xa): total and remaining ticks.
@@ -7986,6 +7989,8 @@ impl App {
                             voyage: Default::default(),
                             recasts_seen: false,
                             cast_bar: None,
+                            cast_spell: 0,
+                            pet_sync: None,
                             cast_event: false,
                             event_timer: None,
                             objective: Default::default(),
@@ -9088,7 +9093,7 @@ impl App {
                 NetEvent::ItemMax(s, s2) => (world.inv.sizes, world.inv.sizes2) = (s, s2),
                 NetEvent::Mounts(bits) => world.mount_bits = Some(bits),
                 NetEvent::EmoteUnlocks { jobs, chairs } => (world.emote_jobs, world.emote_chairs) = (jobs, chairs),
-                NetEvent::PetTp(tp) => world.timers.pet_tp = tp,
+                NetEvent::PetSync(p) => (world.timers.pet_tp, world.pet_sync) = (p.map(|p| p.tp), p),
                 NetEvent::MountRecast(s) => world.mount_recast = (s > 0).then(|| Instant::now() + std::time::Duration::from_secs(s as u64)),
                 // LAB_1009b6xx: the entity at ActIndex `index` with server id `id` takes its master.
                 NetEvent::EntityMaster { index, id, master } => {

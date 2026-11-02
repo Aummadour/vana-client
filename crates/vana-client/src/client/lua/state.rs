@@ -228,6 +228,23 @@ pub(super) fn install(lua: &Lua, game: &Table) -> mlua::Result<()> {
         })?,
     )?;
     game.set(
+        "cast",
+        lua.create_function(|lua, ()| {
+            let w = world(lua)?;
+            let Some((total, left)) = w.cast_bar else { return Ok(None) };
+            let t = lua.create_table()?;
+            if w.cast_spell != 0 {
+                t.set("spell", w.cast_spell)?;
+            }
+            // The bar's ticks are 60 a second.
+            t.set("total", total / 60.0)?;
+            t.set("left", left / 60.0)?;
+            t.set("progress", if total > 0.0 { 1.0 - left / total } else { 1.0 })?;
+            t.set("event", w.cast_event)?;
+            Ok(Some(t))
+        })?,
+    )?;
+    game.set(
         "info",
         lua.create_function(|lua, ()| {
             let w = world(lua)?;

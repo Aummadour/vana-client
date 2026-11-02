@@ -962,6 +962,18 @@ pub(super) fn entity(lua: &Lua, w: &World, id: u32, e: &super::super::Entity) ->
     let slot = w.party.slots().slots.iter().position(|m| m.as_ref().is_some_and(|m| m.id == id));
     t.set("in_party", slot.is_some_and(|k| k < 6))?;
     t.set("in_alliance", slot.is_some())?;
+    // Its target: the face target (0x00D / 0x00E facetarget), and that entity's server id when known.
+    if e.face != 0 {
+        t.set("target_index", e.face)?;
+        let tid = if e.face == w.my_index { Some(w.my_id) } else { w.entities.iter().find(|(_, x)| x.index == e.face).map(|(k, _)| *k) };
+        t.set("target_id", tid)?;
+    }
+    // Our pet: its MP% and TP (s2c 0x068).
+    if let Some(p) = w.pet_sync.filter(|p| p.index == e.index) {
+        t.set("mpp", p.mpp)?;
+        t.set("tp", p.tp)?;
+        t.set("pet", true)?;
+    }
     Ok(t)
 }
 
@@ -995,6 +1007,9 @@ pub(super) fn self_entity(lua: &Lua, w: &World) -> mlua::Result<Table> {
     t.set("in_alliance", true)?;
     t.set("race", w.my_race)?;
     t.set("me", true)?;
+    if let Some((tid, e)) = w.target.and_then(|id| w.entities.get(&id).map(|e| (id, e))) {
+        (t.set("target_index", e.index)?, t.set("target_id", tid)?);
+    }
     Ok(t)
 }
 

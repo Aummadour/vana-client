@@ -4518,6 +4518,9 @@ From the targeting spec (scratchpad target_spec/SPEC.md; current-build addresses
 From the targeting spec section 3 (FUN_100d5b10, FUN_1002a140, FUN_1002ac60, FUN_1002b140).
 - Who: the local player looks at its target; every other actor at its face target, 0x00E / 0x00D
   (u32 @0x18 >> 17) & 0x7fff with the position (actor +0x1f8; LSB facetarget). No client-side "look at the player".
+  LSB sets facetarget (m_TargID) only for players (their c2s 0x015 target) and NPC look-ats (zone LookAt, event
+  look-ats): a monster's battle target never reaches it, so on LSB monsters send 0 (seen 2026-11-02, a Provoked
+  Snipper attacking us). Lua mods read it as an entity's target_index.
   Looker status 0, 5, 0x2f, 0x30, 0x55 or 0x3f..0x53 only; target type +0xee not 3 / 4 / 5 (ours: not a door); aim
   at the target's point 3, 1.2 higher (y - 1.2) when it is hidden. Event looks (ops 0x1e / 0x4a / 0x79) win.
 - Weight K+0xbc ramps 0.04 a frame (30 fps: 0.02 a tick, inf), fading with no target, a target at local x < -0.1 or

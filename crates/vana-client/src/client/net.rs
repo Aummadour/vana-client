@@ -323,6 +323,16 @@ pub struct ZoneText {
     pub flags: u8,
 }
 
+/// Our pet as s2c 0x068 type 4 gives it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PetSync {
+    pub index: u16,
+    pub hpp: u8,
+    pub mpp: u8,
+    pub tp: u16,
+    pub target: u32,
+}
+
 #[derive(Clone, Debug)]
 pub enum NetEvent {
     /// Ours (docs/lua-mods.md 3.3): while a mod hooks incoming packets, a received batch for the hooks, undecoded,
@@ -418,8 +428,9 @@ pub enum NetEvent {
     Mounts(u64),
     /// s2c 0x119 u32 @0xfc: the mount recast in seconds (one shared timer).
     MountRecast(u32),
-    /// s2c 0x068 type 4 (LSB CPetSyncPacket): our pet's TP (u16 @0x10), none without a pet.
-    PetTp(Option<u16>),
+    /// s2c 0x068 type 4 (LSB CPetSyncPacket): our pet (ActIndex u16 @0xc, HP% @0xe, MP% @0xf, TP u16 @0x10, its
+    /// target u32 @0x14 while attacking), none without a pet.
+    PetSync(Option<PetSync>),
     /// 0x01C: container sizes (ItemNum, 1 + size).
     ItemMax([u8; 18], [u16; 18]),
     /// 0x01E: count of a slot (0 = emptied).
@@ -1214,7 +1225,7 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
                     0x0DC => tx.send(NetEvent::Invite { anon: p.u8(0xa), kind: p.u8(0xb), name: text(&p, 0xc, 16), race: p.u16(0x1c) })?,
                     0x0AE => tx.send(NetEvent::Mounts(p.u32(4) as u64 | (p.u32(8) as u64) << 32))?,
                     0x119 if { let _ = tx.send(NetEvent::MountRecast(p.u32(0xfc))); false } => {}
-                    0x068 if p.u8(4) & 0x3f == 4 => tx.send(NetEvent::PetTp((p.u16(0xc) != 0).then(|| p.u16(0x10))))?,
+                    0x068 if p.u8(4) & 0x3f == 4 => tx.send(NetEvent::PetSync((p.u16(0xc) != 0).then(|| PetSync { index: p.u16(0xc), hpp: p.u8(0xe), mpp: p.u8(0xf), tp: p.u16(0x10), target: p.u32(0x14) })))?,
                     0x119 => tx.send(NetEvent::AbilityRecasts((0..31).map(|i| (p.u8(4 + 8 * i + 3) as u16, p.u16(4 + 8 * i), p.u8(4 + 8 * i + 2), p.u16(4 + 8 * i + 4) as i16)).collect()))?,
                     0x0AA => tx.send(NetEvent::MagicKnown((0..128).map(|i| p.u8(4 + i)).collect()))?,
                     0x0AC => tx.send(NetEvent::CommandsKnown((0..224).map(|i| p.u8(4 + i)).collect()))?,

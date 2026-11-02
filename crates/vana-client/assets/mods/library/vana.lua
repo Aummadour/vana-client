@@ -78,6 +78,11 @@
 ---@field look {face: integer, head: integer, body: integer, hands: integer, legs: integer, feet: integer, main: integer, sub: integer, range: integer}? a player-style look
 ---@field in_party boolean
 ---@field in_alliance boolean
+---@field target_index integer? what it targets (its face target; ours: our target)
+---@field target_id integer? that target's server id, when known
+---@field pet boolean? true for our pet, which also has:
+---@field mpp integer? our pet's MP %
+---@field tp integer? our pet's TP
 
 ---@class vana.Member
 ---@field slot integer
@@ -763,6 +768,10 @@ function game.abilities() end
 --- The job setups of main and sub: job, raw (the server's bytes), and for BLU blue_spells (ids), for PUP head, frame and attachments (item ids).
 ---@return {main: table?, sub: table?}
 function game.job_data() end
+
+--- Our cast bar while it shows: {spell (none for an event's bar), total and left (seconds), progress 0..1, event}.
+---@return table?
+function game.cast() end
 
 --- The session: zone, server, mog_house, chat_open, menu_open, event, in_combat, locked (target lock), autorun, follow (server id), pet_index, map_grid (as <pos>), modern_ui.
 ---@return table
