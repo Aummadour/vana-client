@@ -1692,6 +1692,8 @@ fn name_plates(gu: &mut GameUi, world: &World, sw: f32, sh: f32, view_proj: glam
     };
     let mut hidden = event::hidden(world);
     hidden.extend(event::nameless(world));
+    let looks = world.lua.looks();
+    hidden.extend(looks.iter().filter(|(_, l)| l.hidden).map(|(id, _)| *id));
     // Retail draws plates into the scene target before the op 0x0f multiply (FUN_10010d20, MODLOG "Name plates under
     // the screen fade"); ours scale their colour by it, which is the same for an alpha-blended plate.
     let m = world.screen.multiply().map(|c| c * (1.0 - world.fade));
@@ -1722,13 +1724,15 @@ fn name_plates(gu: &mut GameUi, world: &World, sw: f32, sh: f32, view_proj: glam
             };
             // Pre-transformed quads at the projected depth (FUN_10080100): walls in front hide them.
             gu.depth(Some(z));
-            let tint = name_colour(*id, e, world, |i| gu.ncol(i));
+            let look = looks.get(id);
+            let tint = look.and_then(|l| l.plate_tint()).unwrap_or_else(|| name_colour(*id, e, world, |i| gu.ncol(i)));
+            let name = look.and_then(|l| l.name.as_deref()).unwrap_or_else(|| monstrosity::name(e));
             let p = entity_plate(*id, e);
             let (prefix, icon) = plate::prefix(&p);
             if world.modern {
-                modern::plates::draw(gu, &prefix, monstrosity::name(e), x, y, scale, faded(tint), pulse, faded(icon), plate::stars(&p), m);
+                modern::plates::draw(gu, &prefix, name, x, y, scale, faded(tint), pulse, faded(icon), plate::stars(&p), m);
             } else {
-                gu.name_plate(&prefix, monstrosity::name(e), x, y, scale, faded(tint), pulse, faded(icon), plate::stars(&p));
+                gu.name_plate(&prefix, name, x, y, scale, faded(tint), pulse, faded(icon), plate::stars(&p));
             }
         }
     }
@@ -1749,13 +1753,15 @@ fn name_plates(gu: &mut GameUi, world: &World, sw: f32, sh: f32, view_proj: glam
             _ if mk.anon => 3,
             _ => 0,
         };
-        let tint = faded(gu.ncol(ncol));
+        let look = looks.get(&world.my_id);
+        let tint = faded(look.and_then(|l| l.plate_tint()).unwrap_or_else(|| gu.ncol(ncol)));
+        let name = look.and_then(|l| l.name.as_deref()).unwrap_or_else(|| monstrosity::my_name(world));
         let p = self_plate(world);
         let (prefix, icon) = plate::prefix(&p);
         if world.modern {
-            modern::plates::draw(gu, &prefix, monstrosity::my_name(world), x, y, scale, tint, 1.0, faded(icon), plate::stars(&p), m);
+            modern::plates::draw(gu, &prefix, name, x, y, scale, tint, 1.0, faded(icon), plate::stars(&p), m);
         } else {
-            gu.name_plate(&prefix, monstrosity::my_name(world), x, y, scale, tint, 1.0, faded(icon), plate::stars(&p));
+            gu.name_plate(&prefix, name, x, y, scale, tint, 1.0, faded(icon), plate::stars(&p));
         }
     }
     gu.depth(None);
@@ -12880,6 +12886,8 @@ impl App {
             doors::moves(w, &gfx.gpu);
             lifts::moves(w, &gfx.gpu);
             let invis: HashMap<u32, f32> = w.actors.keys().filter_map(|id| invisible_alpha(w, *id).map(|k| (*id, k))).collect();
+            // Looks Lua mods set (render.entity).
+            let looks = w.lua.looks();
             // Mog House furniture loaded for this scene goes up.
             if w.renderer.is_some()
                 && let Some(l) = w.furniture.ready.take()
@@ -13288,7 +13296,7 @@ impl App {
                     }
                     a.find_cache = cache.take();
                     let t = a.blend / a.blend_len;
-                    a.scale = a.event_scale.unwrap_or_else(|| ch.scale(size));
+                    a.scale = a.event_scale.unwrap_or_else(|| ch.scale(size)) * looks.get(id).and_then(|l| l.scale).unwrap_or(1.0);
                     // The rest pose's mesh top, once (stub models, plates without attach points).
                     if a.top_key.is_empty() {
                         a.rest = crate::dat::character::pose(&ch.skeleton, &[]);
@@ -13392,7 +13400,7 @@ impl App {
                         drop: if matches!(status, 5 | 0x55) { 1.0 / a.scale.max(1e-3) } else { 0.0 },
                         limits: ch.skeleton.look_limits,
                     });
-                    let drawn = !a.vanished() && !hidden.contains(id) && !(*id == w.my_id && w.camst.self_alpha <= 0.0);
+                    let drawn = !a.vanished() && !hidden.contains(id) && !(*id == w.my_id && w.camst.self_alpha <= 0.0) && !looks.get(id).is_some_and(|l| l.hidden);
                     let bx = ch.skeleton.boxes.get(box_index(status)).or(ch.skeleton.boxes.first()).copied();
                     // FUN_100c63d0: past the draw distance by its box's farthest corner, neither drawn nor a target.
                     if r.clip[0] > 0.0 && *id != w.my_id && bx.is_some_and(|b| box_depth(cview, model, &box_corners(b)) > r.clip[0]) {
@@ -13426,6 +13434,11 @@ impl App {
                         g.alpha = g.alpha.min(*k);
                     }
                     g.tint = a.rgb.map(|c| c.max(0.0) / actmotion::OPAQUE);
+                    if let Some(l) = looks.get(id) {
+                        g.alpha = g.alpha.min(l.alpha.unwrap_or(1.0));
+                        let t = l.tint.unwrap_or([1.0; 3]);
+                        g.tint = [g.tint[0] * t[0], g.tint[1] * t[1], g.tint[2] * t[2]];
+                    }
                     g.hidden_weps = wepfx::mask(&a.wep_hide);
                     g.shine = shines.get(id).copied();
                     // FUN_100d6d30: TFACTOR alpha (0x80 - model colour alpha) & 0xff; an opaque model adds nothing.

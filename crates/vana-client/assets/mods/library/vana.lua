@@ -186,6 +186,7 @@ filters = {}
 ui = {}
 hud = {}
 ui.native = {}
+render = {}
 packets = {}
 chat = {}
 input = {}
@@ -391,6 +392,22 @@ function ui.native.config(id) end
 ---@param id integer 
 ---@param value integer 
 function ui.native.set_config(id, value) end
+
+--- How an entity draws while the mod is loaded: {hidden (model and plate), name (its plate's), name_colour {r, g, b, a}, alpha (0..1, at most its own), tint {r, g, b} multipliers, scale}. nil clears the mod's look for it; the newest mod's look wins.
+---@param id integer server id (ourselves too)
+---@param look table? 
+function render.entity(id, look) end
+
+--- Clears every look the mod set.
+function render.clear() end
+
+--- The camera's distance (the zoom's scale, 0.5..3).
+---@return number
+function render.camera_distance() end
+
+--- Sets the camera's distance, as the wheel does (not in first person).
+---@param scale number 0.5..3
+function render.set_camera_distance(scale) end
 
 --- Hooks received packets (one id, or every one when nil) before the client reads them. The handler gets {id, data, original, injected, blocked, outgoing} (data and original are the whole sub-packet, header included) and returns nil to leave it, false to block it, or new bytes. Hooks chain across mods: a blocked packet still reaches later ones. Needs packets.read; changing or blocking needs packets.write.
 ---@param id integer? packet id

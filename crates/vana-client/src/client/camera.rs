@@ -64,6 +64,20 @@ pub struct State {
 }
 
 
+/// A distance set from outside (a Lua mod): the zoom's scale, clamped as the wheel's.
+pub fn set_distance(w: &mut World, to: f32) {
+    if w.camst.first {
+        return;
+    }
+    let k = scale(&w.camst);
+    let to = to.clamp(DIST.0, DIST.1);
+    for c in [&mut w.cam, &mut w.camst.prev] {
+        c.eye = c.look + (c.eye - c.look) * (to / k);
+    }
+    w.camst.dist = to;
+    w.cam_dist_dirty = true;
+}
+
 /// First person: the mouse turns the look (radians; pitch kept within 80 degrees).
 pub fn first_look(w: &mut World, dyaw: f32, dpitch: f32) {
     let st = &mut w.camst;

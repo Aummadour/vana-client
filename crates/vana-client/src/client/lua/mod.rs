@@ -9,6 +9,7 @@ mod hud;
 pub(super) mod input;
 mod manifest;
 mod native;
+pub(super) mod render;
 mod runtime;
 mod state;
 mod vm;
@@ -35,6 +36,8 @@ pub(super) enum Op {
     Interface(bool),
     /// A game config value set, as the Config window does.
     Config(u16, u32),
+    /// The camera's distance (the zoom's scale).
+    CameraDistance(f32),
 }
 
 /// The mods of this session.
@@ -360,9 +363,12 @@ impl Host {
     fn unload(&mut self, w: &World, k: usize) {
         let vm = self.vms.remove(k);
         self.dir.borrow_mut().mods.retain(|m| m.id != vm.manifest.id);
-        for mods in self.info.borrow_mut().hidden.values_mut() {
+        let mut info = self.info.borrow_mut();
+        for mods in info.hidden.values_mut() {
             mods.remove(&vm.manifest.id);
         }
+        info.looks.retain(|_, l| l.0 != vm.manifest.id);
+        drop(info);
         self.filters_dirty = true;
         lend(&vm, w, |vm| vm.emit("unload", ()));
         save(&vm, w);
@@ -806,6 +812,7 @@ fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
         Op::Key(k) => w.lua.synth.push(k),
         Op::Copy(text) => w.copied = Some(text),
         Op::Interface(show) => w.ui_hidden = !show,
+        Op::CameraDistance(k) => super::camera::set_distance(w, k),
         Op::Config(id, v) => {
             if w.game.set(id, v) {
                 super::cfgapply::apply(w, id);
@@ -834,6 +841,11 @@ impl Host {
     /// Whether a mod hid a native HUD piece (ui.native.hide).
     pub(in crate::client) fn hides(&self, piece: &str) -> bool {
         self.info.borrow().hidden.get(piece).is_some_and(|m| !m.is_empty())
+    }
+
+    /// The entity looks mods set (render.entity), by server id.
+    pub(in crate::client) fn looks(&self) -> std::collections::HashMap<u32, render::Look> {
+        self.info.borrow().looks.iter().map(|(id, l)| (*id, l.1.clone())).collect()
     }
 
     /// The modern panels of the hidden pieces.

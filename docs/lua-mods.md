@@ -54,6 +54,9 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   interface hidden or shown; HUD pieces hidden in both UIs while the mod runs (party, target, buffs, compass /
   location, minimap, cast bar, name plates; undone when it unloads); game config values read and set through the
   Config window's apply (`ui.native` for changes); `actions.advance` moves event text on. Checked live in both UIs.
+- **Render** (`render`): per entity, while the mod runs (the newest mod's wins): hidden (model and plate), plate name and
+  colour, alpha, tint, size; the camera's distance read and set. Checked live (a renamed, tinted, doubled NPC, a hidden
+  one, ourselves translucent, the camera pulled back).
 - **Permissions:** each one a mod asks for is a row on its Extras page (ON / OFF, with what it allows on the help
   line), or `/lua grant` / `revoke`; kept in mod-data/grants.json. A mod loaded without them says where to allow them.
 - **Packets** (`packets.read` / `packets.write`):
@@ -97,7 +100,7 @@ Built (client/lua/, modern/modwin.rs), each checked live:
 - **Mods folder:** `mods/<id>/` (enabled through config `mods`); a test run uses `mods` beside its FFXI_CONFIG copy.
 
 Next (docs/lua-mods.md 6): packet layouts and decoded views, batch order (the rest of
-phase 4); the rest of phase 5 (trade, shops, BLU / PUP sets as actions; native window drive and list rows; `render`); the other Extras as
+phase 4); the rest of phase 5 (trade, shops, BLU / PUP sets as actions; native window drive and list rows; engine settings such as draw distance and frame limit); the other Extras as
 bundled mods; then world-space drawing, audio, ipc / net, and the coverage table.
 
 ## 1. The bar

@@ -407,6 +407,7 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     super::input::install(lua, &g)?;
     super::runtime::install(lua, &g, vm)?;
     super::hud::install(lua, &g)?;
+    super::render::install(lua, &g, &m.id)?;
     let start = Instant::now();
     g.set("clock", lua.create_function(move |_, ()| Ok(start.elapsed().as_secs_f64()))?)?;
 
