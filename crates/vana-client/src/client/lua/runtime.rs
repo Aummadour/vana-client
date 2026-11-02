@@ -220,7 +220,7 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
         "decode",
         lua.create_function(|lua, text: mlua::LuaString| {
             let j: serde_json::Value = serde_json::from_slice(&text.as_bytes()).map_err(|e| mlua::Error::runtime(format!("json.decode: {e}")))?;
-            lua.to_value(&j)
+            super::api::to_lua(lua, &j)
         })?,
     )?;
     g.set("json", json)?;
@@ -339,7 +339,7 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
         "option",
         lua.create_function(|lua, name: String| {
             let v = super::option(world(lua)?, &name).ok_or_else(|| mlua::Error::runtime(format!("no option {name:?} ({})", super::OPTIONS.join(", "))))?;
-            lua.to_value(&v)
+            super::api::to_lua(lua, &v)
         })?,
     )?;
     let me = vm.manifest.id.clone();
@@ -479,7 +479,7 @@ fn call(lua: &Lua, id: &str, name: &str, args: mlua::Variadic<Value>) -> mlua::R
         tl.registry_value(&p.1)?
     };
     let vals = args.into_iter().map(|v| lua.from_value::<serde_json::Value>(v)).collect::<mlua::Result<Vec<_>>>()?;
-    let targs = vals.iter().map(|j| tl.to_value(j)).collect::<mlua::Result<Vec<_>>>()?;
+    let targs = vals.iter().map(|j| super::api::to_lua(&tl, j)).collect::<mlua::Result<Vec<_>>>()?;
     // The callee reads the world the caller was lent, under its own budget.
     let lent = tl.app_data_ref::<super::api::WorldRef>().is_some();
     if !lent && let Some(p) = lua.app_data_ref::<super::api::WorldRef>().map(|r| r.0) {
@@ -493,7 +493,7 @@ fn call(lua: &Lua, id: &str, name: &str, args: mlua::Variadic<Value>) -> mlua::R
     }
     let out = r.map_err(|e| mlua::Error::runtime(format!("mods.call {id}.{name}: {e}")))?;
     let back = out.into_iter().map(|v| tl.from_value::<serde_json::Value>(v)).collect::<mlua::Result<Vec<_>>>()?;
-    Ok(MultiValue::from_vec(back.iter().map(|j| lua.to_value(j)).collect::<mlua::Result<Vec<_>>>()?))
+    Ok(MultiValue::from_vec(back.iter().map(|j| super::api::to_lua(lua, j)).collect::<mlua::Result<Vec<_>>>()?))
 }
 
 #[cfg(test)]

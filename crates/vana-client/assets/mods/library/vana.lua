@@ -3,8 +3,9 @@
 
 ---@alias vana.Event
 ---| "load" # The mod's entry file has run.
----| "unload" # The mod is about to be unloaded (logout, /lua unload or reload).
+---| "unload" # The mod is about to be unloaded (logout, /lua unload or reload; a lobby mod as the client closes).
 ---| "login" # The character is in the world, once per session.
+---| "lobby_screen" # The lobby's screen changed (see lobby.state; world once in the world). Lobby mods get it from the start.
 ---| "logout" # The character is leaving the world.
 ---| "zone_change" # A new zone has loaded.
 ---| "settings_changed" # The user changed one of the mod's settings (its Extras page, or /lua set).
@@ -216,6 +217,7 @@ json = {}
 mods = {}
 text = {}
 client = {}
+lobby = {}
 settings = {}
 
 --- Writes its arguments to the chat log (dim) and vana-client.log.
@@ -1310,6 +1312,28 @@ function client.run(program, args, handler) end
 --- Writes storage.account and storage.character now (they are also written at logout and unload).
 function storage.save() end
 
+--- Seals text (a password) with this machine's key, for storage: only this mod on this machine can open it.
+---@param text string 
+---@return string
+function storage.seal(text) end
+
+--- Opens text storage.seal made; nil when it does not open (another machine or mod, or damaged).
+---@param sealed string 
+---@return string?
+function storage.unseal(sealed) end
+
+--- The lobby before login (a mod with `lobby = true` in mod.toml runs there): screen (login, title, select, create, delete, config, connecting, world), server, account, playonline, busy (a fade, a reply awaited or an error up: actions wait), error, selected (a slot) and characters {slot, name, world, race, job, level, sub_job, zone, available}.
+---@return table
+function lobby.state() end
+
+--- Signs in from the login screen as its Log in button does: {account, password, otp?, server?}, and for a PlayOnline server pol_id and pol_password. Needs automation (or actions in the player's input).
+---@param login table 
+function lobby.sign_in(login) end
+
+--- Logs in with a character from the title or select screen, as the select screen's Play does: its name or its slot. Needs automation (or actions in the player's input).
+---@param character string|integer 
+function lobby.play(character) end
+
 --- A setting declared in mod.toml: the user's value, else its default.
 ---@param key string 
 ---@return any
@@ -1317,8 +1341,9 @@ function settings.get(key) end
 
 -- Events (events.on):
 --   load(): The mod's entry file has run.
---   unload(): The mod is about to be unloaded (logout, /lua unload or reload).
+--   unload(): The mod is about to be unloaded (logout, /lua unload or reload; a lobby mod as the client closes).
 --   login(name: string): The character is in the world, once per session.
+--   lobby_screen(screen: string, previous: string?): The lobby's screen changed (see lobby.state; world once in the world). Lobby mods get it from the start.
 --   logout(): The character is leaving the world.
 --   zone_change(zone: integer, previous: integer?): A new zone has loaded.
 --   settings_changed(key: string, value: any): The user changed one of the mod's settings (its Extras page, or /lua set).

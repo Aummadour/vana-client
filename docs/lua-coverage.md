@@ -47,23 +47,23 @@ Settled for every row:
 
 | Set | Rows | Covered | Partly | Missing |
 | --- | --: | --: | --: | --: |
-| Windower official add-ons | 128 | 126 | 1 | 1 |
+| Windower official add-ons | 128 | 127 | 1 | 0 |
 | Windower plugins | 17 | 15 | 1 | 1 |
 | Windower deprecated plugins | 26 | 26 | 0 | 0 |
 | Windower features | 11 | 9 | 1 | 1 |
 | Windower community add-ons | 55 | 54 | 1 | 0 |
 | Windower community capabilities | 13 | 12 | 0 | 1 |
-| Ashita v4 official add-ons | 81 | 67 | 7 | 7 |
+| Ashita v4 official add-ons | 81 | 68 | 7 | 6 |
 | Ashita v3 official add-ons | 13 | 13 | 0 | 0 |
-| Ashita v4 plugins | 10 | 8 | 1 | 1 |
+| Ashita v4 plugins | 10 | 9 | 0 | 1 |
 | Ashita v3 plugins | 27 | 25 | 0 | 2 |
 | Ashita community plugins | 37 | 31 | 5 | 1 |
 | Ashita v4 community add-ons | 147 | 137 | 3 | 7 |
 | Ashita v3 community add-ons | 22 | 22 | 0 | 0 |
 | Ashita add-ons rated from descriptions | 28 | 27 | 0 | 1 |
-| Windower, all | 250 | 242 | 4 | 4 |
-| Ashita, all | 365 | 330 | 16 | 19 |
-| **Total** | **615** | **572** | **20** | **23** |
+| Windower, all | 250 | 243 | 4 | 3 |
+| Ashita, all | 365 | 332 | 15 | 18 |
+| **Total** | **615** | **575** | **19** | **21** |
 
 ## Open gaps
 
@@ -71,37 +71,35 @@ Ranked by the rows each one blocks (listed outside parentheses).
 
 1. **gamepad input (deferred)**, 6 rows: pad buttons and sticks as events and binds (deferred with gamepad support).
    Blocks Capability: gamepad input, cBind, Crossbar, tCrossBar, trigger, XIVCrossbar.
-2. **lobby-phase mods**, 3 rows: mods running before character login (manifest `lobby`, parsed but not used yet). Blocks
-   autoenterkey (Windower), autologin, extraslots.
-3. **native window list rows and cursor**, 3 rows: reading and driving a game window's list rows and cursor. Blocks
+2. **native window list rows and cursor**, 3 rows: reading and driving a game window's list rows and cursor. Blocks
    ahpro, PriceCheck, wiki.
-4. **action lock patches**, 2 rows: removing the job-ability and engage movement locks. Blocks ButterFeet, nolock.
-5. **IME text input**, 2 rows: Japanese IME composition in the chat line. Blocks ime (Ashita v4), IME (Windower plugin).
-6. **map unlock switch**, 2 rows: every map without its key item. Blocks allmaps, cartographer.
-7. **Mog House / AH anywhere rule**, 2 rows: opening the Mog House menu or the AH outside their places. Blocks ahgo,
+3. **action lock patches**, 2 rows: removing the job-ability and engage movement locks. Blocks ButterFeet, nolock.
+4. **IME text input**, 2 rows: Japanese IME composition in the chat line. Blocks ime (Ashita v4), IME (Windower plugin).
+5. **map unlock switch**, 2 rows: every map without its key item. Blocks allmaps, cartographer.
+6. **Mog House / AH anywhere rule**, 2 rows: opening the Mog House menu or the AH outside their places. Blocks ahgo,
    nomad.
-8. **native list options**, 2 rows: options for native lists (AH row colours, the spell list trimmed). Blocks ahcolors,
+7. **native list options**, 2 rows: options for native lists (AH row colours, the spell list trimmed). Blocks ahcolors,
    trimspells.
-9. **process control**, 2 rows: CPU affinity and similar process settings. Blocks Affinity (Ashita v3 plugin), affinity
+8. **process control**, 2 rows: CPU affinity and similar process settings. Blocks Affinity (Ashita v3 plugin), affinity
    (Ashita v4).
-10. **vendor input devices**, 2 rows: G-keys, Stream Deck and other HID devices directly. Blocks Binder, GBinder.
-11. **video capture**, 2 rows: recording the game window. Blocks DashCam, Video capture.
-12. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
-13. **commands-while-dead rule**, 1 row: commands allowed while dead. Blocks paranormal.
-14. **compass monster dots switch**, 1 row: enemy dots on the compass for every job. Blocks mapdot.
-15. **drag and drop**, 1 row: dragging between elements in `ui.window` (a canvas takes clicks only). Blocks boussole.
-16. **engine settings from Lua**, 1 row: wireframe from Lua. Blocks Render knobs.
-17. **entity occlusion switch**, 1 row: drawing entities the client culls or occludes. Blocks truesight.
-18. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
-19. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it).
+9. **vendor input devices**, 2 rows: G-keys, Stream Deck and other HID devices directly. Blocks Binder, GBinder.
+10. **video capture**, 2 rows: recording the game window. Blocks DashCam, Video capture.
+11. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
+12. **commands-while-dead rule**, 1 row: commands allowed while dead. Blocks paranormal.
+13. **compass monster dots switch**, 1 row: enemy dots on the compass for every job. Blocks mapdot.
+14. **drag and drop**, 1 row: dragging between elements in `ui.window` (a canvas takes clicks only). Blocks boussole.
+15. **engine settings from Lua**, 1 row: wireframe from Lua. Blocks Render knobs.
+16. **entity occlusion switch**, 1 row: drawing entities the client culls or occludes. Blocks truesight.
+17. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
+18. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it).
     Blocks fastswap.
-20. **network send timing**, 1 row: changing when the client sends its packets. Blocks PacketFlow.
-21. **open game menus by name**, 1 row: opening the magic, ability and other client menus by name. Blocks openmenus.
-22. **per-entity collision switch**, 1 row: walking through moving players. Blocks casper.
-23. **raw DAT reads**, 1 row: DAT file ids and bytes by model or file id. Blocks DatSeeker.
-24. **res names in Japanese**, 1 row: names in the Japanese tables. Blocks translate.
-25. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
-26. **zone collision mesh**, 1 row: the zone's collision mesh. Blocks Novo.
+19. **network send timing**, 1 row: changing when the client sends its packets. Blocks PacketFlow.
+20. **open game menus by name**, 1 row: opening the magic, ability and other client menus by name. Blocks openmenus.
+21. **per-entity collision switch**, 1 row: walking through moving players. Blocks casper.
+22. **raw DAT reads**, 1 row: DAT file ids and bytes by model or file id. Blocks DatSeeker.
+23. **res names in Japanese**, 1 row: names in the Japanese tables. Blocks translate.
+24. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
+25. **zone collision mesh**, 1 row: the zone's collision mesh. Blocks Novo.
 
 Most wanted non-blocking gaps (rows that list them in parentheses):
 
@@ -148,7 +146,7 @@ Most wanted non-blocking gaps (rows that list them in parentheses):
 | AnnounceTarget | Tells the party about listed mobs when targeted | `target_change`; game.target / entity; commands.run('/p ...'); settings; commands.register | covered | - |
 | answeringmachine | Records tells for later recall | `chat_message` (kind 3); filters.typed (sent tells); input.on_key / on_mouse (idle); hud.text; storage | covered | - |
 | autocontrol | PUP attachment sets, burden tracker | actions.attach / detach; game.job_data; `action`; `buff_gain` / `buff_lose`; game.recasts; res.item / ability; hud.text; timers.add | covered | - |
-| autoenterkey | Presses Enter at start to clear the login warning, then unloads | input.press; commands.run('/lua unload') | missing | lobby-phase mods |
+| autoenterkey | Presses Enter at start to clear the login warning, then unloads | mod.toml `lobby`; `lobby_screen`; input.press | covered | - |
 | autoex | Runs commands on game events, rules in XML | events.on (vitals, buffs, time, day, moon, weather, zone, job, level, chat); `battle_message` (exp); game.equipment (no ammo); commands.run; load; fs; `emote` / `party_invite` / `examined`; res.weather / weather_element / element | covered | - |
 | autoinvite | Invites players who send a keyword tell | `chat_message`; actions.invite; game.party | covered | - |
 | autojoin | Accepts or declines party invites by list | packets.on_in(0x0DC); actions.join / decline; settings; `emote` / `party_invite` / `examined` | covered | (packet layouts: 0x0DC) |
@@ -435,7 +433,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | allmaps | Every map in /map without the key items | packets.on_in(0x055) can fake the map key items (they then show in Key Items too) | partly | map unlock switch |
 | aspect | 3D aspect matches the window | native: the projection keeps the window's aspect | covered | - |
 | autojoin | Answers party invites automatically | packets.on_in(0x0DC); actions.join / decline | covered | (packet layouts) |
-| autologin | Logs into a chosen character slot | none: mods start at character login | missing | lobby-phase mods |
+| autologin | Logs into a chosen character slot | mod.toml `lobby`; lobby.state / sign_in / play; `lobby_screen`; storage.seal / unseal | covered | - |
 | autorespond | AFK auto-reply to tells | event `chat_message` (kind 3); commands.run | covered | - |
 | blucheck | Learned BLU spells in a tabbed window | game.spells; res.spell; ui.window (list / buttons, tabs); net.open_url | covered | - |
 | blumon | Announces newly learned BLU spells | event `battle_message`; res.spell; chat.add | covered | - |
@@ -532,7 +530,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | Add-on | What it does | API used | Status | Missing |
 | --- | --- | --- | --- | --- |
 | addons | Hosts Lua add-ons | the mod runtime (a VM per mod) | covered | - |
-| extraslots | More stored accounts at sign-in | native login remembers one account | partly | lobby-phase mods |
+| extraslots | More stored accounts at sign-in | native: the login form keeps every account used in its account list, passwords sealed | covered | - |
 | hardwaremouse | Forces a hardware cursor | not needed natively | covered | - |
 | minimap | Themed minimap overlay | native Minimap extra; ui.native.hide('minimap'); hud.image; game.map / map_pos; hud.map | covered | - |
 | quicky | Faster launcher sign-in | not needed: the client's login screen | covered | - |

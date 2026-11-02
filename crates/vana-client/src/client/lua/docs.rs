@@ -256,13 +256,19 @@ pub const FUNCS: &[Func] = &[
     Func { ns: "client", name: "screenshot", doc: "Saves a screenshot of the next frame as drawn, under the game's screenshots folder (subfolders allowed; .png added); returns the name used.", params: &[("name?", "string", "")], ret: "string" },
     Func { ns: "client", name: "run", doc: "Starts a program with its arguments (no shell). With a handler, it gets {status (exit code), body (stdout), headers = {stderr}} when the program ends, or {error}. Returns the process id. Needs exec.", params: &[("program", "string", ""), ("args?", "string[]", ""), ("handler?", "fun(result: table)", "")], ret: "integer" },
     Func { ns: "storage", name: "save", doc: "Writes storage.account and storage.character now (they are also written at logout and unload).", params: &[], ret: "" },
+    Func { ns: "storage", name: "seal", doc: "Seals text (a password) with this machine's key, for storage: only this mod on this machine can open it.", params: &[("text", "string", "")], ret: "string" },
+    Func { ns: "storage", name: "unseal", doc: "Opens text storage.seal made; nil when it does not open (another machine or mod, or damaged).", params: &[("sealed", "string", "")], ret: "string?" },
+    Func { ns: "lobby", name: "state", doc: "The lobby before login (a mod with `lobby = true` in mod.toml runs there): screen (login, title, select, create, delete, config, connecting, world), server, account, playonline, busy (a fade, a reply awaited or an error up: actions wait), error, selected (a slot) and characters {slot, name, world, race, job, level, sub_job, zone, available}.", params: &[], ret: "table" },
+    Func { ns: "lobby", name: "sign_in", doc: "Signs in from the login screen as its Log in button does: {account, password, otp?, server?}, and for a PlayOnline server pol_id and pol_password. Needs automation (or actions in the player's input).", params: &[("login", "table", "")], ret: "" },
+    Func { ns: "lobby", name: "play", doc: "Logs in with a character from the title or select screen, as the select screen's Play does: its name or its slot. Needs automation (or actions in the player's input).", params: &[("character", "string|integer", "")], ret: "" },
     Func { ns: "settings", name: "get", doc: "A setting declared in mod.toml: the user's value, else its default.", params: &[("key", "string", "")], ret: "any" },
 ];
 
 pub const EVENTS: &[Event] = &[
     Event { name: "load", doc: "The mod's entry file has run.", args: &[] },
-    Event { name: "unload", doc: "The mod is about to be unloaded (logout, /lua unload or reload).", args: &[] },
+    Event { name: "unload", doc: "The mod is about to be unloaded (logout, /lua unload or reload; a lobby mod as the client closes).", args: &[] },
     Event { name: "login", doc: "The character is in the world, once per session.", args: &[("name", "string")] },
+    Event { name: "lobby_screen", doc: "The lobby's screen changed (see lobby.state; world once in the world). Lobby mods get it from the start.", args: &[("screen", "string"), ("previous", "string?")] },
     Event { name: "logout", doc: "The character is leaving the world.", args: &[] },
     Event { name: "zone_change", doc: "A new zone has loaded.", args: &[("zone", "integer"), ("previous", "integer?")] },
     Event { name: "settings_changed", doc: "The user changed one of the mod's settings (its Extras page, or /lua set).", args: &[("key", "string"), ("value", "any")] },

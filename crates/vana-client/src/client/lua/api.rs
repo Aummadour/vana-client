@@ -14,7 +14,7 @@ pub(super) struct WorldRef(pub *const World);
 pub(super) fn world(lua: &Lua) -> mlua::Result<&World> {
     let p = lua.app_data_ref::<WorldRef>().map_or(std::ptr::null(), |r| r.0);
     if p.is_null() {
-        return Err(mlua::Error::runtime("game state is not available outside the mod phase"));
+        return Err(mlua::Error::runtime("game state is not available here (in the lobby, or outside the mod phase)"));
     }
     // The host sets the pointer from a live &World for the length of the call and clears it after.
     Ok(unsafe { &*p })
@@ -30,6 +30,11 @@ pub(super) fn gu(lua: &Lua) -> mlua::Result<&super::super::game_ui::GameUi> {
     }
     // The host sets the pointer from a live &GameUi for the mod phase and clears it after.
     Ok(unsafe { &*p })
+}
+
+/// A serde value (JSON) as Lua, null as nil.
+pub(super) fn to_lua(lua: &Lua, v: &(impl serde::Serialize + ?Sized)) -> mlua::Result<Value> {
+    lua.to_value_with(v, mlua::serde::SerializeOptions::new().serialize_none_to_null(false).serialize_unit_to_null(false))
 }
 
 pub(super) fn state(lua: &Lua) -> Rc<RefCell<ModState>> {
@@ -968,6 +973,7 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
         })?,
     )?;
     g.set("storage", st_table)?;
+    super::lobby::install(lua, &g, &m.id)?;
 
     // settings.get(key): the user's value, else the declared default.
     let decl = m.settings.clone();
@@ -976,10 +982,10 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
         "get",
         lua.create_function(move |lua, key: String| {
             if let Some(v) = state(lua).borrow().settings.get(&key) {
-                return lua.to_value(v);
+                return to_lua(lua, v);
             }
             match decl.get(&key).and_then(|s| s.default.as_ref()) {
-                Some(v) => lua.to_value(v),
+                Some(v) => to_lua(lua, v),
                 None => Err(mlua::Error::runtime(format!("no setting {key:?} in mod.toml"))),
             }
         })?,
@@ -989,9 +995,9 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
 }
 
 /// A stored JSON value as a Lua table (an empty table for nothing stored).
-fn json_table(lua: &Lua, v: &serde_json::Value) -> mlua::Result<Value> {
+pub(super) fn json_table(lua: &Lua, v: &serde_json::Value) -> mlua::Result<Value> {
     match v {
-        serde_json::Value::Object(o) if !o.is_empty() => lua.to_value(v),
+        serde_json::Value::Object(o) if !o.is_empty() => to_lua(lua, v),
         _ => Ok(Value::Table(lua.create_table()?)),
     }
 }

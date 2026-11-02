@@ -155,6 +155,12 @@ Built (client/lua/, modern/modwin.rs), each checked live:
     enabled, loaded), `mods.provide` / `mods.call` (a function in another mod's VM, values copied), `mods.emit` (an
     event to every other mod); `/lua hide` / `show` hides every mod's HUD, windows and world drawing at once
   - `text.from_shift_jis` / `to_shift_jis` / `plain` (auto-translate phrases as words); `client.copy`
+  - a JSON null reaches Lua as nil everywhere (event arguments, tables, `json.decode`, `mods.call`)
+- **Lobby mods** (`lobby = true` in mod.toml): `lobby.state` (the screen, the server and account, the character list),
+  the `lobby_screen` event, `lobby.sign_in` (as Log in) and `lobby.play` (as the select screen's Play), keys through
+  `input.press`, timers, sockets; `storage.seal` / `unseal` keep a password that only this mod on this machine can
+  open. Checked live: an autologin port signed in with its sealed password and played a character, stayed loaded
+  through the world and logout, and was unloaded as the client closed.
   - checked live: a call returning two values, an emitted table, files written, appended, listed and read back, the
     mod's own file read, `..` and `shared/` refused, JSON both ways, the os subset, Shift-JIS round trip
 - **Bundled mods:** `/dps` (the first Extra ported).
@@ -272,7 +278,10 @@ through the main thread, only while some mod hooks that direction (an atomic fla
   - Loading: `dependencies` (required / optional, with version ranges), `load_after`, `lobby` (the VM lives from
     process start instead of from login), `entry`.
   - `permissions`, `settings`, and localised strings.
-- **Lifetime:** the VM is created at character login and dropped at logout; per-character data loads with it.
+- **Lifetime:** the VM is created at character login and dropped at logout; per-character data loads with it. A
+  `lobby` mod is created on the login screen and lives until the client closes: it gets `logout` but stays loaded,
+  its `storage.character` and character settings load at each login, and in the lobby no world is lent (game state
+  errors; its prints go to vana-client.log).
 - **Hot reload:** per mod, keeping storage. `/lua reload <mod>`, plus a developer mode that watches the folder.
 - **Errors:**
   - Every call is guarded with a traceback.

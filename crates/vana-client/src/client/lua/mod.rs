@@ -8,6 +8,7 @@ pub(super) mod audio;
 mod docs;
 mod draw;
 mod ipc;
+pub(super) mod lobby;
 mod net;
 mod hud;
 pub(super) mod input;
@@ -61,6 +62,8 @@ pub(super) enum Op {
     /// A timer in the Timers window added or replaced (mod, name, seconds, section, group, icon kind and id, total,
     /// fills), or removed (seconds None), or all the mod's removed (name None).
     Timer { mod_id: String, name: Option<String>, secs: Option<f32>, section: usize, group: Option<String>, icon: Option<(String, u16)>, total: f32, fills: bool },
+    /// A lobby action (sign in, play a character), for the app before login.
+    Lobby(lobby::Act),
 }
 
 /// What a mod asked of the game window.
@@ -209,6 +212,19 @@ pub struct Host {
     info: std::rc::Rc<std::cell::RefCell<state::FrameInfo>>,
     /// HUD elements clicked since the last mod phase: (mod, element, button).
     hud_clicks: Vec<(String, String, &'static str)>,
+    /// The lobby mods are loaded; the screen they last saw (for `lobby_screen`); what the lobby shows.
+    lobby_started: bool,
+    lobby_screen: Option<&'static str>,
+    lobby: lobby::Shared,
+}
+
+impl Drop for Host {
+    /// The app closing: `unload` to the mods left (the lobby mods), their account storage saved.
+    fn drop(&mut self) {
+        while !self.vms.is_empty() {
+            self.unload(None, 0);
+        }
+    }
 }
 
 /// Mod folders watched for saved files (`/lua watch`): a thread polls their .lua / .toml files' times and names a mod
@@ -443,31 +459,33 @@ impl Host {
         self.typed.push((line.to_string(), true));
     }
 
-    fn char_file(w: &World) -> String {
+    /// The character's storage file; none in the lobby.
+    fn char_file(w: Option<&World>) -> Option<String> {
         let clean = |s: &str| s.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>();
-        format!("character-{}-{}.json", clean(&w.world_name), clean(&w.name))
+        w.map(|w| format!("character-{}-{}.json", clean(&w.world_name), clean(&w.name)))
     }
 
     /// Creates the VM of the mod in `dir`, runs its entry file and sends it `load`.
-    fn load(&mut self, w: &World, dir: PathBuf) -> Result<(), String> {
+    fn load(&mut self, w: Option<&World>, dir: PathBuf) -> Result<(), String> {
         let m = manifest::read(&dir).map_err(|e| format!("{e:#}"))?;
         self.load_with(w, m, dir.clone(), vm::Source::Dir(dir))
     }
 
     /// A bundled mod (assets/mods) by id.
-    fn load_bundled(&mut self, w: &World, id: &str) -> Result<(), String> {
+    fn load_bundled(&mut self, w: Option<&World>, id: &str) -> Result<(), String> {
         let (_, text, files) = BUNDLED.iter().find(|b| b.0 == id).ok_or_else(|| format!("no bundled mod {id}"))?;
         let m = manifest::parse(text, id).map_err(|e| format!("{e:#}"))?;
         self.load_with(w, m, PathBuf::from("bundled").join(id), vm::Source::Bundled(files))
     }
 
-    fn load_with(&mut self, w: &World, m: manifest::Manifest, dir: PathBuf, src: vm::Source) -> Result<(), String> {
+    fn load_with(&mut self, w: Option<&World>, m: manifest::Manifest, dir: PathBuf, src: vm::Source) -> Result<(), String> {
         if self.vms.iter().any(|v| v.manifest.id == m.id) {
             return Err(format!("{} is already loaded", m.id));
         }
         let data = data_dir().join(&m.id);
-        let storage = (read_json(&data.join("account.json")), read_json(&data.join(Self::char_file(w))));
-        let settings = load_settings(&m, &data, &Self::char_file(w));
+        let char_file = Self::char_file(w);
+        let storage = (read_json(&data.join("account.json")), char_file.as_ref().map_or(serde_json::Value::Null, |f| read_json(&data.join(f))));
+        let settings = load_settings(&m, &data, char_file.as_deref());
         let given: Vec<String> = grants().get(&m.id).and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
         let granted: Vec<String> = m.permissions.iter().filter(|p| given.contains(p)).cloned().collect();
         let missing: Vec<String> = m.permissions.iter().filter(|p| !granted.contains(p)).cloned().collect();
@@ -482,10 +500,11 @@ impl Host {
         vm.lua.set_app_data(self.input.clone());
         vm.lua.set_app_data(self.dir.clone());
         vm.lua.set_app_data(self.info.clone());
+        vm.lua.set_app_data(self.lobby.clone());
         api::install(&vm.lua, &vm, storage).map_err(|e| format!("{e}"))?;
         self.dir.borrow_mut().mods.push(runtime::Entry { id: vm.manifest.id.clone(), name: vm.manifest.name.clone(), version: vm.manifest.version.clone(), lua: vm.lua.weak(), st: vm.st.clone() });
         log::info!("lua mod {} {} loaded from {}", vm.manifest.id, vm.manifest.version, vm.dir.display());
-        lend(&vm, w, |vm| {
+        lend_opt(&vm, w, |vm| {
             vm.run_entry();
             vm.emit("load", ());
         });
@@ -495,7 +514,7 @@ impl Host {
     }
 
     /// Sends `unload`, saves its storage and drops the VM.
-    fn unload(&mut self, w: &World, k: usize) {
+    fn unload(&mut self, w: Option<&World>, k: usize) {
         let vm = self.vms.remove(k);
         self.dir.borrow_mut().mods.retain(|m| m.id != vm.manifest.id);
         if self.music.as_ref().is_some_and(|m| m.0 == vm.manifest.id) {
@@ -508,44 +527,82 @@ impl Host {
         info.looks.retain(|_, l| l.0 != vm.manifest.id);
         drop(info);
         self.filters_dirty = true;
-        lend(&vm, w, |vm| vm.emit("unload", ()));
+        lend_opt(&vm, w, |vm| vm.emit("unload", ()));
         save(&vm, w);
         log::info!("lua mod {} unloaded", vm.manifest.id);
     }
 
-    /// The enabled mods (config `mods`) whose folders have a mod.toml.
+    /// The enabled mods (config `mods`) whose folders have a mod.toml; the lobby mods are running already and get
+    /// the character's storage and settings.
     fn start(&mut self, w: &mut World) {
         self.started = true;
         let cfg = crate::config::Config::load();
         let root = mods_dir();
         install_stubs(root.clone());
+        let loaded = |h: &Self, id: &str| h.vms.iter().any(|v| v.manifest.id == id);
         // Bundled mods (our own features on the mod API) run unless turned off in `mods` or replaced by a folder.
         for (id, ..) in BUNDLED {
             let off = cfg.mods.iter().any(|r| r.name == *id && !r.enabled);
             let folder = cfg.mods.iter().any(|r| r.name == *id && r.enabled) && root.join(id).join("mod.toml").is_file();
-            if off || folder {
+            if off || folder || loaded(self, id) {
                 continue;
             }
-            if let Err(e) = self.load_bundled(w, id) {
+            if let Err(e) = self.load_bundled(Some(w), id) {
                 log::warn!("lua mod {id}: {e}");
                 w.chat.push_colour(format!("Mod {id}: {e}"), ERROR);
             }
         }
         for r in cfg.mods.iter().filter(|r| r.enabled) {
             let dir = root.join(&r.name);
-            if !dir.join("mod.toml").is_file() {
+            if !dir.join("mod.toml").is_file() || self.vms.iter().any(|v| v.dir == dir) {
                 continue;
             }
-            if let Err(e) = self.load(w, dir) {
+            if let Err(e) = self.load(Some(w), dir) {
                 log::warn!("lua mod {}: {e}", r.name);
                 w.chat.push_colour(format!("Mod {}: {e}", r.name), ERROR);
+            }
+        }
+        for vm in self.vms.iter().filter(|v| v.manifest.lobby) {
+            let data = data_dir().join(&vm.manifest.id);
+            let file = Self::char_file(Some(w));
+            vm.st.borrow_mut().settings = load_settings(&vm.manifest, &data, file.as_deref());
+            let stored = file.map_or(serde_json::Value::Null, |f| read_json(&data.join(f)));
+            if let Ok(t) = vm.lua.globals().get::<mlua::Table>("storage")
+                && let Ok(c) = api::json_table(&vm.lua, &stored)
+            {
+                let _ = t.set("character", c);
+            }
+        }
+        if self.watch.is_none() {
+            for id in watched() {
+                self.set_watch(&id, true);
+            }
+        }
+        let name = w.name.clone();
+        self.events.push(("login", vec![name.into()]));
+        self.lobby.borrow_mut().screen = "world";
+        let old = self.lobby_screen.replace("world");
+        self.events.push(("lobby_screen", vec!["world".into(), old.into()]));
+    }
+
+    /// Before login: the enabled mods whose manifest asks for the lobby (`lobby = true`).
+    fn start_lobby(&mut self) {
+        self.lobby_started = true;
+        let cfg = crate::config::Config::load();
+        let root = mods_dir();
+        for r in cfg.mods.iter().filter(|r| r.enabled) {
+            let dir = root.join(&r.name);
+            let Ok(m) = manifest::read(&dir) else { continue };
+            if !m.lobby || self.vms.iter().any(|v| v.manifest.id == m.id) {
+                continue;
+            }
+            if let Err(e) = self.load_with(None, m, dir.clone(), vm::Source::Dir(dir)) {
+                log::warn!("lua mod {}: {e}", r.name);
             }
         }
         for id in watched() {
             self.set_watch(&id, true);
         }
-        let name = w.name.clone();
-        self.events.push(("login", vec![name.into()]));
     }
 
     /// Starts or stops watching mod `id`'s folder.
@@ -560,13 +617,13 @@ impl Host {
     }
 
     /// A mod by id: its folder, else the bundled one.
-    fn load_named(&mut self, w: &World, id: &str) -> Result<(), String> {
+    fn load_named(&mut self, w: Option<&World>, id: &str) -> Result<(), String> {
         let dir = mods_dir().join(id);
         if !dir.join("mod.toml").is_file() && BUNDLED.iter().any(|b| b.0 == id) { self.load_bundled(w, id) } else { self.load(w, dir) }
     }
 
     /// Reloads the mod at `k` from its files, in the same place in the load order; its id.
-    fn reload(&mut self, w: &World, k: usize) -> Result<String, String> {
+    fn reload(&mut self, w: Option<&World>, k: usize) -> Result<String, String> {
         let dir = self.vms[k].dir.clone();
         let id = self.vms[k].manifest.id.clone();
         let bundled = matches!(self.vms[k].src, vm::Source::Bundled(_));
@@ -578,7 +635,7 @@ impl Host {
     }
 
     /// Saved files of watched mods: each reloaded (or loaded, when it failed before).
-    fn watch_upkeep(&mut self, w: &World, out: &mut Vec<(String, [u8; 4])>) {
+    fn watch_upkeep(&mut self, w: Option<&World>, out: &mut Vec<(String, [u8; 4])>) {
         let ids: Vec<String> = self.watch.as_ref().map(|wa| wa.rx.try_iter().collect()).unwrap_or_default();
         for id in ids {
             let r = match self.vms.iter().position(|v| v.manifest.id.eq_ignore_ascii_case(&id)) {
@@ -592,16 +649,31 @@ impl Host {
         }
     }
 
-    /// Logout: `logout` and `unload` to every mod, storage saved.
+    /// The world's mods are loaded (the first frame in a zone).
+    pub fn started(&self) -> bool {
+        self.started
+    }
+
+    /// Logout: `logout` to every mod, `unload` to all but the lobby mods, storage saved; the lobby mods keep
+    /// running without the character's storage.
     pub fn stop(&mut self, w: &World) {
         for vm in &self.vms {
             lend(vm, w, |vm| vm.emit("logout", ()));
         }
-        while !self.vms.is_empty() {
-            self.unload(w, 0);
+        while let Some(k) = self.vms.iter().position(|v| !v.manifest.lobby) {
+            self.unload(Some(w), k);
+        }
+        for vm in &self.vms {
+            save(vm, Some(w));
+            if let Ok(t) = vm.lua.globals().get::<mlua::Table>("storage")
+                && let Ok(c) = vm.lua.create_table()
+            {
+                let _ = t.set("character", c);
+            }
         }
         self.started = false;
         self.prev = None;
+        self.events.clear();
     }
 
     /// `/lua ...`: list, load, unload, reload, run, set.
@@ -624,7 +696,7 @@ impl Host {
                 out.push((if self.all_hidden { "Mods hidden (/lua show brings them back)." } else { "Mods shown." }.into(), super::WHITE));
             }
             "load" | "l" => match args.get(1) {
-                Some(id) => match self.load_named(w, id) {
+                Some(id) => match self.load_named(Some(w), id) {
                     Ok(()) => out.push((format!("Loaded {id}."), super::WHITE)),
                     Err(e) => out.push((e, ERROR)),
                 },
@@ -633,7 +705,7 @@ impl Host {
             "unload" | "u" => match args.get(1).and_then(|id| find(&self.vms, id)) {
                 Some(k) => {
                     let id = self.vms[k].manifest.id.clone();
-                    self.unload(w, k);
+                    self.unload(Some(w), k);
                     out.push((format!("Unloaded {id}."), super::WHITE));
                 }
                 None => out.push(("No such mod loaded.".into(), ERROR)),
@@ -644,7 +716,7 @@ impl Host {
                     Some(id) => match find(&self.vms, id) {
                         Some(k) => vec![self.vms[k].manifest.id.clone()],
                         None => {
-                            match self.load_named(w, id) {
+                            match self.load_named(Some(w), id) {
                                 Ok(()) => out.push((format!("Loaded {id}."), super::WHITE)),
                                 Err(e) => out.push((e, ERROR)),
                             }
@@ -656,7 +728,7 @@ impl Host {
                 // By id: a failed reload drops its mod and moves the others up.
                 for id in &ids {
                     let Some(k) = find(&self.vms, id) else { continue };
-                    match self.reload(w, k) {
+                    match self.reload(Some(w), k) {
                         Ok(id) => out.push((format!("Reloaded {id}."), super::WHITE)),
                         Err(e) => out.push((e, ERROR)),
                     }
@@ -741,16 +813,24 @@ const DIM: [u8; 4] = [0x60, 0x60, 0x60, 0x80];
 
 /// Lends the world to `vm` for `f`.
 fn lend(vm: &Vm, w: &World, f: impl FnOnce(&Vm)) {
-    vm.lua.set_app_data(api::WorldRef(w as *const World));
+    lend_opt(vm, Some(w), f);
+}
+
+/// As `lend`; in the lobby there is no world to lend.
+fn lend_opt(vm: &Vm, w: Option<&World>, f: impl FnOnce(&Vm)) {
+    if let Some(w) = w {
+        vm.lua.set_app_data(api::WorldRef(w as *const World));
+    }
     f(vm);
     vm.lua.remove_app_data::<api::WorldRef>();
 }
 
 /// Writes a mod's storage tables.
-fn save(vm: &Vm, w: &World) {
+fn save(vm: &Vm, w: Option<&World>) {
     let dir = data_dir().join(&vm.manifest.id);
     let Ok(storage) = vm.lua.globals().get::<mlua::Table>("storage") else { return };
-    for (key, file) in [("account", "account.json".to_string()), ("character", Host::char_file(w))] {
+    for (key, file) in [("account", Some("account.json".to_string())), ("character", Host::char_file(w))] {
+        let Some(file) = file else { continue };
         let Ok(t) = storage.get::<mlua::Value>(key) else { continue };
         use mlua::LuaSerdeExt;
         match vm.lua.from_value::<serde_json::Value>(t) {
@@ -799,7 +879,7 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
     let bind_lines;
     {
         let w: &World = w;
-        host.watch_upkeep(w, &mut out);
+        host.watch_upkeep(Some(w), &mut out);
         bind_lines = input::run_binds(&mut host, w, &mut out);
         // Lines typed for mods.
         for (line, input) in std::mem::take(&mut host.typed) {
@@ -843,8 +923,7 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
             let f = vm.st.borrow().hud_handlers.iter().find(|h| h.0 == id).and_then(|h| vm.lua.registry_value::<mlua::Function>(&h.1).ok());
             if let Some(f) = f {
                 lend(vm, w, |vm| {
-                    use mlua::LuaSerdeExt;
-                    let e = vm.lua.to_value(&serde_json::json!({"kind": "click", "id": id, "button": button})).unwrap_or(mlua::Value::Nil);
+                    let e = api::to_lua(&vm.lua, &serde_json::json!({"kind": "click", "id": id, "button": button})).unwrap_or(mlua::Value::Nil);
                     vm.call_input(f, (id.clone(), e));
                 });
             }
@@ -854,27 +933,25 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
         for (from, name, args) in &emitted {
             for vm in host.vms.iter().filter(|v| v.suspended.is_none() && v.manifest.id != *from && v.has_handler(name)) {
                 lend(vm, w, |vm| {
-                    use mlua::LuaSerdeExt;
-                    let vals: Vec<mlua::Value> = args.iter().map(|a| vm.lua.to_value(a).unwrap_or(mlua::Value::Nil)).collect();
+                    let vals: Vec<mlua::Value> = args.iter().map(|a| api::to_lua(&vm.lua, a).unwrap_or(mlua::Value::Nil)).collect();
                     vm.emit(name, mlua::MultiValue::from_iter(vals));
                 });
             }
         }
         for vm in host.vms.iter().filter(|v| v.suspended.is_none()) {
             lend(vm, w, |vm| {
-                use mlua::LuaSerdeExt;
                 for (name, args) in &events {
                     if !vm.has_handler(name) {
                         continue;
                     }
-                    let vals: Vec<mlua::Value> = args.iter().map(|a| vm.lua.to_value(a).unwrap_or(mlua::Value::Nil)).collect();
+                    let vals: Vec<mlua::Value> = args.iter().map(|a| api::to_lua(&vm.lua, a).unwrap_or(mlua::Value::Nil)).collect();
                     vm.emit(name, mlua::MultiValue::from_iter(vals));
                 }
                 let mine: Vec<(String, window::Event)> = ui_events.iter().filter(|e| e.0 == vm.manifest.id).map(|e| (e.1.clone(), e.2.clone())).collect();
                 for (win, ev) in mine {
                     let f = vm.st.borrow().window_handlers.iter().find(|h| h.0 == win).and_then(|h| vm.lua.registry_value::<mlua::Function>(&h.1).ok());
                     if let Some(f) = f {
-                        let t = vm.lua.to_value(&ev.json()).unwrap_or(mlua::Value::Nil);
+                        let t = api::to_lua(&vm.lua, &ev.json()).unwrap_or(mlua::Value::Nil);
                         vm.call_input(f, (win, t));
                     }
                 }
@@ -917,7 +994,7 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
         out.extend(notices.into_iter().map(|n| (n, ERROR)));
         ops.extend(vm_ops);
         if save_now {
-            save(vm, w);
+            save(vm, Some(w));
         }
     }
     // A window opened this phase takes the focus from every other (not from an open modal one, unless modal itself).
@@ -969,6 +1046,89 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
     }
 }
 
+/// What the lobby mods asked of the app this frame.
+#[derive(Default)]
+pub(in crate::client) struct LobbyOut {
+    pub keys: Vec<input::Synth>,
+    pub acts: Vec<lobby::Act>,
+}
+
+/// The mod phase before login, for the lobby mods: events, timers, sockets and `frame`; no world is lent, so game
+/// state errors. Lines a mod prints go to the log file.
+pub(in crate::client) fn lobby_frame(host: &mut Host, view: lobby::View) -> LobbyOut {
+    let screen = view.screen;
+    *host.lobby.borrow_mut() = view;
+    if !host.lobby_started {
+        host.start_lobby();
+    }
+    if host.lobby_screen != Some(screen) {
+        let old = host.lobby_screen.replace(screen);
+        host.events.push(("lobby_screen", vec![screen.into(), old.into()]));
+    }
+    let now = std::time::Instant::now();
+    let dt = host.last_frame.map_or(0.0, |t| now.duration_since(t).as_secs_f64());
+    host.last_frame = Some(now);
+    let mut lines: Vec<(String, [u8; 4])> = Vec::new();
+    host.watch_upkeep(None, &mut lines);
+    let events = std::mem::take(&mut host.events);
+    let emitted = std::mem::take(&mut host.dir.borrow_mut().emitted);
+    for vm in host.vms.iter().filter(|v| v.suspended.is_none()) {
+        lend_opt(vm, None, |vm| {
+            for (_, name, args) in emitted.iter().filter(|e| e.0 != vm.manifest.id) {
+                if vm.has_handler(name) {
+                    let vals: Vec<mlua::Value> = args.iter().map(|a| api::to_lua(&vm.lua, a).unwrap_or(mlua::Value::Nil)).collect();
+                    vm.emit(name, mlua::MultiValue::from_iter(vals));
+                }
+            }
+            for (name, args) in &events {
+                if vm.has_handler(name) {
+                    let vals: Vec<mlua::Value> = args.iter().map(|a| api::to_lua(&vm.lua, a).unwrap_or(mlua::Value::Nil)).collect();
+                    vm.emit(name, mlua::MultiValue::from_iter(vals));
+                }
+            }
+            net::poll(vm);
+            sock::poll(vm);
+            vm.timers();
+            vm.wake();
+            if vm.has_handler("frame") {
+                vm.emit("frame", dt);
+            }
+        });
+    }
+    let mut out = LobbyOut::default();
+    for vm in host.vms.iter_mut() {
+        vm.end_frame();
+        if vm.suspended.is_none()
+            && let Some(why) = vm.failing()
+        {
+            log::warn!("lua mod {} suspended: {why}", vm.manifest.id);
+            vm.suspended = Some(why);
+        }
+        let (notices, ops, save_now) = {
+            let mut st = vm.st.borrow_mut();
+            (std::mem::take(&mut st.notices), std::mem::take(&mut st.ops), std::mem::take(&mut st.save))
+        };
+        for n in notices {
+            log::warn!("lua mod {}: {n}", vm.manifest.id);
+        }
+        for op in ops {
+            match op {
+                Op::Key(k) => out.keys.push(k),
+                Op::Lobby(a) => out.acts.push(a),
+                Op::Print(text) | Op::Chat { text, .. } => log::info!("lua mod {}: {text}", vm.manifest.id),
+                _ => log::debug!("lua mod {}: not in the lobby", vm.manifest.id),
+            }
+        }
+        if save_now {
+            save(vm, None);
+        }
+    }
+    for (line, _) in lines {
+        log::info!("lua: {line}");
+    }
+    out
+}
+
 fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
     match op {
         Op::Print(text) => w.chat.push_colour(text, DIM),
@@ -1016,6 +1176,8 @@ fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
             }
         }
         Op::Interface(show) => w.ui_hidden = !show,
+        // In the world there is no lobby to act on.
+        Op::Lobby(_) => {}
         Op::CameraDistance(k) => super::camera::set_distance(w, k),
         Op::Camera(speed, max, battle) => super::camera::set_mod(w, speed, max, battle),
         Op::Sound(s) => w.lua.sounds.push(s),
@@ -1283,10 +1445,10 @@ pub(super) fn filter_typed(w: &mut World, line: &str) -> Option<String> {
 }
 
 /// A mod's settings: the account file's keys, then the character file's for character-scoped ones.
-fn load_settings(m: &manifest::Manifest, data: &std::path::Path, char_file: &str) -> serde_json::Map<String, serde_json::Value> {
+fn load_settings(m: &manifest::Manifest, data: &std::path::Path, char_file: Option<&str>) -> serde_json::Map<String, serde_json::Value> {
     let mut out = serde_json::Map::new();
     let account = read_json(&data.join("settings.json"));
-    let character = read_json(&data.join(format!("settings-{char_file}")));
+    let character = char_file.map_or(serde_json::Value::Null, |c| read_json(&data.join(format!("settings-{c}"))));
     for (key, decl) in &m.settings {
         let src = if decl.scope == "character" { &character } else { &account };
         if let Some(v) = src.get(key) {
@@ -1359,7 +1521,10 @@ impl Host {
         vm.st.borrow_mut().settings.insert(key.to_string(), value.clone());
         let scope = vm.manifest.settings.get(key).map_or("account", |d| d.scope.as_str());
         let dir = data_dir().join(id);
-        let file = if scope == "character" { dir.join(format!("settings-{}", Self::char_file(w))) } else { dir.join("settings.json") };
+        let file = match Self::char_file(Some(w)) {
+            Some(c) if scope == "character" => dir.join(format!("settings-{c}")),
+            _ => dir.join("settings.json"),
+        };
         let mut v = read_json(&file);
         if !v.is_object() {
             v = serde_json::json!({});
@@ -1370,8 +1535,7 @@ impl Host {
             log::warn!("lua mod {id}: saving {}: {e}", file.display());
         }
         lend(vm, w, |vm| {
-            use mlua::LuaSerdeExt;
-            let v = vm.lua.to_value(&value).unwrap_or(mlua::Value::Nil);
+            let v = api::to_lua(&vm.lua, &value).unwrap_or(mlua::Value::Nil);
             vm.emit("settings_changed", (key.to_string(), v));
         });
     }

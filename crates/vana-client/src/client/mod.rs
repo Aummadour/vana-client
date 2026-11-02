@@ -6577,6 +6577,8 @@ pub struct App {
     input: input::Input,
     /// Keys Lua mods pressed this frame, as egui events.
     synth_events: Vec<egui::Event>,
+    /// The lobby mods before login (in the world, the World's host holds them).
+    lobby_mods: lua::Host,
     /// Frames per second, 0 = unlimited (config frame_limit), and the present mode must be picked again.
     frame_limit: u32,
     present_dirty: bool,
@@ -6822,6 +6824,7 @@ impl App {
             numpad_slash: false,
             input: input::Input::default(),
             synth_events: Vec::new(),
+            lobby_mods: Default::default(),
             frame_limit,
             present_dirty: false,
             window_dirty: false,
@@ -7056,10 +7059,111 @@ impl App {
         }
     }
 
+    /// A key a mod pressed: the key functions now, egui with this frame's input.
+    fn synth_key(&mut self, k: &lua::input::Synth) {
+        let (key, mods) = k.diks();
+        match k.down {
+            None => mods.into_iter().chain(key).for_each(|d| self.input.tap(d)),
+            Some(down) => key.into_iter().for_each(|d| self.input.set(d, down)),
+        }
+        self.synth_events.extend(k.egui_events());
+    }
+
+    /// The lobby mods' phase, and what they asked for.
+    fn lobby_mods_frame(&mut self) {
+        let busy = self.busy || self.netwait.is_some() || self.lobby_fade.busy() || self.login_error.is_some();
+        let mut view = lua::lobby::View {
+            server: self.cfg.server.clone(),
+            account: self.cfg.username.clone(),
+            playonline: is_playonline(&self.cfg.server),
+            busy,
+            error: self.login_error.clone(),
+            ..Default::default()
+        };
+        match &self.phase {
+            Phase::Login { .. } => view.screen = "login",
+            Phase::Characters { lobby, chars, selected, screen, .. } => {
+                view.screen = match (lobby.is_some(), screen) {
+                    (false, _) => "connecting",
+                    (true, LobbyScreen::Main) => "title",
+                    (true, LobbyScreen::Select) => "select",
+                    (true, LobbyScreen::Create) => "create",
+                    (true, LobbyScreen::Delete) => "delete",
+                    (true, LobbyScreen::Config) => "config",
+                };
+                view.selected = *selected;
+                view.characters = chars
+                    .iter()
+                    .map(|c| lua::lobby::Char { name: c.name.trim().to_string(), world: c.world.clone(), race: c.race, job: c.main_job, level: c.main_level, sub_job: c.sub_job, zone: c.zone, available: !c.is_empty_slot() && c.status == 1 })
+                    .collect();
+            }
+            Phase::World(_) => return,
+        }
+        let out = lua::lobby_frame(&mut self.lobby_mods, view);
+        for k in &out.keys {
+            self.synth_key(k);
+        }
+        for a in out.acts {
+            self.lobby_act(a, busy);
+        }
+    }
+
+    /// A lobby mod's sign-in or character pick, taken as the login form and the select screen take theirs.
+    fn lobby_act(&mut self, a: lua::lobby::Act, busy: bool) {
+        use lua::lobby::{Act, Who};
+        if busy {
+            log::info!("lua: a lobby action while the lobby is busy, dropped");
+            return;
+        }
+        match a {
+            Act::SignIn { server, account, password, otp, pol_id, pol_password } => {
+                if !matches!(self.phase, Phase::Login { .. }) {
+                    return;
+                }
+                if let Some(s) = server {
+                    self.cfg.server = s;
+                }
+                self.cfg.username = account;
+                if is_playonline(&self.cfg.server) {
+                    if let Some(id) = pol_id {
+                        self.cfg.pol_id = id;
+                    }
+                    self.login_playonline(pol_password, password, otp);
+                } else {
+                    self.login(password, otp, false);
+                }
+            }
+            Act::Play(who) => {
+                let Phase::Characters { lobby, chars, selected, .. } = &mut self.phase else { return };
+                let k = match who {
+                    Who::Slot(k) => Some(k),
+                    Who::Name(n) => chars.iter().position(|c| c.name.trim().eq_ignore_ascii_case(n.trim())),
+                };
+                let Some(k) = k.filter(|&k| chars.get(k).is_some_and(|c| !c.is_empty_slot() && c.status == 1)) else {
+                    log::info!("lua: lobby.play: no such character");
+                    return;
+                };
+                let (Some(l), c) = (lobby.take(), chars[k].clone()) else { return };
+                *selected = Some(k);
+                let replies = l.replies.clone();
+                self.lobby_fade.out(Box::new(move |app: &mut App| {
+                    app.netwait = Some(netwait::NetWait::new(netwait::Op::Login, replies));
+                    app.spawn(move || Task::Selected(l.select(&c)));
+                    app.lobby_fade.enter(true);
+                }));
+            }
+        }
+    }
+
     /// Back to the login screen. The world entry (or the world) left the lobby faded out, so the fade starts over;
     /// an error waits in the OK window.
     fn to_login(&mut self, error: bool) {
         if let Phase::World(w) = &mut self.phase {
+            let mut mods = std::mem::take(&mut w.lua);
+            if mods.started() {
+                mods.stop(w);
+            }
+            self.lobby_mods = mods;
             self.line_hist = std::mem::take(&mut w.line_hist);
             // The modern chat's history for the next login (not retail).
             if self.cfg.modern_ui
@@ -8054,7 +8158,7 @@ impl App {
                             game_save: false,
                             settings: None,
                             want_settings: None,
-                            lua: Default::default(),
+                            lua: std::mem::take(&mut self.lobby_mods),
                         }));
                         if let Phase::World(w) = &mut self.phase {
                             cfgapply::apply_all(w);
@@ -9056,8 +9160,6 @@ impl App {
                 }
                 NetEvent::Logout { state } => {
                     log::info!("logged out of the zone (0x00B state {state})");
-                    let mut mods = std::mem::take(&mut world.lua);
-                    mods.stop(world);
                     world.chat.filter = None;
                     if let Some(dir) = world.macros.as_ref().map(|m| m.dir().to_path_buf()) {
                         synth::save_history(world, &dir);
@@ -12597,13 +12699,10 @@ impl App {
             lua::frame(w, self.game_ui.as_ref());
             // Keys the mods pressed: the key functions now, egui with this frame's input.
             for k in std::mem::take(&mut w.lua.synth) {
-                let (key, mods) = k.diks();
-                match k.down {
-                    None => mods.into_iter().chain(key).for_each(|d| self.input.tap(d)),
-                    Some(down) => key.into_iter().for_each(|d| self.input.set(d, down)),
-                }
-                self.synth_events.extend(k.egui_events());
+                self.synth_key(&k);
             }
+        } else {
+            self.lobby_mods_frame();
         }
         // Config 0022: the opening movie before the title, which loads behind it.
         if self.opening.is_some() {

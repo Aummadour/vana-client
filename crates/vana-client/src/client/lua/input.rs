@@ -364,10 +364,9 @@ fn filter(w: &mut World, mouse: bool, mut e: serde_json::Value) -> bool {
         }
         let capture = vm.st.borrow().granted.iter().any(|g| g == "input.capture");
         lend(vm, w, |vm| {
-            use mlua::LuaSerdeExt;
             for f in funcs {
                 e["blocked"] = blocked.into();
-                let t = vm.lua.to_value(&e).unwrap_or(Value::Nil);
+                let t = super::api::to_lua(&vm.lua, &e).unwrap_or(Value::Nil);
                 // The player's input: actions may act from here.
                 if let Some(r) = vm.call_filter(f, t, true)
                     && matches!(r.front(), Some(Value::Boolean(true)))
