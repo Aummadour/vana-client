@@ -432,6 +432,12 @@ pub(super) fn run_binds(host: &mut super::Host, w: &World, out: &mut Vec<(String
     game
 }
 
+/// The pointer in window pixels.
+pub(super) fn cursor(lua: &mlua::Lua) -> (f32, f32) {
+    let c = shared(lua).borrow().cursor;
+    (c.0 as f32, c.1 as f32)
+}
+
 fn shared(lua: &mlua::Lua) -> std::rc::Rc<std::cell::RefCell<State>> {
     lua.app_data_ref::<std::rc::Rc<std::cell::RefCell<State>>>().map(|r| r.clone()).unwrap_or_default()
 }

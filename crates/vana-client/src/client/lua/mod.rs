@@ -782,8 +782,10 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
             save(vm, w);
         }
     }
-    // A window opened this phase takes the focus from every other.
+    // A window opened this phase takes the focus from every other (not from an open modal one, unless modal itself).
     let wanted: Option<(usize, String)> = host.vms.iter().enumerate().find_map(|(k, v)| v.st.borrow_mut().focus_request.take().map(|id| (k, id)));
+    let held = host.modal().is_some();
+    let wanted = wanted.filter(|(k, id)| !held || host.vms[*k].st.borrow().windows.iter().any(|w| w.id == *id && w.modal));
     if let Some((k, id)) = wanted {
         for (j, vm) in host.vms.iter().enumerate() {
             for win in vm.st.borrow_mut().windows.iter_mut() {
@@ -1201,6 +1203,11 @@ impl Host {
         self.vms.iter().any(|v| v.suspended.is_none() && v.st.borrow().windows.iter().any(|w| w.open && w.focus))
     }
 
+    /// The open modal window (vm, id), the last opened when there are several.
+    pub(super) fn modal(&self) -> Option<(usize, String)> {
+        self.vms.iter().enumerate().filter(|(_, v)| v.suspended.is_none()).find_map(|(k, v)| v.st.borrow().windows.iter().rev().find(|w| w.open && w.modal).map(|w| (k, w.id.clone())))
+    }
+
     /// Whether a mod window's line is being typed (it takes the text and the keys).
     pub(super) fn typing(&self) -> bool {
         self.vms.iter().any(|v| v.suspended.is_none() && v.st.borrow().windows.iter().any(|w| w.open && w.focus && w.typing()))
@@ -1271,10 +1278,34 @@ impl Host {
     }
 }
 
+/// close_popup by mod and window ids (the modern UI).
+pub(super) fn close_popup_by(w: &mut World, mod_id: &str, id: &str) {
+    if let Some(k) = w.lua.vms.iter().position(|v| v.manifest.id == mod_id) {
+        close_popup(w, k, id);
+    }
+}
+
+/// A popup closed by a click outside it (a modal prompt stays).
+pub(super) fn close_popup(w: &mut World, k: usize, id: &str) {
+    let vm = &w.lua.vms[k];
+    let mut st = vm.st.borrow_mut();
+    if let Some(win) = st.windows.iter_mut().find(|x| x.id == id && x.popup && x.open) {
+        (win.open, win.focus, win.edit) = (false, false, false);
+        w.lua.ui_events.push((vm.manifest.id.clone(), id.to_string(), window::Event::Close));
+        w.sounds.push(crate::audio::Ui::Cancel as u32);
+    }
+}
+
 /// The pointer on a mod window (modern UI): it takes the focus, then the click acts as the window model says.
 pub(super) fn window_click(w: &mut World, mod_id: &str, win_id: &str, click: super::modern::ModClick) {
     use super::modern::ModClick as C;
     let host = &mut w.lua;
+    // An open modal window takes no clicks meant for another.
+    if let Some((k, id)) = host.modal()
+        && (host.vms[k].manifest.id != mod_id || id != win_id)
+    {
+        return;
+    }
     let mut out = None;
     let mut ended = Vec::new();
     for vm in host.vms.iter() {
@@ -1300,6 +1331,7 @@ pub(super) fn window_click(w: &mut World, mod_id: &str, win_id: &str, click: sup
                     C::Colour(i, rgb) => win.set_colour(i, Some(rgb), None),
                     C::Alpha(i, s) => win.set_colour(i, None, Some(s)),
                     C::Sort(i, c) => win.sort(i, c),
+                    C::Canvas(i, x, y) => win.canvas_click(i, x, y),
                 });
             }
         }
@@ -1311,27 +1343,51 @@ pub(super) fn window_click(w: &mut World, mod_id: &str, win_id: &str, click: sup
     }
 }
 
-/// The classic places of the open windows, in draw order (cascaded from the Config pages' place).
+/// The classic places of the open windows, in draw order (cascaded from the Config pages' place; modal ones last,
+/// centred, or at their anchor kept on screen).
 fn classic_places(w: &World) -> Vec<(usize, String, f32, f32)> {
-    let mut out = Vec::new();
+    let (mut out, mut modal) = (Vec::new(), Vec::new());
+    let (screen, uk) = {
+        let f = w.lua.info.borrow();
+        (f.window, f.k)
+    };
+    let (sw, sh) = (screen[0] * uk.0, screen[1] * uk.1);
     let mut k = 0.0;
     for (v, vm) in w.lua.vms.iter().enumerate().filter(|(_, v)| v.suspended.is_none()) {
         for win in vm.st.borrow().windows.iter().filter(|w| w.open) {
-            match win.place {
-                Some((x, y)) => out.push((v, win.id.clone(), x, y)),
-                None => {
+            let (ww, wh) = win.classic_size();
+            match (win.anchor, win.place) {
+                (Some((ax, ay)), _) => modal.push((v, win.id.clone(), (ax * uk.0).min(sw - ww).max(0.0), (ay * uk.1).min(sh - wh).max(0.0))),
+                (None, Some((x, y))) if win.modal => modal.push((v, win.id.clone(), x, y)),
+                (None, None) if win.modal => modal.push((v, win.id.clone(), ((sw - ww) / 2.0).max(0.0), ((sh - wh) / 2.0).max(0.0))),
+                (None, Some((x, y))) => out.push((v, win.id.clone(), x, y)),
+                (None, None) => {
                     out.push((v, win.id.clone(), 16.0 + 24.0 * k, 48.0 + 24.0 * k));
                     k += 1.0;
                 }
             }
         }
     }
+    out.extend(modal);
     out
 }
 
 /// The pointer on the classic mod windows (the topmost under it); whether it is over a control.
 pub(super) fn pointer_classic(w: &mut World, gu: &super::game_ui::GameUi, p: (f32, f32), moved: bool, clicked: bool) -> bool {
-    for (v, id, x, y) in classic_places(w).into_iter().rev() {
+    let mut places = classic_places(w);
+    // An open modal window is the only one the pointer reaches; a click outside a popup closes it.
+    if let Some((k, mid)) = w.lua.modal() {
+        places.retain(|(v, id, _, _)| *v == k && *id == mid);
+        let inside = places.first().is_some_and(|(v, id, x, y)| {
+            let (ww, wh) = w.lua.vms[*v].st.borrow().windows.iter().find(|x| x.id == *id).map_or((0.0, 0.0), |x| x.classic_size());
+            p.0 >= *x && p.1 >= *y && p.0 < x + ww && p.1 < y + wh
+        });
+        if clicked && !inside {
+            close_popup(w, k, &mid);
+            return true;
+        }
+    }
+    for (v, id, x, y) in places.into_iter().rev() {
         let (hover, ev, se, mod_id) = {
             let vm = &w.lua.vms[v];
             let mut st = vm.st.borrow_mut();

@@ -4,7 +4,7 @@
 
 use super::super::World;
 use super::super::lua::window::{self as model, Elem};
-use super::{Panels, Title, kit};
+use super::{Panels, Show, Title, kit};
 use egui::{Align2, Color32, FontId, Rect, RichText, Sense, Shape, Stroke, StrokeKind, pos2, vec2};
 
 /// What the pointer did on a window, for the model.
@@ -18,10 +18,66 @@ pub enum Click {
     Colour(usize, [u8; 3]),
     Alpha(usize, usize),
     Sort(usize, usize),
+    Canvas(usize, f32, f32),
 }
 
 fn rgba(c: [u8; 4]) -> Color32 {
     Color32::from_rgba_unmultiplied(c[0], c[1], c[2], c[3])
+}
+
+/// A canvas's commands in `r`, clipped to it.
+fn canvas(ui: &egui::Ui, m: &super::Modern, ctx: &egui::Context, gu: Option<&super::super::game_ui::GameUi>, items: Option<&super::super::items::ItemCache>, r: Rect, cmds: &[model::Cmd]) {
+    use model::Cmd;
+    let p = ui.painter().with_clip_rect(r.intersect(ui.clip_rect()));
+    let at = |q: [f32; 2]| pos2(r.min.x + q[0], r.min.y + q[1]);
+    for c in cmds {
+        match c {
+            Cmd::Line { a, b, width, colour } => {
+                p.line_segment([at(*a), at(*b)], Stroke::new(*width, rgba(*colour)));
+            }
+            Cmd::Rect { r: q, colour, to, line } => {
+                let rr = Rect::from_min_size(at([q[0], q[1]]), vec2(q[2], q[3]));
+                match (line, to) {
+                    (Some(w), _) => {
+                        p.rect_stroke(rr, 0.0, Stroke::new(*w, rgba(*colour)), StrokeKind::Inside);
+                    }
+                    (None, Some(to)) => {
+                        let mut mesh = egui::Mesh::default();
+                        let (t, b) = (rgba(*colour), rgba(*to));
+                        for (pt, c) in [(rr.left_top(), t), (rr.right_top(), t), (rr.left_bottom(), b), (rr.right_bottom(), b)] {
+                            mesh.colored_vertex(pt, c);
+                        }
+                        mesh.add_triangle(0, 1, 2);
+                        mesh.add_triangle(1, 3, 2);
+                        p.add(Shape::mesh(mesh));
+                    }
+                    (None, None) => {
+                        p.rect_filled(rr, 0.0, rgba(*colour));
+                    }
+                }
+            }
+            Cmd::Circle { c, radius, colour, line } => match line {
+                Some(w) => {
+                    p.circle_stroke(at(*c), *radius, Stroke::new(*w, rgba(*colour)));
+                }
+                None => {
+                    p.circle_filled(at(*c), *radius, rgba(*colour));
+                }
+            },
+            Cmd::Tri { pts, colour } => {
+                p.add(Shape::convex_polygon(pts.iter().map(|q| at(*q)).collect(), rgba(*colour), Stroke::NONE));
+            }
+            Cmd::Text { at: q, text, colour } => {
+                p.text(at(*q), Align2::LEFT_TOP, text, FontId::proportional(m.theme.small), rgba(*colour));
+            }
+            Cmd::Icon { at: q, size, item, id } => {
+                let tex = if *item { items.and_then(|c| m.item_icon(ctx, c, *id)).map(|t| (t, super::FULL_UV)) } else { gu.and_then(|g| m.status_icon(ctx, g, false, *id)) };
+                if let Some((t, uv)) = tex {
+                    p.image(t, Rect::from_min_size(at(*q), vec2(*size, *size)), uv, Color32::WHITE);
+                }
+            }
+        }
+    }
 }
 
 /// A fold arrow: pointing down when open, right when folded.
@@ -41,7 +97,17 @@ pub fn draw(p: &mut Panels, w: &mut World) {
         let frame = if win.framed { "window_normal" } else { "none" };
         let hidden = win.hidden();
         let items = w.item_info.as_deref();
-        p.framed(&id, title, width, frame, |ui| {
+        // A modal window is centred (on its last height), a popup at its anchor.
+        let at = if let Some((ax, ay)) = win.anchor {
+            let k = ctx.pixels_per_point();
+            Some(pos2(ax / k, ay / k))
+        } else if win.modal {
+            let h = ctx.data(|d| d.get_temp::<f32>(egui::Id::unique(("mod modal h", &id)))).unwrap_or(120.0);
+            Some(ctx.content_rect().center() - vec2(width / 2.0, h / 2.0))
+        } else {
+            None
+        };
+        let shown = p.show(&id, Show { title, size: vec2(width, 0.0), frame, at, ..Default::default() }, |ui, _| {
             let small = FontId::proportional(m.theme.small);
             let (text_c, muted) = (m.theme.color("text"), m.theme.color("muted"));
             let mut hover_tip: Option<&str> = None;
@@ -52,8 +118,8 @@ pub fn draw(p: &mut Panels, w: &mut World) {
                 let here = win.focus && i == win.at;
                 let top = ui.cursor().min.y;
                 match e {
-                    Elem::Text { text, dim, .. } => {
-                        ui.label(RichText::new(text).size(m.theme.small).color(if *dim { muted } else { text_c }));
+                    Elem::Text { text, dim, colour, .. } => {
+                        ui.label(RichText::new(text).size(m.theme.small).color(colour.map_or(if *dim { muted } else { text_c }, rgba)));
                         ui.add_space(4.0);
                     }
                     Elem::Buttons { label, items, marked, .. } => {
@@ -196,6 +262,16 @@ pub fn draw(p: &mut Panels, w: &mut World) {
                             }
                         });
                     }
+                    Elem::Canvas { w: cw, h: ch, cmds, .. } => {
+                        let (r, resp) = ui.allocate_exact_size(vec2(*cw, *ch), Sense::click());
+                        canvas(ui, m, ctx, gu, items, r, cmds);
+                        if resp.clicked()
+                            && let Some(q) = resp.interact_pointer_pos()
+                        {
+                            clicks.push(Click::Canvas(i, q.x - r.min.x, q.y - r.min.y));
+                        }
+                        ui.add_space(6.0);
+                    }
                     Elem::Section { label, open, .. } => {
                         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::click());
                         let ink = if here || resp.hovered() { text_c } else { muted };
@@ -223,6 +299,16 @@ pub fn draw(p: &mut Panels, w: &mut World) {
                 ui.label(RichText::new(help).size(m.theme.small).color(muted));
             }
         });
+        if let Some(r) = shown {
+            if win.modal {
+                ctx.data_mut(|d| d.insert_temp(egui::Id::unique(("mod modal h", &id)), r.height()));
+            }
+            // A click outside a popup closes it.
+            let outside = ctx.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|q| !r.contains(q)));
+            if win.popup && outside {
+                super::super::lua::close_popup_by(w, &mod_id, &win.id);
+            }
+        }
         for c in clicks {
             super::super::lua::window_click(w, &mod_id, &win.id, c);
         }

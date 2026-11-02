@@ -225,6 +225,10 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
                 (Some(x), Some(y)) => Some((x, y)),
                 _ => None,
             };
+            w.popup = spec.get::<Option<bool>>("popup")?.unwrap_or(false);
+            w.modal = w.popup || spec.get::<Option<bool>>("modal")?.unwrap_or(false);
+            // A popup opens at the pointer.
+            w.anchor = w.popup.then(|| super::input::cursor(lua));
             let elems: Option<Table> = spec.get("elements")?;
             let parsed: Vec<(super::window::Elem, super::window::Meta)> = match elems {
                 Some(t) => t.sequence_values::<Table>().map(|e| e.and_then(|e| elem(&e))).collect::<mlua::Result<_>>()?,
@@ -274,7 +278,7 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
                     t.set("value", c)?;
                 }
                 Elem::Section { open, .. } => t.set("open", *open)?,
-                Elem::Separator => {}
+                Elem::Separator | Elem::Canvas { .. } => {}
             }
             Ok(t)
         })?,
@@ -312,6 +316,25 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
                 (w.open, w.focus, w.edit) = (false, false, false);
             }
             Ok(())
+        })?,
+    )?;
+    ui.set(
+        "prompt",
+        lua.create_function(|lua, (text, items, handler): (String, Option<Vec<String>>, Function)| {
+            use super::window::{Elem, Meta};
+            let items = items.unwrap_or_else(|| vec!["Yes".into(), "No".into()]);
+            let elems = vec![Elem::Text { id: String::new(), text, dim: false, colour: None }, Elem::Buttons { id: "answer".into(), label: String::new(), items, marked: None }];
+            popup(lua, "__prompt", elems.into_iter().map(|e| (e, Meta::default())).collect(), false, handler)
+        })?,
+    )?;
+    ui.set(
+        "menu",
+        lua.create_function(|lua, (items, handler): (Vec<String>, Function)| {
+            use super::window::{Elem, Meta, Row};
+            let height = items.len().clamp(1, 12);
+            let rows = items.iter().map(|s| Row::text(s)).collect();
+            let elems = vec![(Elem::List { id: "item".into(), rows, columns: Vec::new(), at: 0, top: 0, height }, Meta::default())];
+            popup(lua, "__menu", elems, true, handler)
         })?,
     )?;
     ui.set("is_open", lua.create_function(|lua, id: String| Ok(state(lua).borrow().windows.iter().any(|w| w.id == id && w.open)))?)?;
@@ -1042,6 +1065,58 @@ fn player(lua: &Lua) -> mlua::Result<Table> {
     Ok(t)
 }
 
+/// ui.prompt / ui.menu: a modal window whose answer (1-based, or nil when it is closed) goes to `handler`.
+fn popup(lua: &Lua, id: &str, elems: Vec<(super::window::Elem, super::window::Meta)>, at_pointer: bool, handler: Function) -> mlua::Result<()> {
+    let close = lua.create_function(|lua, id: String| {
+        if let Some(w) = state(lua).borrow_mut().windows.iter_mut().find(|w| w.id == id) {
+            (w.open, w.focus, w.edit) = (false, false, false);
+        }
+        Ok(())
+    })?;
+    let wrap: Function = lua
+        .load(r#"local h, close, id = ... return function(_, e) if e.kind == "press" or e.kind == "select" then close(id); h(e.index) elseif e.kind == "close" then h(nil) end end"#)
+        .set_name("=ui.popup")
+        .call((handler, close, id))?;
+    let cursor = super::input::cursor(lua);
+    let st = state(lua);
+    let mut s = st.borrow_mut();
+    s.windows.retain(|w| w.id != id);
+    let mut w = super::window::Window::new(id);
+    (w.elems, w.meta) = elems.into_iter().unzip();
+    (w.modal, w.popup, w.open) = (true, at_pointer, true);
+    w.anchor = at_pointer.then_some(cursor);
+    w.settle();
+    s.windows.push(w);
+    s.focus_request = Some(id.to_string());
+    let key = lua.create_registry_value(wrap)?;
+    s.window_handlers.retain(|(w, _)| w != id);
+    s.window_handlers.push((id.to_string(), key));
+    Ok(())
+}
+
+/// A canvas's commands: {type = "line" | "rect" | "circle" | "tri" | "text" | "icon", ...}.
+fn cmds(v: Option<Table>) -> mlua::Result<Vec<super::window::Cmd>> {
+    use super::window::Cmd;
+    let Some(v) = v else { return Ok(Vec::new()) };
+    v.sequence_values::<Table>()
+        .map(|c| {
+            let c = c?;
+            let n = |k: &str| -> mlua::Result<f32> { Ok(c.get::<Option<f32>>(k)?.unwrap_or(0.0)) };
+            let colour = super::hud::colour(c.get("colour")?)?.unwrap_or([255; 4]);
+            let kind: String = c.get("type")?;
+            Ok(match kind.as_str() {
+                "line" => Cmd::Line { a: [n("x1")?, n("y1")?], b: [n("x2")?, n("y2")?], width: c.get::<Option<f32>>("width")?.unwrap_or(1.0), colour },
+                "rect" => Cmd::Rect { r: [n("x")?, n("y")?, n("w")?, n("h")?], colour, to: super::hud::colour(c.get("to")?)?, line: c.get("line")? },
+                "circle" => Cmd::Circle { c: [n("x")?, n("y")?], radius: n("r")?, colour, line: c.get("line")? },
+                "tri" => Cmd::Tri { pts: [[n("x1")?, n("y1")?], [n("x2")?, n("y2")?], [n("x3")?, n("y3")?]], colour },
+                "text" => Cmd::Text { at: [n("x")?, n("y")?], text: c.get::<Option<String>>("text")?.unwrap_or_default(), colour },
+                "icon" => Cmd::Icon { at: [n("x")?, n("y")?], size: c.get::<Option<f32>>("size")?.unwrap_or(16.0), item: c.get::<Option<String>>("kind")?.as_deref() != Some("status"), id: c.get("id")? },
+                other => return Err(mlua::Error::runtime(format!("unknown draw command {other:?}"))),
+            })
+        })
+        .collect()
+}
+
 /// A list's rows: strings, or {cells..., icon = {kind = "item" | "status", id}, colour}.
 fn rows(v: Option<Table>) -> mlua::Result<Vec<super::window::Row>> {
     use super::window::Row;
@@ -1101,7 +1176,8 @@ fn elem_only(t: &Table) -> mlua::Result<super::window::Elem> {
     let id = || -> mlua::Result<String> { t.get::<Option<String>>("id")?.ok_or_else(|| mlua::Error::runtime(format!("a {kind} element needs an id"))) };
     let index = |k: &str| -> mlua::Result<Option<usize>> { Ok(t.get::<Option<i64>>(k)?.map(|i| (i.max(1) - 1) as usize)) };
     Ok(match kind.as_str() {
-        "text" => Elem::Text { id: t.get::<Option<String>>("id")?.unwrap_or_default(), text: t.get::<Option<String>>("text")?.unwrap_or_default(), dim: t.get::<Option<bool>>("dim")?.unwrap_or(false) },
+        "text" => Elem::Text { id: t.get::<Option<String>>("id")?.unwrap_or_default(), text: t.get::<Option<String>>("text")?.unwrap_or_default(), dim: t.get::<Option<bool>>("dim")?.unwrap_or(false), colour: super::hud::colour(t.get("colour")?)? },
+        "canvas" => Elem::Canvas { id: id()?, w: t.get::<Option<f32>>("w")?.unwrap_or(200.0).max(1.0), h: t.get::<Option<f32>>("h")?.unwrap_or(100.0).max(1.0), cmds: cmds(t.get("draw")?)? },
         "buttons" => Elem::Buttons { id: id()?, label: t.get::<Option<String>>("label")?.unwrap_or_default(), items: t.get::<Option<Vec<String>>>("items")?.unwrap_or_default(), marked: index("marked")? },
         "slider" => {
             let n = t.get::<Option<usize>>("steps")?.unwrap_or(2).max(1);
@@ -1123,9 +1199,15 @@ fn elem_only(t: &Table) -> mlua::Result<super::window::Elem> {
 fn update(e: &mut super::window::Elem, t: &Table) -> mlua::Result<()> {
     use super::window::Elem;
     match e {
-        Elem::Text { text, dim, .. } => {
+        Elem::Text { text, dim, colour, .. } => {
             if let Some(v) = t.get::<Option<String>>("text")? { *text = v; }
             if let Some(v) = t.get::<Option<bool>>("dim")? { *dim = v; }
+            if t.contains_key("colour")? { *colour = super::hud::colour(t.get("colour")?)?; }
+        }
+        Elem::Canvas { w, h, cmds: c, .. } => {
+            if let Some(v) = t.get::<Option<f32>>("w")? { *w = v.max(1.0); }
+            if let Some(v) = t.get::<Option<f32>>("h")? { *h = v.max(1.0); }
+            if t.contains_key("draw")? { *c = cmds(t.get("draw")?)?; }
         }
         Elem::Buttons { label, items, marked, .. } => {
             if let Some(v) = t.get::<Option<String>>("label")? { *label = v; }

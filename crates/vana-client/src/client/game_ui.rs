@@ -1774,6 +1774,11 @@ impl GameUi {
         self.batch.push_rect(x, y, w, h, rgba);
     }
 
+    /// An untextured quad: corners top left, top right, bottom left, bottom right, each with its colour.
+    pub fn quad(&mut self, corners: [[f32; 2]; 4], rgba: [[f32; 4]; 4]) {
+        self.batch.push_corners(corners, rgba);
+    }
+
     /// A window cursor sprite (`lib`, e.g. the buff window's anc_equi box) scaled about (x, y) (FUN_1011ab50; the
     /// buff list's 0.74).
     pub fn cursor_scaled(&mut self, lib: &str, x: f32, y: f32, s: f32) {

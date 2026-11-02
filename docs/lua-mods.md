@@ -45,12 +45,15 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   - declared settings (bool, enum, int, number) on an Extras page per mod, in both UIs; per-scope files
   - `storage.account` / `storage.character`
 - **Windows:**
-  - `ui.window` / `update` / `get` / `open` / `show` / `close` / `on`
+  - `ui.window` / `update` / `get` / `open` / `show` / `close` / `on` / `prompt` / `menu`
   - elements: text, buttons and options, slider, scrolling list, gauge, separator; tabs (elements on pages), typed
     lines (edit / change events, Escape undoes), choices (Left / Right), colours (RGBA, a channel at a time; the
     classic UI shows channel sliders, the modern UI the kit's picker), folding sections, list columns with headings
     (a click sends sort), right-aligned cells, row icons (item, status) and colours; a tip on any element (the help
-    bar in classic, the help line in modern); checked live in both UIs
+    bar in classic, the help line in modern); a canvas element the mod draws in (lines, rects with gradients or
+    outlines, circles, triangles, text, icons; clicks report where); coloured text; modal windows, `ui.prompt`
+    (a question with buttons) and `ui.menu` (a popup list at the pointer, closed by a click outside it); checked
+    live in both UIs
   - keys and mouse in both UIs: the classic UI draws Config pages, the modern UI kit panels with saved places
   - HUD windows (no focus, frameless, placed)
   - the HUD layer (`hud`): retained text (size, colour, background, alignment, lines), rects, bars and item / status

@@ -506,6 +506,10 @@ impl UiBatch {
         }
     }
 
+    pub fn push_corners(&mut self, corners: [[f32; 2]; 4], rgba: [[f32; 4]; 4]) {
+        self.push_quad(None, Blend::Alpha, corners, [[0.0; 2]; 4], rgba);
+    }
+
     pub fn push_rect(&mut self, x: f32, y: f32, w: f32, h: f32, rgba: [f32; 4]) {
         self.push_quad(None, Blend::Alpha, [[x, y], [x + w, y], [x, y + h], [x + w, y + h]], [[0.0; 2]; 4], [rgba; 4]);
     }

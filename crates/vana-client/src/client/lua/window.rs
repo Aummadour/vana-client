@@ -31,7 +31,7 @@ pub struct Col {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Elem {
     /// `id` (may be empty) lets ui.update find it.
-    Text { id: String, text: String, dim: bool },
+    Text { id: String, text: String, dim: bool, colour: Option<[u8; 4]> },
     /// A row of buttons under a heading; `marked` makes them options (the chosen one marked, Enter sets it).
     Buttons { id: String, label: String, items: Vec<String>, marked: Option<usize> },
     Slider { id: String, label: String, n: usize, at: usize, shown: String },
@@ -51,6 +51,21 @@ pub enum Elem {
     Colour { id: String, label: String, value: [u8; 4], alpha: bool },
     /// A heading that folds what is under it (to the next section or tabs).
     Section { id: String, label: String, open: bool },
+    /// A region `w` x `h` the mod draws in (local units: classic pixels, modern points); a click sends where.
+    Canvas { id: String, w: f32, h: f32, cmds: Vec<Cmd> },
+}
+
+/// A canvas drawing command, in the canvas's own units.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Cmd {
+    Line { a: [f32; 2], b: [f32; 2], width: f32, colour: [u8; 4] },
+    /// Filled (from `colour` at the top to `to` at the bottom when given), or outlined `line` wide.
+    Rect { r: [f32; 4], colour: [u8; 4], to: Option<[u8; 4]>, line: Option<f32> },
+    Circle { c: [f32; 2], radius: f32, colour: [u8; 4], line: Option<f32> },
+    Tri { pts: [[f32; 2]; 3], colour: [u8; 4] },
+    Text { at: [f32; 2], text: String, colour: [u8; 4] },
+    /// (item icon, id) as list rows take them.
+    Icon { at: [f32; 2], size: f32, item: bool, id: u16 },
 }
 
 /// What every element may carry: the help it shows under the cursor, the page it is on.
@@ -62,7 +77,7 @@ pub struct Meta {
 
 impl Elem {
     pub fn stop(&self) -> bool {
-        !matches!(self, Elem::Text { .. } | Elem::Gauge { .. } | Elem::Separator)
+        !matches!(self, Elem::Text { .. } | Elem::Gauge { .. } | Elem::Separator | Elem::Canvas { .. })
     }
 
     pub fn id(&self) -> Option<&str> {
@@ -74,7 +89,8 @@ impl Elem {
             | Elem::Input { id, .. }
             | Elem::Choice { id, .. }
             | Elem::Colour { id, .. }
-            | Elem::Section { id, .. } => Some(id),
+            | Elem::Section { id, .. }
+            | Elem::Canvas { id, .. } => Some(id),
             Elem::Text { id, .. } | Elem::Gauge { id, .. } if !id.is_empty() => Some(id),
             _ => None,
         }
@@ -118,6 +134,11 @@ pub struct Window {
     pub hud: bool,
     pub framed: bool,
     pub place: Option<(f32, f32)>,
+    /// A modal window keeps the focus while open (centred unless placed); a popup also closes on a click outside
+    /// it. `anchor`: its top left at this window pixel (the pointer when it opened).
+    pub modal: bool,
+    pub popup: bool,
+    pub anchor: Option<(f32, f32)>,
 }
 
 /// What happened in a window, for the mod's handler.
@@ -131,6 +152,8 @@ pub enum Event {
     Colour { id: String, value: [u8; 4] },
     Toggle { id: String, open: bool },
     Sort { id: String, column: usize },
+    /// A click on a canvas, in its units.
+    Click { id: String, x: f32, y: f32 },
     Close,
 }
 
@@ -145,6 +168,7 @@ impl Event {
             Event::Colour { id, value: [r, g, b, a] } => json!({"kind": "change", "id": id, "value": {"r": r, "g": g, "b": b, "a": a}}),
             Event::Toggle { id, open } => json!({"kind": "toggle", "id": id, "open": open}),
             Event::Sort { id, column } => json!({"kind": "sort", "id": id, "column": column + 1}),
+            Event::Click { id, x, y } => json!({"kind": "click", "id": id, "x": x.round() as i64, "y": y.round() as i64}),
             Event::Close => json!({"kind": "close"}),
         }
     }
@@ -208,6 +232,9 @@ impl Window {
             hud: false,
             framed: true,
             place: None,
+            modal: false,
+            popup: false,
+            anchor: None,
         }
     }
 
@@ -633,6 +660,15 @@ impl Window {
         (ev, vec![Se::Select])
     }
 
+    /// A canvas clicked at (x, y) in its units.
+    pub fn canvas_click(&mut self, i: usize, x: f32, y: f32) -> (Vec<Event>, Vec<Se>) {
+        let mut ev = self.end_edit();
+        if let Some(Elem::Canvas { id, .. }) = self.elems.get(i) {
+            ev.push(Event::Click { id: id.clone(), x, y });
+        }
+        (ev, Vec::new())
+    }
+
     /// The classic list's text width and its columns.
     fn classic_list_w(&self, rows: usize, height: usize) -> f32 {
         let (w, _) = self.classic_size();
@@ -691,6 +727,7 @@ impl Window {
                     }
                 }
                 Elem::Section { .. } => out.push((i, 0, [x + 20.0, ey, w - 40.0, LINE])),
+                Elem::Canvas { w: cw, h: ch, .. } => out.push((i, 0, [x + 20.0, ey, *cw, *ch])),
                 _ => {}
             }
             ey += self.elem_h(i);
@@ -711,6 +748,7 @@ impl Window {
             Buttons,
             Turn,
             Colour,
+            Canvas,
             Other,
         }
         let e = match self.elems.get(i) {
@@ -719,9 +757,13 @@ impl Window {
             Some(Elem::Buttons { .. }) => K::Buttons,
             Some(Elem::Tabs { .. } | Elem::Choice { .. }) => K::Turn,
             Some(Elem::Colour { .. }) => K::Colour,
+            Some(Elem::Canvas { .. }) => K::Canvas,
             _ => K::Other,
         };
         let (list, buttons) = (e == K::List, e == K::Buttons);
+        if e == K::Canvas {
+            return (false, if clicked { self.canvas_click(i, p.0 - r[0], p.1 - r[1]).0 } else { Vec::new() }, Vec::new());
+        }
         if (moved || clicked) && !self.edit && (self.at != i || (buttons && self.col != k)) {
             (self.at, self.col) = (i, if buttons { k } else { 0 });
             se.push(Se::Cursor);
@@ -769,6 +811,7 @@ impl Window {
             Elem::Tabs { .. } => LINE + 6.0,
             Elem::Colour { alpha, .. } => PITCH + if self.edit && self.at == i { CHAN_H * if *alpha { 4.0 } else { 3.0 } + 4.0 } else { 0.0 },
             Elem::Section { .. } => LINE + 4.0,
+            Elem::Canvas { h, .. } => h + 6.0,
         }
     }
 
@@ -804,8 +847,8 @@ impl Window {
             }
             let here = self.focus && i == self.at;
             match e {
-                Elem::Text { text, dim, .. } => {
-                    gu.text_fit(text, x + 20.0, ey, w - 40.0, if *dim { DIM } else { N });
+                Elem::Text { text, dim, colour, .. } => {
+                    gu.text_fit(text, x + 20.0, ey, w - 40.0, colour.map_or(if *dim { DIM } else { N }, tint));
                 }
                 Elem::Buttons { label, items, marked, .. } => {
                     bullet(gu, ey);
@@ -978,6 +1021,9 @@ impl Window {
                         }
                     }
                 }
+                Elem::Canvas { w: cw, h: ch, cmds, .. } => {
+                    draw_canvas(gu, items, cmds, x + 20.0, ey, *cw, *ch);
+                }
                 Elem::Section { label, open, .. } => {
                     let mark = if *open { "-" } else { "+" };
                     gu.text(mark, x + 20.0, ey + 2.0, 0, [0x80; 4]);
@@ -994,6 +1040,73 @@ impl Window {
         }
         [x, y, w, h]
     }
+}
+
+fn f4(c: [u8; 4]) -> [f32; 4] {
+    c.map(|v| v as f32 / 255.0)
+}
+
+/// A line `width` wide from a to b as a quad.
+fn line(gu: &mut GameUi, a: [f32; 2], b: [f32; 2], width: f32, c: [f32; 4]) {
+    let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+    let len = (dx * dx + dy * dy).sqrt().max(1e-3);
+    let (nx, ny) = (-dy / len * width / 2.0, dx / len * width / 2.0);
+    gu.quad([[a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [a[0] - nx, a[1] - ny], [b[0] - nx, b[1] - ny]], [c; 4]);
+}
+
+/// The points round a circle (32 segments).
+fn ring(c: [f32; 2], r: f32) -> Vec<[f32; 2]> {
+    (0..=32).map(|k| k as f32 / 32.0 * std::f32::consts::TAU).map(|t| [c[0] + r * t.cos(), c[1] + r * t.sin()]).collect()
+}
+
+/// A canvas's commands at (x, y), clipped to it.
+fn draw_canvas(gu: &mut GameUi, items: Option<&super::super::items::ItemCache>, cmds: &[Cmd], x: f32, y: f32, w: f32, h: f32) {
+    gu.clip(Some([x, y, w, h]));
+    let at = |p: [f32; 2]| [x + p[0], y + p[1]];
+    for c in cmds {
+        match c {
+            Cmd::Line { a, b, width, colour } => line(gu, at(*a), at(*b), *width, f4(*colour)),
+            Cmd::Rect { r, colour, to, line: None } => {
+                let (top, bottom) = (f4(*colour), f4(to.unwrap_or(*colour)));
+                let [rx, ry] = at([r[0], r[1]]);
+                gu.quad([[rx, ry], [rx + r[2], ry], [rx, ry + r[3]], [rx + r[2], ry + r[3]]], [top, top, bottom, bottom]);
+            }
+            Cmd::Rect { r, colour, line: Some(lw), .. } => {
+                let [rx, ry] = at([r[0], r[1]]);
+                let c = f4(*colour);
+                gu.rect(rx, ry, r[2], *lw, c);
+                gu.rect(rx, ry + r[3] - lw, r[2], *lw, c);
+                gu.rect(rx, ry + lw, *lw, r[3] - 2.0 * lw, c);
+                gu.rect(rx + r[2] - lw, ry + lw, *lw, r[3] - 2.0 * lw, c);
+            }
+            Cmd::Circle { c, radius, colour, line: lw } => {
+                let pts = ring(at(*c), *radius);
+                let col = f4(*colour);
+                for p in pts.windows(2) {
+                    match lw {
+                        Some(lw) => line(gu, p[0], p[1], *lw, col),
+                        None => {
+                            let m = at(*c);
+                            gu.quad([m, p[0], p[1], p[1]], [col; 4]);
+                        }
+                    }
+                }
+            }
+            Cmd::Tri { pts, colour } => {
+                let p = pts.map(at);
+                gu.quad([p[0], p[1], p[2], p[2]], [f4(*colour); 4]);
+            }
+            Cmd::Text { at: p, text, colour } => {
+                let [tx, ty] = at(*p);
+                gu.text_fit(text, tx, ty, x + w - tx + 16.0, tint(*colour));
+            }
+            Cmd::Icon { at: p, size, item, id } => {
+                let [ix, iy] = at(*p);
+                icon(gu, items, *item, *id, ix, iy, *size);
+            }
+        }
+    }
+    gu.clip(None);
 }
 
 /// The Config pages' button width for these captions.
@@ -1025,7 +1138,7 @@ mod tests {
     fn win() -> Window {
         let mut w = Window::new("w");
         w.elems = vec![
-            Elem::Text { id: String::new(), text: "Hello".into(), dim: false },
+            Elem::Text { id: String::new(), text: "Hello".into(), dim: false, colour: None },
             Elem::Buttons { id: "go".into(), label: "Go".into(), items: vec!["A".into(), "B".into()], marked: None },
             Elem::Buttons { id: "pick".into(), label: "Pick".into(), items: vec!["X".into(), "Y".into()], marked: Some(0) },
             Elem::Slider { id: "s".into(), label: "S".into(), n: 3, at: 0, shown: "0".into() },

@@ -283,7 +283,7 @@ function filters.typed(filter) end
 ---@param id integer what filters.chat / filters.typed returned
 function filters.off(id) end
 
---- Creates or replaces a window: title, width, help, and elements in order. Element types: text {id, text, dim}; buttons {id, label, items, marked} (marked makes them options); slider {id, label, steps, at, shown}; list {id, rows, columns, at, height} (a row is a string or {cells..., icon = {kind = 'item' | 'status', id}, colour}; columns {title, width, align = 'right'}, a heading click sends 'sort'); gauge {id, label, value 0..1, text, kind hp|mp|tp|cast|experience|recast}; separator; tabs {id, items, at} (pages: an element's page = n shows only on page n of the tabs above it); input {id, label, text, max} (a typed line: Enter starts and ends it, Escape undoes it); choice {id, label, items, at} (Left / Right turn it); colour {id, label, value = {r, g, b, a}, alpha} (Enter edits it a channel at a time); section {id, label, open} (folds what is under it, to the next section or tabs). Every element may have tip (the help shown while the cursor or pointer is on it) and page. Indexes are 1-based. Window options: hud (never takes the keys), frame = false (no frame), x / y (its place in the classic UI). It draws in the active UI's look (classic Config page or modern panel).
+--- Creates or replaces a window: title, width, help, and elements in order. Element types: text {id, text, dim, colour}; buttons {id, label, items, marked} (marked makes them options); slider {id, label, steps, at, shown}; list {id, rows, columns, at, height} (a row is a string or {cells..., icon = {kind = 'item' | 'status', id}, colour}; columns {title, width, align = 'right'}, a heading click sends 'sort'); gauge {id, label, value 0..1, text, kind hp|mp|tp|cast|experience|recast}; separator; tabs {id, items, at} (pages: an element's page = n shows only on page n of the tabs above it); input {id, label, text, max} (a typed line: Enter starts and ends it, Escape undoes it); choice {id, label, items, at} (Left / Right turn it); colour {id, label, value = {r, g, b, a}, alpha} (Enter edits it a channel at a time); section {id, label, open} (folds what is under it, to the next section or tabs); canvas {id, w, h, draw} (a region the mod draws in, in its own units: draw is a list of {type = 'line', x1, y1, x2, y2, width} | {type = 'rect', x, y, w, h, to (a bottom colour: a gradient), line (outline width)} | {type = 'circle', x, y, r, line} | {type = 'tri', x1, y1, x2, y2, x3, y3} | {type = 'text', x, y, text} | {type = 'icon', x, y, size, kind = 'item' | 'status', id}, each with a colour; ui.update(window, canvas, {draw = ...}) redraws it; a click sends 'click' {x, y}). Every element may have tip (the help shown while the cursor or pointer is on it) and page. Indexes are 1-based. Window options: hud (never takes the keys), frame = false (no frame), x / y (its place in the classic UI), modal (keeps the keys and the pointer while open; centred unless placed), popup (modal, opened at the pointer, closed by a click outside it). It draws in the active UI's look (classic Config page or modern panel).
 ---@param id string 
 ---@param spec vana.WindowSpec 
 function ui.window(id, spec) end
@@ -293,6 +293,17 @@ function ui.window(id, spec) end
 ---@param element string element id
 ---@param fields table 
 function ui.update(id, element, fields) end
+
+--- A modal question in the UI's own look: the text and buttons (default Yes / No); the handler gets the button's 1-based index, or nil when Escape closes it.
+---@param text string 
+---@param buttons? string[] 
+---@param handler fun(index: integer?) 
+function ui.prompt(text, buttons, handler) end
+
+--- A popup list at the pointer (a right-click menu): the handler gets the row's 1-based index, or nil when it is closed (Escape, a click outside it).
+---@param items string[] 
+---@param handler fun(index: integer?) 
+function ui.menu(items, handler) end
 
 --- An element's value as the player left it: {text} (text, input), {at} (buttons with options, slider, list, tabs, choice), {value} (gauge; a colour's {r, g, b, a}), {open} (section).
 ---@param id string window
@@ -317,9 +328,9 @@ function ui.close(id) end
 ---@return boolean
 function ui.is_open(id) end
 
---- The window's handler: called with the window id and an event {kind, id = element id, ...}: 'press' / 'set' / 'select' {index, 1-based} (buttons, options, slider, list, tabs, choice), 'edit' {text} as a line is typed and 'change' {text} when Enter ends it, 'change' {value = {r, g, b, a}} (colour), 'toggle' {open} (section), 'sort' {column} (a list heading), 'close'.
+--- The window's handler: called with the window id and an event {kind, id = element id, ...}: 'press' / 'set' / 'select' {index, 1-based} (buttons, options, slider, list, tabs, choice), 'edit' {text} as a line is typed and 'change' {text} when Enter ends it, 'change' {value = {r, g, b, a}} (colour), 'toggle' {open} (section), 'sort' {column} (a list heading), 'click' {x, y} (a canvas), 'close'.
 ---@param id string 
----@param handler fun(window: string, event: {kind: string, id: string?, index: integer?, text: string?, value: table?, open: boolean?, column: integer?}) 
+---@param handler fun(window: string, event: {kind: string, id: string?, index: integer?, text: string?, value: table?, open: boolean?, column: integer?, x: number?, y: number?}) 
 function ui.on(id, handler) end
 
 --- Creates or replaces a HUD text: x, y (window pixels; negative from the right or bottom edge), text (\n for lines), size (1 = the UI's text), colour and bg ({r, g, b, a} 0..255), align (left, center, right), pad, layer, visible. It draws under the windows in the active UI's font and hides with the UI.
