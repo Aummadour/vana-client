@@ -861,6 +861,37 @@ pub fn info_source(w: &World) -> Option<(u16, Option<[u8; 24]>, u8)> {
     }
 }
 
+/// The auction window with the keys for mods (ui.native.list): its layer (a menu's name, list, history, sell),
+/// rows, cursor and top; a menu has no rows (its cursor is the child id).
+pub(in crate::client) fn native_list(w: &World) -> Option<(String, Vec<serde_json::Value>, usize, usize)> {
+    use serde_json::json;
+    let a = w.auction.as_ref()?;
+    Some(match a.top()? {
+        Layer::Menu(name, cursor) => (name.trim_start_matches("menu").trim().to_string(), Vec::new(), cursor as usize, 0),
+        Layer::List => {
+            let l = a.list.as_ref()?;
+            let rows = l
+                .rows
+                .iter()
+                .map(|r| match *r {
+                    Row::Single { item, single, stack } | Row::Stack { item, single, stack } => json!({"item": item, "stack": r.stack(), "single_count": single, "stack_count": stack}),
+                    Row::Slot(k) => json!({"item": w.ah_slots[k as usize].item, "sale_slot": k, "price": w.ah_slots[k as usize].price}),
+                })
+                .collect();
+            ("list".into(), rows, l.scroll + l.cursor, l.scroll)
+        }
+        Layer::History => {
+            let h = a.history.as_ref()?;
+            let rows = h.sales.iter().map(|s| json!({"item": h.item, "price": s.price, "date": s.date, "seller": s.seller.as_str(), "buyer": s.buyer.as_str()})).collect();
+            ("history".into(), rows, h.scroll + h.cursor, h.scroll)
+        }
+        Layer::Sell(scroll, cursor) => {
+            let rows = sell_rows(w).iter().map(|s| json!({"item": s.id, "count": s.count, "bag": 0, "slot": s.index})).collect();
+            ("sell".into(), rows, scroll + cursor, scroll)
+        }
+    })
+}
+
 /// The inventory rows offered for sale (the view's order, gil left out).
 fn sell_rows(w: &World) -> Vec<crate::inventory::Slot> {
     w.inv.viewed(0).into_iter().filter(|s| s.index != 0).collect()

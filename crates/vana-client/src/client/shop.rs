@@ -1142,6 +1142,25 @@ pub fn info_source(w: &World) -> Option<(u16, Option<[u8; 24]>)> {
     }
 }
 
+/// The shop list for mods (ui.native.list): its view, rows (item, price, count, inventory slot), cursor and top.
+pub(in crate::client) fn native_list(w: &World) -> Option<(&'static str, Vec<serde_json::Value>, usize, usize)> {
+    use serde_json::json;
+    let s = w.shop.as_ref()?;
+    let slot = |r: &crate::inventory::Slot| json!({"item": r.id, "count": r.count, "bag": super::items::INVENTORY, "slot": r.index, "price": price_of(s, r.id)});
+    let (name, rows): (&str, Vec<serde_json::Value>) = match s.view? {
+        View::Buy if s.guild => ("buy", w.guild[0].items.iter().map(|g| json!({"item": g.item, "count": g.count, "price": g.price})).collect()),
+        View::Buy => ("buy", buy_rows(s).iter().map(|r| json!({"item": r.1.item, "price": r.1.price})).collect()),
+        View::Sell => ("sell", sell_rows(w).iter().map(slot).collect()),
+        // The wanted list's first row is its header.
+        View::Wanted => ("wanted", std::iter::once(json!({})).chain(wanted(w).iter().map(|g| json!({"item": g.item, "count": g.count, "price": g.price & 0x7fff_ffff}))).collect()),
+        View::Inv(_) if s.guild => ("sell", Vec::new()),
+        View::Inv(filter) => ("sell", inv_rows(w, filter).iter().map(slot).collect()),
+        View::Bazaar => ("bazaar", sell_rows(w).iter().map(slot).collect()),
+        View::Wares => ("wares", w.wares.rows().iter().map(|r| json!({"item": r.item, "count": r.count, "price": r.price})).collect()),
+    };
+    Some((name, rows, s.list.0 + s.list.1, s.list.0))
+}
+
 /// The bars: the list's title "Shop" / "Guild Shop" (group 0xd 0xc / 0xd), help 0xe 0x2f buy, 0x30 sell, 0x33 the
 /// wanted list; itemctrl's and the confirm's own.
 pub fn bars(gu: &GameUi, w: &World, bars: &mut super::hudtop::BarText) {

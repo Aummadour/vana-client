@@ -58,12 +58,12 @@ Settled for every row:
 | Ashita v4 plugins | 10 | 9 | 0 | 1 |
 | Ashita v3 plugins | 27 | 25 | 0 | 2 |
 | Ashita community plugins | 37 | 31 | 5 | 1 |
-| Ashita v4 community add-ons | 147 | 137 | 3 | 7 |
+| Ashita v4 community add-ons | 147 | 139 | 2 | 6 |
 | Ashita v3 community add-ons | 22 | 22 | 0 | 0 |
-| Ashita add-ons rated from descriptions | 28 | 27 | 0 | 1 |
+| Ashita add-ons rated from descriptions | 28 | 28 | 0 | 0 |
 | Windower, all | 250 | 243 | 4 | 3 |
-| Ashita, all | 365 | 332 | 15 | 18 |
-| **Total** | **615** | **575** | **19** | **21** |
+| Ashita, all | 365 | 335 | 14 | 16 |
+| **Total** | **615** | **578** | **18** | **19** |
 
 ## Open gaps
 
@@ -71,35 +71,33 @@ Ranked by the rows each one blocks (listed outside parentheses).
 
 1. **gamepad input (deferred)**, 6 rows: pad buttons and sticks as events and binds (deferred with gamepad support).
    Blocks Capability: gamepad input, cBind, Crossbar, tCrossBar, trigger, XIVCrossbar.
-2. **native window list rows and cursor**, 3 rows: reading and driving a game window's list rows and cursor. Blocks
-   ahpro, PriceCheck, wiki.
-3. **action lock patches**, 2 rows: removing the job-ability and engage movement locks. Blocks ButterFeet, nolock.
-4. **IME text input**, 2 rows: Japanese IME composition in the chat line. Blocks ime (Ashita v4), IME (Windower plugin).
-5. **map unlock switch**, 2 rows: every map without its key item. Blocks allmaps, cartographer.
-6. **Mog House / AH anywhere rule**, 2 rows: opening the Mog House menu or the AH outside their places. Blocks ahgo,
+2. **action lock patches**, 2 rows: removing the job-ability and engage movement locks. Blocks ButterFeet, nolock.
+3. **IME text input**, 2 rows: Japanese IME composition in the chat line. Blocks ime (Ashita v4), IME (Windower plugin).
+4. **map unlock switch**, 2 rows: every map without its key item. Blocks allmaps, cartographer.
+5. **Mog House / AH anywhere rule**, 2 rows: opening the Mog House menu or the AH outside their places. Blocks ahgo,
    nomad.
-7. **native list options**, 2 rows: options for native lists (AH row colours, the spell list trimmed). Blocks ahcolors,
+6. **native list options**, 2 rows: options for native lists (AH row colours, the spell list trimmed). Blocks ahcolors,
    trimspells.
-8. **process control**, 2 rows: CPU affinity and similar process settings. Blocks Affinity (Ashita v3 plugin), affinity
+7. **process control**, 2 rows: CPU affinity and similar process settings. Blocks Affinity (Ashita v3 plugin), affinity
    (Ashita v4).
-9. **vendor input devices**, 2 rows: G-keys, Stream Deck and other HID devices directly. Blocks Binder, GBinder.
-10. **video capture**, 2 rows: recording the game window. Blocks DashCam, Video capture.
-11. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
-12. **commands-while-dead rule**, 1 row: commands allowed while dead. Blocks paranormal.
-13. **compass monster dots switch**, 1 row: enemy dots on the compass for every job. Blocks mapdot.
-14. **drag and drop**, 1 row: dragging between elements in `ui.window` (a canvas takes clicks only). Blocks boussole.
-15. **engine settings from Lua**, 1 row: wireframe from Lua. Blocks Render knobs.
-16. **entity occlusion switch**, 1 row: drawing entities the client culls or occludes. Blocks truesight.
-17. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
-18. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it).
+8. **vendor input devices**, 2 rows: G-keys, Stream Deck and other HID devices directly. Blocks Binder, GBinder.
+9. **video capture**, 2 rows: recording the game window. Blocks DashCam, Video capture.
+10. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
+11. **commands-while-dead rule**, 1 row: commands allowed while dead. Blocks paranormal.
+12. **compass monster dots switch**, 1 row: enemy dots on the compass for every job. Blocks mapdot.
+13. **drag and drop**, 1 row: dragging between elements in `ui.window` (a canvas takes clicks only). Blocks boussole.
+14. **engine settings from Lua**, 1 row: wireframe from Lua. Blocks Render knobs.
+15. **entity occlusion switch**, 1 row: drawing entities the client culls or occludes. Blocks truesight.
+16. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
+17. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it).
     Blocks fastswap.
-19. **network send timing**, 1 row: changing when the client sends its packets. Blocks PacketFlow.
-20. **open game menus by name**, 1 row: opening the magic, ability and other client menus by name. Blocks openmenus.
-21. **per-entity collision switch**, 1 row: walking through moving players. Blocks casper.
-22. **raw DAT reads**, 1 row: DAT file ids and bytes by model or file id. Blocks DatSeeker.
-23. **res names in Japanese**, 1 row: names in the Japanese tables. Blocks translate.
-24. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
-25. **zone collision mesh**, 1 row: the zone's collision mesh. Blocks Novo.
+18. **network send timing**, 1 row: changing when the client sends its packets. Blocks PacketFlow.
+19. **open game menus by name**, 1 row: opening the magic, ability and other client menus by name. Blocks openmenus.
+20. **per-entity collision switch**, 1 row: walking through moving players. Blocks casper.
+21. **raw DAT reads**, 1 row: DAT file ids and bytes by model or file id. Blocks DatSeeker.
+22. **res names in Japanese**, 1 row: names in the Japanese tables. Blocks translate.
+23. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
+24. **zone collision mesh**, 1 row: the zone's collision mesh. Blocks Novo.
 
 Most wanted non-blocking gaps (rows that list them in parentheses):
 
@@ -620,7 +618,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | --- | --- | --- | --- | --- |
 | addon-emoji | Inline emoji icons in chat | filters.chat | missing | chat inline icons |
 | addonmgr | Loads, unloads and reloads add-ons from a panel | commands.run('/lua ...'); mods.list; ui.window (input, tabs); mods.installed | covered | - |
-| ahpro | The auction house in one window over the native one | input.press; game.items; res.item; hud.icon; ui.window (input, tabs, section, choice, tips, canvas); ui.prompt / menu | missing | native window list rows and cursor |
+| ahpro | The auction house in one window over the native one | input.press; game.items; res.item; hud.icon; ui.window (input, tabs, section, choice, tips, canvas); ui.prompt / menu; ui.native.list (the auction lists and menus); ui.native.highlighted | covered | - |
 | ASCII-Joy | MUD-style text interface over the game | game.*; packets.on_in / on_out / inject_out; filters.chat; hud.text / rect; res.mob_skill; Entity.target_index; game.cast | covered | (font families) |
 | ashita-hush | Hides yells, teleport requests and other spam | filters.chat; ui.window (options); storage | covered | - |
 | Ashita4-HitboxDisplay | 3D hitboxes and ranges | game.entities; draw.ring / box / line; ui.window (choice, colour); Entity.hitbox | covered | - |
@@ -755,7 +753,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | weatherhelper | Party call when a chosen weather starts or ends | event `weather_change`; commands.run('/p ...') | covered | - |
 | wheel | Gavlan wheel and deal helper | packets.on_in(0x01E..0x020); game.items / recasts; hud.*; ui.window (canvas) | covered | (packet layouts) |
 | whereisdi | Domain Invasion location from a web API | net.request; chat.add | covered | - |
-| wiki | Opens bg-wiki for the highlighted item, target or text | game.target; net.open_url | partly | native window list rows and cursor: highlighted item |
+| wiki | Opens bg-wiki for the highlighted item, target or text | game.target; net.open_url; ui.native.highlighted | covered | - |
 | wizardui | Clickable black mage buttons | game.*; hud.image / icon / on; actions.cast; packets.on_in; ui.window (input, section, canvas) | covered | - |
 | xicamera | Camera distance, battle distance, pan speeds | render.set_camera {distance, battle_distance, speed}; ui.window (section, tips) | covered | (camera rotation and pitch limits) |
 | xichats | Chat channels in a window | packets.on_in(0x017) / on_out(0x0B5); event `chat_message`; ui.window (input); commands.run; fs | covered | (inline colours in window text) |
@@ -820,7 +818,7 @@ No source was scanned for these; they are rated from their one-line descriptions
 | Packrat | On-screen item list | game.items; hud.text | covered | - |
 | Parse | Battle parser with XML export | events `action` / `battle_message` / `damage`; fs.write | covered | - |
 | PlayerInfo | Player information display | game.player / stats; hud.text | covered | - |
-| PriceCheck | NPC base price of the item under the cursor | res.item; bundled prices | missing | native window list rows and cursor |
+| PriceCheck | NPC base price of the item under the cursor | res.item; bundled prices; ui.native.highlighted | covered | - |
 | Rest | Resting tick timer | event `status_change` / `mp_change`; hud.text; timer | covered | - |
 | RSVP | Reminders at set times | timer; chat.add; storage; audio.play | covered | - |
 | TargetLines | Lines from entities to their targets | draw.line; event `action` (recent targets); Entity.target_index | covered | - |

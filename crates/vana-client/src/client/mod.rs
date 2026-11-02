@@ -14408,6 +14408,7 @@ fn open_windows(w: &World) -> Vec<&'static str> {
         ("moogle", w.moogle.is_some()),
         ("mogdoor", w.mogdoor.is_some()),
         ("shop", shop::active(w)),
+        ("auction", w.auction.is_some()),
         ("trade", trade::active(w)),
         ("post", post::active(w)),
         ("loot", treasure::active(w)),

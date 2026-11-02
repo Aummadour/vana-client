@@ -419,6 +419,14 @@ function hud.bounds(id) end
 ---@return string[]
 function ui.native.windows() end
 
+--- What the cursor is on in the game window with the keys: {window, kind (item, spell, ability (its name-table id), mount, emote, key_item), id, bag and slot for an item in a bag}; nil when none.
+---@return {window: string, kind: string, id: integer, bag: integer?, slot: integer?}?
+function ui.native.highlighted() end
+
+--- The game list with the keys: window (items, magic, ability, keyitems, shop buy / sell / wanted / bazaar / wares, auction list / history / sell or an auction menu's name), rows (each its item, spell, ability, mount, emote or key_item id, and count, price, bag, slot, equipped, stack counts where the list has them), cursor and top (the first row shown), both from 1. An auction menu has no rows; its cursor is the row's child id. Drive it with input.press.
+---@return {window: string, rows: table[], cursor: integer, top: integer}?
+function ui.native.list() end
+
 --- Whether any game window has the keys (a HUD may hide meanwhile).
 ---@return boolean
 function ui.native.menu_open() end

@@ -83,6 +83,10 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   location, minimap, cast bar, name plates, the alliance lists alone, the log windows (back while an event, a prompt
   or the chat line needs them), Timers, the training regime window; undone when it unloads); game config values read and set through the
   Config window's apply (`ui.native` for changes); `actions.advance` moves event text on. Checked live in both UIs.
+  `ui.native.highlighted` (the item, spell, ability, mount, emote or key item under the cursor of the window with the
+  keys, an item's bag and slot) and `ui.native.list` (that list's rows, cursor and top: the item lists and storage,
+  magic, abilities, key items, shops, the auction house's lists and menus), driven with `input.press`; checked live
+  on the item, ability, weapon skill and key item lists (modern UI); shops and the auction house not tried live.
 - **Render** (`render`): per entity, while the mod runs (the newest mod's wins): hidden (model and plate), plate name and
   colour, alpha, tint, size; the camera's distance read and set; `render.camera` / `set_camera`: the drawn eye's
   distance (a share of retail's, up to 10), the pan speed's scale, a distance while engaged. Checked live (a renamed, tinted, doubled NPC,
@@ -166,9 +170,9 @@ Built (client/lua/, modern/modwin.rs), each checked live:
 - **Bundled mods:** `/dps` (the first Extra ported).
 - **Mods folder:** `mods/<id>/` (enabled through config `mods`); a test run uses `mods` beside its FFXI_CONFIG copy.
 
-Next (docs/lua-mods.md 6): packet layouts and decoded views, batch order (the rest of
-phase 4); the rest of phase 5 (native window drive and list rows; engine settings such as draw distance and frame limit); the other Extras as
-bundled mods; then world-space text and quads, window focus between clients, and the coverage table.
+Next (docs/lua-mods.md 6): packet layouts and decoded views, batch order (the rest of phase 4); the rest of phase 5
+(engine settings such as draw distance and frame limit); the other Extras as bundled mods; then the gaps in
+docs/lua-coverage.md.
 
 ## 1. The bar
 
