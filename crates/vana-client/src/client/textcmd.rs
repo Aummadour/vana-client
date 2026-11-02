@@ -437,7 +437,7 @@ fn expand(w: &World, line: &str, target_cmd: bool) -> String {
 
 /// FUN_1007a1c0(text, fallback, wide): a target tag, a player's name (with `wide` also our trusts and pet), a
 /// server id from a menu line, else with `fallback` the current target.
-fn resolve(w: &World, text: Option<&str>, fallback: bool, wide: bool, mode: Mode) -> Option<(u32, u16)> {
+pub(super) fn resolve(w: &World, text: Option<&str>, fallback: bool, wide: bool, mode: Mode) -> Option<(u32, u16)> {
     if let Some(s) = text {
         let t = match s {
             "<t>" => current_target(w),

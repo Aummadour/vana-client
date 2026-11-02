@@ -27,8 +27,13 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   - from packets: `chat_message`, `action` (0x028 decoded), `battle_message`
   - `settings_changed`
 - **State:**
-  - `game.player`, `entity` / `entities` / `target` (ourselves included), `party`, `items`, `bag_size`, `equipment`,
-    `buffs`, `recasts`, `time`, `weather`, `key_items`
+  - `game.player`, `entity` / `entities` / `target` (ourselves included; race, model, look, party flags), `party`,
+    `items`, `bag_size`, `equipment`, `buffs`, `recasts`, `time`, `weather`, `key_items`
+  - `game.entity_by_tag` (t, st, bt, pet, ht, scan, p0..p5, a10..a25, names), `skills`, `jobs` (levels, master
+    levels), `stats` (base and bonus, attack, defense, resists, item level, rank, nation, experience, merit and limit
+    points), `merits`, `job_points`, `gil`, `spells` (learned), `abilities` (usable), `job_data` (BLU spells, PUP head,
+    frame, attachments, raw), `info` (server, Mog House, chat / menu open, combat, lock, autorun, follow, pet, map
+    grid), `camera`, `npc_names` (the zone list); checked live
   - `res.item`, `spell`, `ability`, `status`, `zone`, `title`, `key_item`, `job`
 - **Chat and commands:**
   - `chat.add` (mode colours)

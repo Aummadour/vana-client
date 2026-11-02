@@ -8,6 +8,7 @@ mod docs;
 pub(super) mod input;
 mod manifest;
 mod runtime;
+mod state;
 mod vm;
 pub(super) mod window;
 
@@ -60,6 +61,8 @@ pub struct Host {
     pub(in crate::client) synth: Vec<input::Synth>,
     /// Every loaded mod, for mods.list / call / emit.
     dir: runtime::Shared,
+    /// What the UI knows that mods read (the map grid).
+    info: std::rc::Rc<std::cell::RefCell<state::FrameInfo>>,
 }
 
 /// Mod folders watched for saved files (`/lua watch`): a thread polls their .lua / .toml files' times and names a mod
@@ -332,6 +335,7 @@ impl Host {
         vm.lua.set_app_data(self.last.clone());
         vm.lua.set_app_data(self.input.clone());
         vm.lua.set_app_data(self.dir.clone());
+        vm.lua.set_app_data(self.info.clone());
         api::install(&vm.lua, &vm, storage).map_err(|e| format!("{e}"))?;
         self.dir.borrow_mut().mods.push(runtime::Entry { id: vm.manifest.id.clone(), name: vm.manifest.name.clone(), version: vm.manifest.version.clone(), lua: vm.lua.weak(), st: vm.st.clone() });
         log::info!("lua mod {} {} loaded from {}", vm.manifest.id, vm.manifest.version, vm.dir.display());
@@ -619,6 +623,9 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
         host.events.extend(found);
     }
     host.prev = Some(snap);
+    if let Some(gu) = gu {
+        host.info.borrow_mut().update(w, gu);
+    }
     let now = std::time::Instant::now();
     let dt = host.last_frame.map_or(0.0, |t| now.duration_since(t).as_secs_f64());
     host.last_frame = Some(now);

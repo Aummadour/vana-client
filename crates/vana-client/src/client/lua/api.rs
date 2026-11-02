@@ -605,6 +605,7 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
             Ok(Some(t))
         })?,
     )?;
+    super::state::install(lua, &game)?;
     g.set("game", game)?;
 
     // res: the game's static data from its DATs (docs/lua-mods.md 4.9).
@@ -774,7 +775,7 @@ fn kind_name(e: &super::super::Entity) -> &'static str {
 }
 
 /// An entity as a table: who, where, how it stands.
-fn entity(lua: &Lua, w: &World, id: u32, e: &super::super::Entity) -> mlua::Result<Table> {
+pub(super) fn entity(lua: &Lua, w: &World, id: u32, e: &super::super::Entity) -> mlua::Result<Table> {
     let t = lua.create_table()?;
     t.set("id", id)?;
     t.set("index", e.index)?;
@@ -794,6 +795,18 @@ fn entity(lua: &Lua, w: &World, id: u32, e: &super::super::Entity) -> mlua::Resu
     t.set("targetable", e.flags & 6 == 0 && !e.untargetable && !e.target_off)?;
     t.set("master", e.master)?;
     t.set("hidden", e.flags & 2 != 0)?;
+    t.set("race", e.race.or(e.appearance.map(|l| l.race)))?;
+    t.set("model", e.model)?;
+    if let Some(l) = e.appearance {
+        let look = lua.create_table()?;
+        for (k, v) in [("face", l.face), ("head", l.head), ("body", l.body), ("hands", l.hands), ("legs", l.legs), ("feet", l.feet), ("main", l.main), ("sub", l.sub), ("range", l.range)] {
+            look.set(k, v)?;
+        }
+        t.set("look", look)?;
+    }
+    let slot = w.party.slots().slots.iter().position(|m| m.as_ref().is_some_and(|m| m.id == id));
+    t.set("in_party", slot.is_some_and(|k| k < 6))?;
+    t.set("in_alliance", slot.is_some())?;
     Ok(t)
 }
 
@@ -803,7 +816,7 @@ fn my_heading(w: &World) -> f32 {
     super::super::event::rad_of(w.net.me.lock().map_or(0, |m| m.dir))
 }
 
-fn self_entity(lua: &Lua, w: &World) -> mlua::Result<Table> {
+pub(super) fn self_entity(lua: &Lua, w: &World) -> mlua::Result<Table> {
     let t = lua.create_table()?;
     t.set("id", w.my_id)?;
     t.set("index", w.my_index)?;
@@ -823,6 +836,9 @@ fn self_entity(lua: &Lua, w: &World) -> mlua::Result<Table> {
     t.set("targetable", true)?;
     t.set("hidden", false)?;
     t.set("master", 0)?;
+    t.set("in_party", true)?;
+    t.set("in_alliance", true)?;
+    t.set("race", w.my_race)?;
     t.set("me", true)?;
     Ok(t)
 }

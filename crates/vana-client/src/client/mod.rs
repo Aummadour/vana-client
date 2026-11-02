@@ -468,6 +468,8 @@ struct Entity {
     active: f32,
     no_bump: bool,
     model: u16,
+    /// A player-style look (0x00D, or a 0x00E SubKind 1): race, face and the eight equipment models.
+    appearance: Option<Look>,
     /// An object (actor +0x128 bit 3 from the 0x00E look): no target gauge, no name plate.
     object: bool,
     /// The ActIndex its head looks at (0x00E / 0x00D facetarget, actor +0x1f8); 0 = none.
@@ -1560,6 +1562,7 @@ fn self_entity(w: &World) -> Entity {
         active: 0.0,
         no_bump: false,
         model: 0,
+        appearance: None,
         object: false,
         face: 0,
         spawn_fx: false,
@@ -4333,6 +4336,7 @@ fn place_mogdoor(w: &mut World) {
             active: 0.0,
             no_bump: false,
             model: 0,
+            appearance: None,
             object: true,
             face: 0,
             spawn_fx: false,
@@ -8713,6 +8717,7 @@ impl App {
                         active: 0.0,
                         no_bump: false,
                         model: 0,
+                        appearance: None,
                         object: false,
                         face: 0,
                         spawn_fx: false,
@@ -8730,6 +8735,12 @@ impl App {
                     });
                     if e.mask & 7 != 0 {
                         entry.flags = e.status;
+                    }
+                    if let Some(tbl) = e.look.filter(|t| t[8] != 0xFFFF) {
+                        entry.appearance = Some(look_from(tbl));
+                    }
+                    if let Some(crate::dat::npc::NpcLook::Equipped(l)) = &e.npc {
+                        entry.appearance = Some(*l);
                     }
                     // Falling dead plays the death motion once (the "dead" scheduler), then the corpse loop.
                     // Fields outside this update's mask bits are zero, not news.

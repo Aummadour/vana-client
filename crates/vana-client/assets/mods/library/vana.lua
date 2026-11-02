@@ -71,6 +71,11 @@
 ---@field hidden boolean
 ---@field master integer the master's index (pets), 0 for none
 ---@field me boolean? true for our own character
+---@field race integer?
+---@field model integer a monster or NPC model id (0 for a player-style look)
+---@field look {face: integer, head: integer, body: integer, hands: integer, legs: integer, feet: integer, main: integer, sub: integer, range: integer}? a player-style look
+---@field in_party boolean
+---@field in_alliance boolean
 
 ---@class vana.Member
 ---@field slot integer
@@ -492,6 +497,59 @@ function game.treasure() end
 --- The event (cutscene, NPC talk) under way, or nil: {menu = {question, options, cursor}} while it shows a menu (cursor from 1).
 ---@return table?
 function game.event() end
+
+--- The entity a target tag names (t, st, bt, pet, me, ht, scan, p0..p5, a10..a25, with or without <>), a player's name or a server id; nil when none.
+---@param tag string 
+---@return vana.Entity?
+function game.entity_by_tag(tag) end
+
+--- Our skills by id: combat (1..31) and magic (32..47) {level, capped}; crafts (48..) {rank, level, capped}.
+---@return {combat: table<integer, table>, magic: table<integer, table>, crafts: table<integer, table>}
+function game.skills() end
+
+--- Each unlocked job's level, and the master levels, by job id.
+---@return {levels: table<integer, integer>, master: table<integer, integer>}
+function game.jobs() end
+
+--- Base and bonus stats (STR..CHR), attack, defense, resistances, item and superior level, title, rank and points, nation, home point, experience and the next level's, master level and exemplar points, limit and merit points; nil before the server sent them.
+---@return table?
+function game.stats() end
+
+--- Each merit we have by index: {level, next_cost}.
+---@return table<integer, {level: integer, next_cost: integer}>
+function game.merits() end
+
+--- Capacity points, job points and job points spent, by job id.
+---@return table<integer, {capacity: integer, points: integer, spent: integer}>
+function game.job_points() end
+
+--- Our gil.
+---@return integer
+function game.gil() end
+
+--- The spell ids we have learned.
+---@return integer[]
+function game.spells() end
+
+--- The ability ids (res.ability) we can use now: job abilities, weapon skills, pet commands with a pet.
+---@return integer[]
+function game.abilities() end
+
+--- The job setups of main and sub: job, raw (the server's bytes), and for BLU blue_spells (ids), for PUP head, frame and attachments (item ids).
+---@return {main: table?, sub: table?}
+function game.job_data() end
+
+--- The session: zone, server, mog_house, chat_open, menu_open, event, in_combat, locked (target lock), autorun, follow (server id), pet_index, map_grid (as <pos>), modern_ui.
+---@return table
+function game.info() end
+
+--- The camera: eye and look points, and their distance.
+---@return {eye: {x: number, y: number, z: number}, look: {x: number, y: number, z: number}, distance: number}
+function game.camera() end
+
+--- The zone's NPC list by server id, spawned or not (Wide Scan's names).
+---@return table<integer, string>
+function game.npc_names() end
 
 --- Casts a spell by id, with the magic menu's checks (recast, MP, learned, status) and its refusal lines.
 ---@param spell integer spell id
