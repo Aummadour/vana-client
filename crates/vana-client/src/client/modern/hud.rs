@@ -216,6 +216,7 @@ fn effect_icon(p: Look, painter: &egui::Painter, e: &Effect, r: Rect, small: boo
                 let mut mesh = egui::Mesh::with_texture(tex);
                 mesh.add_rect_with_uv(r, uv, tint);
                 painter.add(egui::Shape::mesh(mesh));
+                super::draw_status_count(painter, r, id);
             }
         }
         Icon::Pack(name) => {

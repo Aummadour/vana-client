@@ -1115,6 +1115,32 @@ impl Modern {
 /// A whole texture's uv.
 const FULL_UV: Rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
 
+/// A numbered effect's count (Copy Image, Finishing Move, Aftermath, the Dazes), drawn as text over our art, which
+/// leaves it out; none for a retail icon (its count is in the image).
+fn status_count(id: u16) -> Option<&'static str> {
+    if !status_art().contains_key(&id) {
+        return None;
+    }
+    Some(match id {
+        66 | 270 | 381 => "1",
+        271 | 382 | 387 | 392 | 397 | 444 => "2",
+        272 | 383 | 388 | 393 | 398 | 445 => "3",
+        384 | 389 | 394 | 399 => "4",
+        385 | 390 | 395 | 400 => "5",
+        446 => "4+",
+        _ => return None,
+    })
+}
+
+/// Draws effect `id`'s count, if it has one, on the icon at `r`'s lower right corner: about half the icon's height,
+/// at least 9 points.
+fn draw_status_count(painter: &egui::Painter, r: Rect, id: u16) {
+    if let Some(n) = status_count(id) {
+        let font = FontId::new((r.height() * 0.54).clamp(9.0, 16.0), FontFamily::Name(STRONG.into()));
+        paint::outlined(painter, pos2(r.max.x + 1.0, r.max.y + 2.0), egui::Align2::RIGHT_BOTTOM, n, font, Color32::WHITE);
+    }
+}
+
 /// Our status icons by status id (assets/modern/status_map.tsv: ids sharing a retail image share ours).
 fn status_art() -> &'static HashMap<u16, &'static str> {
     static MAP: std::sync::OnceLock<HashMap<u16, &'static str>> = std::sync::OnceLock::new();

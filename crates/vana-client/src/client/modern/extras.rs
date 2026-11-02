@@ -58,14 +58,17 @@ fn timers_panel(p: &mut Panels, w: &mut World) {
     let pulse = if t <= 20.0 { t } else { 40.0 - t } * 0.05;
     let (out, folded) = (w.timers.out, w.timers.folded);
     let icon = |i: &Icon| match *i {
-        Icon::Status(id) => m.status_icon(ctx, gu, small, id),
-        Icon::List(lib, k) => m.sprite_icon(ctx, gu, lib, k).map(|t| (t, super::FULL_UV)),
+        Icon::Status(id) => m.status_icon(ctx, gu, small, id).map(|(t, uv)| (t, uv, Some(id))),
+        Icon::List(lib, k) => m.sprite_icon(ctx, gu, lib, k).map(|t| (t, super::FULL_UV, None)),
         Icon::None => None,
     };
-    let icons: Vec<Vec<Vec<Option<(egui::TextureId, Rect)>>>> = if out { secs.iter().map(|s| s.iter().map(|g| g.rows.iter().map(|r| icon(&r.icon)).collect()).collect()).collect() } else { Vec::new() };
+    let icons: Vec<Vec<Vec<Option<(egui::TextureId, Rect, Option<u16>)>>>> = if out { secs.iter().map(|s| s.iter().map(|g| g.rows.iter().map(|r| icon(&r.icon)).collect()).collect()).collect() } else { Vec::new() };
     let paint = |painter: &egui::Painter, (k, gi, ri): (usize, usize, usize), r: Rect, tint: Color32| {
-        if let Some(Some((t, uv))) = icons.get(k).and_then(|s| s.get(gi)).and_then(|g| g.get(ri)) {
+        if let Some(Some((t, uv, status))) = icons.get(k).and_then(|s| s.get(gi)).and_then(|g| g.get(ri)) {
             painter.image(*t, r, *uv, tint);
+            if let Some(id) = status {
+                super::draw_status_count(painter, r, *id);
+            }
         }
     };
     let mut fold: Option<usize> = None;
