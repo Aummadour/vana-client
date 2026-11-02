@@ -2,7 +2,7 @@
 
 The bar for the mod API (docs/lua-mods.md, section 1): every existing Windower and Ashita add-on and plugin must be
 re-implementable on it. Running them unmodified does not matter. This table tracks that, one row per add-on, plugin or
-feature, rated against the API as of 2 November 2026 (auto-translate and every gap filled before it): the generated stubs
+feature, rated against the API as of 2 November 2026: the generated stubs
 (`crates/vana-client/assets/mods/library/vana.lua`) and the State list in docs/lua-mods.md. A row that is not covered
 points at a gap in the API; when a gap is filled, re-rate the rows it lists.
 
