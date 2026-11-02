@@ -465,6 +465,9 @@ pub struct ZoneRenderer {
     pub now: f32,
     /// FUN_10178b30's V for the world slot (zone +0x38e1c).
     pub voyage: Mat4,
+    /// A Lua mod's scene background colour and ambient light in place of the zone's (gamma-space RGB).
+    pub mod_clear: Option<[f32; 3]>,
+    pub mod_ambient: Option<[f32; 3]>,
     /// The scenery's draw distance D and Clipping factor K (dat/weather.rs clipping); D 0 draws at any distance.
     pub clip: [f32; 2],
     /// Retail's D whatever the Draw Distance setting: where the camera list's reach ends (set_camera_list).
@@ -1744,6 +1747,8 @@ impl ZoneRenderer {
             parts_gpu,
             now: 0.0,
             voyage: Mat4::IDENTITY,
+            mod_clear: None,
+            mod_ambient: None,
             clip: [0.0, 1.0],
             retail_reach: 0.0,
         }
@@ -2565,6 +2570,14 @@ impl ZoneRenderer {
             let lin = |c: f32| if self.encode_gamma { c } else { c.powf(2.2) };
             clear = [lin(l.clear.x), lin(l.clear.y), lin(l.clear.z)];
         }
+        if let Some(c) = self.mod_clear {
+            let lin = |c: f32| if self.encode_gamma { c } else { c.powf(2.2) };
+            clear = c.map(lin);
+            u.clear = [c[0], c[1], c[2], 1.0];
+        }
+        if let Some(a) = self.mod_ambient {
+            (u.ambient, u.actor_ambient) = ([a[0], a[1], a[2], 1.0], [a[0], a[1], a[2], 1.0]);
+        }
         // FUN_10183da0: instances with an area are lit by its environment; flagged models by 'ev10' while a sub-area
         // is in (+0x50, FUN_101787c0).
         u.area_info[1] = self.now;
@@ -2579,6 +2592,9 @@ impl ZoneRenderer {
         for (slot, l) in self.area_lights.iter().enumerate().take(AREAS - 1) {
             if let Some(l) = l {
                 areas[slot + 1] = AreaGpu { sun: v4(l.dir, 1.0), sun_color: v4(l.diffuse, 1.0), ambient: v4(l.ambient, 1.0), fog_color: v4(l.fog, 1.0), fog: [l.fog_start, l.fog_end, 0.0, 0.0], actor_sun: v4(l.actor_dir, 1.0), actor_color: v4(l.actor_diffuse, 1.0), actor_ambient: v4(l.actor_ambient, 1.0), two: l.two.map(|v| v4(v, 1.0)) };
+                if let Some(a) = self.mod_ambient {
+                    (areas[slot + 1].ambient, areas[slot + 1].actor_ambient) = ([a[0], a[1], a[2], 1.0], [a[0], a[1], a[2], 1.0]);
+                }
             }
         }
         gpu.queue.put(&self.areas, 0, bytemuck::cast_slice(&areas));

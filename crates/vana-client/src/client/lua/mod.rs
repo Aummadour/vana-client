@@ -78,7 +78,20 @@ pub(in crate::client) struct WinReq {
 }
 
 /// The behaviour switches (client.set_option) by name; false for an unknown name or value.
-pub(super) const OPTIONS: [&str; 5] = ["macro_palette_delay", "ah_result_delay", "equipset_delay", "log_slide", "cutscene_speed"];
+pub(super) const OPTIONS: [&str; 9] = ["macro_palette_delay", "ah_result_delay", "equipset_delay", "log_slide", "cutscene_speed", "animation_rate", "clear_colour", "ambient", "minimap_span"];
+
+/// An {r, g, b} (0..255) as gamma-space floats; false / nil: none.
+fn rgb_of(v: &serde_json::Value) -> Option<Option<[f32; 3]>> {
+    if v.is_null() || v == &serde_json::Value::Bool(false) {
+        return Some(None);
+    }
+    let get = |k: &str, i: usize| v.get(k).or_else(|| v.get(i)).and_then(|x| x.as_f64());
+    Some(Some([get("r", 0)?, get("g", 1)?, get("b", 2)?].map(|c| (c / 255.0).clamp(0.0, 1.0) as f32)))
+}
+
+fn rgb_json(c: Option<[f32; 3]>) -> serde_json::Value {
+    c.map_or(serde_json::Value::Bool(false), |c| serde_json::json!({"r": (c[0] * 255.0).round(), "g": (c[1] * 255.0).round(), "b": (c[2] * 255.0).round()}))
+}
 
 fn set_option(w: &mut World, name: &str, v: &serde_json::Value) -> bool {
     let b = v.as_bool();
@@ -89,6 +102,22 @@ fn set_option(w: &mut World, name: &str, v: &serde_json::Value) -> bool {
         ("log_slide", Some(b)) => (w.log.anim.instant, w.log2.anim.instant, w.modern_log.anim.instant) = (!b, !b, !b),
         ("cutscene_speed", _) => match v.as_f64() {
             Some(k) => w.opts.cutscene_speed = (k as f32).clamp(1.0, 4.0),
+            None => return false,
+        },
+        ("animation_rate", _) => match v.as_f64() {
+            Some(k) => w.opts.anim_rate = (k as f32).clamp(0.25, 4.0),
+            None => return false,
+        },
+        ("clear_colour", _) => match rgb_of(v) {
+            Some(c) => w.opts.clear = c,
+            None => return false,
+        },
+        ("ambient", _) => match rgb_of(v) {
+            Some(c) => w.opts.ambient = c,
+            None => return false,
+        },
+        ("minimap_span", _) => match v.as_f64() {
+            Some(k) => (w.minimap_span, w.minimap_dirty) = ((k as f32).clamp(super::minimap::SPAN.0, super::minimap::SPAN.1), true),
             None => return false,
         },
         _ => return false,
@@ -105,6 +134,10 @@ pub(super) fn option(w: &World, name: &str) -> Option<serde_json::Value> {
         "equipset_delay" => json!(w.opts.equipset_delay),
         "log_slide" => json!(!w.log.anim.instant),
         "cutscene_speed" => json!(w.opts.cutscene_speed),
+        "animation_rate" => json!(w.opts.anim_rate),
+        "clear_colour" => rgb_json(w.opts.clear),
+        "ambient" => rgb_json(w.opts.ambient),
+        "minimap_span" => json!(w.minimap_span),
         _ => return None,
     })
 }
@@ -115,7 +148,11 @@ fn release_options(w: &mut World) {
     let gone: Vec<String> = w.lua.opt_owners.iter().filter(|(_, m)| !loaded.contains(*m)).map(|(n, _)| n.clone()).collect();
     for n in gone {
         w.lua.opt_owners.remove(&n);
-        let default = if n == "cutscene_speed" { serde_json::json!(1.0) } else { serde_json::json!(true) };
+        let default = match n.as_str() {
+            "cutscene_speed" | "animation_rate" => serde_json::json!(1.0),
+            "clear_colour" | "ambient" => serde_json::Value::Null,
+            _ => serde_json::json!(true),
+        };
         set_option(w, &n, &default);
     }
 }
@@ -947,7 +984,8 @@ fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
         Op::Shot(name) => w.lua.shot = Some(name),
         Op::Paste => w.lua.paste_wanted = true,
         Op::Option(mod_id, name, v) => {
-            if set_option(w, &name, &v) {
+            // The minimap's zoom stays as the wheel's does; the rest go back when the mod unloads.
+            if set_option(w, &name, &v) && name != "minimap_span" {
                 w.lua.opt_owners.insert(name, mod_id);
             }
         }

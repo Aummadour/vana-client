@@ -1175,12 +1175,12 @@ function client.paste(handler) end
 
 --- A behaviour switch's value (see set_option).
 ---@param name string 
----@return boolean|number
+---@return boolean|number|table
 function client.option(name) end
 
---- Sets a behaviour switch while the mod is loaded (retail's back when it unloads): macro_palette_delay (false: the Ctrl / Alt palette opens at once, not at the next whole second), ah_result_delay (false: a bid's result prints at once), equipset_delay (false: no 0.9 s wait between equip sets), log_slide (false: new log lines show at once), cutscene_speed (1..4: events play that much faster).
+--- Sets a behaviour switch while the mod is loaded (retail's back when it unloads): macro_palette_delay (false: the Ctrl / Alt palette opens at once, not at the next whole second), ah_result_delay (false: a bid's result prints at once), equipset_delay (false: no 0.9 s wait between equip sets), log_slide (false: new log lines show at once), cutscene_speed (1..4: events play that much faster), animation_rate (0.25..4: the actors' animation speed), clear_colour and ambient ({r, g, b} 0..255 in place of the zone's background colour and ambient light; false gives the zone's back), minimap_span (the minimap's zoom, map pixels across, 48..512; kept as the wheel keeps it).
 ---@param name string 
----@param value boolean|number 
+---@param value boolean|number|table 
 function client.set_option(name, value) end
 
 --- The game window: {x, y (its place on the desktop, when the system tells it), w, h (pixels), focused}.

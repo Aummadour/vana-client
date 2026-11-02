@@ -344,11 +344,15 @@ struct Opts {
     ah_delay: bool,
     equipset_delay: bool,
     cutscene_speed: f32,
+    /// The actors' animation speed, and the scene background and ambient light in place of the zone's.
+    anim_rate: f32,
+    clear: Option<[f32; 3]>,
+    ambient: Option<[f32; 3]>,
 }
 
 impl Default for Opts {
     fn default() -> Self {
-        Self { macro_delay: true, ah_delay: true, equipset_delay: true, cutscene_speed: 1.0 }
+        Self { macro_delay: true, ah_delay: true, equipset_delay: true, cutscene_speed: 1.0, anim_rate: 1.0, clear: None, ambient: None }
     }
 }
 
@@ -9891,7 +9895,7 @@ impl App {
         racing::step(world, dt * 60.0);
         combat::run_map_schedulers(world);
         ride::dig_update(world);
-        actmotion::update(world, dt);
+        actmotion::update(world, dt * world.opts.anim_rate);
         // FUN_10096640: the lock goes with its target; inferred, after 10 s (a talk the server never answers).
         if !event::active(world) && world.control_lock.is_some_and(|(t, id)| t.elapsed().as_secs_f32() > 10.0 || !world.entities.contains_key(&id)) {
             world.control_lock = None;
@@ -13632,6 +13636,7 @@ impl App {
                 r.set_camera_list(&gfx.gpu, list, far);
                 // Config 0017: bump mapping's lighting (one eased light, vertex fog) or the two-light model; never in 182.
                 r.bump_mode = self.cfg.tool("0017") != 0 && w.zone != Some(182);
+                (r.mod_clear, r.mod_ambient) = (w.opts.clear, w.opts.ambient);
                 // Config 0011: the animated meshes' sway this frame (render/sway.rs).
                 let steps = match self.cfg.tool("0011") {
                     0 => 1,
