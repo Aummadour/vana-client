@@ -13195,3 +13195,29 @@ Specs: `~/ffxi/lab/research/pol_map_session_spec.md`, `entity_update_spec.md` (a
 - Ours: Effects::anchor_points -> Actor::anchors (reset to 2 with each new model), Actor::anchor_at (posed in the actor
   loop, CPU bones for such actors), client anchor_point (arrow 0 / plate 1). Seen live by the user: Laughing Bison's
   plate and arrow over her.
+
+## Airships: a server pose held until the path lets go (2026-11-02)
+
+- User report: Port Jeuno's airships stood off their berth (doors misaligned, the deck edge over the pier) until they
+  snapped in about 2 minutes after docking, just before leaving. 487af5f applied a ship's position update only when
+  it came with no path drive running. LSB sends the dock pose as the docked phase begins: 26 s into the San d'Oria,
+  Bastok and Windurst arrivals (file 31010 `pts0` / `ptt0` / `ptu0` end at 1600 ticks = 26.7 s) and 45 s into
+  Kazham's (`ptv0`, 2700 ticks = 45.0 s). Each came while the path still ran, was passed over, and the next update
+  came only with the closing phase.
+- Decompile: FUN_100c47f0 (the model actor's frame) starts with FUN_100a57f0. Its FUN_10086e90 sets +0xc4 = +0x34
+  every frame, and with +0x88 bit 0 clear +0xe4 = +0x44, so an undriven model actor holds its own pose there.
+  FUN_100c4050 (XiModelActor's set-rotation: +0x744, +0x44, entity +0x34 and FUN_100929a0) is called only from
+  FUN_101cdf50 (Mog House layout quarter turns). The pushes FUN_10092c20 / FUN_100929d0 / FUN_10092b20 skip kind 5.
+  So the call that puts a server pose on a ship is still not found *(inf)*.
+- Ours *(inf)*: an update that comes mid-drive is held (ModelActor::held) and applied once Effects::driving is false.
+  Mhaura's ferry now turns as `pat1` ends (40 s) instead of at the 41 s update, which looks the same.
+- Checked against every LSB transport (ship ids from npcs.yaml door_id, drive ends from the files): each departure
+  path ends after its hide (Port Jeuno 36.7 / 49 s vs 33 / 46 s; Bastok 40 vs 37; Windurst 33.3 vs 29; San d'Oria
+  38.3 vs 35; Kazham 41.7 vs 38; Mhaura / Selbina 40 vs 38; Whitegate / Nashmau 40 vs 37; manaclipper 45 / 53.3 vs
+  41 / 49), so a held staging pose lands while the ship is hidden. The barge's held moves go to its hidden place
+  (0, 100, 0), and the pirate ship's paths end on LSB's (30, 0, 0) and (150, 0, -1000), so only its heading turns
+  (about 0.06). The airship arrivals in Port Bastok (30 vs 29 s), Port San d'Oria (25 vs 23), Port Windurst (41.7 vs
+  40) and Kazham (41.7 vs 40) were passed over the same way.
+- Live (Lnxcsfix at the San d'Oria berth): Kazham's docked update came at 44.4 s and was applied at 45.0 s (yaw
+  1.665 -> 1.571 at (-4, 10.45, 117)); San d'Oria's came at 25.6 s and was applied at 26.4 s (1.493 -> 1.571 at
+  (-68, 10.45, 117)). Seen fixed by the user.

@@ -27,6 +27,8 @@ pub struct ModelActor {
     pub state: u8,
     pub matrix: Mat4,
     pub shown: bool,
+    /// A server pose came while a path drive held the model: applied when the drive lets go.
+    held: bool,
 }
 
 #[derive(Default)]
@@ -99,19 +101,21 @@ pub fn update(w: &mut World) -> Vec<Job> {
     }
     w.ships.loading.retain(|id, _| w.entities.get(id).is_some_and(|e| e.ship.is_some()));
     let mut jobs = Vec::new();
-    // *(inf: seen on the retail client, the call not traced)* A position update reaches a ship's model only while no
-    // path drive holds it: LSB's dock update at 20 s is passed over mid-`pat1`, the same one at 41 s turns Mhaura's
-    // ferry from the drive's -0.062 to the dock heading 0, where its cabin (sub-area 493) meets the hull.
+    // *(inf: seen on the retail client, the call not traced)* A position update moves a ship's model once no path
+    // drive holds it; one that came mid-drive waits for the drive's end. Mhaura's ferry turns from -0.062 to the dock
+    // heading 0 as `pat1` ends; Port Jeuno's airships take the docked update LSB sends 0.7 s before their paths end.
     for id in std::mem::take(&mut w.ships.posed) {
-        if w.effects.driving(id) {
-            continue;
+        if let Some(a) = w.ships.actors.get_mut(&id) {
+            a.held = true;
         }
+    }
+    let free: Vec<u32> = w.ships.actors.iter().filter(|(id, a)| a.held && !w.effects.driving(**id)).map(|(id, _)| *id).collect();
+    for id in free {
         let Some(e) = w.entities.get(&id) else { continue };
         let (pos, yaw) = (e.pos, super::event::rad_of(e.dir));
         if let Some(a) = w.ships.actors.get_mut(&id) {
             log::debug!("ship {id:#x}: server pose {pos} yaw {yaw:.3} (was {} yaw {:.3})", a.pos, a.rot.y);
-            a.pos = pos;
-            a.target = Vec3::new(0.0, yaw, 0.0);
+            (a.pos, a.target, a.held) = (pos, Vec3::new(0.0, yaw, 0.0), false);
         }
     }
     let ships: Vec<(u32, u32, u32)> = w.entities.iter().filter_map(|(id, e)| e.ship.map(|(ship, start)| (*id, ship, start))).collect();
@@ -179,7 +183,7 @@ pub fn create(w: &mut World, l: &Loaded) -> Option<Mat4> {
     let (pos, rot) = (e.pos, Vec3::new(0.0, super::event::rad_of(e.dir), 0.0));
     let matrix = model_matrix(pos, rot);
     log::info!("ship {:#x}: id {ship}, file {}, mesh {}, state {state:#x} at {pos} yaw {:.3}", l.entity, l.file, l.mesh, rot.y);
-    w.ships.actors.insert(l.entity, ModelActor { file: l.file, pos, rot, target: rot, smooth, skip_draws: 4, state, matrix, shown: false });
+    w.ships.actors.insert(l.entity, ModelActor { file: l.file, pos, rot, target: rot, smooth, skip_draws: 4, state, matrix, shown: false, held: false });
     let bound = super::event::active(w) && w.doors.event.contains_key(&l.entity);
     start_seq(w, l.entity, if bound { 0 } else { start });
     // A prop (the generic MMB branch) plays its file's 'init' once *(ours at creation; retail the second update)*.
