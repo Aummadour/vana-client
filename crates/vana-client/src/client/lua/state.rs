@@ -10,6 +10,11 @@ use mlua::{Lua, Table};
 pub(super) struct FrameInfo {
     pub grid: String,
     grid_at: Option<std::time::Instant>,
+    /// The window in pixels, and UI units per pixel (the classic layout's stretch).
+    pub window: [f32; 2],
+    pub k: (f32, f32),
+    /// The HUD elements drawn last frame in window pixels: (mod, element, x y w h).
+    pub hud_rects: Vec<(String, String, [f32; 4])>,
 }
 
 impl FrameInfo {

@@ -242,8 +242,8 @@ pub(in crate::client) fn window_event(w: &mut World, event: &WindowEvent) -> boo
     }
 }
 
-/// A test drive's egui events through the mods, as the window's go: the ones no mod took. `ppp` is egui's points per
-/// window pixel.
+/// A test drive's egui events through the mods, as the window's go: the ones no mod took. `ppp` is egui's pixels per
+/// point, so a drive's pixel lands where the window's would.
 pub(in crate::client) fn drive_events(w: &mut World, events: Vec<egui::Event>, ppp: f64) -> Vec<egui::Event> {
     if !w.lua.started {
         return events;
@@ -315,6 +315,15 @@ fn moved(w: &mut World, x: f64, y: f64) -> bool {
 
 fn button_edge(w: &mut World, button: MouseButton, down: bool) -> bool {
     let st = w.lua.input.clone();
+    // A press on a HUD element with a click handler is its (and its release).
+    if down && matches!(button, MouseButton::Left | MouseButton::Right) {
+        let (x, y) = st.borrow().cursor;
+        if let Some((m, id)) = super::hud::hit(w, x, y) {
+            w.lua.hud_clicks.push((m, id, button_name(button)));
+            st.borrow_mut().taken_buttons.push(button);
+            return true;
+        }
+    }
     let (taken, (x, y)) = {
         let mut s = st.borrow_mut();
         if let Some(k) = [MouseButton::Left, MouseButton::Right, MouseButton::Middle].iter().position(|b| *b == button) {

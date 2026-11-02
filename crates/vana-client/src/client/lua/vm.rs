@@ -106,6 +106,9 @@ pub(super) struct ModState {
     pub binds: Vec<super::input::Bind>,
     /// Functions other mods may call (mods.provide).
     pub provided: Vec<(String, RegistryKey)>,
+    /// HUD elements (docs/lua-mods.md 4.10) and their click handlers.
+    pub hud: Vec<super::hud::Elem>,
+    pub hud_handlers: Vec<(String, RegistryKey)>,
 }
 
 impl ModState {

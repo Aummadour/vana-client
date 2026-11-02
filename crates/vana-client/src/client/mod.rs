@@ -3016,6 +3016,8 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
     gu.clear();
     gu.modern_skin(world.modern);
     name_plates(gu, world, sw, sh, view_proj);
+    // The Lua mods' HUD elements, over the plates and under every window.
+    lua::draw_hud(gu, world);
     if world.overlay.as_ref().is_some_and(|o| o.zone != world.pos_zone) {
         world.overlay = Some(map::Overlay::open(world, gu.map_regions()));
     } else if let Some(mut o) = world.overlay.take() {
@@ -10821,6 +10823,9 @@ impl App {
         let size = self.cfg.ui_size(window);
         self.ui_k = (size[0] as f32 / window[0].max(1) as f32, size[1] as f32 / window[1].max(1) as f32);
         let k = self.ui_k;
+        if let Phase::World(w) = &self.phase {
+            w.lua.set_view(window, k);
+        }
         let screen_size = size;
         let ppp = ctx.pixels_per_point();
         if let Some(m) = &self.modern {
@@ -12591,7 +12596,7 @@ impl App {
             let (events, shot, action) = sc.next(phase, &probes, gfx.egui_ctx.pixels_per_point());
             // Through the Lua mods first, as the window's keys and mouse go.
             let events = match &mut self.phase {
-                Phase::World(w) => lua::input::drive_events(w, events, gfx.window.scale_factor()),
+                Phase::World(w) => lua::input::drive_events(w, events, gfx.egui_ctx.pixels_per_point() as f64),
                 _ => events,
             };
             for e in &events {

@@ -184,6 +184,7 @@ events = {}
 commands = {}
 filters = {}
 ui = {}
+hud = {}
 packets = {}
 chat = {}
 input = {}
@@ -307,6 +308,52 @@ function ui.is_open(id) end
 ---@param id string 
 ---@param handler fun(window: string, event: {kind: string, id: string?, index: integer?}) 
 function ui.on(id, handler) end
+
+--- Creates or replaces a HUD text: x, y (window pixels; negative from the right or bottom edge), text (\n for lines), size (1 = the UI's text), colour and bg ({r, g, b, a} 0..255), align (left, center, right), pad, layer, visible. It draws under the windows in the active UI's font and hides with the UI.
+---@param id string 
+---@param spec table 
+function hud.text(id, spec) end
+
+--- Creates or replaces a filled rectangle: x, y, w, h (window pixels; hud.screen().ui_scale converts UI units), colour.
+---@param id string 
+---@param spec table 
+function hud.rect(id, spec) end
+
+--- Creates or replaces a bar: x, y, w, h, value (0..1), kind (hp, mp, tp, cast, experience, recast: its colour) or colour.
+---@param id string 
+---@param spec table 
+function hud.bar(id, spec) end
+
+--- Creates or replaces an icon: x, y, icon (status or item), id, size.
+---@param id string 
+---@param spec table 
+function hud.icon(id, spec) end
+
+--- Changes an element's fields (only those given).
+---@param id string 
+---@param fields table 
+function hud.set(id, fields) end
+
+--- Removes an element.
+---@param id string 
+function hud.remove(id) end
+
+--- Removes every element of the mod.
+function hud.clear() end
+
+--- An element's click handler: a left or right press on it is the mod's (not the game's): handler(id, {kind = 'click', id, button}). It is the player's input: actions may act here.
+---@param id string 
+---@param handler fun(id: string, e: table) 
+function hud.on(id, handler) end
+
+--- The window in pixels, and ui_scale: pixels per UI unit (sizes given in UI units look the same at any resolution).
+---@return {width: number, height: number, ui_scale: number}
+function hud.screen() end
+
+--- Where an element was drawn last frame, in window pixels.
+---@param id string 
+---@return {x: number, y: number, w: number, h: number}?
+function hud.bounds(id) end
 
 --- Hooks received packets (one id, or every one when nil) before the client reads them. The handler gets {id, data, original, injected, blocked, outgoing} (data and original are the whole sub-packet, header included) and returns nil to leave it, false to block it, or new bytes. Hooks chain across mods: a blocked packet still reaches later ones. Needs packets.read; changing or blocking needs packets.write.
 ---@param id integer? packet id

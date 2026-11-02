@@ -5,6 +5,7 @@
 mod actions;
 mod api;
 mod docs;
+mod hud;
 pub(super) mod input;
 mod manifest;
 mod runtime;
@@ -63,6 +64,8 @@ pub struct Host {
     dir: runtime::Shared,
     /// What the UI knows that mods read (the map grid).
     info: std::rc::Rc<std::cell::RefCell<state::FrameInfo>>,
+    /// HUD elements clicked since the last mod phase: (mod, element, button).
+    hud_clicks: Vec<(String, String, &'static str)>,
 }
 
 /// Mod folders watched for saved files (`/lua watch`): a thread polls their .lua / .toml files' times and names a mod
@@ -659,6 +662,17 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
         }
         let events = std::mem::take(&mut host.events);
         let ui_events = std::mem::take(&mut host.ui_events);
+        for (m, id, button) in std::mem::take(&mut host.hud_clicks) {
+            let Some(vm) = host.vms.iter().find(|v| v.manifest.id == m && v.suspended.is_none()) else { continue };
+            let f = vm.st.borrow().hud_handlers.iter().find(|h| h.0 == id).and_then(|h| vm.lua.registry_value::<mlua::Function>(&h.1).ok());
+            if let Some(f) = f {
+                lend(vm, w, |vm| {
+                    use mlua::LuaSerdeExt;
+                    let e = vm.lua.to_value(&serde_json::json!({"kind": "click", "id": id, "button": button})).unwrap_or(mlua::Value::Nil);
+                    vm.call_input(f, (id.clone(), e));
+                });
+            }
+        }
         // Events mods sent each other (mods.emit), to every other mod listening.
         let emitted = std::mem::take(&mut host.dir.borrow_mut().emitted);
         for (from, name, args) in &emitted {
@@ -791,6 +805,22 @@ fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
             w.typing = false;
             (w.chat_input, w.chat_caret, w.chat_anchor) = (String::new(), None, None);
         }
+    }
+}
+
+/// The mods' HUD elements, under the windows (world_hud).
+pub(super) fn draw_hud(gu: &mut super::game_ui::GameUi, w: &World) {
+    if w.lua.started {
+        hud::draw(gu, w);
+    }
+}
+
+impl Host {
+    /// The window's size in pixels and the UI's units per pixel, for the HUD's places.
+    pub(in crate::client) fn set_view(&self, window: [u32; 2], k: (f32, f32)) {
+        let mut f = self.info.borrow_mut();
+        f.window = [window[0] as f32, window[1] as f32];
+        f.k = k;
     }
 }
 

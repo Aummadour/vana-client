@@ -585,6 +585,22 @@ impl GameUi {
         self.batch.push_text(&quads, ATLAS);
     }
 
+    /// A line of game text scaled about its top left (the modern skin's: its font at `scale` times the em).
+    pub fn text_scaled(&mut self, s: &str, x: f32, y: f32, color: [u8; 4], scale: f32) {
+        if self.batch.modern.is_some() {
+            let mut x = x;
+            for (t, c) in self.modern_runs(s, color) {
+                let col = [c[2], c[1], c[0], c[3]].map(|v| (v as f32 / 128.0).min(1.0));
+                x = self.batch.push_mtext(&t, Face::Regular, mtext::TEXT_EM * scale, x, y + mtext::TEXT_DY * scale, col, false);
+            }
+            return;
+        }
+        let sjis = encode_sjis(s);
+        let mut quads = Vec::new();
+        self.data.font.layout_line(&sjis, x.round() as i32, y.round() as i32, color, [scale, scale], &mut quads);
+        self.batch.push_text(&quads, ATLAS);
+    }
+
     /// The select screen's 16-slot list (dbnamese); returns the slot rects and the list window's area.
     pub fn select_list(&mut self, w: f32, h: f32, cursor: usize, used: &[bool], focused: bool, press: Option<f32>) -> (Vec<[f32; 4]>, [f32; 4]) {
         let cursor_frame = self.cursor_frame();

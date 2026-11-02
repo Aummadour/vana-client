@@ -46,6 +46,10 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   - elements: text, buttons and options, slider, scrolling list, gauge, separator
   - keys and mouse in both UIs: the classic UI draws Config pages, the modern UI kit panels with saved places
   - HUD windows (no focus, frameless, placed)
+  - the HUD layer (`hud`): retained text (size, colour, background, alignment, lines), rects, bars and item / status
+    icons in window pixels (negative from the right or bottom edge), drawn under the windows in the active UI's font
+    and hidden with the UI; `hud.on` takes left / right clicks on an element from the game; `hud.screen` (size,
+    pixels per UI unit), `hud.bounds`. Checked live in both UIs, clicks too
 - **Permissions:** each one a mod asks for is a row on its Extras page (ON / OFF, with what it allows on the help
   line), or `/lua grant` / `revoke`; kept in mod-data/grants.json. A mod loaded without them says where to allow them.
 - **Packets** (`packets.read` / `packets.write`):
