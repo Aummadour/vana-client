@@ -238,6 +238,9 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
         "entity",
         lua.create_function(|lua, key: u32| {
             let w = world(lua)?;
+            if key == w.my_id || key == u32::from(w.my_index) {
+                return self_entity(lua, w).map(Some);
+            }
             let e = w.entities.get(&key).map(|e| (key, e)).or_else(|| w.entities.iter().find(|(_, e)| u32::from(e.index) == key).map(|(id, e)| (*id, e)));
             e.map(|(id, e)| entity(lua, w, id, e)).transpose()
         })?,
@@ -249,6 +252,9 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
             let max = opts.as_ref().and_then(|o| o.get::<f32>("distance").ok());
             let kinds: Option<Vec<String>> = opts.as_ref().and_then(|o| o.get::<Vec<String>>("kinds").ok());
             let out = lua.create_table()?;
+            if kinds.as_ref().is_none_or(|k| k.iter().any(|k| k == "player")) {
+                out.push(self_entity(lua, w)?)?;
+            }
             let mut list: Vec<(&u32, &super::super::Entity)> = w.entities.iter().collect();
             list.sort_by_key(|(_, e)| e.index);
             for (id, e) in list {
@@ -267,7 +273,10 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
         "target",
         lua.create_function(|lua, ()| {
             let w = world(lua)?;
-            w.target.and_then(|id| w.entities.get(&id).map(|e| (id, e))).map(|(id, e)| entity(lua, w, id, e)).transpose()
+            match w.target {
+                Some(id) if id == w.my_id => self_entity(lua, w).map(Some),
+                t => t.and_then(|id| w.entities.get(&id).map(|e| (id, e))).map(|(id, e)| entity(lua, w, id, e)).transpose(),
+            }
         })?,
     )?;
     game.set("party", lua.create_function(|lua, ()| party(lua))?)?;
@@ -447,6 +456,30 @@ fn entity(lua: &Lua, w: &World, id: u32, e: &super::super::Entity) -> mlua::Resu
     t.set("claim", e.claim)?;
     t.set("targetable", e.flags & 6 == 0 && !e.untargetable && !e.target_off)?;
     t.set("hidden", e.flags & 2 != 0)?;
+    Ok(t)
+}
+
+/// Our own character as an entity (the entity map holds the others only).
+fn self_entity(lua: &Lua, w: &World) -> mlua::Result<Table> {
+    let t = lua.create_table()?;
+    t.set("id", w.my_id)?;
+    t.set("index", w.my_index)?;
+    t.set("name", w.name.as_str())?;
+    t.set("kind", "player")?;
+    let pos = lua.create_table()?;
+    pos.set("x", w.pos.x)?;
+    pos.set("y", w.pos.y)?;
+    pos.set("z", w.pos.z)?;
+    t.set("pos", pos)?;
+    t.set("heading", w.yaw)?;
+    t.set("distance", 0.0)?;
+    t.set("hpp", w.vitals.map_or(100, |v| v.3))?;
+    t.set("status", w.my_motion.status)?;
+    t.set("speed", f32::from(w.my_motion.speed) / 10.0)?;
+    t.set("claim", 0)?;
+    t.set("targetable", true)?;
+    t.set("hidden", false)?;
+    t.set("me", true)?;
     Ok(t)
 }
 
