@@ -43,6 +43,8 @@ pub(super) enum Op {
     Config(u16, u32),
     /// The camera's distance (the zoom's scale).
     CameraDistance(f32),
+    /// The camera's pan speed scale, farthest wheel distance, distance while engaged (Some(None) clears it).
+    Camera(Option<f32>, Option<f32>, Option<Option<f32>>),
     Sound(audio::Sound),
     /// A message to the same mod in the other clients: (mod, the character it is for, text).
     Ipc(String, Option<String>, String),
@@ -893,6 +895,7 @@ fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
         Op::Paste => w.lua.paste_wanted = true,
         Op::Interface(show) => w.ui_hidden = !show,
         Op::CameraDistance(k) => super::camera::set_distance(w, k),
+        Op::Camera(speed, max, battle) => super::camera::set_mod(w, speed, max, battle),
         Op::Sound(s) => w.lua.sounds.push(s),
         Op::Music(mod_id, m) => {
             let now = m.map(|m| (mod_id.clone(), m));

@@ -10223,7 +10223,8 @@ impl App {
             // and lowers the eye at the free rate, unscaled.
             let (dx, dy) = std::mem::take(&mut world.cam_turn);
             let ticks = dt * 60.0;
-            target::step_camera(world, ticks, dx + turn_keys * i6 * camera::YAW_RATE * ticks, dy + cy * i7 * camera::RISE_RATE * ticks);
+            let sp = camera::speed(&world.camst);
+            target::step_camera(world, ticks, dx + turn_keys * i6 * camera::YAW_RATE * sp * ticks, dy + cy * i7 * camera::RISE_RATE * sp * ticks);
             let to = tp - world.pos;
             if to.x.abs() + to.z.abs() > 1e-3 {
                 world.yaw = to.x.atan2(to.z);

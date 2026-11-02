@@ -86,6 +86,41 @@ pub(super) fn install(lua: &Lua, g: &Table, mod_id: &str) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    t.set(
+        "camera",
+        lua.create_function(|lua, ()| {
+            let w = world(lua)?;
+            let st = &w.camst;
+            let out = lua.create_table()?;
+            out.set("distance", if st.dist > 0.0 { st.dist } else { 1.0 })?;
+            out.set("max_distance", super::super::camera::max_dist(st))?;
+            out.set("speed", super::super::camera::speed(st))?;
+            out.set("battle_distance", st.battle)?;
+            out.set("first_person", st.first)?;
+            for (k, v) in [("eye", w.cam.eye), ("look", w.cam.look)] {
+                let p = lua.create_table()?;
+                (p.set("x", v.x)?, p.set("y", v.y)?, p.set("z", v.z)?);
+                out.set(k, p)?;
+            }
+            Ok(out)
+        })?,
+    )?;
+    t.set(
+        "set_camera",
+        lua.create_function(|lua, o: Table| {
+            let battle = match o.get::<Value>("battle_distance")? {
+                Value::Boolean(false) => Some(None),
+                Value::Nil => None,
+                v => Some(Some(lua.unpack::<f32>(v)?)),
+            };
+            // The new limits first, so a distance given with them is clamped to them.
+            state(lua).borrow_mut().ops.push(super::Op::Camera(o.get("speed")?, o.get("max_distance")?, battle));
+            if let Some(d) = o.get::<Option<f32>>("distance")? {
+                state(lua).borrow_mut().ops.push(super::Op::CameraDistance(d));
+            }
+            Ok(())
+        })?,
+    )?;
     g.set("render", t)?;
     Ok(())
 }

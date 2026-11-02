@@ -70,8 +70,9 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   or the chat line needs them), Timers, the training regime window; undone when it unloads); game config values read and set through the
   Config window's apply (`ui.native` for changes); `actions.advance` moves event text on. Checked live in both UIs.
 - **Render** (`render`): per entity, while the mod runs (the newest mod's wins): hidden (model and plate), plate name and
-  colour, alpha, tint, size; the camera's distance read and set. Checked live (a renamed, tinted, doubled NPC, a hidden
-  one, ourselves translucent, the camera pulled back).
+  colour, alpha, tint, size; the camera's distance read and set; `render.camera` / `set_camera`: the wheel's farthest
+  distance (up to 10), the pan speed's scale, a distance while engaged. Checked live (a renamed, tinted, doubled NPC,
+  a hidden one, ourselves translucent, the camera pulled back and out to 6); the engaged distance not seen live.
 - **Audio** (`audio`): the mod's WAV files (16-bit PCM, any rate) through our mixer at the effects volume, the game's
   sound effects and interface sounds by id; the music held on a track or silenced and given back (`audio.music`,
   `mute_music`). Checked live (a WAV, a game effect, an 8-bit file refused; track 115 over the zone's, muted, back).

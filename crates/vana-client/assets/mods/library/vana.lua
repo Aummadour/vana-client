@@ -442,6 +442,14 @@ function render.camera_distance() end
 ---@param scale number 0.5..3
 function render.set_camera_distance(scale) end
 
+--- The camera: {distance (the wheel's scale, 1 = retail), max_distance, speed (the pan speed's scale), battle_distance, first_person, eye, look}.
+---@return table
+function render.camera() end
+
+--- Changes the camera (only the fields given): distance, max_distance (how far the wheel may go, up to 10; retail's farthest is 3), speed (the pan speed's scale, 0.1..5), battle_distance (the distance while engaged, back to the player's after; false clears it).
+---@param camera {distance: number?, max_distance: number?, speed: number?, battle_distance: number|false|nil} 
+function render.set_camera(camera) end
+
 --- Plays a sound file from the mod's folder (16-bit PCM WAV, mono or stereo, any rate; or a game SeWave file) at the effects volume.
 ---@param path string 
 ---@param volume? number 0..1, default 1
