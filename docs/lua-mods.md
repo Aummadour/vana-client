@@ -65,7 +65,8 @@ Built (client/lua/, modern/modwin.rs), each checked live:
     pixels per UI unit), `hud.bounds`. Checked live in both UIs, clicks too
 - **Native windows** (`ui.native`): the game's open windows by name and whether one has the keys; the whole
   interface hidden or shown; HUD pieces hidden in both UIs while the mod runs (party, target, buffs, compass /
-  location, minimap, cast bar, name plates; undone when it unloads); game config values read and set through the
+  location, minimap, cast bar, name plates, the alliance lists alone, the log windows (back while an event, a prompt
+  or the chat line needs them), Timers, the training regime window; undone when it unloads); game config values read and set through the
   Config window's apply (`ui.native` for changes); `actions.advance` moves event text on. Checked live in both UIs.
 - **Render** (`render`): per entity, while the mod runs (the newest mod's wins): hidden (model and plate), plate name and
   colour, alpha, tint, size; the camera's distance read and set. Checked live (a renamed, tinted, doubled NPC, a hidden
@@ -83,7 +84,8 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   `net.udp`, `net.send`, `net.close`; reading on threads, handlers (open, data, accept, close) in later mod phases.
   Checked live (a listener with an echo, UDP both ways, a refused connection).
 - **The game window and the system:** `client.window` (place, size, focus) and the `focus_change` event;
-  `client.set_window` (move, size; through the Settings' sizing path) and `client.focus` (`multibox`);
+  `client.set_window` (move, size through the Settings' sizing path; always on top, minimised, borderless full
+  screen, the frame, kept out of screen captures) and `client.focus` (`multibox`);
   `client.screenshot` (under the screenshots folder, subfolders allowed); `client.paste` (`clipboard`) and
   `client.copy`; `client.run` (a program without a shell, its exit code and output to a handler; `exec`). Checked
   live but `client.focus` (not tried: it would take the desktop's focus); the place reads nil under Wayland.

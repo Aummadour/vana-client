@@ -406,7 +406,7 @@ function ui.native.interface_hidden() end
 ---@param show boolean 
 function ui.native.interface(show) end
 
---- Hides a HUD piece of the game in both UIs while the mod is loaded: party (party and alliance lists, their status icons), target, buffs (our status icons), compass (the modern location panel), minimap, cast (the cast bar), plates (name plates). Needs ui.native.
+--- Hides a HUD piece of the game in both UIs while the mod is loaded: party (party and alliance lists, their status icons), target, buffs (our status icons), compass (the modern location panel), minimap, cast (the cast bar), plates (name plates), alliance (the alliance lists alone), log (the log windows: back while an event, a prompt or the chat line needs them), timers, regime (the training regime window). Needs ui.native.
 ---@param piece string 
 ---@param hidden? boolean default true; false shows it again
 function ui.native.hide(piece, hidden) end
@@ -1155,9 +1155,9 @@ function client.paste(handler) end
 ---@return {x: integer?, y: integer?, w: integer, h: integer, focused: boolean}
 function client.window() end
 
---- Moves ({x, y}) and / or sizes ({w, h}) the game window. Needs multibox.
----@param place {x: integer?, y: integer?, w: integer?, h: integer?} 
-function client.set_window(place) end
+--- Changes the game window: moves ({x, y}), sizes ({w, h}), top (always on top), minimised, fullscreen (borderless, on its monitor), border (the system frame), capture = false (kept out of screen captures where the system allows it). Only the fields given change. Needs multibox.
+---@param window {x: integer?, y: integer?, w: integer?, h: integer?, top: boolean?, minimised: boolean?, fullscreen: boolean?, border: boolean?, capture: boolean?} 
+function client.set_window(window) end
 
 --- Asks for the keyboard focus for this game window (switching between clients). Needs multibox.
 function client.focus() end

@@ -62,6 +62,12 @@ pub(in crate::client) struct WinReq {
     pub pos: Option<(i32, i32)>,
     pub size: Option<(u32, u32)>,
     pub focus: bool,
+    /// Always on top, minimised, borderless full screen, the frame, kept out of screen captures.
+    pub top: Option<bool>,
+    pub minimised: Option<bool>,
+    pub fullscreen: Option<bool>,
+    pub border: Option<bool>,
+    pub protected: Option<bool>,
 }
 
 /// The mods of this session.

@@ -325,7 +325,17 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
                 (Some(w), Some(h)) => Some((w.max(320), h.max(240))),
                 _ => None,
             };
-            state(lua).borrow_mut().ops.push(super::Op::Window(super::WinReq { pos, size, focus: false }));
+            let req = super::WinReq {
+                pos,
+                size,
+                top: t.get("top")?,
+                minimised: t.get("minimised")?,
+                fullscreen: t.get("fullscreen")?,
+                border: t.get("border")?,
+                protected: t.get::<Option<bool>>("capture")?.map(|c| !c),
+                ..Default::default()
+            };
+            state(lua).borrow_mut().ops.push(super::Op::Window(req));
             Ok(())
         })?,
     )?;
@@ -333,7 +343,7 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
         "focus",
         lua.create_function(|lua, ()| {
             super::api::need(lua, "multibox")?;
-            state(lua).borrow_mut().ops.push(super::Op::Window(super::WinReq { pos: None, size: None, focus: true }));
+            state(lua).borrow_mut().ops.push(super::Op::Window(super::WinReq { focus: true, ..Default::default() }));
             Ok(())
         })?,
     )?;

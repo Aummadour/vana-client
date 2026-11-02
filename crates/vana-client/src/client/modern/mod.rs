@@ -244,7 +244,7 @@ impl Modern {
         pointers(self, ctx, w);
         let layout = cfg.modern_places.entry(w.name.clone()).or_default();
         let mut changed = false;
-        let mut p = Panels { m: self, ctx, gu: Some(gu), layout, changed: &mut changed, chat_font: &mut cfg.modern_chat_font, battle_in_all: &mut cfg.modern_battle_in_all, condense: &mut cfg.modern_condense, folded: &mut cfg.modern_folded, scan_kinds: &mut cfg.modern_scan_kinds, this: HashMap::new(), retail: HashMap::new(), focus: focus_panel(w), hidden: w.lua.hidden_panels() };
+        let mut p = Panels { m: self, ctx, gu: Some(gu), layout, changed: &mut changed, chat_font: &mut cfg.modern_chat_font, battle_in_all: &mut cfg.modern_battle_in_all, condense: &mut cfg.modern_condense, folded: &mut cfg.modern_folded, scan_kinds: &mut cfg.modern_scan_kinds, this: HashMap::new(), retail: HashMap::new(), focus: focus_panel(w), hidden: modern_hidden(w) };
         // The chat window first: what sits on it places by this frame's height.
         self.chat_edge.set(None);
         chat::panel(&mut p, w);
@@ -380,6 +380,15 @@ struct Look<'a> {
     m: &'a Modern,
     ctx: &'a Context,
     gu: Option<&'a GameUi>,
+}
+
+/// The panels Lua mods hid; the chat window stays while typed in or needed by an event.
+fn modern_hidden(w: &World) -> Vec<&'static str> {
+    let mut h = w.lua.hidden_panels();
+    if w.typing || super::event::active(w) || super::event::prompt(w) {
+        h.retain(|p| *p != "chat");
+    }
+    h
 }
 
 /// What a frame's panels share.

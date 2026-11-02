@@ -3087,11 +3087,18 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
     if world.lua.hides("party") {
         (st.party_window, st.alliance) = (String::new(), [None, None]);
     }
+    if world.lua.hides("alliance") {
+        st.alliance = [None, None];
+    }
     if world.lua.hides("target") {
         st.target = None;
     }
-    timers::draw(gu, &mut world.timers, sw);
-    regime::draw(gu, &mut world.regime, sw);
+    if !world.lua.hides("timers") {
+        timers::draw(gu, &mut world.timers, sw);
+    }
+    if !world.lua.hides("regime") {
+        regime::draw(gu, &mut world.regime, sw);
+    }
     skillchain::draw(gu, &mut world.skillchain, sw);
     let slots = gu.hud(sw, sh, &st);
 
@@ -3253,7 +3260,9 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
     blockers.extend(world.minimap_rect);
     // Window 2 (FUN_10161d60): its frame, text and caption 740 at its own (x0 + textw - 352, y0); drawn before window 1,
     // which comes later in the window list (reopened after it), so window 1's caption sits over window 2's bottom edge.
-    if let Some(f) = log2.filter(|f| event_window.is_none() && !world.modern && (f.alpha > 0.0 || f.lines > 0)) {
+    // A Lua mod's hide of the log windows (ui.native.hide "log"), not while an event, a prompt or the line needs them.
+    let log_hidden = world.lua.hides("log") && !event::active(world) && !prompt && !line_open;
+    if let Some(f) = log2.filter(|f| !log_hidden && event_window.is_none() && !world.modern && (f.alpha > 0.0 || f.lines > 0)) {
         let [x, y, w, h] = f.rect;
         gu.frame_alpha(x, y, w, h, f.alpha);
         let newest = world.log2.draw(gu, &f, false, &world.chat);
@@ -3286,7 +3295,7 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
         let band = world.log.full_row_line(fl.filter, fl.back(logwin::full_lines(sh))).is_some_and(|k| charlnk::lit(world, k));
         blockers.push(world.log.draw_full(gu, &fl, sw, sh, line_open, route.second, band));
         blockers.extend(charlnk::draw(gu, world, sw, sh));
-    } else if !world.modern && (log.alpha > 0.0 || log.lines > 0) {
+    } else if !log_hidden && !world.modern && (log.alpha > 0.0 || log.lines > 0) {
         let [x, y, w, h] = log.rect;
         gu.frame_alpha(x, y, w, h, log.alpha);
         let newest = world.log.draw(gu, &log, line_open, &world.chat);
@@ -12765,6 +12774,21 @@ impl App {
                 mod_size = r.size.or(mod_size);
                 if r.focus {
                     gfx.window.focus_window();
+                }
+                if let Some(t) = r.top {
+                    gfx.window.set_window_level(if t { winit::window::WindowLevel::AlwaysOnTop } else { winit::window::WindowLevel::Normal });
+                }
+                if let Some(m) = r.minimised {
+                    gfx.window.set_minimized(m);
+                }
+                if let Some(f) = r.fullscreen {
+                    gfx.window.set_fullscreen(f.then_some(winit::window::Fullscreen::Borderless(None)));
+                }
+                if let Some(b) = r.border {
+                    gfx.window.set_decorations(b);
+                }
+                if let Some(p) = r.protected {
+                    gfx.window.set_content_protected(p);
                 }
             }
             if std::mem::take(&mut w.lua.paste_wanted) {

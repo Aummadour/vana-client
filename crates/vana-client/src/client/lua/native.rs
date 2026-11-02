@@ -13,6 +13,11 @@ pub(super) const PIECES: &[(&str, &[&str])] = &[
     ("minimap", &["minimap"]),
     ("cast", &["cast"]),
     ("plates", &[]),
+    ("alliance", &["alliance1", "alliance2"]),
+    // The log windows come back while an event, a prompt or the chat line needs them.
+    ("log", &["chat"]),
+    ("timers", &["timers"]),
+    ("regime", &["regime"]),
 ];
 
 fn info(lua: &Lua) -> std::rc::Rc<std::cell::RefCell<super::state::FrameInfo>> {
