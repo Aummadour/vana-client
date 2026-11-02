@@ -5011,7 +5011,8 @@ fn base_place(w: &World, id: u32, my_dir: u8) -> Option<Place> {
     }
     if id == w.my_id {
         let m = w.my_motion;
-        return Some(Place { pos: drawn_pos(w), forward: forward_from_dir(my_dir), tilt: [0.0; 2], status: m.status, ratio: if w.moving { w.move_tier * own_rate(w) } else { 0.0 }, size });
+        let forward = w.my_draw_yaw.map_or_else(|| forward_from_dir(my_dir), |t| Vec3::new(t.cos(), 0.0, -t.sin()));
+        return Some(Place { pos: drawn_pos(w), forward, tilt: [0.0; 2], status: m.status, ratio: if w.moving { w.move_tier * own_rate(w) } else { 0.0 }, size });
     }
     let e = w.entities.get(&id)?;
     Some(Place { pos: e.pos, forward: Vec3::new(e.yaw.cos(), 0.0, -e.yaw.sin()), tilt: [0.0; 2], status: e.motion.status, ratio: e.ratio, size })
@@ -5511,6 +5512,8 @@ struct World {
     my_index: u16,
     pos: Vec3,
     yaw: f32,
+    /// Our model's drawn facing (dir angle, radians; actor +0x61c), eased toward the heading (FUN_100c4390).
+    my_draw_yaw: Option<f32>,
     entities: HashMap<u32, Entity>,
     /// Actors drawn on screen this frame (actor +0xb2 bit 0 clear, FUN_100c63d0 / FUN_100cbde0): the target keys
     /// only take these.
@@ -6185,8 +6188,6 @@ struct World {
     minimap_dirty: bool,
     /// Resting's ticks: the rest watched and what was learnt (saved in config rest_tick).
     rest: resttick::RestTick,
-    /// The wheel's camera distance changed (saved in config cam_dist).
-    cam_dist_dirty: bool,
     /// Config auto_sort (items::auto_sort_tick): the containers kept sorted, changed since saved; those with a new item
     /// and the seconds until they sort.
     auto_sort: u32,
@@ -7491,6 +7492,7 @@ impl App {
                             my_index: 0,
                             pos: Vec3::ZERO,
                             yaw: 0.0,
+                            my_draw_yaw: None,
                             entities: HashMap::new(),
                             visible: HashSet::new(),
                             zone_lines: Vec::new(),
@@ -7555,7 +7557,7 @@ impl App {
                             cam: Default::default(),
                             lock_height: -1.5,
                             unlock_ticks: 0.0,
-                            camst: camera::State::with_dist(self.cfg.cam_dist),
+                            camst: camera::State::new(),
                             last_status: 0,
                             auto_lock: true,
                             models: HashMap::new(),
@@ -7922,7 +7924,6 @@ impl App {
                             minimap_span: self.cfg.minimap_span,
                             minimap_dirty: false,
                             rest: resttick::RestTick::new(self.cfg.rest_tick),
-                            cam_dist_dirty: false,
                             auto_sort: self.cfg.auto_sort,
                             auto_sort_dirty: false,
                             sort_due: (0, 0.0),
@@ -10274,6 +10275,16 @@ impl App {
             me.moving = moving;
         }
         world.moving = moving;
+        // FUN_100c4390 (free camera): the heading turns at once, the model eases its drawn rotation (+0x61c) 0.125 a
+        // tick toward it (the step's direction while moving). Snapped at zone-in, in events and when pinned.
+        let target = world.net.me.lock().map_or(0, |m| m.dir) as f32 / 256.0 * std::f32::consts::TAU;
+        world.my_draw_yaw = match world.my_draw_yaw {
+            Some(cur) if !in_event && !world.unsettled && pin.is_none() => {
+                let d = (target - cur + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+                Some(cur + d * (1.0 - 0.875f32.powf(dt * 60.0)))
+            }
+            _ => Some(target),
+        };
     }
 
     /// The frame's key state, then the key functions that run outside any window.
@@ -10575,20 +10586,23 @@ impl App {
             // The map's input context (0x26) has no camera functions; its drag scrolls the map.
             _ if world.map.is_some() || world.cnq.is_some() => {}
             // Mouse/Cam. 0x8b / 0x8c invert the third-person camera's X / Y (FUN_1001e030).
+            // Down is positive as retail's mode-5 axis 7 (FUN_10122590, the pointer below the drag's start); with
+            // 0x8c on, the default, down raises the eye as the camera keys do.
             _ if world.locked => {
                 let (ix, iy) = (inv(world, 0x8b), inv(world, 0x8c));
                 world.cam_turn.0 += (dx * 0.008 * ix) as f32;
-                world.cam_turn.1 -= (dy * 0.02 * iy) as f32;
+                world.cam_turn.1 += (dy * 0.02 * iy) as f32;
             }
             // First person: 0x8d / 0x8e.
             _ if world.camst.first => {
                 let (ix, iy) = (inv(world, 0x8d), inv(world, 0x8e));
-                camera::first_look(world, (dx * 0.004 * ix) as f32, (dy * 0.004 * iy) as f32);
+                // Y the other way from the keys, as the user sees retail's first-person mouse (2026-11-02).
+                camera::first_look(world, (dx * 0.004 * ix) as f32, -(dy * 0.004 * iy) as f32);
             }
             _ if world.unlock_ticks > 0.0 => {}
             _ => {
                 let (ix, iy) = (inv(world, 0x8b), inv(world, 0x8c));
-                camera::drag(world, (dx * 0.008 * ix) as f32, (dy * 0.03 * iy) as f32);
+                camera::drag(world, (dx * 0.008 * ix) as f32, -(dy * 0.03 * iy) as f32);
                 world.mouse_look = right;
             }
         }
@@ -12006,12 +12020,6 @@ impl App {
                 }
                 if std::mem::take(&mut world.auto_sort_dirty) {
                     self.cfg.auto_sort = world.auto_sort;
-                    if let Err(e) = self.cfg.save() {
-                        log::warn!("config: {e:#}");
-                    }
-                }
-                if std::mem::take(&mut world.cam_dist_dirty) {
-                    self.cfg.cam_dist = world.camst.dist;
                     if let Err(e) = self.cfg.save() {
                         log::warn!("config: {e:#}");
                     }
@@ -14141,11 +14149,9 @@ impl ApplicationHandler for App {
                         self.list_wheel += d;
                         return;
                     }
-                    // Ours (modern MMOs): the camera's distance, into first person and out (retail's wheel turned the
-                    // field of view, FUN_10253af0; the zoom keys still do).
-                    if camera::zoom_distance(world, d) {
-                        world.cam_dist_dirty = true;
-                    }
+                    // The wheel zooms as the zoom keys do (FUN_10253af0: the field of view; the eye stays at retail's
+                    // distance).
+                    self.wheel += d;
                 }
             }
             _ => {}

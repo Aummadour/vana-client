@@ -59,45 +59,10 @@ pub struct State {
     path_mode: bool,
     /// DAT_10456d80: ticks after a zone load that run the floor / ceiling / bar tests with the eye at rest.
     zone_in: i32,
-    /// Ours (the wheel, as modern MMOs): the rest distances' scale (0 = 1, retail's 3..6); and in first person the
-    /// mouse's look (pitch, absolute yaw) once dragged.
-    pub dist: f32,
+    /// In first person the mouse's look (pitch, absolute yaw) once dragged.
     fp_mouse: Option<(f32, f32)>,
 }
 
-/// The wheel's distance range: retail's rest 3..6 at 1.
-pub const DIST: (f32, f32) = (0.5, 3.0);
-
-fn scale(st: &State) -> f32 {
-    if st.dist > 0.0 { st.dist } else { 1.0 }
-}
-
-/// A wheel's notches (+ in): the eye moves in or out about the look at once, 15 % a notch; fully in, a notch more
-/// goes to first person, and out of it the first notch back. Locked, nothing. True when it changed something.
-pub fn zoom_distance(w: &mut World, notches: f32) -> bool {
-    if w.locked || notches == 0.0 {
-        return false;
-    }
-    if w.camst.first {
-        if notches < 0.0 {
-            toggle_first(w);
-            return true;
-        }
-        return false;
-    }
-    let k = scale(&w.camst);
-    if notches > 0.0 && k <= DIST.0 + 1e-3 {
-        toggle_first(w);
-        return true;
-    }
-    let to = (k * 0.85f32.powf(notches)).clamp(DIST.0, DIST.1);
-    for c in [&mut w.cam, &mut w.camst.prev] {
-        c.eye = c.look + (c.eye - c.look) * (to / k);
-    }
-    w.camst.dist = to;
-    w.camst.hold = MANUAL_HOLD;
-    true
-}
 
 /// First person: the mouse turns the look (radians; pitch kept within 80 degrees).
 pub fn first_look(w: &mut World, dyaw: f32, dpitch: f32) {
@@ -191,10 +156,6 @@ impl State {
         Self { self_alpha: 1.0, ..Default::default() }
     }
 
-    /// With the wheel's distance kept from the last session.
-    pub fn with_dist(dist: f32) -> Self {
-        Self { dist: dist.clamp(DIST.0, DIST.1), ..Self::new() }
-    }
 }
 
 /// This frame's camera input.
@@ -382,7 +343,6 @@ fn tick(w: &mut World, target: Vec3, player: Vec3, facing: Vec3, chase: bool, in
     let unlocked = w.unlock_ticks <= 0.0;
     let ground = w.ground.as_ref().filter(|g| !g.is_empty());
     let st = &mut w.camst;
-    let k = scale(st);
     let c = &mut w.cam;
     let start = frame_start.unwrap_or(c.eye);
     c.look += (target - c.look) * 0.25;
@@ -429,8 +389,8 @@ fn tick(w: &mut World, target: Vec3, player: Vec3, facing: Vec3, chase: bool, in
             // 2019 0x1001eb4a: with chase cam on and the eye 1..3 out horizontally, a wall within 3.1 out from the look
             // stops the spring's push this tick.
             let h = Vec3::new(c.eye.x - c.look.x, 0.0, c.eye.z - c.look.z);
-            let push = !(chase && h.length() > 1.0 && h.length() < REST_NEAR * k && ground.is_some_and(|g| g.cam_ray(c.look, c.look + h.normalize() * 3.1 * k).is_some()));
-            if spring(c, d_vec, push, k) {
+            let push = !(chase && h.length() > 1.0 && h.length() < REST_NEAR && ground.is_some_and(|g| g.cam_ray(c.look, c.look + h.normalize() * 3.1).is_some()));
+            if spring(c, d_vec, push) {
                 st.hold = MANUAL_HOLD;
             }
         }
@@ -460,7 +420,7 @@ fn tick(w: &mut World, target: Vec3, player: Vec3, facing: Vec3, chase: bool, in
     }
     // Home (0x51): eases 1/8 a tick toward 3 behind the player at its look height, until the view is behind.
     if st.home > 0 {
-        let behind = player - Vec3::new(facing.x, 0.0, facing.z).normalize_or_zero() * 3.0 * k + Vec3::new(0.0, target.y - player.y, 0.0);
+        let behind = player - Vec3::new(facing.x, 0.0, facing.z).normalize_or_zero() * 3.0 + Vec3::new(0.0, target.y - player.y, 0.0);
         let off = view_yaw(c).zip(Some(facing.x.atan2(facing.z))).map_or(0.0, |(a, b)| (a - b + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI);
         if off.abs() >= 0.05 {
             c.eye += (behind - c.eye) * 0.125;
@@ -550,10 +510,10 @@ fn side_bar(g: &Ground, eye: Vec3, look: Vec3) -> Vec3 {
 }
 
 /// The distance spring, one tick, `d_vec` = look - eye before the chase: reeled in beyond 6 (past 100 by half the
-/// excess), pushed out below 3 and to 3 horizontally unless `push` is off; both rests scaled by `k` (the wheel's
-/// distance, ours). True when it pushed (that holds like manual input).
-fn spring(c: &mut LockCam, d_vec: Vec3, push: bool, k: f32) -> bool {
-    let (near, far) = (REST_NEAR * k, REST_FAR * k);
+/// excess), pushed out below 3 and to 3 horizontally unless `push` is off. True when it pushed (that holds like manual
+/// input).
+fn spring(c: &mut LockCam, d_vec: Vec3, push: bool) -> bool {
+    let (near, far) = (REST_NEAR, REST_FAR);
     let d = d_vec.length();
     if d > 100.0 {
         c.eye += d_vec / d * (d - 100.0) * 0.5;
@@ -612,8 +572,9 @@ fn zoom(w: &mut World, ticks: f32, inp: &Inputs) {
 /// Section 7: the eye behind the head, the view where the stick points (eased), springing back when released.
 fn first_person(w: &mut World, ticks: f32, inp: &Inputs) {
     let p = super::drawn_pos(w);
+    // The view turns with the model's drawn facing (FUN_1001fd70: actor +0x48, the eased rotation while moving).
     let dir = w.net.me.lock().map_or(0, |m| m.dir);
-    let f = super::forward_from_dir(dir);
+    let f = w.my_draw_yaw.map_or_else(|| super::forward_from_dir(dir), |t| Vec3::new(t.cos(), 0.0, -t.sin()));
     let status = w.my_motion.status;
     // FUN_10020ba0: attach point 6 resting or seated, else point 12 (vt+0x1c4, the posed point), 0.91 x its height
     // at most 2.
@@ -705,7 +666,7 @@ mod tests {
             let mut c = LockCam { eye: Vec3::new(0.0, 0.0, -start), look: Vec3::ZERO };
             for _ in 0..2000 {
                 let d = c.look - c.eye;
-                spring(&mut c, d, true, 1.0);
+                spring(&mut c, d, true);
             }
             let d = (c.eye - c.look).length();
             assert!((d - rest).abs() < 0.02, "{start} -> {d}");
