@@ -43,6 +43,9 @@ Built (client/lua/, modern/modwin.rs), each checked live:
     decoded as the item window shows it: lines, the short line, message id / value pairs; checked live)
   - `res.message` (a battle / system message expanded as the log prints it, with actor, target and values),
     `mob_skill`, `skill`, `day`, `moon`, `weather` / `weather_element`, `element`, `mount`; checked live
+  - the zone's collision: `game.collision(x, z, radius)` (triangles near a point with normals and surface kinds),
+    `game.collision_mesh` (the whole mesh packed for export), `game.raycast`, `game.floor`; checked live (Port Jeuno:
+    the floor under us, a ray down and across the corridor to its walls)
   - `res.name(kind, id, lang)` (item, key item, spell, ability, zone and title names in ja / en / de / fr; another
     language loads on a thread, nil until in), `res.dat` / `dat_path` (a file's bytes through the DAT overlay, and
     where it is read from), `res.model_files` (an NPC model's file, a look's skeleton and part files); checked live

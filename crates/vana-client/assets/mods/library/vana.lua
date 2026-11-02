@@ -840,6 +840,30 @@ function game.map() end
 ---@return integer?, integer?
 function game.map_pos(x, z) end
 
+--- The zone's collision triangles with a corner within `radius` (8 by default, 64 at most) of (x, z): each {1, 2, 3 (corners {x, y, z}), normal, kind (the surface type)}, in world coordinates (y down, as positions); open doors left out. nil before the zone's collision loads.
+---@param x number 
+---@param z number 
+---@param radius? number 
+---@return table[]?
+function game.collision(x, z, radius) end
+
+--- Every collision triangle of the zone as packed little-endian floats, 36 bytes a triangle (three corners x, y, z): for export and navmesh building. nil before it loads.
+---@return string?
+function game.collision_mesh() end
+
+--- The first collision triangle on the segment from -> to: the hit {x, y, z, distance}, or nil.
+---@param from {x: number, y: number, z: number} 
+---@param to {x: number, y: number, z: number} 
+---@return table?
+function game.raycast(from, to) end
+
+--- The height a character at (x, y, z) stands on (the first floor below, else the nearest surface); y defaults to ours.
+---@param x number 
+---@param z number 
+---@param y? number 
+---@return number?
+function game.floor(x, z, y) end
+
 --- Our cast bar while it shows: {spell (none for an event's bar), total and left (seconds), progress 0..1, event}.
 ---@return table?
 function game.cast() end

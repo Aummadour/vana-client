@@ -57,13 +57,13 @@ Settled for every row:
 | Ashita v3 official add-ons | 13 | 13 | 0 | 0 |
 | Ashita v4 plugins | 10 | 9 | 0 | 1 |
 | Ashita v3 plugins | 27 | 26 | 0 | 1 |
-| Ashita community plugins | 37 | 32 | 4 | 1 |
+| Ashita community plugins | 37 | 33 | 3 | 1 |
 | Ashita v4 community add-ons | 147 | 142 | 2 | 3 |
 | Ashita v3 community add-ons | 22 | 22 | 0 | 0 |
 | Ashita add-ons rated from descriptions | 28 | 28 | 0 | 0 |
 | Windower, all | 250 | 244 | 3 | 3 |
-| Ashita, all | 365 | 349 | 6 | 10 |
-| **Total** | **615** | **593** | **9** | **13** |
+| Ashita, all | 365 | 350 | 5 | 10 |
+| **Total** | **615** | **594** | **8** | **13** |
 
 ## Open gaps
 
@@ -84,7 +84,6 @@ Ranked by the rows each one blocks (listed outside parentheses).
     Blocks fastswap.
 11. **network send timing**, 1 row: changing when the client sends its packets. Blocks PacketFlow.
 12. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
-13. **zone collision mesh**, 1 row: the zone's collision mesh. Blocks Novo.
 
 Most wanted non-blocking gaps (rows that list them in parentheses):
 
@@ -580,7 +579,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | Lootwhore | As Lootwhore (v3 plugin) | as Lootwhore (v3 plugin) | covered | - |
 | Multisend | Command broadcast, groups, follow | ipc.send (to a character or all); commands.run; actions.follow | covered | - |
 | Nameplate | Nameplate aspect fix | not needed: our renderer | covered | - |
-| Novo | Navmeshes: build, draw, test; collision export | draw.line (if it had the mesh); draw.text / draw.image | partly | zone collision mesh |
+| Novo | Navmeshes: build, draw, test; collision export | game.collision / collision_mesh / raycast / floor; draw.line; draw.text / draw.image; fs | covered | - |
 | Occlude3d | Depth-tested world markers, lines, text | draw.line / ring / box (depth-tested); draw.to_screen; mods.call; draw.text / draw.image | covered | - |
 | Packer | Moves gear between bags for a job's sets | actions.move; mods.call / mods.emit with the gear mod | covered | - |
 | PacketFlow | Changes the client's packet send timing | none | missing | network send timing |

@@ -289,6 +289,62 @@ pub(super) fn install(lua: &Lua, game: &Table) -> mlua::Result<()> {
             Ok((Some(px - r.ox as i32), Some(py - r.oy as i32)))
         })?,
     )?;
+    // The zone's collision in world coordinates (y down, as positions).
+    let point = |lua: &Lua, v: glam::Vec3| -> mlua::Result<Table> {
+        let p = lua.create_table()?;
+        (p.set("x", v.x)?, p.set("y", v.y)?, p.set("z", v.z)?);
+        Ok(p)
+    };
+    game.set(
+        "collision",
+        lua.create_function(move |lua, (x, z, r): (f32, f32, Option<f32>)| {
+            let w = world(lua)?;
+            let Some(g) = w.ground.as_ref() else { return Ok(None) };
+            let out = lua.create_table()?;
+            for (t, n, kind) in g.tris_near(x, z, r.unwrap_or(8.0).clamp(0.0, 64.0)) {
+                let e = lua.create_table()?;
+                (e.set(1, point(lua, t[0])?)?, e.set(2, point(lua, t[1])?)?, e.set(3, point(lua, t[2])?)?);
+                (e.set("normal", point(lua, n)?)?, e.set("kind", kind)?);
+                out.push(e)?;
+            }
+            Ok(Some(out))
+        })?,
+    )?;
+    game.set(
+        "collision_mesh",
+        lua.create_function(|lua, ()| {
+            let w = world(lua)?;
+            let Some(g) = w.ground.as_ref() else { return Ok(None) };
+            let mut b = Vec::new();
+            for t in g.all_tris() {
+                for v in t {
+                    for c in [v.x, v.y, v.z] {
+                        b.extend_from_slice(&c.to_le_bytes());
+                    }
+                }
+            }
+            lua.create_string(b).map(Some)
+        })?,
+    )?;
+    game.set(
+        "raycast",
+        lua.create_function(move |lua, (a, b): (Table, Table)| {
+            let w = world(lua)?;
+            let v = |t: &Table| -> mlua::Result<glam::Vec3> { Ok(glam::Vec3::new(t.get("x")?, t.get("y")?, t.get("z")?)) };
+            let (from, to) = (v(&a)?, v(&b)?);
+            let Some(d) = w.ground.as_ref().and_then(|g| g.raycast(from, to)) else { return Ok(None) };
+            let hit = point(lua, from + (to - from).normalize_or_zero() * d)?;
+            hit.set("distance", d)?;
+            Ok(Some(hit))
+        })?,
+    )?;
+    game.set(
+        "floor",
+        lua.create_function(|lua, (x, z, y): (f32, f32, Option<f32>)| {
+            let w = world(lua)?;
+            Ok(w.ground.as_ref().and_then(|g| g.settle(x, z, y.unwrap_or(w.pos.y))))
+        })?,
+    )?;
     game.set(
         "cast",
         lua.create_function(|lua, ()| {
