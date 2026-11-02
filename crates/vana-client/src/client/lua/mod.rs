@@ -82,9 +82,9 @@ pub(in crate::client) struct WinReq {
 }
 
 /// The behaviour switches (client.set_option) by name; false for an unknown name or value.
-pub(super) const OPTIONS: [&str; 16] = [
+pub(super) const OPTIONS: [&str; 17] = [
     "macro_palette_delay", "ah_result_delay", "equipset_delay", "log_slide", "cutscene_speed", "animation_rate", "clear_colour", "ambient", "minimap_span",
-    "move_lock", "all_maps", "dead_commands", "compass_monsters", "player_collision", "occlusion", "menu_reach",
+    "move_lock", "all_maps", "dead_commands", "compass_monsters", "player_collision", "occlusion", "menu_reach", "send_interval",
 ];
 
 /// The switches retail has off.
@@ -133,6 +133,10 @@ fn set_option(w: &mut World, name: &str, v: &serde_json::Value) -> bool {
             Some(c) => w.opts.ambient = c,
             None => return false,
         },
+        ("send_interval", _) => match v.as_f64() {
+            Some(ms) => w.net.stats.send_ms.store((ms as u32).clamp(50, 1000), std::sync::atomic::Ordering::Relaxed),
+            None => return false,
+        },
         ("minimap_span", _) => match v.as_f64() {
             Some(k) => (w.minimap_span, w.minimap_dirty) = ((k as f32).clamp(super::minimap::SPAN.0, super::minimap::SPAN.1), true),
             None => return false,
@@ -162,6 +166,10 @@ pub(super) fn option(w: &World, name: &str) -> Option<serde_json::Value> {
         "clear_colour" => rgb_json(w.opts.clear),
         "ambient" => rgb_json(w.opts.ambient),
         "minimap_span" => json!(w.minimap_span),
+        "send_interval" => json!(match w.net.stats.send_ms.load(std::sync::atomic::Ordering::Relaxed) {
+            0 => 400,
+            n => n,
+        }),
         _ => return None,
     })
 }
@@ -174,6 +182,7 @@ fn release_options(w: &mut World) {
         w.lua.opt_owners.remove(&n);
         let default = match n.as_str() {
             "cutscene_speed" | "animation_rate" => serde_json::json!(1.0),
+            "send_interval" => serde_json::json!(400),
             "clear_colour" | "ambient" => serde_json::Value::Null,
             n if OFF.contains(&n) => serde_json::json!(false),
             _ => serde_json::json!(true),

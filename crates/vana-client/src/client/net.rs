@@ -781,6 +781,8 @@ pub struct NetStats {
     pub received: std::sync::atomic::AtomicU64,
     pub last_rx_ms: std::sync::atomic::AtomicU64,
     pub start: std::sync::OnceLock<Instant>,
+    /// A mod's datagram interval in ms (client.set_option send_interval); 0 retail's 400.
+    pub send_ms: std::sync::atomic::AtomicU32,
 }
 
 impl NetStats {
@@ -1570,7 +1572,11 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
             }
         }
         // Retail sends one datagram every 400 ms (config +0xd0 = 400, net+0x417c), each with a fresh 0x015.
-        if zoned && last_send.elapsed() >= Duration::from_millis(400) {
+        let every = match stats.send_ms.load(Relaxed) {
+            0 => 400,
+            n => n as u64,
+        };
+        if zoned && last_send.elapsed() >= Duration::from_millis(every) {
             if zoned {
                 let s = *me.lock().unwrap();
                 let mut body = [0u8; 28];

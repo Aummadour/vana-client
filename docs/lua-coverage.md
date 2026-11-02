@@ -57,13 +57,13 @@ Settled for every row:
 | Ashita v3 official add-ons | 13 | 13 | 0 | 0 |
 | Ashita v4 plugins | 10 | 9 | 0 | 1 |
 | Ashita v3 plugins | 27 | 26 | 0 | 1 |
-| Ashita community plugins | 37 | 33 | 3 | 1 |
+| Ashita community plugins | 37 | 34 | 3 | 0 |
 | Ashita v4 community add-ons | 147 | 142 | 2 | 3 |
 | Ashita v3 community add-ons | 22 | 22 | 0 | 0 |
 | Ashita add-ons rated from descriptions | 28 | 28 | 0 | 0 |
 | Windower, all | 250 | 244 | 3 | 3 |
-| Ashita, all | 365 | 350 | 5 | 10 |
-| **Total** | **615** | **594** | **8** | **13** |
+| Ashita, all | 365 | 351 | 5 | 9 |
+| **Total** | **615** | **595** | **8** | **12** |
 
 ## Open gaps
 
@@ -82,8 +82,7 @@ Ranked by the rows each one blocks (listed outside parentheses).
 9. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
 10. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it).
     Blocks fastswap.
-11. **network send timing**, 1 row: changing when the client sends its packets. Blocks PacketFlow.
-12. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
+11. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
 
 Most wanted non-blocking gaps (rows that list them in parentheses):
 
@@ -582,7 +581,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | Novo | Navmeshes: build, draw, test; collision export | game.collision / collision_mesh / raycast / floor; draw.line; draw.text / draw.image; fs | covered | - |
 | Occlude3d | Depth-tested world markers, lines, text | draw.line / ring / box (depth-tested); draw.to_screen; mods.call; draw.text / draw.image | covered | - |
 | Packer | Moves gear between bags for a job's sets | actions.move; mods.call / mods.emit with the gear mod | covered | - |
-| PacketFlow | Changes the client's packet send timing | none | missing | network send timing |
+| PacketFlow | Changes the client's packet send timing | client.set_option('send_interval', ms) | covered | - |
 | portfix | Fixes port-era effects drawn wrong | not needed: our renderer | covered | - |
 | Sequencer | Keeps sequence ids on re-sent packets | packets.on_out (header bytes editable) | covered | - |
 | Servo | Multibox control over the network | as Servo (v3 plugin); net.connect / listen / udp | covered | - |

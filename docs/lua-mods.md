@@ -129,7 +129,8 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   - Rules as switches too: `move_lock` (our abilities' and the weapon draw's move lock, scheduler op 0x2e), `all_maps`
     (every map without its key item), `dead_commands`, `compass_monsters` (monster dots for every job),
     `player_collision`, `occlusion` (characters behind scenery), `menu_reach` (the AH and the nomad moogle menu
-    closing 6 away). A value set shows in `client.option` from the next frame. Checked live: Berserk held the walk
+    closing 6 away), `send_interval` (ms between our datagrams, retail 400; checked live: 10 in 4 s at 400, 38 at
+    100). A value set shows in `client.option` from the next frame. Checked live: Berserk held the walk
     with `move_lock` on (4.2 yalms in 1.5 s) and not with it off (7.5), and `all_maps` gave the Port Jeuno map without
     its key item; the rest not tried live.
   - `actions.open_menu(name)`: a main menu row by name (status, items, magic, map, config ... log_out), run as a pick
