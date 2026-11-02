@@ -30,7 +30,7 @@ fn info(lua: &Lua) -> std::rc::Rc<std::cell::RefCell<super::state::FrameInfo>> {
     lua.app_data_ref::<std::rc::Rc<std::cell::RefCell<super::state::FrameInfo>>>().map(|f| f.clone()).unwrap_or_default()
 }
 
-fn colour(v: Value) -> mlua::Result<Option<[u8; 4]>> {
+pub(super) fn colour(v: Value) -> mlua::Result<Option<[u8; 4]>> {
     Ok(match v {
         Value::Table(t) => {
             let get = |k: &str, i: i64, d: u8| -> mlua::Result<u8> { Ok(t.get::<Option<u8>>(k)?.or(t.get::<Option<u8>>(i)?).unwrap_or(d)) };

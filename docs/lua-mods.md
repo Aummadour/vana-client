@@ -95,6 +95,7 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   keys, an item's bag and slot) and `ui.native.list` (that list's rows, cursor and top: the item lists and storage,
   magic, abilities, key items, shops, the auction house's lists and menus), driven with `input.press`; checked live
   on the item, ability, weapon skill and key item lists (modern UI); shops and the auction house not tried live.
+  `ui.native.item_colour` colours an item's name in the shop and auction lists (checked live in the AH's crystals).
 - **Render** (`render`): per entity, while the mod runs (the newest mod's wins): hidden (model and plate), plate name and
   colour, alpha, tint, size; the camera's distance read and set; `render.camera` / `set_camera`: the drawn eye's
   distance (a share of retail's, up to 10), the pan speed's scale, a distance while engaged. Checked live (a renamed, tinted, doubled NPC,

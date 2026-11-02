@@ -541,6 +541,9 @@ fn scroll_spell(w: &World, arg: u16) -> Option<u16> {
 /// but 7) green when unlocked (FUN_102092b0); white else. Not done: dice (kind 2, green only with Monstrosity data,
 /// which LSB never sends).
 pub(super) fn name_tint(w: &World, id: u16) -> u32 {
+    if let Some(t) = w.lua.item_tint(id) {
+        return t;
+    }
     let Some(it) = w.item_info.as_ref().and_then(|c| c.item(id)) else { return WHITE };
     let extra = |at: u16| it.extra.iter().find(|e| e.0 == at).map(|e| e.1);
     if it.level != 0 {

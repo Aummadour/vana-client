@@ -134,6 +134,27 @@ pub(super) fn install(lua: &Lua, ui: &Table, mod_id: &str) -> mlua::Result<()> {
         "hidden",
         lua.create_function(|lua, what: String| Ok(info(lua).borrow().hidden.get(&what).is_some_and(|m| !m.is_empty())))?,
     )?;
+    let me = mod_id.to_string();
+    t.set(
+        "item_colour",
+        lua.create_function(move |lua, (id, c): (u16, mlua::Value)| {
+            let info = info(lua);
+            let mut f = info.borrow_mut();
+            match super::render::colour(c)? {
+                Some(c) => {
+                    // The game's tint: ARGB with 0x80 for full.
+                    let h = |v: u8| u32::from(v).div_ceil(2);
+                    f.item_tints.insert(id, (me.clone(), h(c[3]) << 24 | h(c[0]) << 16 | h(c[1]) << 8 | h(c[2])));
+                }
+                None => {
+                    if f.item_tints.get(&id).is_some_and(|t| t.0 == me) {
+                        f.item_tints.remove(&id);
+                    }
+                }
+            }
+            Ok(())
+        })?,
+    )?;
     t.set("config", lua.create_function(|lua, id: u16| Ok(world(lua)?.game.get(id)))?)?;
     t.set(
         "set_config",

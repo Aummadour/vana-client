@@ -556,6 +556,7 @@ impl Host {
             mods.remove(&vm.manifest.id);
         }
         info.looks.retain(|_, l| l.0 != vm.manifest.id);
+        info.item_tints.retain(|_, t| t.0 != vm.manifest.id);
         drop(info);
         self.filters_dirty = true;
         lend_opt(&vm, w, |vm| vm.emit("unload", ()));
@@ -1268,6 +1269,11 @@ impl Host {
     }
 
     /// The entity looks mods set (render.entity), by server id.
+    /// A mod's colour for an item's name in the game's lists (shops, the auction house).
+    pub(in crate::client) fn item_tint(&self, id: u16) -> Option<u32> {
+        self.info.borrow().item_tints.get(&id).map(|t| t.1)
+    }
+
     pub(in crate::client) fn looks(&self) -> std::collections::HashMap<u32, render::Look> {
         self.info.borrow().looks.iter().map(|(id, l)| (*id, l.1.clone())).collect()
     }

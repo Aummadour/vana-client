@@ -24,6 +24,8 @@ pub(super) struct FrameInfo {
     pub view_proj: glam::Mat4,
     /// Entity looks mods set (render.entity): server id -> (mod, look).
     pub looks: std::collections::HashMap<u32, (String, super::render::Look)>,
+    /// Item name colours mods set for the game's lists (ui.native.item_colour): item -> (mod, game tint).
+    pub item_tints: std::collections::HashMap<u16, (String, u32)>,
 }
 
 impl FrameInfo {

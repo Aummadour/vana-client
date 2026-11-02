@@ -449,6 +449,11 @@ function ui.native.hide(piece, hidden) end
 ---@return boolean
 function ui.native.hidden(piece) end
 
+--- Colours an item's name in the game's shop and auction house lists while the mod is loaded ({r, g, b, a} 0..255; nil gives the game's colour back).
+---@param item integer 
+---@param colour table? 
+function ui.native.item_colour(item, colour) end
+
 --- A game config value by id (the Config window's settings).
 ---@param id integer 
 ---@return integer

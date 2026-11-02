@@ -1613,7 +1613,7 @@ fn draw_list(gu: &mut GameUi, w: &World, a: &Auction, focused: bool, sw: f32, sh
                 gu.shape_text(&format!("[{single}]"), ox + 275.0, y + 4.0, WHITE, true);
             }
             Row::Stack { stack: n, .. } => {
-                gu.text(&name, ox + 18.0, y + 2.0, 0, STACK_NAME.to_le_bytes());
+                gu.text(&name, ox + 18.0, y + 2.0, 0, w.lua.item_tint(item).unwrap_or(STACK_NAME).to_le_bytes());
                 gu.shape_text(&stack.to_string(), ox + 16.0, y + 4.0, WHITE, true);
                 gu.shape_text(&format!("[{n}]"), ox + 275.0, y + 4.0, WHITE, true);
             }
@@ -1775,7 +1775,7 @@ pub(super) fn look(w: &World) -> Option<Look> {
                         let stack = info.item(item).map_or(1, |it| it.stack.max(1) as u32);
                         match *r {
                             Row::Single { single, .. } => PaneRow { item, tint: super::shop::name_tint(w, item), stack: None, right: format!("[{single}]") },
-                            Row::Stack { stack: n, .. } => PaneRow { item, tint: STACK_NAME, stack: Some(stack), right: format!("[{n}]") },
+                            Row::Stack { stack: n, .. } => PaneRow { item, tint: w.lua.item_tint(item).unwrap_or(STACK_NAME), stack: Some(stack), right: format!("[{n}]") },
                             Row::Slot(k) => {
                                 let p = &w.ah_slots[k as usize];
                                 PaneRow { item, tint: stat_look(w, p).0, stack: (p.qty != 1).then_some(stack), right: crate::inventory::gil_text(p.price as i64) }

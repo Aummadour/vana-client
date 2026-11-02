@@ -53,7 +53,7 @@ Settled for every row:
 | Windower features | 11 | 9 | 1 | 1 |
 | Windower community add-ons | 55 | 54 | 1 | 0 |
 | Windower community capabilities | 13 | 12 | 0 | 1 |
-| Ashita v4 official add-ons | 81 | 77 | 0 | 4 |
+| Ashita v4 official add-ons | 81 | 78 | 0 | 3 |
 | Ashita v3 official add-ons | 13 | 13 | 0 | 0 |
 | Ashita v4 plugins | 10 | 9 | 0 | 1 |
 | Ashita v3 plugins | 27 | 26 | 0 | 1 |
@@ -62,8 +62,8 @@ Settled for every row:
 | Ashita v3 community add-ons | 22 | 22 | 0 | 0 |
 | Ashita add-ons rated from descriptions | 28 | 28 | 0 | 0 |
 | Windower, all | 250 | 244 | 3 | 3 |
-| Ashita, all | 365 | 352 | 4 | 9 |
-| **Total** | **615** | **596** | **7** | **12** |
+| Ashita, all | 365 | 353 | 4 | 8 |
+| **Total** | **615** | **597** | **7** | **11** |
 
 ## Open gaps
 
@@ -72,13 +72,13 @@ Ranked by the rows each one blocks (listed outside parentheses).
 1. **gamepad input (deferred)**, 6 rows: pad buttons and sticks as events and binds (deferred with gamepad support).
    Blocks Capability: gamepad input, cBind, Crossbar, tCrossBar, trigger, XIVCrossbar.
 2. **IME text input**, 2 rows: Japanese IME composition in the chat line. Blocks ime (Ashita v4), IME (Windower plugin).
-3. **native list options**, 2 rows: options for native lists (AH row colours, the spell list trimmed). Blocks ahcolors,
-   trimspells.
-4. **vendor input devices**, 2 rows: G-keys, Stream Deck and other HID devices directly. Blocks Binder, GBinder.
-5. **video capture**, 2 rows: recording the game window. Blocks DashCam, Video capture.
-6. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
-7. **engine settings from Lua**, 1 row: wireframe from Lua. Blocks Render knobs.
-8. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
+3. **vendor input devices**, 2 rows: G-keys, Stream Deck and other HID devices directly. Blocks Binder, GBinder.
+4. **video capture**, 2 rows: recording the game window. Blocks DashCam, Video capture.
+5. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
+6. **engine settings from Lua**, 1 row: wireframe from Lua. Blocks Render knobs.
+7. **game font replacement**, 1 row: TrueType fonts for the game's text in the classic UI. Blocks TrueFont.
+8. **native list options**, 1 row: options for native lists (the spell list trimmed; what its shortcut list is was not
+   found). Blocks trimspells.
 9. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it). Blocks
    fastswap.
 10. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
@@ -410,7 +410,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 | actionparse | Shows decoded action packets in a table; copies to the clipboard | event `action`; ui.window (list, columns, tips); client.copy | covered | - |
 | activemon | Image showing whether this game window has focus | hud.icon (game icons only); client.focus; `focus_change`; hud.image | covered | - |
 | affinity | Sets the process CPU affinity | client.set_affinity / set_priority / process (permission process) | covered | - |
-| ahcolors | Recolours AH list rows (learned / learnable / unlearnable) | none | missing | native list options |
+| ahcolors | Recolours AH list rows (learned / learnable / unlearnable) | ui.native.item_colour; res.item; game spells known | covered | - |
 | ahgo | Opens the AH anywhere (fake s2c 0x04C); moving with it open | packets.inject_in(0x04C) opens our AH; client.set_option('menu_reach', false) | covered | - |
 | allmaps | Every map in /map without the key items | packets.on_in(0x055) can fake the map key items (they then show in Key Items too); client.set_option('all_maps', true) | covered | - |
 | aspect | 3D aspect matches the window | native: the projection keeps the window's aspect | covered | - |
