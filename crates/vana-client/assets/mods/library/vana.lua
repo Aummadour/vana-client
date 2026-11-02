@@ -962,6 +962,12 @@ function res.title(id) end
 ---@return {id: integer, name: string, description: string?}?
 function res.key_item(id) end
 
+--- An item's augments from its extdata (game.items' extdata): lines (the item window's text), short (its <...> line: an evolith, a serial, a rank) and pairs {id, value} (the message id and value of each); empty for an item without them. Mod phase only.
+---@param item integer item id
+---@param extdata string 24 bytes
+---@return {lines: string[]?, short: string?, pairs: {id: integer, value: integer}[]?}
+function res.augments(item, extdata) end
+
 --- A job's abbreviation (1 WAR .. 22 RUN).
 ---@param id integer 
 ---@return string?

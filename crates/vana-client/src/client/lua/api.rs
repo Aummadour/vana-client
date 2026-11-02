@@ -20,6 +20,18 @@ pub(super) fn world(lua: &Lua) -> mlua::Result<&World> {
     Ok(unsafe { &*p })
 }
 
+/// The game UI's data (augment tables and texts...), lent for the mod phase (null otherwise).
+pub(super) struct GuRef(pub *const super::super::game_ui::GameUi);
+
+pub(super) fn gu(lua: &Lua) -> mlua::Result<&super::super::game_ui::GameUi> {
+    let p = lua.app_data_ref::<GuRef>().map_or(std::ptr::null(), |r| r.0);
+    if p.is_null() {
+        return Err(mlua::Error::runtime("the game's UI data is not available here (only in the mod phase)"));
+    }
+    // The host sets the pointer from a live &GameUi for the mod phase and clears it after.
+    Ok(unsafe { &*p })
+}
+
 pub(super) fn state(lua: &Lua) -> Rc<RefCell<ModState>> {
     lua.app_data_ref::<Rc<RefCell<ModState>>>().expect("vm state").clone()
 }
@@ -738,6 +750,36 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
             t.set("name", noun.bare.as_str())?;
             t.set("description", n.key_item_description(id))?;
             Ok(Some(t))
+        })?,
+    )?;
+    res.set(
+        "augments",
+        lua.create_function(|lua, (item, ext): (u16, mlua::LuaString)| {
+            let w = world(lua)?;
+            let ctx = gu(lua)?.aug_ctx().ok_or_else(|| mlua::Error::runtime("augment texts not loaded yet"))?;
+            let bytes = ext.as_bytes();
+            let e: [u8; 24] = bytes.get(..24).and_then(|b| b.try_into().ok()).ok_or_else(|| mlua::Error::runtime("extdata is 24 bytes"))?;
+            let t = w.item_info.as_ref().and_then(|c| c.item(item)).map_or(0, |it| it.item_type);
+            let out = lua.create_table()?;
+            if !((matches!(t, 4 | 5) && super::super::augment::applies(item, t, &e)) || t == 0x1a) {
+                return Ok(out);
+            }
+            let r = super::super::augment::decode(&e, item, &ctx);
+            let stone = t == 0x1a;
+            let block = crate::dat::font::decode_sjis(&super::super::augment::block(&r, stone, &ctx));
+            out.set("lines", block.lines().filter(|l| !l.is_empty()).map(str::to_string).collect::<Vec<_>>())?;
+            if let Some((s, _)) = super::super::augment::short(&r, stone, &ctx) {
+                out.set("short", crate::dat::font::decode_sjis(&s))?;
+            }
+            let pairs = lua.create_table()?;
+            for (id, v) in &r.pairs {
+                let p = lua.create_table()?;
+                p.set("id", *id)?;
+                p.set("value", *v)?;
+                pairs.push(p)?;
+            }
+            out.set("pairs", pairs)?;
+            Ok(out)
         })?,
     )?;
     res.set("job", lua.create_function(|_, id: usize| Ok(super::super::items::JOBS.get(id).filter(|s| !s.is_empty()).map(|s| s.to_string())))?)?;

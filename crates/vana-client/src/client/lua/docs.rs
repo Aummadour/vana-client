@@ -189,6 +189,7 @@ pub const FUNCS: &[Func] = &[
     Func { ns: "res", name: "zone", doc: "A zone's name.", params: &[("id", "integer", "")], ret: "string?" },
     Func { ns: "res", name: "title", doc: "A title's name.", params: &[("id", "integer", "")], ret: "string?" },
     Func { ns: "res", name: "key_item", doc: "A key item's name and description.", params: &[("id", "integer", "")], ret: "{id: integer, name: string, description: string?}?" },
+    Func { ns: "res", name: "augments", doc: "An item's augments from its extdata (game.items' extdata): lines (the item window's text), short (its <...> line: an evolith, a serial, a rank) and pairs {id, value} (the message id and value of each); empty for an item without them. Mod phase only.", params: &[("item", "integer", "item id"), ("extdata", "string", "24 bytes")], ret: "{lines: string[]?, short: string?, pairs: {id: integer, value: integer}[]?}" },
     Func { ns: "res", name: "job", doc: "A job's abbreviation (1 WAR .. 22 RUN).", params: &[("id", "integer", "")], ret: "string?" },
     Func { ns: "fs", name: "read", doc: "A file's bytes, or nil: the mod's data folder first (what it wrote), then its own files. \"shared/...\" is the area every mod with files.shared can reach.", params: &[("path", "string", "relative, / separated")], ret: "string?" },
     Func { ns: "fs", name: "write", doc: "Writes a file in the mod's data folder (folders made as needed).", params: &[("path", "string", ""), ("data", "string", "")], ret: "" },

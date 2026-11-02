@@ -33,7 +33,8 @@ Built (client/lua/, modern/modwin.rs), each checked live:
     points), `merits`, `job_points`, `gil`, `spells` (learned), `abilities` (usable), `job_data` (BLU spells, PUP head,
     frame, attachments, raw), `info` (server, Mog House, chat / menu open, combat, lock, autorun, follow, pet, map
     grid), `camera`, `npc_names` (the zone list); checked live
-  - `res.item`, `spell`, `ability`, `status`, `zone`, `title`, `key_item`, `job`
+  - `res.item`, `spell`, `ability`, `status`, `zone`, `title`, `key_item`, `job`, `augments` (an item's extdata
+    decoded as the item window shows it: lines, the short line, message id / value pairs; checked live)
 - **Chat and commands:**
   - `chat.add` (mode colours)
   - `filters.chat` (keep, drop or rewrite every line) and `filters.typed` (typed lines before the parser)

@@ -661,6 +661,9 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
     host.prev = Some(snap);
     if let Some(gu) = gu {
         host.info.borrow_mut().update(w, gu);
+        for vm in &host.vms {
+            vm.lua.set_app_data(api::GuRef(gu as *const _));
+        }
     }
     let now = std::time::Instant::now();
     let dt = host.last_frame.map_or(0.0, |t| now.duration_since(t).as_secs_f64());
@@ -755,6 +758,9 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
                 }
             });
         }
+    }
+    for vm in &host.vms {
+        vm.lua.remove_app_data::<api::GuRef>();
     }
     // Accounting, failures, saves and the mods' ops.
     let mut ops = Vec::new();
