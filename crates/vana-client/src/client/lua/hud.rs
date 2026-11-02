@@ -221,6 +221,23 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
             put(lua, id, Kind::Image { key, img: std::sync::Arc::new(img), w: iw, h: ih, tint: [255; 4] }, spec)
         })?,
     )?;
+    let (src2, mod2) = (vm.src.clone(), vm.manifest.id.clone());
+    let chat: Table = g.get("chat")?;
+    chat.set(
+        "icon",
+        lua.create_function(move |_, path: String| {
+            if path.contains("..") || path.starts_with('/') || path.contains(':') {
+                return Err(mlua::Error::runtime(format!("{path:?}: outside the mod's folder")));
+            }
+            let bytes = match &src2 {
+                super::vm::Source::Dir(d) => std::fs::read(d.join(&path)).map_err(|e| mlua::Error::runtime(format!("{path}: {e}")))?,
+                super::vm::Source::Bundled(_) => return Err(mlua::Error::runtime("bundled mods carry no image files")),
+            };
+            let (w, h, rgba) = decode_png(&bytes).map_err(|e| mlua::Error::runtime(format!("{path}: {e} (a PNG)")))?;
+            let c = super::super::chaticons::add(&format!("{mod2}/{path}"), w, h, rgba).ok_or_else(|| mlua::Error::runtime("too many chat icons"))?;
+            Ok(c.to_string())
+        })?,
+    )?;
     t.set("text", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Text { text: String::new(), size: 1.0, colour: None, bg: None, align: 0, pad: 4.0, font: None, outline: None, outline_w: 1.0, shadow: false }, spec))?)?;
     t.set("rect", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Rect { w: 100.0, h: 20.0, colour: [0, 0, 0, 160] }, spec))?)?;
     t.set("bar", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Bar { w: 120.0, h: 8.0, value: 0.0, colour: None, kind: "hp".into() }, spec))?)?;

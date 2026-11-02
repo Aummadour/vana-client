@@ -1074,6 +1074,17 @@ impl Modern {
         t.as_ref().map(|t| t.id())
     }
 
+    /// A mod's chat icon (chaticons.rs) as an egui texture, made once.
+    pub fn chat_icon(&self, ctx: &Context, k: usize) -> Option<egui::TextureId> {
+        let key = super::chaticons::texture(k);
+        let mut images = self.images.borrow_mut();
+        let t = images.entry(key.clone()).or_insert_with(|| {
+            let (w, h, rgba) = super::chaticons::get(k)?;
+            Some(ctx.load_texture(key, egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba), egui::TextureOptions::LINEAR))
+        });
+        t.as_ref().map(|t| t.id())
+    }
+
     /// A name sprite's caption as text, read once.
     fn caption(&self, gu: &GameUi, lib: &str, index: usize) -> Option<String> {
         self.captions.borrow_mut().entry((lib.to_string(), index)).or_insert_with(|| gu.sprite_caption(lib, index)).clone()

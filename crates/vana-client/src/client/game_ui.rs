@@ -204,6 +204,47 @@ fn caption_words(d: &GameUiData) -> std::collections::HashSet<String> {
     out
 }
 
+/// A line cut at its chat icons (chaticons.rs): text runs, each after the first opening with the colour code in force,
+/// and icons by index; None without icons.
+fn icon_runs(s: &str) -> Option<Vec<Result<String, usize>>> {
+    use super::chaticons::index;
+    if !s.chars().any(|c| index(c).is_some()) {
+        return None;
+    }
+    let (mut out, mut run, mut code) = (Vec::new(), String::new(), String::new());
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
+        if let Some(k) = index(c) {
+            if !run.is_empty() {
+                out.push(Ok(std::mem::take(&mut run)));
+            }
+            out.push(Err(k));
+            run.push_str(&code);
+            continue;
+        }
+        run.push(c);
+        match c {
+            '\u{1e}' | '\u{1f}' => {
+                if let Some(x) = it.next() {
+                    run.push(x);
+                    code = format!("{c}{x}");
+                }
+            }
+            c if (crate::dat::font::CODE_BASE..crate::dat::font::CODE_BASE + 0x200).contains(&(c as u32)) => code = c.to_string(),
+            _ => {}
+        }
+    }
+    if !run.is_empty() {
+        out.push(Ok(run));
+    }
+    Some(out)
+}
+
+/// A chat icon's drawn size: 14 high, its aspect kept.
+fn icon_size(k: usize) -> (f32, f32) {
+    super::chaticons::get(k).map_or((14.0, 14.0), |(w, h, _)| (14.0 * w as f32 / h.max(1) as f32, 14.0))
+}
+
 pub struct GameUi {
     data: GameUiData,
     renderer: Option<UiRenderer>,
@@ -541,6 +582,9 @@ impl GameUi {
     }
 
     pub fn text_width(&self, s: &str) -> f32 {
+        if let Some(runs) = icon_runs(s) {
+            return runs.iter().map(|r| r.as_ref().map_or_else(|&k| icon_size(k).0 + 1.0, |t| self.text_width(t))).sum();
+        }
         if self.batch.ttf_text() {
             return self.modern_runs(s, [0x80; 4]).iter().map(|(t, _)| mtext::width(t, Face::Regular, mtext::TEXT_EM)).sum();
         }
@@ -578,6 +622,31 @@ impl GameUi {
 
     /// One line in the game font; align 0 = left at x, 1 = centred on x.
     pub fn text(&mut self, s: &str, x: f32, y: f32, align: u8, color: [u8; 4]) {
+        // A line with mods' chat icons: its text runs, the icons between them.
+        if let Some(runs) = icon_runs(s) {
+            let mut x = if align == 1 { x - self.text_width(s) / 2.0 } else { x };
+            for r in runs {
+                match r {
+                    Ok(t) => {
+                        let w = self.text_width(&t);
+                        self.text(&t, x, y, 0, color);
+                        x += w;
+                    }
+                    Err(k) => {
+                        let name = super::chaticons::texture(k);
+                        if !self.has_image(&name)
+                            && let Some((w, h, rgba)) = super::chaticons::get(k)
+                        {
+                            self.image(&name, w, h, (*rgba).clone());
+                        }
+                        let (w, h) = icon_size(k);
+                        self.image_rect(&name, x, y + 1.0, w, h, [1.0; 4]);
+                        x += w + 1.0;
+                    }
+                }
+            }
+            return;
+        }
         if self.batch.ttf_text() {
             let runs = self.modern_runs(s, color);
             let w: f32 = runs.iter().map(|(t, _)| mtext::width(t, Face::Regular, mtext::TEXT_EM)).sum();

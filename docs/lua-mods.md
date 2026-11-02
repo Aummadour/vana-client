@@ -186,6 +186,8 @@ Built (client/lua/, modern/modwin.rs), each checked live:
     enabled, loaded), `mods.provide` / `mods.call` (a function in another mod's VM, values copied), `mods.emit` (an
     event to every other mod); `/lua hide` / `show` hides every mod's HUD, windows and world drawing at once
   - `text.from_shift_jis` / `to_shift_jis` / `plain` (auto-translate phrases as words); `client.copy`
+  - `chat.icon(png)`: an inline image as a character in chat text, drawn in both UIs' logs (the classic UI's game-font
+    text keeps the colour in force across it); checked live in both UIs
   - a JSON null reaches Lua as nil everywhere (event arguments, tables, `json.decode`, `mods.call`)
 - **Lobby mods** (`lobby = true` in mod.toml): `lobby.state` (the screen, the server and account, the character list),
   the `lobby_screen` event, `lobby.sign_in` (as Log in) and `lobby.play` (as the select screen's Play), keys through

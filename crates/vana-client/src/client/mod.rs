@@ -3,6 +3,7 @@
 pub mod ground;
 pub mod combat;
 mod actmotion;
+mod chaticons;
 mod record;
 mod chair;
 mod battlemod;

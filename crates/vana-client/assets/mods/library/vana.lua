@@ -639,6 +639,11 @@ function packets.build(id, body) end
 ---@return string?
 function packets.last(direction, id) end
 
+--- A PNG of the mod's folder as an inline chat icon: a character to put in chat text (chat.add, a filters.chat rewrite), drawn where it stands at the line's height in both UIs' logs and the classic UI's game-font text.
+---@param path string 
+---@return string
+function chat.icon(path) end
+
 --- Adds a line to the chat log. With a mode it takes that mode's colour, filters and indent, like a game line; {colour = mode} takes only the mode's colour.
 ---@param text string 
 ---@param how? integer|{mode: integer?, colour: integer?} the game's chat mode (0..255), or a table

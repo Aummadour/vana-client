@@ -58,12 +58,12 @@ Settled for every row:
 | Ashita v4 plugins | 10 | 9 | 0 | 1 |
 | Ashita v3 plugins | 27 | 27 | 0 | 0 |
 | Ashita community plugins | 37 | 36 | 1 | 0 |
-| Ashita v4 community add-ons | 147 | 143 | 1 | 3 |
+| Ashita v4 community add-ons | 147 | 144 | 1 | 2 |
 | Ashita v3 community add-ons | 22 | 22 | 0 | 0 |
 | Ashita add-ons rated from descriptions | 28 | 28 | 0 | 0 |
 | Windower, all | 250 | 248 | 1 | 1 |
-| Ashita, all | 365 | 357 | 2 | 6 |
-| **Total** | **615** | **605** | **3** | **7** |
+| Ashita, all | 365 | 358 | 2 | 5 |
+| **Total** | **615** | **606** | **3** | **6** |
 
 ## Open gaps
 
@@ -71,12 +71,11 @@ Ranked by the rows each one blocks (listed outside parentheses).
 
 1. **gamepad input (deferred)**, 6 rows: pad buttons and sticks as events and binds (deferred with gamepad support).
    Blocks Capability: gamepad input, cBind, Crossbar, tCrossBar, trigger, XIVCrossbar.
-2. **chat inline icons**, 1 row: images inline in chat lines. Blocks addon-emoji.
-3. **native list options**, 1 row: options for native lists (the spell list trimmed; what its shortcut list is was not
+2. **native list options**, 1 row: options for native lists (the spell list trimmed; what its shortcut list is was not
    found). Blocks trimspells.
-4. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it). Blocks
+3. **native state fix**, 1 row: a fix for a client state bug on fast job swaps (not checked whether ours has it). Blocks
    fastswap.
-5. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
+4. **shader packs**, 1 row: a shader-pack interface (cel shading), planned outside Lua. Blocks toon.
 
 Most wanted non-blocking gaps (rows that list them in parentheses):
 
@@ -595,7 +594,7 @@ Capabilities several Windower community add-ons need, each rated as one row.
 
 | Add-on | What it does | API used | Status | Missing |
 | --- | --- | --- | --- | --- |
-| addon-emoji | Inline emoji icons in chat | filters.chat | missing | chat inline icons |
+| addon-emoji | Inline emoji icons in chat | filters.chat; chat.icon | covered | - |
 | addonmgr | Loads, unloads and reloads add-ons from a panel | commands.run('/lua ...'); mods.list; ui.window (input, tabs); mods.installed | covered | - |
 | ahpro | The auction house in one window over the native one | input.press; game.items; res.item; hud.icon; ui.window (input, tabs, section, choice, tips, canvas); ui.prompt / menu; ui.native.list (the auction lists and menus); ui.native.highlighted | covered | - |
 | ASCII-Joy | MUD-style text interface over the game | game.*; packets.on_in / on_out / inject_out; filters.chat; hud.text / rect; res.mob_skill; Entity.target_index; game.cast | covered | (font families) |

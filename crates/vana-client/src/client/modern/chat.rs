@@ -65,6 +65,26 @@ fn codes() -> &'static [u32; 17] {
     })
 }
 
+/// The space a chat icon takes in a laid-out line.
+const ICON_SPACE: &str = "\u{2003}";
+
+/// A line's chat icons over the spaces line_job left for them, in order.
+fn icons(painter: &egui::Painter, m: &Modern, line: &str, g: &egui::Galley, at: egui::Pos2) {
+    let ks: Vec<usize> = line.chars().filter_map(super::super::chaticons::index).collect();
+    if ks.is_empty() {
+        return;
+    }
+    let spaces = g.text().chars().enumerate().filter(|(_, c)| *c == '\u{2003}').map(|(i, _)| i);
+    for (k, i) in ks.into_iter().zip(spaces) {
+        let r = g.pos_from_cursor(egui::text::CCursor::new(i));
+        let h = r.height() * 0.9;
+        let Some(t) = m.chat_icon(painter.ctx(), k) else { continue };
+        let (w, ih) = super::super::chaticons::get(k).map_or((1, 1), |(w, h, _)| (w, h.max(1)));
+        let rect = Rect::from_min_size(pos2(at.x + r.min.x, at.y + r.center().y - h / 2.0), vec2(h * w as f32 / ih as f32, h));
+        painter.image(t, rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+    }
+}
+
 /// A log line as coloured runs after its timestamp: `1e xx` sets the colour (the 17-entry table below 0x11, the colour
 /// ids above, 0 the line's own), `1f xx` a mode's colour; the auto-translate brackets are green / red braces.
 pub fn line_job(stamp: (&str, Color32), line: &str, base: [u8; 4], font: &FontId, wrap: f32) -> LayoutJob {
@@ -99,6 +119,11 @@ pub fn line_job(stamp: (&str, Color32), line: &str, base: [u8; 4], font: &FontId
                 flush(&mut job, &mut run, cur);
                 let (t, c) = if ch == '\u{E008}' { ("{", Color32::from_rgb(0x50, 0xd0, 0x50)) } else { ("}", Color32::from_rgb(0xe0, 0x50, 0x50)) };
                 job.append(t, 0.0, TextFormat::simple(font.clone(), c));
+            }
+            // A mod's chat icon: an em space it is painted over (icons below).
+            c if super::super::chaticons::index(c).is_some() => {
+                flush(&mut job, &mut run, cur);
+                job.append(ICON_SPACE, 0.0, TextFormat::simple(font.clone(), Color32::TRANSPARENT));
             }
             // The game's own glyphs as Unicode; the other private-use characters have no face here.
             c => run.extend(crate::dat::font::plain_char(c)),
@@ -637,7 +662,8 @@ fn full(p: &mut Panels, w: &mut World) {
                 chatsel::wash(&painter, m, &galley, at, span);
             }
             drawn.push((*k, at, galley.clone()));
-            painter.galley(at, galley, m.theme.color("text"));
+            painter.galley(at, galley.clone(), m.theme.color("text"));
+            icons(&painter, m, line, &galley, at);
         }
         chatsel::log_mouse(m, &resp, &drawn);
         // The oldest line reached below the top: scrolled past it by this many rows.
@@ -761,7 +787,8 @@ pub fn draw(p: &mut Panels, v: &ChatView, s: Shown, lift: bool) {
             if at.y + galley.size().y > clip.min.y {
                 drawn.push((*k, at, galley.clone()));
             }
-            painter.galley(at, galley, m.theme.color("text"));
+            painter.galley(at, galley.clone(), m.theme.color("text"));
+            icons(&painter, m, line, &galley, at);
         }
         chatsel::log_mouse(m, &resp, &drawn);
         if newest.is_none() && tab != 0 {
