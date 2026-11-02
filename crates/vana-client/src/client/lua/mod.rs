@@ -38,6 +38,8 @@ pub struct Host {
     pub(super) open_page: Option<String>,
     /// Window events for the mods' handlers: (mod, window, event).
     ui_events: Vec<(String, String, window::Event)>,
+    /// The last packet of each id each way, shared with every mod (packets.last).
+    pub(super) last: std::rc::Rc<std::cell::RefCell<LastPackets>>,
 }
 
 /// What the derived events watch (Windower's change events).
@@ -229,8 +231,17 @@ impl Host {
         let data = data_dir().join(&m.id);
         let storage = (read_json(&data.join("account.json")), read_json(&data.join(Self::char_file(w))));
         let settings = load_settings(&m, &data, &Self::char_file(w));
+        let given: Vec<String> = grants().get(&m.id).and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
+        let granted: Vec<String> = m.permissions.iter().filter(|p| given.contains(p)).cloned().collect();
+        let missing: Vec<String> = m.permissions.iter().filter(|p| !granted.contains(p)).cloned().collect();
         let vm = Vm::new(m, dir, src).map_err(|e| format!("{e:#}"))?;
         vm.st.borrow_mut().settings = settings;
+        vm.st.borrow_mut().granted = granted;
+        if !missing.is_empty() {
+            let id = vm.manifest.id.clone();
+            vm.st.borrow_mut().notices.push(format!("{} asks for {}: /lua grant {id} {} to allow.", vm.manifest.name, missing.join(", "), missing.join(" ")));
+        }
+        vm.lua.set_app_data(self.last.clone());
         api::install(&vm.lua, &vm, storage).map_err(|e| format!("{e}"))?;
         log::info!("lua mod {} {} loaded from {}", vm.manifest.id, vm.manifest.version, vm.dir.display());
         lend(&vm, w, |vm| {
@@ -369,7 +380,29 @@ impl Host {
                     None => out.push(("No Lua mods loaded.".into(), ERROR)),
                 }
             }
-            other => out.push((format!("/lua {other}: list, load, unload, reload, run, set, settings"), ERROR)),
+            "grant" | "revoke" => match args.get(1).and_then(|id| find(&self.vms, id)) {
+                Some(k) => {
+                    let id = self.vms[k].manifest.id.clone();
+                    let mut g = grants();
+                    let mut list: Vec<String> = g.get(&id).and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default();
+                    for p in &args[2..] {
+                        if args[0] == "grant" {
+                            if manifest::PERMISSIONS.contains(p) && !list.iter().any(|x| x == p) {
+                                list.push(p.to_string());
+                            }
+                        } else {
+                            list.retain(|x| x != p);
+                        }
+                    }
+                    g.insert(id.clone(), list.clone().into());
+                    save_grants(&g);
+                    let asked = self.vms[k].manifest.permissions.clone();
+                    self.vms[k].st.borrow_mut().granted = asked.into_iter().filter(|p| list.contains(p)).collect();
+                    out.push((format!("{id}: granted {}.", if list.is_empty() { "nothing".into() } else { list.join(", ") }), super::WHITE));
+                }
+                None => out.push(("/lua grant <mod> <permission...> | /lua revoke <mod> <permission...>".into(), ERROR)),
+            },
+            other => out.push((format!("/lua {other}: list, load, unload, reload, run, set, settings, grant, revoke"), ERROR)),
         }
     }
 }
@@ -515,6 +548,7 @@ pub(super) fn frame(w: &mut World) {
     }
     // `/lua settings`: the modern UI shows Extras inside the Config window (its Extras entry, page open); the classic
     // page stands alone.
+    host.packet_upkeep(w);
     if host.open_page.is_some() && w.settings.is_none() {
         if w.modern {
             let mut c = super::configui::ConfigUi::open("configwi");
@@ -530,6 +564,15 @@ pub(super) fn frame(w: &mut World) {
     }
     for op in ops {
         apply(w, op);
+    }
+    // Injected packets go through the hooks now, not with the next batch (which may be seconds away).
+    if w.lua.vms.iter().any(|v| !v.st.borrow().inject_in.is_empty()) {
+        let out = packets_in(w, Vec::new());
+        let _ = w.net.commands.send(super::net::NetCommand::Decode(0, out));
+    }
+    if w.lua.vms.iter().any(|v| !v.st.borrow().inject_out.is_empty()) {
+        let out = packets_out(w, Vec::new());
+        let _ = w.net.commands.send(super::net::NetCommand::SendBatch(0, out));
     }
 }
 
@@ -914,5 +957,141 @@ mod stub_tests {
     #[test]
     fn committed_stubs_current() {
         assert_eq!(include_str!("../../../assets/mods/library/vana.lua"), super::stubs(), "assets/mods/library/vana.lua is stale");
+    }
+}
+
+/// The user's grants by mod (mod-data/grants.json): the permissions each may use (docs/lua-mods.md 3.5).
+fn grants() -> serde_json::Map<String, serde_json::Value> {
+    match read_json(&data_dir().join("grants.json")) {
+        serde_json::Value::Object(o) => o,
+        _ => serde_json::Map::new(),
+    }
+}
+
+fn save_grants(g: &serde_json::Map<String, serde_json::Value>) {
+    let _ = std::fs::create_dir_all(data_dir());
+    if let Err(e) = std::fs::write(data_dir().join("grants.json"), serde_json::to_vec_pretty(g).unwrap_or_default()) {
+        log::warn!("lua mods: saving grants: {e}");
+    }
+}
+
+/// The last packet of each id seen each way (packets.last), shared by every mod.
+#[derive(Default)]
+pub(super) struct LastPackets {
+    pub incoming: std::collections::HashMap<u16, Vec<u8>>,
+    pub outgoing: std::collections::HashMap<u16, Vec<u8>>,
+}
+
+/// A sub-packet's id from its header (9 bits).
+fn packet_id(data: &[u8]) -> u16 {
+    if data.len() < 2 { 0 } else { u16::from_le_bytes([data[0], data[1]]) & 0x1ff }
+}
+
+/// The header's size field (bits 9.., in 4-byte words) made to fit `data` (padded to a whole word).
+fn fit(mut data: Vec<u8>) -> Vec<u8> {
+    let len = data.len().max(4).div_ceil(4) * 4;
+    data.resize(len, 0);
+    let id = packet_id(&data);
+    data[..2].copy_from_slice(&(id | ((len / 4) as u16) << 9).to_le_bytes());
+    data
+}
+
+/// Every mod's hooks of one direction over one packet, in load order and priority (Windower's chain): each sees the
+/// original and the current bytes, whether it was blocked by an earlier hook, and whether it was injected. The
+/// packet's bytes after them, or none when blocked.
+fn chain(host: &Host, w: &World, data: Vec<u8>, injected: bool, outgoing: bool) -> Option<Vec<u8>> {
+    let id = packet_id(&data);
+    let original = data.clone();
+    let (mut cur, mut blocked) = (data, false);
+    for vm in host.vms.iter().filter(|v| v.suspended.is_none()) {
+        let funcs: Vec<mlua::Function> = {
+            let st = vm.st.borrow();
+            let hooks = if outgoing { &st.hooks_out } else { &st.hooks_in };
+            hooks.iter().filter(|h| h.1.is_none_or(|i| i == id)).filter_map(|h| vm.lua.registry_value(&h.2).ok()).collect()
+        };
+        if funcs.is_empty() {
+            continue;
+        }
+        let write = vm.st.borrow().granted.iter().any(|g| g == "packets.write");
+        lend(vm, w, |vm| {
+            for f in funcs {
+                let p = (|| -> mlua::Result<mlua::Table> {
+                    let t = vm.lua.create_table()?;
+                    t.set("id", id)?;
+                    t.set("data", vm.lua.create_string(&cur)?)?;
+                    t.set("original", vm.lua.create_string(&original)?)?;
+                    t.set("injected", injected)?;
+                    t.set("blocked", blocked)?;
+                    t.set("outgoing", outgoing)?;
+                    Ok(t)
+                })();
+                let Ok(p) = p else { continue };
+                vm.st.borrow_mut().deadline = Some(std::time::Instant::now() + vm::FILTER_CAP);
+                let r = f.call::<mlua::Value>(p);
+                vm.st.borrow_mut().deadline = None;
+                match r {
+                    Err(e) => vm.error(&e),
+                    Ok(mlua::Value::Boolean(false)) | Ok(mlua::Value::String(_)) if !write => {
+                        vm.error(&mlua::Error::runtime("changing or blocking packets needs packets.write (/lua grant)"));
+                    }
+                    Ok(mlua::Value::Boolean(false)) => blocked = true,
+                    Ok(mlua::Value::String(s)) => {
+                        let b = s.as_bytes().to_vec();
+                        if b.len() >= 4 {
+                            cur = fit(b);
+                        }
+                    }
+                    Ok(_) => {}
+                }
+            }
+        });
+    }
+    (!blocked).then_some(cur)
+}
+
+/// A received batch through the mods' incoming hooks, then what they injected; what to decode.
+pub(super) fn packets_in(w: &mut World, packets: Vec<crate::net::map::session::SubPacket>) -> Vec<crate::net::map::session::SubPacket> {
+    let host = std::mem::take(&mut w.lua);
+    let mut out = Vec::new();
+    let injected: Vec<Vec<u8>> = host.vms.iter().flat_map(|v| std::mem::take(&mut v.st.borrow_mut().inject_in)).collect();
+    let all = packets.into_iter().map(|p| (p.sync, p.data, false)).chain(injected.into_iter().map(|d| (0, d, true)));
+    for (sync, data, inj) in all {
+        let id = packet_id(&data);
+        host.last.borrow_mut().incoming.insert(id, data.clone());
+        if let Some(d) = chain(&host, w, data, inj, false) {
+            out.push(crate::net::map::session::SubPacket { id: packet_id(&d), sync, data: d });
+        }
+    }
+    w.lua = host;
+    out
+}
+
+/// A batch about to be sent through the mods' outgoing hooks, then what they injected; what to send.
+pub(super) fn packets_out(w: &mut World, packets: Vec<Vec<u8>>) -> Vec<Vec<u8>> {
+    let host = std::mem::take(&mut w.lua);
+    let injected: Vec<Vec<u8>> = host.vms.iter().flat_map(|v| std::mem::take(&mut v.st.borrow_mut().inject_out)).collect();
+    let mut out = Vec::new();
+    for (data, inj) in packets.into_iter().map(|d| (d, false)).chain(injected.into_iter().map(|d| (d, true))) {
+        let id = packet_id(&data);
+        host.last.borrow_mut().outgoing.insert(id, data.clone());
+        if let Some(d) = chain(&host, w, data, inj, true) {
+            out.push(d);
+        }
+    }
+    w.lua = host;
+    out
+}
+
+impl Host {
+    /// After the mod phase: the hook flags for the net thread.
+    fn packet_upkeep(&self, w: &World) {
+        let (mut fin, mut fout) = (false, false);
+        for vm in self.vms.iter().filter(|v| v.suspended.is_none()) {
+            let st = vm.st.borrow();
+            fin |= !st.hooks_in.is_empty();
+            fout |= !st.hooks_out.is_empty();
+        }
+        let flags = if fin { super::net::HOOK_IN } else { 0 } | if fout { super::net::HOOK_OUT } else { 0 };
+        w.net.hooks.store(flags, std::sync::atomic::Ordering::Relaxed);
     }
 }

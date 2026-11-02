@@ -280,6 +280,78 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     )?;
     g.set("ui", ui)?;
 
+    // packets (docs/lua-mods.md 4.7): hooks both ways with Windower's chain, injection, the last of each id.
+    let packets = lua.create_table()?;
+    for (name, out) in [("on_in", false), ("on_out", true)] {
+        packets.set(
+            name,
+            lua.create_function(move |lua, (which, func): (Value, Function)| {
+                need(lua, "packets.read")?;
+                let id = match which {
+                    Value::Integer(i) => Some(i as u16),
+                    Value::Number(n) => Some(n as u16),
+                    _ => None,
+                };
+                let st = state(lua);
+                let h = next_id(&st);
+                let key = lua.create_registry_value(func)?;
+                let mut s = st.borrow_mut();
+                if out { s.hooks_out.push((h, id, key)) } else { s.hooks_in.push((h, id, key)) }
+                Ok(h)
+            })?,
+        )?;
+    }
+    packets.set(
+        "off",
+        lua.create_function(|lua, h: u64| {
+            let st = state(lua);
+            let gone: Vec<mlua::RegistryKey> = {
+                let mut guard = st.borrow_mut();
+                let s: &mut ModState = &mut guard;
+                let mut gone = Vec::new();
+                for list in [&mut s.hooks_in, &mut s.hooks_out] {
+                    let (g, keep): (Vec<_>, Vec<_>) = std::mem::take(list).into_iter().partition(|x| x.0 == h);
+                    *list = keep;
+                    gone.extend(g.into_iter().map(|x| x.2));
+                }
+                gone
+            };
+            for k in gone {
+                lua.remove_registry_value(k)?;
+            }
+            Ok(())
+        })?,
+    )?;
+    for (name, out) in [("inject_in", false), ("inject_out", true)] {
+        packets.set(
+            name,
+            lua.create_function(move |lua, (a, b): (Value, Option<mlua::LuaString>)| {
+                need(lua, "packets.write")?;
+                let data = packet_bytes(a, b)?;
+                let st = state(lua);
+                let mut s = st.borrow_mut();
+                if out { s.inject_out.push(data) } else { s.inject_in.push(data) }
+                Ok(())
+            })?,
+        )?;
+    }
+    packets.set(
+        "build",
+        lua.create_function(|lua, (id, body): (u16, mlua::LuaString)| lua.create_string(crate::net::map::session::build(id, &body.as_bytes())))?,
+    )?;
+    packets.set(
+        "last",
+        lua.create_function(|lua, (dir, id): (String, u16)| {
+            need(lua, "packets.read")?;
+            let last = lua.app_data_ref::<std::rc::Rc<std::cell::RefCell<super::LastPackets>>>().map(|r| r.clone());
+            let Some(last) = last else { return Ok(None) };
+            let l = last.borrow();
+            let m = if dir == "out" { &l.outgoing } else { &l.incoming };
+            m.get(&id).map(|d| lua.create_string(d)).transpose()
+        })?,
+    )?;
+    g.set("packets", packets)?;
+
     // chat.add(text[, mode]): a log line in the mode's colour, like a game line.
     let chat = lua.create_table()?;
     chat.set(
@@ -824,4 +896,25 @@ fn update(e: &mut super::window::Elem, t: &Table) -> mlua::Result<()> {
         Elem::Separator => {}
     }
     Ok(())
+}
+
+/// A permission the mod must hold (granted by the user, docs/lua-mods.md 3.5).
+fn need(lua: &Lua, perm: &str) -> mlua::Result<()> {
+    let st = state(lua);
+    let s = st.borrow();
+    if s.granted.iter().any(|g| g == perm) {
+        Ok(())
+    } else {
+        Err(mlua::Error::runtime(format!("this needs the {perm} permission: list it in mod.toml, then /lua grant <mod> {perm}")))
+    }
+}
+
+/// A packet to inject: a whole sub-packet (header included), or (id, body).
+fn packet_bytes(a: Value, b: Option<mlua::LuaString>) -> mlua::Result<Vec<u8>> {
+    match (a, b) {
+        (Value::Integer(id), Some(body)) => Ok(crate::net::map::session::build(id as u16, &body.as_bytes())),
+        (Value::Number(id), Some(body)) => Ok(crate::net::map::session::build(id as u16, &body.as_bytes())),
+        (Value::String(data), None) if data.as_bytes().len() >= 4 => Ok(data.as_bytes().to_vec()),
+        _ => Err(mlua::Error::runtime("inject takes (id, body) or a whole sub-packet")),
+    }
 }

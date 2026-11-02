@@ -7,6 +7,7 @@ use crate::net::map::session::{MapSession, SubPacket, build};
 use anyhow::Result;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -324,6 +325,11 @@ pub struct ZoneText {
 
 #[derive(Clone, Debug)]
 pub enum NetEvent {
+    /// Ours (docs/lua-mods.md 3.3): while a mod hooks incoming packets, a received batch for the hooks, undecoded,
+    /// with its session's number; it comes back as NetCommand::Decode.
+    RawIn(u32, Vec<SubPacket>),
+    /// While a mod hooks outgoing packets, a batch about to be sent; it comes back as NetCommand::SendBatch.
+    RawOut(u32, Vec<Vec<u8>>),
     /// `game_time` @0x3C (Earth seconds since the Vana'diel epoch), `weather` number @0x68; `area` the log line.
     ZoneIn { zone: u16, pos: [f32; 3], dir: u8, char_id: u32, index: u16, name: String, look: [u16; 9], motion: MotionState, game_time: u32, weather: u16, music: [u16; 5], event: Option<EventStart>, area: Option<AreaLine>, sub_map: u16, scene: u16, myroom: Option<MyRoom>, room_flag: bool, dead_counter: u32, play_time: u32, mog_zone: bool, send_count: u16, ship: Option<ShipData>, monstrosity: bool },
     /// s2c 0x053 (GP_SERV_COMMAND_SYSTEMMES): para @4, para2 @8, Number @0xc (file 7031).
@@ -642,6 +648,11 @@ pub fn area_line(p: &SubPacket) -> Option<AreaLine> {
 
 #[derive(Debug)]
 pub enum NetCommand {
+    /// Ours (docs/lua-mods.md 3.3): packets to decode as if received (the hooks' results, injected ones), for the
+    /// session numbered (0: whichever is current); a batch from a session that has ended is dropped.
+    Decode(u32, Vec<SubPacket>),
+    /// Packets to send as they are (the hooks' results, injected ones already hooked); as Decode.
+    SendBatch(u32, Vec<Vec<u8>>),
     /// c2s 0x0B5: kind 0 say, 1 shout, 4 party, 5 linkshell, 0x1a yell, 0x1b linkshell 2, 0x21 unity.
     Chat { kind: u8, text: String },
     /// c2s 0x0B6: a tell (name 15 bytes, then the message).
@@ -743,7 +754,12 @@ pub struct NetHandle {
     pub commands: Sender<NetCommand>,
     pub me: Arc<Mutex<SelfState>>,
     pub stats: Arc<NetStats>,
+    /// Which directions the mods hook (HOOK_IN, HOOK_OUT); the net thread routes batches through them then.
+    pub hooks: Arc<AtomicU8>,
 }
+
+pub const HOOK_IN: u8 = 1;
+pub const HOOK_OUT: u8 = 2;
 
 /// Datagram bytes sent and received (whole UDP payloads, as FUN_100f9b80 / FUN_100f9b90 count them) and
 /// when the last server datagram came, in ms since the session started.
@@ -963,15 +979,17 @@ pub fn spawn(login: MapLogin, account: String, codec: Codec) -> NetHandle {
     let stats = Arc::new(NetStats::default());
     stats.now_ms();
     let st = stats.clone();
+    let hooks = Arc::new(AtomicU8::new(0));
+    let hk = hooks.clone();
     std::thread::Builder::new()
         .name("zone-net".into())
         .spawn(move || {
-            if let Err(e) = run(login, &account, &codec, &events_tx, &commands_rx, &shared, &st) {
+            if let Err(e) = run(login, &account, &codec, &events_tx, &commands_rx, &shared, &st, &hk) {
                 let _ = events_tx.send(NetEvent::Error(format!("{e:#}")));
             }
         })
         .expect("spawning the network thread");
-    NetHandle { events, commands, me, stats }
+    NetHandle { events, commands, me, stats, hooks }
 }
 
 enum Outcome {
@@ -980,10 +998,13 @@ enum Outcome {
     Done,
 }
 
-fn run(mut login: MapLogin, account: &str, codec: &Codec, tx: &Sender<NetEvent>, rx: &Receiver<NetCommand>, me: &Mutex<SelfState>, stats: &NetStats) -> Result<()> {
+#[allow(clippy::too_many_arguments)]
+fn run(mut login: MapLogin, account: &str, codec: &Codec, tx: &Sender<NetEvent>, rx: &Receiver<NetCommand>, me: &Mutex<SelfState>, stats: &NetStats, hooks: &AtomicU8) -> Result<()> {
     let mut addr = SocketAddr::from((login.map.0, login.map.1));
+    let mut sess = 0u32;
     loop {
-        match session(addr, &login, account, codec, tx, rx, me, stats)? {
+        sess += 1;
+        match session(addr, &login, account, codec, tx, rx, me, stats, hooks, sess)? {
             Outcome::Zone(next) => {
                 let counter = u32::from_le_bytes(login.key[16..20].try_into().unwrap()).wrapping_add(2);
                 login.key[16..20].copy_from_slice(&counter.to_le_bytes());
@@ -996,7 +1017,7 @@ fn run(mut login: MapLogin, account: &str, codec: &Codec, tx: &Sender<NetEvent>,
 }
 
 #[allow(clippy::too_many_arguments)]
-fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx: &Sender<NetEvent>, rx: &Receiver<NetCommand>, me: &Mutex<SelfState>, stats: &NetStats) -> Result<Outcome> {
+fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx: &Sender<NetEvent>, rx: &Receiver<NetCommand>, me: &Mutex<SelfState>, stats: &NetStats, hooks: &AtomicU8, sess: u32) -> Result<Outcome> {
     use std::sync::atomic::Ordering::Relaxed;
     let mut map = MapSession::connect(addr, &login.key, codec.clone())?;
     let (mut rx_seen, mut tx_seen) = (0u64, 0u64);
@@ -1010,12 +1031,30 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
     let mut last_login = Instant::now();
     let mut my_index = 0u16;
     let mut npc_logged = 0u32;
+    // Packets back from the mods' hooks (or injected), decoded before the next receive; batches still with the hooks
+    // each way (later ones follow them there, so the order holds when the hooks go away).
+    let mut hooked_in: Vec<SubPacket> = Vec::new();
+    let (mut away_in, mut away_out) = (0usize, 0usize);
     loop {
-        if let Some(packets) = map.recv(Duration::from_millis(20))? {
+        let incoming = if !hooked_in.is_empty() {
+            Some(std::mem::take(&mut hooked_in))
+        } else if let Some(packets) = map.recv(Duration::from_millis(20))? {
             answered = true;
             stats.received.fetch_add(map.bytes_in - rx_seen, Relaxed);
             rx_seen = map.bytes_in;
             stats.last_rx_ms.store(stats.now_ms(), Relaxed);
+            // While a mod hooks them, they go to the main thread first and come back as Decode.
+            if hooks.load(Ordering::Relaxed) & HOOK_IN != 0 || away_in > 0 {
+                away_in += 1;
+                tx.send(NetEvent::RawIn(sess, packets))?;
+                None
+            } else {
+                Some(packets)
+            }
+        } else {
+            None
+        };
+        if let Some(packets) = incoming {
             for p in packets {
                 match p.id {
                     // A zone-in once in the session is ignored (FUN_100fa5c0: error 0x10 outside state 2).
@@ -1419,6 +1458,24 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
         }
         while let Ok(cmd) = rx.try_recv() {
             match cmd {
+                NetCommand::Decode(g, packets) => {
+                    if g == sess {
+                        away_in = away_in.saturating_sub(1);
+                    }
+                    if g == 0 || g == sess {
+                        hooked_in.extend(packets);
+                    }
+                }
+                NetCommand::SendBatch(g, packets) => {
+                    if g == sess {
+                        away_out = away_out.saturating_sub(1);
+                    }
+                    if (g == 0 || g == sess) && !packets.is_empty() {
+                        map.send(&packets)?;
+                        stats.sent.fetch_add(map.bytes_out - tx_seen, Relaxed);
+                        tx_seen = map.bytes_out;
+                    }
+                }
                 // c2s 0x0B5 / 0x0B6 (FUN_100e3400 / the tell sender): the text in Shift-JIS, auto-translate blocks
                 // kept, 150 bytes at most; 0x0B6 @4 = 3 as retail sends it.
                 NetCommand::Chat { kind, text } => {
@@ -1514,9 +1571,15 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
                 body[18..20].copy_from_slice(&s.target.to_le_bytes());
                 add_position(&mut queue, build(0x015, &body), s.moving);
             }
-            map.send(&queue)?;
-            stats.sent.fetch_add(map.bytes_out - tx_seen, Relaxed);
-            tx_seen = map.bytes_out;
+            // While a mod hooks them, the batch goes to the main thread and comes back as SendBatch.
+            if hooks.load(Ordering::Relaxed) & HOOK_OUT != 0 || away_out > 0 {
+                away_out += 1;
+                tx.send(NetEvent::RawOut(sess, std::mem::take(&mut queue)))?;
+            } else {
+                map.send(&queue)?;
+                stats.sent.fetch_add(map.bytes_out - tx_seen, Relaxed);
+                tx_seen = map.bytes_out;
+            }
             queue.clear();
             last_send = Instant::now();
         }

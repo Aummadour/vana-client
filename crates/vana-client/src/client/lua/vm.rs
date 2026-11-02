@@ -90,6 +90,14 @@ pub(super) struct ModState {
     pub window_handlers: Vec<(String, RegistryKey)>,
     /// A window opened this phase takes the focus (the host moves it there).
     pub focus_request: Option<String>,
+    /// Packet hooks (docs/lua-mods.md 4.7): (handle, packet id or none for all, handler), each direction; packets the
+    /// mod injected (whole sub-packets) for the host to pass on.
+    pub hooks_in: Vec<(u64, Option<u16>, RegistryKey)>,
+    pub hooks_out: Vec<(u64, Option<u16>, RegistryKey)>,
+    pub inject_in: Vec<Vec<u8>>,
+    pub inject_out: Vec<Vec<u8>>,
+    /// The permissions the user granted this mod.
+    pub granted: Vec<String>,
 }
 
 impl ModState {

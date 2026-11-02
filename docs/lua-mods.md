@@ -38,10 +38,17 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   - elements: text, buttons and options, slider, scrolling list, gauge, separator
   - keys and mouse in both UIs: the classic UI draws Config pages, the modern UI kit panels with saved places
   - HUD windows (no focus, frameless, placed)
+- **Packets** (`packets.read` / `packets.write`, granted with `/lua grant`, kept in mod-data/grants.json):
+  - `packets.on_in` / `on_out` (one id or all) see each packet before the client reads it or after it built it, as
+    a chain: original and current bytes, blocked, injected; a handler returns new bytes, `false` to block, or nothing
+  - `inject_in` (decoded as if the server sent it) and `inject_out`, both through the hooks; `build`; `last`
+  - checked live: counts by id, an injected tell, a say rewritten into a GM command the server answered, across zones
+- **Bundled mods:** `/dps` (the first Extra ported).
 - **Mods folder:** `mods/<id>/` (enabled through config `mods`); a test run uses `mods` beside its FFXI_CONFIG copy.
 
-Next (docs/lua-mods.md 6): the Mods page's permissions; an Extra ported to a bundled mod; packets (phase 4);
-actions and automation (phase 5); then world-space drawing, audio, ipc / net, and the coverage table.
+Next (docs/lua-mods.md 6): the Mods page's permissions; packet layouts and decoded views, batch order (the rest of
+phase 4); actions and automation (phase 5); the other Extras as bundled mods; then world-space drawing, audio, ipc /
+net, and the coverage table.
 
 ## 1. The bar
 
@@ -123,18 +130,18 @@ never runs deep inside game code with state half-changed.
 
 ### 3.3 Net pipeline change (needed for packet hooks)
 
-Today the net thread decodes s2c packets into `NetEvent`s (client/net.rs). `NetCommand`s are encoded there too. For
-Windower-depth hooks:
+The net thread decodes s2c packets into `NetEvent`s and encodes `NetCommand`s (client/net.rs). Built: a round trip
+through the main thread, only while some mod hooks that direction (an atomic flag the mod phase sets):
 
 - **Incoming:**
-  - The net thread forwards raw subpackets to the main thread, which runs the hooks and then decodes. Decoding moves
-    to the main thread as a function.
-  - Injected incoming packets go into the same queue and are processed exactly as if the server had sent them.
+  - The net thread sends each received batch, undecoded, as `NetEvent::RawIn`; the main thread runs the hooks and
+    returns the result as `NetCommand::Decode`, which the net thread decodes before its next receive.
+  - Injected incoming packets go through the hooks and the same decode, exactly as if the server had sent them.
 - **Outgoing:**
-  - `NetCommand`s are encoded on the main thread.
-  - The frame's outgoing batch passes through the hooks as a list: each packet with `id`, `original`, `modified`,
-    `blocked` and `injected`.
-  - The net thread only frames, encrypts and sends.
+  - The 400 ms batch goes out as `NetEvent::RawOut` and comes back as `NetCommand::SendBatch`, sent as it is.
+  - Each packet passes the hooks with `id`, `data`, `original`, `blocked` and `injected`.
+- **Sessions:** each batch carries its zone session's number; one returning after a zone change is dropped. While a
+  batch is away, later ones follow it through the main thread, so the order holds when the hooks go away.
 - **Ordering:** a hook may insert packets before or after any packet in the batch. This is GearSwap's "equips ahead of
   the action, midcast equips right behind it".
 - **Chaining (Windower semantics):** each hook sees the original and the modified bytes. A blocked packet still

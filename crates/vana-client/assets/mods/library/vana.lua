@@ -119,6 +119,14 @@
 ---@field y number?
 ---@field elements table[]?
 
+---@class vana.Packet
+---@field id integer
+---@field data string
+---@field original string
+---@field injected boolean
+---@field blocked boolean
+---@field outgoing boolean
+
 ---@class vana.Time
 ---@field earth integer
 ---@field year integer
@@ -153,6 +161,7 @@ events = {}
 commands = {}
 filters = {}
 ui = {}
+packets = {}
 chat = {}
 timer = {}
 game = {}
@@ -267,6 +276,44 @@ function ui.is_open(id) end
 ---@param id string 
 ---@param handler fun(window: string, event: {kind: string, id: string?, index: integer?}) 
 function ui.on(id, handler) end
+
+--- Hooks received packets (one id, or every one when nil) before the client reads them. The handler gets {id, data, original, injected, blocked, outgoing} (data and original are the whole sub-packet, header included) and returns nil to leave it, false to block it, or new bytes. Hooks chain across mods: a blocked packet still reaches later ones. Needs packets.read; changing or blocking needs packets.write.
+---@param id integer? packet id
+---@param handler fun(p: vana.Packet): (string|false|nil) 
+---@return integer
+function packets.on_in(id, handler) end
+
+--- Hooks packets about to be sent, after the client built them; as on_in.
+---@param id integer? packet id
+---@param handler fun(p: vana.Packet): (string|false|nil) 
+---@return integer
+function packets.on_out(id, handler) end
+
+--- Removes a packet hook.
+---@param id integer what on_in / on_out returned
+function packets.off(id) end
+
+--- Hands the client a packet as if the server had sent it (it passes the hooks, injected = true). Needs packets.write.
+---@param id_or_data integer|string an id, or a whole sub-packet
+---@param body? string the body after the 4-byte header
+function packets.inject_in(id_or_data, body) end
+
+--- Sends a packet to the server (it passes the hooks, injected = true). Needs packets.write.
+---@param id_or_data integer|string an id, or a whole sub-packet
+---@param body? string the body after the 4-byte header
+function packets.inject_out(id_or_data, body) end
+
+--- A whole sub-packet from an id and its body (the header's size made to fit).
+---@param id integer 
+---@param body string 
+---@return string
+function packets.build(id, body) end
+
+--- The last packet of an id seen each way, or nil. Needs packets.read.
+---@param direction 'in'|'out' 
+---@param id integer 
+---@return string?
+function packets.last(direction, id) end
 
 --- Adds a line to the chat log. With a mode it takes that mode's colour, filters and indent, like a game line; {colour = mode} takes only the mode's colour.
 ---@param text string 

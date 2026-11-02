@@ -8378,6 +8378,15 @@ impl App {
                 continue;
             }
             match ev {
+                // The mods' packet hooks (docs/lua-mods.md 3.3): a batch in or out, through them and back.
+                NetEvent::RawIn(sess, packets) => {
+                    let out = lua::packets_in(world, packets);
+                    let _ = world.net.commands.send(NetCommand::Decode(sess, out));
+                }
+                NetEvent::RawOut(sess, packets) => {
+                    let out = lua::packets_out(world, packets);
+                    let _ = world.net.commands.send(NetCommand::SendBatch(sess, out));
+                }
                 NetEvent::EntityVis(list) => {
                     world.vis_list = list;
                     for (id, e) in world.entities.iter_mut().filter(|(_, e)| e.listed_only) {
