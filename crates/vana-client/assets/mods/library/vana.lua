@@ -9,6 +9,9 @@
 ---| "zone_change" # A new zone has loaded.
 ---| "settings_changed" # The user changed one of the mod's settings (its Extras page, or /lua set).
 ---| "focus_change" # The game window gained or lost the keyboard focus.
+---| "emote" # Someone used an emote (s2c 0x05A): who, at whom (0 none), the emote id, its mode (motion only, text only...).
+---| "party_invite" # We were invited to a party or an alliance (s2c 0x0DC).
+---| "examined" # Someone examined us (/check; message 89).
 ---| "frame" # Every frame (prefer timers and events: this one costs time every frame).
 ---| "hp_change" # Our HP changed.
 ---| "mp_change" # Our MP changed.
@@ -78,6 +81,7 @@
 ---@field look {face: integer, head: integer, body: integer, hands: integer, legs: integer, feet: integer, main: integer, sub: integer, range: integer}? a player-style look
 ---@field in_party boolean
 ---@field in_alliance boolean
+---@field hitbox number the model radius the server gives (actor +0x208)
 ---@field target_index integer? what it targets (its face target; ours: our target)
 ---@field target_id integer? that target's server id, when known
 ---@field pet boolean? true for our pet, which also has:
@@ -1091,6 +1095,26 @@ function res.augments(item, extdata) end
 ---@return {text: string, mode: integer?}?
 function res.message(id, options) end
 
+--- A weather's name by id (0 Clear .. 19 Darkness).
+---@param id integer 
+---@return string?
+function res.weather(id) end
+
+--- The element a weather brings (0 Fire, 1 Ice, 2 Wind, 3 Earth, 4 Lightning, 5 Water, 6 Light, 7 Dark), nil for none.
+---@param id integer 
+---@return integer?
+function res.weather_element(id) end
+
+--- An element's name (0 Fire .. 7 Dark).
+---@param id integer 
+---@return string?
+function res.element(id) end
+
+--- A mount's name by its list index.
+---@param id integer 
+---@return string?
+function res.mount(id) end
+
 --- A monster ability's name (ids from 256).
 ---@param id integer 
 ---@return string?
@@ -1165,9 +1189,13 @@ function json.encode(value, options) end
 ---@return any
 function json.decode(text) end
 
---- Every loaded mod: id, name, version and the functions it provides.
----@return {id: string, name: string, version: string, provides: string[]}[]
+--- Every loaded mod: id, name, version, the functions it provides, its time a frame (avg_ms, peak_ms), memory_kb and recent errors.
+---@return {id: string, name: string, version: string, provides: string[], avg_ms: number, peak_ms: number, memory_kb: integer?, errors: integer}[]
 function mods.list() end
+
+--- Every mod on disk and bundled: {id, name, version, enabled, bundled, loaded}. Load or unload one with commands.run('/lua load <id>') / '/lua unload <id>'.
+---@return table[]
+function mods.installed() end
 
 --- Offers a function to other mods (mods.call). Values cross as copies of plain data.
 ---@param name string 
@@ -1258,6 +1286,9 @@ function settings.get(key) end
 --   zone_change(zone: integer, previous: integer?): A new zone has loaded.
 --   settings_changed(key: string, value: any): The user changed one of the mod's settings (its Extras page, or /lua set).
 --   focus_change(focused: boolean): The game window gained or lost the keyboard focus.
+--   emote(actor: integer, target: integer, emote: integer, mode: integer): Someone used an emote (s2c 0x05A): who, at whom (0 none), the emote id, its mode (motion only, text only...).
+--   party_invite(from: string, kind: 'party'|'alliance'): We were invited to a party or an alliance (s2c 0x0DC).
+--   examined(id: integer, name: string): Someone examined us (/check; message 89).
 --   frame(dt: number): Every frame (prefer timers and events: this one costs time every frame).
 --   hp_change(hp: integer, previous: integer): Our HP changed.
 --   mp_change(mp: integer, previous: integer): Our MP changed.

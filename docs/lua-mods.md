@@ -42,7 +42,9 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   - `res.item`, `spell`, `ability`, `status`, `zone`, `title`, `key_item`, `job`, `augments` (an item's extdata
     decoded as the item window shows it: lines, the short line, message id / value pairs; checked live)
   - `res.message` (a battle / system message expanded as the log prints it, with actor, target and values),
-    `mob_skill`, `skill`, `day`, `moon`; checked live
+    `mob_skill`, `skill`, `day`, `moon`, `weather` / `weather_element`, `element`, `mount`; checked live
+  - events `emote` (s2c 0x05A), `party_invite` (0x0DC), `examined` (message 89); an entity's `hitbox` (its model
+    radius, ours from 0x037); emote and hitbox checked live, invite and examined not (they need a second player)
 - **Chat and commands:**
   - `chat.add` (mode colours)
   - `filters.chat` (keep, drop or rewrite every line) and `filters.typed` (typed lines before the parser)
@@ -142,8 +144,9 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   - `fs.read` / `write` / `append` / `exists` / `list` / `mkdir` / `remove` / `rename` in the mod's data folder
     (mod-data/<id>/files), reads falling back to the mod's own files; `shared/...` with `files.shared`; no `..`
   - `json.encode` / `decode`
-  - `mods.list`, `mods.provide` / `mods.call` (a function in another mod's VM, values copied), `mods.emit` (an event
-    to every other mod)
+  - `mods.list` (with each mod's time a frame, memory and errors), `mods.installed` (every mod on disk and bundled:
+    enabled, loaded), `mods.provide` / `mods.call` (a function in another mod's VM, values copied), `mods.emit` (an
+    event to every other mod); `/lua hide` / `show` hides every mod's HUD, windows and world drawing at once
   - `text.from_shift_jis` / `to_shift_jis` / `plain` (auto-translate phrases as words); `client.copy`
   - checked live: a call returning two values, an emitted table, files written, appended, listed and read back, the
     mod's own file read, `..` and `shared/` refused, JSON both ways, the os subset, Shift-JIS round trip

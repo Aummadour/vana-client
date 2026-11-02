@@ -162,6 +162,8 @@ fn release_options(w: &mut World) {
 pub struct Host {
     vms: Vec<Vm>,
     started: bool,
+    /// `/lua hide`: every mod's HUD, windows and world drawing hidden (they keep running).
+    all_hidden: bool,
     /// The map the mods' HUD maps draw (opened and followed as the minimap's).
     map: std::cell::RefCell<Option<super::map::Overlay>>,
     /// Events raised by the client since the last mod phase.
@@ -616,6 +618,11 @@ impl Host {
                     out.push((format!("{} {} ({state}): {:.2} ms avg, {:.1} ms peak, {} KB", v.manifest.id, v.manifest.version, st.stats.avg, st.stats.peak, v.lua.used_memory() / 1024), super::WHITE));
                 }
             }
+            // Every mod's drawing hidden or shown again (hideui); the mods keep running.
+            "hide" | "show" => {
+                self.all_hidden = args[0] == "hide";
+                out.push((if self.all_hidden { "Mods hidden (/lua show brings them back)." } else { "Mods shown." }.into(), super::WHITE));
+            }
             "load" | "l" => match args.get(1) {
                 Some(id) => match self.load_named(w, id) {
                     Ok(()) => out.push((format!("Loaded {id}."), super::WHITE)),
@@ -1043,13 +1050,15 @@ fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
 
 /// The mods' world shapes as vertices for the renderer: [line pairs, triangles].
 pub(super) fn world_shapes(w: &World) -> [Vec<crate::render::LineVertex>; 2] {
-    if w.lua.started { draw::vertices(w) } else { [Vec::new(), Vec::new()] }
+    if w.lua.started && !w.lua.all_hidden { draw::vertices(w) } else { [Vec::new(), Vec::new()] }
 }
 
 /// The mods' HUD elements, under the windows (world_hud).
 pub(super) fn draw_hud(gu: &mut super::game_ui::GameUi, w: &World) {
-    if w.lua.started {
+    if w.lua.started && !w.lua.all_hidden {
         hud::draw(gu, w);
+    } else {
+        w.lua.info.borrow_mut().hud_rects.clear();
     }
 }
 
@@ -1370,7 +1379,7 @@ impl Host {
 impl Host {
     /// Whether a mod window has the keys.
     pub(super) fn focused(&self) -> bool {
-        self.vms.iter().any(|v| v.suspended.is_none() && v.st.borrow().windows.iter().any(|w| w.open && w.focus))
+        !self.all_hidden && self.vms.iter().any(|v| v.suspended.is_none() && v.st.borrow().windows.iter().any(|w| w.open && w.focus))
     }
 
     /// The loaded mods' ids.
@@ -1385,7 +1394,7 @@ impl Host {
 
     /// Whether a mod window's line is being typed (it takes the text and the keys).
     pub(super) fn typing(&self) -> bool {
-        self.vms.iter().any(|v| v.suspended.is_none() && v.st.borrow().windows.iter().any(|w| w.open && w.focus && w.typing()))
+        !self.all_hidden && self.vms.iter().any(|v| v.suspended.is_none() && v.st.borrow().windows.iter().any(|w| w.open && w.focus && w.typing()))
     }
 
     /// The focused window's title and the help under its cursor, for the classic help bar.
@@ -1444,6 +1453,9 @@ impl Host {
     /// The open windows (mod id, a copy of the window), for the modern UI's panels.
     pub(super) fn open_windows(&self) -> Vec<(String, window::Window)> {
         let mut out = Vec::new();
+        if self.all_hidden {
+            return out;
+        }
         for vm in self.vms.iter().filter(|v| v.suspended.is_none()) {
             for win in vm.st.borrow().windows.iter().filter(|w| w.open) {
                 out.push((vm.manifest.id.clone(), win.clone()));
@@ -1522,6 +1534,9 @@ pub(super) fn window_click(w: &mut World, mod_id: &str, win_id: &str, click: sup
 /// centred, or at their anchor kept on screen).
 fn classic_places(w: &World) -> Vec<(usize, String, f32, f32)> {
     let (mut out, mut modal) = (Vec::new(), Vec::new());
+    if w.lua.all_hidden {
+        return out;
+    }
     let (screen, uk) = {
         let f = w.lua.info.borrow();
         (f.window, f.k)
@@ -1618,6 +1633,33 @@ mod stub_tests {
     fn committed_stubs_current() {
         assert_eq!(include_str!("../../../assets/mods/library/vana.lua"), super::stubs(), "assets/mods/library/vana.lua is stale");
     }
+}
+
+/// A bundled mod's manifest.
+fn bundled_manifest(id: &str) -> Option<manifest::Manifest> {
+    BUNDLED.iter().find(|b| b.0 == id).and_then(|b| manifest::parse(b.1, id).ok())
+}
+
+/// Every mod on disk and bundled: (id, name, version, enabled in the config, bundled).
+pub(super) fn installed() -> Vec<(String, String, String, bool, bool)> {
+    let cfg = crate::config::Config::load();
+    let enabled = |id: &str, bundled: bool| cfg.mods.iter().find(|r| r.name == id).map_or(bundled, |r| r.enabled);
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(mods_dir()).into_iter().flatten().flatten() {
+        let dir = e.path();
+        if let Ok(m) = manifest::read(&dir) {
+            let id = m.id.clone();
+            out.push((id.clone(), m.name, m.version, enabled(&id, false), false));
+        }
+    }
+    for (id, ..) in BUNDLED {
+        if !out.iter().any(|o| o.0 == *id) {
+            let m = bundled_manifest(id);
+            out.push((id.to_string(), m.as_ref().map_or_else(|| id.to_string(), |m| m.name.clone()), m.map_or_else(String::new, |m| m.version), enabled(id, true), true));
+        }
+    }
+    out.sort();
+    out
 }
 
 /// The user's grants by mod (mod-data/grants.json): the permissions each may use (docs/lua-mods.md 3.5).

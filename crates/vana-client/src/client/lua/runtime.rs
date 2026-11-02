@@ -236,8 +236,27 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
                 t.set("id", m.id.as_str())?;
                 t.set("name", m.name.as_str())?;
                 t.set("version", m.version.as_str())?;
-                let provides: Vec<String> = m.st.borrow().provided.iter().map(|p| p.0.clone()).collect();
+                let st = m.st.borrow();
+                let provides: Vec<String> = st.provided.iter().map(|p| p.0.clone()).collect();
                 t.set("provides", provides)?;
+                (t.set("avg_ms", st.stats.avg)?, t.set("peak_ms", st.stats.peak)?, t.set("errors", st.errors.len())?);
+                if let Some(l) = m.lua.try_upgrade() {
+                    t.set("memory_kb", l.used_memory() / 1024)?;
+                }
+                out.push(t)?;
+            }
+            Ok(out)
+        })?,
+    )?;
+    mods.set(
+        "installed",
+        lua.create_function(|lua, ()| {
+            let loaded: Vec<String> = directory(lua).borrow().mods.iter().map(|m| m.id.clone()).collect();
+            let out = lua.create_table()?;
+            for (id, name, version, enabled, bundled) in super::installed() {
+                let t = lua.create_table()?;
+                (t.set("loaded", loaded.contains(&id))?, t.set("id", id)?, t.set("name", name)?, t.set("version", version)?);
+                (t.set("enabled", enabled)?, t.set("bundled", bundled)?);
                 out.push(t)?;
             }
             Ok(out)

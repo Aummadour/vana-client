@@ -916,6 +916,10 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
             Ok(Some(t))
         })?,
     )?;
+    res.set("weather", lua.create_function(|_, id: usize| Ok(WEATHER.get(id).map(|w| w.0)))?)?;
+    res.set("weather_element", lua.create_function(|_, id: usize| Ok(WEATHER.get(id).and_then(|w| w.1)))?)?;
+    res.set("element", lua.create_function(|_, id: usize| Ok(ELEMENTS.get(id).copied()))?)?;
+    res.set("mount", lua.create_function(|lua, id: u16| Ok(Some(super::super::magic::mount_name(world(lua)?, id)).filter(|s| !s.is_empty())))?)?;
     res.set("mob_skill", lua.create_function(|lua, id: u16| Ok(world(lua)?.battle.as_ref().map(|b| b.mob_skill(id)).filter(|s| !s.is_empty() && !s.starts_with('#'))))?)?;
     res.set("skill", lua.create_function(|lua, id: u32| Ok(world(lua)?.battle.as_ref().and_then(|b| b.kind_name(2, id)).map(|s| crate::dat::font::decode_sjis(&s)).filter(|s| !s.is_empty())))?)?;
     res.set("day", lua.create_function(|lua, d: usize| Ok(world(lua)?.battle.as_ref().and_then(|b| b.day_name(d))))?)?;
@@ -971,6 +975,32 @@ fn kind_name(e: &super::super::Entity) -> &'static str {
     }
 }
 
+/// Weather names by id (LSB's and the game's order) and the element each brings (0 Fire .. 7 Dark).
+const WEATHER: [(&str, Option<u8>); 20] = [
+    ("Clear", None),
+    ("Sunshine", None),
+    ("Clouds", None),
+    ("Fog", None),
+    ("Hot Spell", Some(0)),
+    ("Heat Wave", Some(0)),
+    ("Rain", Some(5)),
+    ("Squall", Some(5)),
+    ("Dust Storm", Some(3)),
+    ("Sand Storm", Some(3)),
+    ("Wind", Some(2)),
+    ("Gales", Some(2)),
+    ("Snow", Some(1)),
+    ("Blizzards", Some(1)),
+    ("Thunder", Some(4)),
+    ("Thunderstorms", Some(4)),
+    ("Auroras", Some(6)),
+    ("Stellar Glare", Some(6)),
+    ("Gloom", Some(7)),
+    ("Darkness", Some(7)),
+];
+
+const ELEMENTS: [&str; 8] = ["Fire", "Ice", "Wind", "Earth", "Lightning", "Water", "Light", "Dark"];
+
 /// An entity as a table: who, where, how it stands.
 pub(super) fn entity(lua: &Lua, w: &World, id: u32, e: &super::super::Entity) -> mlua::Result<Table> {
     let t = lua.create_table()?;
@@ -1004,6 +1034,7 @@ pub(super) fn entity(lua: &Lua, w: &World, id: u32, e: &super::super::Entity) ->
     let slot = w.party.slots().slots.iter().position(|m| m.as_ref().is_some_and(|m| m.id == id));
     t.set("in_party", slot.is_some_and(|k| k < 6))?;
     t.set("in_alliance", slot.is_some())?;
+    t.set("hitbox", e.hitbox)?;
     // Its target: the face target (0x00D / 0x00E facetarget), and that entity's server id when known.
     if e.face != 0 {
         t.set("target_index", e.face)?;
@@ -1049,6 +1080,8 @@ pub(super) fn self_entity(lua: &Lua, w: &World) -> mlua::Result<Table> {
     t.set("in_alliance", true)?;
     t.set("race", w.my_race)?;
     t.set("me", true)?;
+    // Ours from s2c 0x037 @0x59 (actor +0x208).
+    t.set("hitbox", w.my_plate.hitbox)?;
     if let Some((tid, e)) = w.target.and_then(|id| w.entities.get(&id).map(|e| (id, e))) {
         (t.set("target_index", e.index)?, t.set("target_id", tid)?);
     }

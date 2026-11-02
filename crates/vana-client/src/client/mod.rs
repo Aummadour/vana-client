@@ -9392,7 +9392,10 @@ impl App {
                     roe::active_changed(world);
                 }
                 NetEvent::RoeLog { offset, data } => world.roe.log_part(offset, &data),
-                NetEvent::Invite { anon, kind, name, race } => partymenu::invited(world, anon, kind, name, race),
+                NetEvent::Invite { anon, kind, name, race } => {
+                    world.lua.raise("party_invite", vec![name.clone().into(), (if kind == 5 { "alliance" } else { "party" }).into()]);
+                    partymenu::invited(world, anon, kind, name, race)
+                }
                 NetEvent::PartyRequest { status, name } => partyreq::received(world, status, name),
                 NetEvent::Blacklist { stat, entries } => partyreq::blacklist(world, stat, entries),
                 NetEvent::BlackEdit { id, name, mode } => partyreq::black_result(world, id, name, mode),
@@ -9449,7 +9452,10 @@ impl App {
                         l.rt.registration(result as u32);
                     }
                 }
-                NetEvent::Emote { caster, target, emote, param, mode } => combat::on_emote(world, caster, target, emote, param, mode),
+                NetEvent::Emote { caster, target, emote, param, mode } => {
+                    world.lua.raise("emote", vec![caster.into(), target.into(), emote.into(), mode.into()]);
+                    combat::on_emote(world, caster, target, emote, param, mode)
+                }
                 NetEvent::AbilityRecasts(timers) => {
                     world.recasts_seen = true;
                     let now = Instant::now();
