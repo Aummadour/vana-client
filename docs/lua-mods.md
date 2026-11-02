@@ -486,9 +486,9 @@ mute music. The chime.
 
 ## 5. Proving the bar
 
-- **Coverage table:** the surveys' scan data gives every add-on and plugin as a row: its operations mapped to API
-  calls, and a status (covered / partly / missing). It is generated from the add-ons' sources, committed beside this file, and re-run
-  as the API grows. A missing row is a bug in the API.
+- **Coverage table:** [lua-coverage.md](lua-coverage.md), every add-on and plugin as a row: its operations mapped to
+  API calls, and a status (covered / partly / missing), with the open gaps ranked by the rows they block (615 rows, 554
+  covered as of 478e408). Re-rated as the API grows. A missing row is a bug in the API.
 - **Reference ports,** written as real mods, chosen to cover the hard classes:
   - **GearSwap:** the platform, the 20 callbacks, a stock Mote-libs job file.
   - **battlemod:** filtering and rewriting combat text.
