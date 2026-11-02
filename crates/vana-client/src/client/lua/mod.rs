@@ -40,6 +40,76 @@ pub struct Host {
     ui_events: Vec<(String, String, window::Event)>,
     /// The last packet of each id each way, shared with every mod (packets.last).
     pub(super) last: std::rc::Rc<std::cell::RefCell<LastPackets>>,
+    /// `/lua watch`: mods reloaded when their files are saved.
+    watch: Option<Watch>,
+}
+
+/// Mod folders watched for saved files (`/lua watch`): a thread polls their .lua / .toml files' times and names a mod
+/// once its files have been still for a moment. It ends with the host.
+struct Watch {
+    dirs: std::sync::Arc<std::sync::Mutex<Vec<(String, PathBuf)>>>,
+    rx: std::sync::mpsc::Receiver<String>,
+}
+
+impl Watch {
+    fn new() -> Self {
+        let dirs = std::sync::Arc::new(std::sync::Mutex::new(Vec::<(String, PathBuf)>::new()));
+        let weak = std::sync::Arc::downgrade(&dirs);
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::Builder::new()
+            .name("lua-watch".into())
+            .spawn(move || {
+                use std::time::{Duration, Instant, SystemTime};
+                let mut seen: std::collections::HashMap<String, (SystemTime, Option<Instant>)> = Default::default();
+                while let Some(dirs) = weak.upgrade() {
+                    let list = dirs.lock().map(|d| d.clone()).unwrap_or_default();
+                    drop(dirs);
+                    for (id, dir) in list {
+                        let t = newest(&dir);
+                        match seen.get_mut(&id) {
+                            None => {
+                                seen.insert(id, (t, None));
+                            }
+                            Some(e) if e.0 != t => *e = (t, Some(Instant::now())),
+                            // Sent once the files have been still for 300 ms (editors save in steps).
+                            Some(e) if e.1.is_some_and(|c| c.elapsed() >= Duration::from_millis(300)) => {
+                                e.1 = None;
+                                if tx.send(id).is_err() {
+                                    return;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    std::thread::sleep(Duration::from_millis(250));
+                }
+            })
+            .ok();
+        Self { dirs, rx }
+    }
+}
+
+/// The newest modification time of a mod folder's .lua and .toml files (DAT trees skipped).
+fn newest(dir: &std::path::Path) -> std::time::SystemTime {
+    let mut t = std::time::SystemTime::UNIX_EPOCH;
+    let Ok(rd) = std::fs::read_dir(dir) else { return t };
+    for e in rd.flatten() {
+        let path = e.path();
+        let name = e.file_name().to_string_lossy().to_ascii_lowercase();
+        if path.is_dir() {
+            if !name.starts_with("rom") && !name.starts_with('.') {
+                t = t.max(newest(&path));
+            }
+        } else if (name.ends_with(".lua") || name.ends_with(".toml")) && let Ok(m) = e.metadata().and_then(|m| m.modified()) {
+            t = t.max(m);
+        }
+    }
+    t
+}
+
+/// The watched mods (mod-data/watch.json).
+fn watched() -> Vec<String> {
+    serde_json::from_value(read_json(&data_dir().join("watch.json"))).unwrap_or_default()
 }
 
 /// What the derived events watch (Windower's change events).
@@ -267,6 +337,7 @@ impl Host {
         self.started = true;
         let cfg = crate::config::Config::load();
         let root = mods_dir();
+        install_stubs(root.clone());
         // Bundled mods (our own features on the mod API) run unless turned off in `mods` or replaced by a folder.
         for (id, ..) in BUNDLED {
             let off = cfg.mods.iter().any(|r| r.name == *id && !r.enabled);
@@ -289,8 +360,55 @@ impl Host {
                 w.chat.push_colour(format!("Mod {}: {e}", r.name), ERROR);
             }
         }
+        for id in watched() {
+            self.set_watch(&id, true);
+        }
         let name = w.name.clone();
         self.events.push(("login", vec![name.into()]));
+    }
+
+    /// Starts or stops watching mod `id`'s folder.
+    fn set_watch(&mut self, id: &str, on: bool) {
+        let watch = self.watch.get_or_insert_with(Watch::new);
+        if let Ok(mut d) = watch.dirs.lock() {
+            d.retain(|(i, _)| i != id);
+            if on {
+                d.push((id.to_string(), mods_dir().join(id)));
+            }
+        }
+    }
+
+    /// A mod by id: its folder, else the bundled one.
+    fn load_named(&mut self, w: &World, id: &str) -> Result<(), String> {
+        let dir = mods_dir().join(id);
+        if !dir.join("mod.toml").is_file() && BUNDLED.iter().any(|b| b.0 == id) { self.load_bundled(w, id) } else { self.load(w, dir) }
+    }
+
+    /// Reloads the mod at `k` from its files, in the same place in the load order; its id.
+    fn reload(&mut self, w: &World, k: usize) -> Result<String, String> {
+        let dir = self.vms[k].dir.clone();
+        let id = self.vms[k].manifest.id.clone();
+        let bundled = matches!(self.vms[k].src, vm::Source::Bundled(_));
+        self.unload(w, k);
+        if bundled { self.load_bundled(w, &id) } else { self.load(w, dir) }.map_err(|e| format!("{id}: {e}"))?;
+        let vm = self.vms.pop().expect("just loaded");
+        self.vms.insert(k.min(self.vms.len()), vm);
+        Ok(id)
+    }
+
+    /// Saved files of watched mods: each reloaded (or loaded, when it failed before).
+    fn watch_upkeep(&mut self, w: &World, out: &mut Vec<(String, [u8; 4])>) {
+        let ids: Vec<String> = self.watch.as_ref().map(|wa| wa.rx.try_iter().collect()).unwrap_or_default();
+        for id in ids {
+            let r = match self.vms.iter().position(|v| v.manifest.id.eq_ignore_ascii_case(&id)) {
+                Some(k) => self.reload(w, k),
+                None => self.load_named(w, &id).map(|()| id.clone()).map_err(|e| format!("{id}: {e}")),
+            };
+            match r {
+                Ok(id) => out.push((format!("Reloaded {id} (files saved)."), super::WHITE)),
+                Err(e) => out.push((e, ERROR)),
+            }
+        }
     }
 
     /// Logout: `logout` and `unload` to every mod, storage saved.
@@ -319,34 +437,68 @@ impl Host {
                     out.push((format!("{} {} ({state}): {:.2} ms avg, {:.1} ms peak, {} KB", v.manifest.id, v.manifest.version, st.stats.avg, st.stats.peak, v.lua.used_memory() / 1024), super::WHITE));
                 }
             }
-            "load" => match args.get(1) {
-                Some(id) => {
-                    let dir = mods_dir().join(id);
-                    let r = if !dir.join("mod.toml").is_file() && BUNDLED.iter().any(|b| b.0 == *id) { self.load_bundled(w, id) } else { self.load(w, dir) };
-                    match r {
-                        Ok(()) => out.push((format!("Loaded {id}."), super::WHITE)),
+            "load" | "l" => match args.get(1) {
+                Some(id) => match self.load_named(w, id) {
+                    Ok(()) => out.push((format!("Loaded {id}."), super::WHITE)),
+                    Err(e) => out.push((e, ERROR)),
+                },
+                None => out.push(("/lua load <mod>".into(), ERROR)),
+            },
+            "unload" | "u" => match args.get(1).and_then(|id| find(&self.vms, id)) {
+                Some(k) => {
+                    let id = self.vms[k].manifest.id.clone();
+                    self.unload(w, k);
+                    out.push((format!("Unloaded {id}."), super::WHITE));
+                }
+                None => out.push(("No such mod loaded.".into(), ERROR)),
+            },
+            // One mod (loaded if it is not, e.g. after an error), or every loaded one.
+            "reload" | "r" => {
+                let ids: Vec<String> = match args.get(1) {
+                    Some(id) => match find(&self.vms, id) {
+                        Some(k) => vec![self.vms[k].manifest.id.clone()],
+                        None => {
+                            match self.load_named(w, id) {
+                                Ok(()) => out.push((format!("Loaded {id}."), super::WHITE)),
+                                Err(e) => out.push((e, ERROR)),
+                            }
+                            Vec::new()
+                        }
+                    },
+                    None => self.vms.iter().map(|v| v.manifest.id.clone()).collect(),
+                };
+                // By id: a failed reload drops its mod and moves the others up.
+                for id in &ids {
+                    let Some(k) = find(&self.vms, id) else { continue };
+                    match self.reload(w, k) {
+                        Ok(id) => out.push((format!("Reloaded {id}."), super::WHITE)),
                         Err(e) => out.push((e, ERROR)),
                     }
                 }
-                None => out.push(("/lua load <mod>".into(), ERROR)),
-            },
-            "unload" | "reload" => match args.get(1).and_then(|id| find(&self.vms, id)) {
-                Some(k) => {
-                    let dir = self.vms[k].dir.clone();
-                    let id = self.vms[k].manifest.id.clone();
-                    let bundled = matches!(self.vms[k].src, vm::Source::Bundled(_));
-                    self.unload(w, k);
-                    if args[0] == "reload" {
-                        let r = if bundled { self.load_bundled(w, &id) } else { self.load(w, dir) };
-                        match r {
-                            Ok(()) => out.push((format!("Reloaded {id}."), super::WHITE)),
-                            Err(e) => out.push((e, ERROR)),
-                        }
+            }
+            // Reload a mod by itself whenever its files are saved; on or off per mod, kept across sessions.
+            "watch" => match args.get(1) {
+                Some(id) => {
+                    let id = self.vms.iter().find(|v| v.manifest.id.eq_ignore_ascii_case(id)).map_or(id.to_string(), |v| v.manifest.id.clone());
+                    if !mods_dir().join(&id).join("mod.toml").is_file() {
+                        out.push((format!("{id}: no mods/{id}/mod.toml to watch."), ERROR));
                     } else {
-                        out.push((format!("Unloaded {id}."), super::WHITE));
+                        let mut list = watched();
+                        let on = !list.contains(&id);
+                        list.retain(|i| *i != id);
+                        if on {
+                            list.push(id.clone());
+                        }
+                        let _ = std::fs::create_dir_all(data_dir());
+                        let _ = std::fs::write(data_dir().join("watch.json"), serde_json::to_vec(&list).unwrap_or_default());
+                        self.set_watch(&id, on);
+                        out.push((if on { format!("Watching {id}: saving its files reloads it.") } else { format!("No longer watching {id}.") }, super::WHITE));
                     }
                 }
-                None => out.push(("No such mod loaded.".into(), ERROR)),
+                None => {
+                    let list = watched();
+                    out.push((if list.is_empty() { "/lua watch <mod>: reload it whenever its files are saved.".into() } else { format!("Watching: {}.", list.join(", ")) }, super::WHITE));
+                }
             },
             "run" => match args.get(1).and_then(|id| find(&self.vms, id)) {
                 Some(k) => {
@@ -402,7 +554,7 @@ impl Host {
                 }
                 None => out.push(("/lua grant <mod> <permission...> | /lua revoke <mod> <permission...>".into(), ERROR)),
             },
-            other => out.push((format!("/lua {other}: list, load, unload, reload, run, set, settings, grant, revoke"), ERROR)),
+            other => out.push((format!("/lua {other}: list, load, unload, reload, watch, run, set, settings, grant, revoke"), ERROR)),
         }
     }
 }
@@ -462,6 +614,7 @@ pub(super) fn frame(w: &mut World) {
     let mut out: Vec<(String, [u8; 4])> = Vec::new();
     {
         let w: &World = w;
+        host.watch_upkeep(w, &mut out);
         // Lines typed for mods.
         for line in std::mem::take(&mut host.typed) {
             let body = line.trim_start_matches('/');
@@ -597,6 +750,26 @@ fn apply(w: &mut World, op: Op) {
 /// LuaLS stubs for the whole mod API (`vana-client lua-stubs`).
 pub fn stubs() -> String {
     docs::stubs()
+}
+
+/// The stubs for editors in the mods folder, off the UI thread: `.library/vana.lua` and a `.luarc.json` naming it
+/// (hidden, so the Mods page does not list them). Written only when they differ.
+fn install_stubs(root: PathBuf) {
+    std::thread::spawn(move || {
+        if !root.is_dir() {
+            return;
+        }
+        let luarc = "{\n  \"runtime.version\": \"Lua 5.4\",\n  \"workspace.library\": [\".library\"],\n  \"workspace.checkThirdParty\": false\n}\n";
+        for (path, text) in [(root.join(".library").join("vana.lua"), stubs()), (root.join(".luarc.json"), luarc.to_string())] {
+            if std::fs::read_to_string(&path).is_ok_and(|t| t == text) {
+                continue;
+            }
+            let _ = std::fs::create_dir_all(path.parent().unwrap_or(&root));
+            if let Err(e) = std::fs::write(&path, text) {
+                log::warn!("lua mods: writing {}: {e}", path.display());
+            }
+        }
+    });
 }
 
 #[cfg(test)]

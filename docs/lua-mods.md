@@ -13,7 +13,11 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   - coroutine handlers (`sleep`, `sleep_frames`, `wait_until`)
   - errors reported once with file:line; 20 in a minute suspend the mod
   - `require` from the mod's folder
-  - `/lua list | load | unload | reload | run | set | settings`
+  - `/lua list | load | unload | reload | run | set | settings | grant | revoke`; `/lua reload` alone reloads every
+    mod, and a mod that failed to load is loaded; `/lua watch <mod>` reloads a mod whenever its files are saved (kept
+    in mod-data/watch.json), so a mod is written without restarting the game
+  - LuaLS stubs written into the mods folder at login (`.library/vana.lua`, `.luarc.json`): open the mods folder in
+    an editor with the Lua language server for completion and checks
   - F12 lines per mod (time, peak, slow calls, memory, errors)
   - LuaLS stubs (`vana-client lua-stubs`) from docs.rs, kept equal to the bindings by a test
 - **Events:**
