@@ -228,6 +228,36 @@ pub(super) fn install(lua: &Lua, game: &Table) -> mlua::Result<()> {
         })?,
     )?;
     game.set(
+        "map",
+        lua.create_function(|lua, ()| {
+            let w = world(lua)?;
+            let gu = super::api::gu(lua)?;
+            let Some(r) = super::super::map::current(w, gu.map_regions()) else { return Ok(None) };
+            let t = lua.create_table()?;
+            t.set("zone", r.zone)?;
+            t.set("number", r.num)?;
+            t.set("file", r.file_id())?;
+            t.set("scale", r.scale)?;
+            let o = lua.create_table()?;
+            (o.set("x", r.ox)?, o.set("y", r.oy)?);
+            t.set("origin", o)?;
+            t.set("size", 512)?;
+            t.set("px_per_unit", super::super::minimap::px_per_unit(&r))?;
+            Ok(Some(t))
+        })?,
+    )?;
+    game.set(
+        "map_pos",
+        lua.create_function(|lua, (x, z): (f32, f32)| {
+            let w = world(lua)?;
+            let gu = super::api::gu(lua)?;
+            let Some(r) = super::super::map::current(w, gu.map_regions()) else { return Ok((None, None)) };
+            // The pixel on the map's 512 x 512 image (its top left at the map pixel `origin`).
+            let (px, py) = r.px(x, z);
+            Ok((Some(px - r.ox as i32), Some(py - r.oy as i32)))
+        })?,
+    )?;
+    game.set(
         "cast",
         lua.create_function(|lua, ()| {
             let w = world(lua)?;

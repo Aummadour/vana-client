@@ -14,6 +14,8 @@ pub(super) enum Kind {
     Icon { item: bool, id: u16, size: f32 },
     /// A PNG from the mod's folder: its texture key, pixels (w, h, RGBA), drawn size and tint.
     Image { key: String, img: std::sync::Arc<(u32, u32, Vec<u8>)>, w: f32, h: f32, tint: [u8; 4] },
+    /// The zone's map (the one the client shows here): centred on world (x, z) or on us, `span` map pixels across.
+    Map { w: f32, h: f32, centre: Option<(f32, f32)>, span: f32, alpha: f32 },
 }
 
 #[derive(Clone)]
@@ -122,6 +124,26 @@ fn apply(e: &mut Elem, t: &Table) -> mlua::Result<()> {
                 *kind = v;
             }
         }
+        Kind::Map { w, h, centre, span, alpha } => {
+            if let Some(v) = t.get::<Option<f32>>("w")? {
+                *w = v;
+            }
+            if let Some(v) = t.get::<Option<f32>>("h")? {
+                *h = v;
+            }
+            if t.contains_key("centre")? {
+                *centre = match t.get::<Option<Table>>("centre")? {
+                    Some(c) => Some((c.get("x")?, c.get("z")?)),
+                    None => None,
+                };
+            }
+            if let Some(v) = t.get::<Option<f32>>("span")? {
+                *span = v.clamp(16.0, 2048.0);
+            }
+            if let Some(v) = t.get::<Option<f32>>("alpha")? {
+                *alpha = v.clamp(0.0, 1.0);
+            }
+        }
         Kind::Image { w, h, tint, .. } => {
             if let Some(v) = t.get::<Option<f32>>("w")? {
                 *w = v;
@@ -203,6 +225,7 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
     t.set("rect", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Rect { w: 100.0, h: 20.0, colour: [0, 0, 0, 160] }, spec))?)?;
     t.set("bar", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Bar { w: 120.0, h: 8.0, value: 0.0, colour: None, kind: "hp".into() }, spec))?)?;
     t.set("icon", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Icon { item: false, id: 0, size: 32.0 }, spec))?)?;
+    t.set("map", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Map { w: 200.0, h: 200.0, centre: None, span: 256.0, alpha: 1.0 }, spec))?)?;
     t.set(
         "set",
         lua.create_function(|lua, (id, fields): (String, Table)| {
@@ -368,6 +391,19 @@ pub(super) fn draw(gu: &mut super::super::game_ui::GameUi, w: &World) {
                     gu.rect(x + 1.0, y + 1.0, (bw - 2.0).max(0.0) * value, (bh - 2.0).max(0.0), rgba(colour.unwrap_or_else(|| bar_colour(kind))));
                 }
                 [x, y, bw, bh]
+            }
+            Kind::Map { w: mw, h: mh, centre, span, alpha } => {
+                let (mw, mh) = (mw * k.0, mh * k.1);
+                let regions = gu.map_regions().to_vec();
+                let mut m = w.lua.map.borrow_mut();
+                match m.as_mut() {
+                    Some(o) if o.zone == w.pos_zone => o.follow(w, &regions),
+                    _ => *m = Some(super::super::map::Overlay::open(w, &regions)),
+                }
+                if let Some(o) = m.as_mut() {
+                    o.draw_window(gu, [x, y, mw, mh], centre.unwrap_or((w.pos.x, w.pos.z)), *span, *alpha);
+                }
+                [x, y, mw, mh]
             }
             Kind::Image { key, img, w: iw, h: ih, tint } => {
                 if !gu.has_image(key) {

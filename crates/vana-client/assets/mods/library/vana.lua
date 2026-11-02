@@ -368,6 +368,11 @@ function hud.rect(id, spec) end
 ---@param spec table 
 function hud.bar(id, spec) end
 
+--- Creates or replaces a HUD map: the zone's map where the client shows one, x, y, w, h, centre {x, z} (world; default: us), span (map pixels across, 16..2048; default 256), alpha. Draw markers over it with other elements at game.map_pos.
+---@param id string 
+---@param spec table 
+function hud.map(id, spec) end
+
 --- Creates or replaces an image from a PNG in the mod's folder: x, y, path, w and h (window pixels; default the image's size), colour (a tint).
 ---@param id string 
 ---@param spec table 
@@ -790,6 +795,16 @@ function game.abilities() end
 --- The job setups of main and sub: job, raw (the server's bytes), and for BLU blue_spells (ids), for PUP head, frame and attachments (item ids).
 ---@return {main: table?, sub: table?}
 function game.job_data() end
+
+--- The map the client shows where we stand (a map it has and we own): {zone, number (the map's page), file (its DAT id), scale, origin {x, y} (the image's top left in map pixels), size (512), px_per_unit (map pixels per world unit)}; nil with none.
+---@return table?
+function game.map() end
+
+--- A world position (x, z) as a pixel on the current map's 512 x 512 image; nil without a map.
+---@param x number 
+---@param z number 
+---@return integer?, integer?
+function game.map_pos(x, z) end
 
 --- Our cast bar while it shows: {spell (none for an event's bar), total and left (seconds), progress 0..1, event}.
 ---@return table?

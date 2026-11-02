@@ -162,6 +162,8 @@ fn release_options(w: &mut World) {
 pub struct Host {
     vms: Vec<Vm>,
     started: bool,
+    /// The map the mods' HUD maps draw (opened and followed as the minimap's).
+    map: std::cell::RefCell<Option<super::map::Overlay>>,
     /// Events raised by the client since the last mod phase.
     events: Vec<(&'static str, Vec<serde_json::Value>)>,
     /// Lines for mods (a registered command, or /lua), run in the next mod phase; true when the player typed it.
