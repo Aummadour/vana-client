@@ -23,6 +23,8 @@ glam = "0.34.1"
 hex = "0.4.3"
 jiff = "0.2"
 log = "0.4.34"
+# The Lua mod layer (docs/lua-mods.md): Lua 5.4, built from source.
+mlua = { version = "0.12", features = ["lua54", "vendored", "serde"] }
 md-5 = "0.11.0"
 msi = "0.10.0"
 png = "0.18.1"
@@ -35,6 +37,7 @@ texpresso = "2.0.2"
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+toml = "0.9"
 tokio = { version = "1.54.0", features = ["rt-multi-thread", "net", "io-util", "macros", "sync", "time"] }
 # ring, as rustls above: the default aws-lc-rs needs CMake and NASM on Windows.
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["logging", "tls12", "ring"] }

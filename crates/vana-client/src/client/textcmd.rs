@@ -599,6 +599,11 @@ pub fn run(w: &mut World, line: &str, mode: Mode) {
     if line.is_empty() {
         return;
     }
+    // Ours (docs/lua-mods.md): //anything, /lua and the mods' own commands go to the mods.
+    if line.starts_with('/') && w.lua.takes(line) {
+        w.lua.type_line(line);
+        return;
+    }
     // A line without a command goes to the chat mode (/chatmode).
     let line = if line.starts_with('/') { line.to_string() } else { format!("{}{line}", w.chat_prefix) };
     let first = line.split([' ', '\t']).next().unwrap_or("");

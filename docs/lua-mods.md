@@ -1,7 +1,27 @@
 # Lua mods: design
 
-Status: design, nothing built yet (2 November 2026). Research behind it, outside the repo:
-`~/ffxi/lab/research/lua/windower_survey.md`, `ashita_survey.md`, `engines_survey.md`.
+Research behind it, outside the repo: `~/ffxi/lab/research/lua/windower_survey.md`, `ashita_survey.md`,
+`engines_survey.md`.
+
+## State
+
+Phase 1 has started (client/lua/):
+- **Done:**
+  - a VM per mod (Lua 5.4, mlua 0.12), with the restricted library set, text-only `load`, and a 64 MB memory limit
+  - the 100 ms time budget per call (a runaway loop is stopped)
+  - coroutine handlers with `sleep`, `sleep_frames` and `wait_until`
+  - errors reported once with file:line; 20 in a minute suspend the mod
+  - `require` from the mod's folder
+  - events: `load`, `unload`, `login`, `logout`, `zone_change`, `frame`
+  - `commands.register` (`//name`, `/name`), `commands.run`, `chat.add(text, mode)`, `print`, `log.*`
+  - `timer.after`, `timer.every`, `timer.cancel`, `clock`
+  - `game.player`, `game.zone`
+  - `storage.account` / `storage.character` (JSON files in `mod-data/<id>/`), `settings.get` (declared defaults; user
+    values from `/lua set`)
+  - `/lua list | load | unload | reload | run | set`
+- **Mods folder:** `mods/<id>/` (enabled through config `mods`); a test run uses `mods` beside its FFXI_CONFIG copy.
+- **Left in phase 1:** the Mods page (enable, permissions, settings), F12 accounting, and the registry-driven LuaLS
+  stubs.
 
 ## 1. The bar
 
@@ -371,11 +391,10 @@ mute music. The chime.
 6. **The rest:** world-space drawing, audio, ipc / net / client, multibox.
    - Then the reference ports and the coverage table to 100%.
 
-## 7. Open decisions
+## 7. Decisions (user, 2 November 2026)
 
-1. **Lua 5.4 (recommended) or Luau.** Luau brings a hardened sandbox and gradual types, but no LuaLS. LuaJIT is ruled
-   out.
-2. **Permissions:** the table in 3.5 is the proposal. In particular, whether `automation` is a single grant or split
-   (combat / items / movement).
-3. **Mods folder:** shared with DAT overlay mods (`mods/<id>/`, one package can carry both; recommended) or separate.
-4. **Our Extras on the mod API:** move all of them over time (WoW's model), or only use one as proof.
+1. **Lua 5.4** through mlua. Not Luau, not LuaJIT.
+2. **Permissions:** the table in 3.5 as it stands, with `automation` a single grant.
+3. **Mods folder:** shared with the DAT overlay mods: `mods/<id>/`, and one package can carry both.
+4. **Our Extras become mods:** every Extra moves onto the mod API over time and ships as a bundled mod, so our own
+   features prove the API (WoW's model).

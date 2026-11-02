@@ -73,6 +73,7 @@ pub use lamps::Lamps;
 mod mousecur;
 mod party;
 mod macros;
+mod lua;
 mod textcmd;
 mod magic;
 mod moogle;
@@ -6223,6 +6224,8 @@ struct World {
     /// Our Settings or Extras page when opened from the Config window, and a request to open one.
     settings: Option<settings::SettingsUi>,
     want_settings: Option<settings::Kind>,
+    /// The Lua mods of this session (docs/lua-mods.md).
+    lua: lua::Host,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -7933,6 +7936,7 @@ impl App {
                             game_save: false,
                             settings: None,
                             want_settings: None,
+                            lua: Default::default(),
                         }));
                         if let Phase::World(w) = &mut self.phase {
                             cfgapply::apply_all(w);
@@ -8128,7 +8132,8 @@ impl App {
                             world.zone_uploading = Some(Instant::now());
                         }
                         world.ground = Some(ground);
-                        world.zone = Some(zone_id);
+                        let old_zone = world.zone.replace(zone_id);
+                        world.lua.raise("zone_change", vec![zone_id.into(), old_zone.into()]);
                         world.scene = Some(map_no);
                         world.npc_names = world.index.as_ref().map(|i| npc_names(i, zone_id)).unwrap_or_default();
                         for (id, e) in world.entities.iter_mut() {
@@ -8915,6 +8920,8 @@ impl App {
                 }
                 NetEvent::Logout { state } => {
                     log::info!("logged out of the zone (0x00B state {state})");
+                    let mut mods = std::mem::take(&mut world.lua);
+                    mods.stop(world);
                     if let Some(dir) = world.macros.as_ref().map(|m| m.dir().to_path_buf()) {
                         synth::save_history(world, &dir);
                         partyreq::save(world, &dir);
@@ -12435,6 +12442,7 @@ impl App {
             synth::update(w);
             resttick::update(w);
             servmes::frame(w);
+            lua::frame(w);
         }
         // Config 0022: the opening movie before the title, which loads behind it.
         if self.opening.is_some() {
