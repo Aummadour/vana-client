@@ -24,7 +24,7 @@ pub(super) fn state(lua: &Lua) -> Rc<RefCell<ModState>> {
     lua.app_data_ref::<Rc<RefCell<ModState>>>().expect("vm state").clone()
 }
 
-fn next_id(st: &Rc<RefCell<ModState>>) -> u64 {
+pub(super) fn next_id(st: &Rc<RefCell<ModState>>) -> u64 {
     let mut s = st.borrow_mut();
     s.next_id += 1;
     s.next_id
@@ -403,6 +403,7 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     )?;
     g.set("timer", timer)?;
     super::actions::install(lua, &g)?;
+    super::input::install(lua, &g)?;
     let start = Instant::now();
     g.set("clock", lua.create_function(move |_, ()| Ok(start.elapsed().as_secs_f64()))?)?;
 
@@ -949,7 +950,7 @@ fn update(e: &mut super::window::Elem, t: &Table) -> mlua::Result<()> {
 }
 
 /// A permission the mod must hold (granted by the user, docs/lua-mods.md 3.5).
-fn need(lua: &Lua, perm: &str) -> mlua::Result<()> {
+pub(super) fn need(lua: &Lua, perm: &str) -> mlua::Result<()> {
     let st = state(lua);
     let s = st.borrow();
     if s.granted.iter().any(|g| g == perm) {

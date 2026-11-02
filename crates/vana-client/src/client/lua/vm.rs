@@ -100,6 +100,10 @@ pub(super) struct ModState {
     pub granted: Vec<String>,
     /// The running coroutine began with the player's input (a typed command, a window event): `actions` suffices.
     pub input: bool,
+    /// Key and mouse filters (docs/lua-mods.md 4.5), and key binds.
+    pub key_filters: Vec<(u64, RegistryKey)>,
+    pub mouse_filters: Vec<(u64, RegistryKey)>,
+    pub binds: Vec<super::input::Bind>,
 }
 
 impl ModState {
@@ -198,7 +202,7 @@ impl Vm {
     fn hook(&self) -> impl Fn(&Lua, &mlua::debug::Debug) -> mlua::Result<VmState> + 'static {
         let st = self.st.clone();
         move |_, _| match st.borrow().deadline {
-            Some(d) if Instant::now() > d => Err(mlua::Error::runtime(format!("ran past its time budget ({} ms)", HARD_CAP.as_millis()))),
+            Some(d) if Instant::now() > d => Err(mlua::Error::runtime("ran past its time budget")),
             _ => Ok(VmState::Continue),
         }
     }
@@ -244,13 +248,37 @@ impl Vm {
         }
     }
 
+    /// Runs `func(args)` as a coroutine inside a game path (FILTER_CAP): what it returned, when it ended in this slice. One
+    /// that sleeps goes on later and its result is lost.
+    pub fn call_filter(&self, func: Function, args: impl IntoLuaMulti, input: bool) -> Option<MultiValue> {
+        if self.suspended.is_some() {
+            return None;
+        }
+        let t = match self.lua.create_thread(func) {
+            Ok(t) => t,
+            Err(e) => {
+                self.error(&e);
+                return None;
+            }
+        };
+        self.st.borrow_mut().input = input;
+        let r = self.resume_for(t, args, FILTER_CAP);
+        self.st.borrow_mut().input = false;
+        r
+    }
+
     /// Resumes `thread`; a yield of ours puts it to sleep, any other waits a frame.
     pub fn resume(&self, thread: Thread, args: impl IntoLuaMulti) {
+        self.resume_for(thread, args, HARD_CAP);
+    }
+
+    /// As resume, with a time budget; what the thread returned when it ended.
+    fn resume_for(&self, thread: Thread, args: impl IntoLuaMulti, cap: Duration) -> Option<MultiValue> {
         if let Err(e) = thread.set_hook(HookTriggers::new().every_nth_instruction(10_000), self.hook()) {
             self.error(&e);
-            return;
+            return None;
         }
-        self.st.borrow_mut().deadline = Some(Instant::now() + HARD_CAP);
+        self.st.borrow_mut().deadline = Some(Instant::now() + cap);
         let t0 = Instant::now();
         let r = thread.resume::<MultiValue>(args);
         let dt = t0.elapsed();
@@ -264,9 +292,15 @@ impl Vm {
             }
         }
         match r {
-            Err(e) => self.error(&e),
-            Ok(vals) if thread.status() == ThreadStatus::Resumable => self.park(thread, vals),
-            Ok(_) => {}
+            Err(e) => {
+                self.error(&e);
+                None
+            }
+            Ok(vals) if thread.status() == ThreadStatus::Resumable => {
+                self.park(thread, vals);
+                None
+            }
+            Ok(vals) => Some(vals),
         }
     }
 

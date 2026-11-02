@@ -5,6 +5,7 @@
 mod actions;
 mod api;
 mod docs;
+pub(super) mod input;
 mod manifest;
 mod vm;
 pub(super) mod window;
@@ -20,6 +21,10 @@ pub(super) enum Op {
     Print(String),
     Run(String),
     Act(actions::Action),
+    /// A key the mod pressed (input.press / input.send).
+    Key(input::Synth),
+    /// The chat line opened with this text, or closed.
+    Line { text: String, open: bool },
 }
 
 /// The mods of this session.
@@ -44,6 +49,12 @@ pub struct Host {
     pub(super) last: std::rc::Rc<std::cell::RefCell<LastPackets>>,
     /// `/lua watch`: mods reloaded when their files are saved.
     watch: Option<Watch>,
+    /// The keys and mouse, shared with every mod (input.held, input.mouse).
+    input: std::rc::Rc<std::cell::RefCell<input::State>>,
+    /// Binds pressed since the last mod phase: (mod, bind as written, on release).
+    fired: Vec<(String, String, bool)>,
+    /// Keys the mods pressed, for the app to hand the game this frame.
+    pub(in crate::client) synth: Vec<input::Synth>,
 }
 
 /// Mod folders watched for saved files (`/lua watch`): a thread polls their .lua / .toml files' times and names a mod
@@ -314,6 +325,7 @@ impl Host {
             vm.st.borrow_mut().notices.push(format!("{} asks for {}: allow it on its Extras page (/lua settings {id}) or with /lua grant {id} {}.", vm.manifest.name, missing.join(", "), missing.join(" ")));
         }
         vm.lua.set_app_data(self.last.clone());
+        vm.lua.set_app_data(self.input.clone());
         api::install(&vm.lua, &vm, storage).map_err(|e| format!("{e}"))?;
         log::info!("lua mod {} {} loaded from {}", vm.manifest.id, vm.manifest.version, vm.dir.display());
         lend(&vm, w, |vm| {
@@ -603,9 +615,11 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
     let dt = host.last_frame.map_or(0.0, |t| now.duration_since(t).as_secs_f64());
     host.last_frame = Some(now);
     let mut out: Vec<(String, [u8; 4])> = Vec::new();
+    let bind_lines;
     {
         let w: &World = w;
         host.watch_upkeep(w, &mut out);
+        bind_lines = input::run_binds(&mut host, w, &mut out);
         // Lines typed for mods.
         for (line, input) in std::mem::take(&mut host.typed) {
             let body = line.trim_start_matches('/');
@@ -709,6 +723,9 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
     for op in ops {
         apply(w, gu, op);
     }
+    for line in bind_lines {
+        super::textcmd::run(w, &line, super::textcmd::Mode::Typed);
+    }
     // Injected packets go through the hooks now, not with the next batch (which may be seconds away).
     if w.lua.vms.iter().any(|v| !v.st.borrow().inject_in.is_empty()) {
         let out = packets_in(w, Vec::new());
@@ -738,6 +755,15 @@ fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
         Op::Run(line) if line.starts_with('/') && w.lua.takes(&line) => w.lua.typed.push((line, false)),
         Op::Run(line) => super::textcmd::run(w, &line, super::textcmd::Mode::Typed),
         Op::Act(a) => actions::apply(w, gu, a),
+        Op::Key(k) => w.lua.synth.push(k),
+        Op::Line { text, open: true } => {
+            (w.chat_input, w.chat_caret, w.chat_anchor) = (text, None, None);
+            w.typing = true;
+        }
+        Op::Line { open: false, .. } => {
+            w.typing = false;
+            (w.chat_input, w.chat_caret, w.chat_anchor) = (String::new(), None, None);
+        }
     }
 }
 

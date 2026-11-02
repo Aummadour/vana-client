@@ -127,6 +127,24 @@
 ---@field blocked boolean
 ---@field outgoing boolean
 
+---@class vana.KeyEvent
+---@field key string a, 1, f1, enter, numpad+, lctrl...
+---@field down boolean
+---@field repeated boolean
+---@field ctrl boolean
+---@field alt boolean
+---@field shift boolean
+---@field typing boolean a text field has the keys
+---@field blocked boolean an earlier mod took it
+
+---@class vana.MouseEvent
+---@field kind 'down'|'up'|'move'|'wheel'
+---@field button string?
+---@field x number
+---@field y number
+---@field delta number?
+---@field blocked boolean
+
 ---@class vana.Time
 ---@field earth integer
 ---@field year integer
@@ -163,6 +181,8 @@ filters = {}
 ui = {}
 packets = {}
 chat = {}
+input = {}
+binds = {}
 timer = {}
 game = {}
 actions = {}
@@ -320,6 +340,69 @@ function packets.last(direction, id) end
 ---@param text string 
 ---@param how? integer|{mode: integer?, colour: integer?} the game's chat mode (0..255), or a table
 function chat.add(text, how) end
+
+--- The chat line: whether it is open, and its text.
+---@return {open: boolean, text: string}
+function chat.line() end
+
+--- Opens the chat line with `text` (the player still presses Enter), or closes it with open = false.
+---@param text? string 
+---@param open? boolean default true
+function chat.set_line(text, open) end
+
+--- Sees every key press, repeat and release before the game and the UI do: {key, down, repeated, ctrl, alt, shift, typing, blocked}. Return true to take it from the game (needs input.capture; its repeats and release go with it). Filters chain across mods: a taken key still reaches later ones with blocked = true. It is the player's input: actions may act here.
+---@param handler fun(e: vana.KeyEvent): boolean? 
+---@return integer
+function input.on_key(handler) end
+
+--- Sees the mouse before the game and the UI do: {kind = 'down' | 'up' | 'move' | 'wheel', button (left, right, middle, back, forward), x, y (window pixels), delta (wheel notches, up positive), blocked}. Return true to take it (needs input.capture).
+---@param handler fun(e: vana.MouseEvent): boolean? 
+---@return integer
+function input.on_mouse(handler) end
+
+--- Removes a key or mouse filter.
+---@param id integer what on_key / on_mouse returned
+function input.off(id) end
+
+--- Whether a key is held (a name as on_key gives it, or shift / ctrl / alt / win for either side).
+---@param key string 
+---@return boolean
+function input.held(key) end
+
+--- The modifier keys held.
+---@return {ctrl: boolean, alt: boolean, shift: boolean, win: boolean}
+function input.modifiers() end
+
+--- The pointer (window pixels) and its buttons.
+---@return {x: number, y: number, left: boolean, right: boolean, middle: boolean}
+function input.mouse() end
+
+--- Whether a text field (the chat line, a search, the map's...) has the keys.
+---@return boolean
+function input.typing() end
+
+--- Presses and releases a key, with modifiers ("enter", "ctrl+f1", "^1"), as the keyboard would this frame. Needs input.capture.
+---@param key string 
+function input.press(key) end
+
+--- Holds a key down or lets it go. Needs input.capture.
+---@param key string 
+---@param down boolean 
+function input.send(key, down) end
+
+--- Binds a key with exact modifiers ("f9", "ctrl+1", Windower's "^!f1": ^ Ctrl, ! Alt, ~ Shift, @ Win) to a line run as typed or a function. The key is taken from the game. A line other than a //mod command is a game action (needs actions). Options: up (fire on release), typing (fire while a text field is open too).
+---@param key string 
+---@param action string|function 
+---@param options? {up: boolean?, typing: boolean?} 
+function binds.set(key, action, options) end
+
+--- Removes the mod's binds of a key.
+---@param key string 
+function binds.unset(key) end
+
+--- The mod's binds.
+---@return {key: string, line: string?, up: boolean, typing: boolean}[]
+function binds.list() end
 
 --- Calls `handler` once after `seconds`.
 ---@param seconds number 

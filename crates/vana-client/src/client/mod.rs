@@ -6497,6 +6497,8 @@ pub struct App {
     numpad_slash: bool,
     /// Retail key functions (DAT_103619f0 and FUN_1011ff30).
     input: input::Input,
+    /// Keys Lua mods pressed this frame, as egui events.
+    synth_events: Vec<egui::Event>,
     /// Frames per second, 0 = unlimited (config frame_limit), and the present mode must be picked again.
     frame_limit: u32,
     present_dirty: bool,
@@ -6741,6 +6743,7 @@ impl App {
             next_frame: None,
             numpad_slash: false,
             input: input::Input::default(),
+            synth_events: Vec::new(),
             frame_limit,
             present_dirty: false,
             window_dirty: false,
@@ -12501,6 +12504,15 @@ impl App {
             resttick::update(w);
             servmes::frame(w);
             lua::frame(w, self.game_ui.as_ref());
+            // Keys the mods pressed: the key functions now, egui with this frame's input.
+            for k in std::mem::take(&mut w.lua.synth) {
+                let (key, mods) = k.diks();
+                match k.down {
+                    None => mods.into_iter().chain(key).for_each(|d| self.input.tap(d)),
+                    Some(down) => key.into_iter().for_each(|d| self.input.set(d, down)),
+                }
+                self.synth_events.extend(k.egui_events());
+            }
         }
         // Config 0022: the opening movie before the title, which loads behind it.
         if self.opening.is_some() {
@@ -12547,6 +12559,7 @@ impl App {
         // egui-winit passes the texture limit in its first input only; lost, egui assumes 2048 and the modern atlases
         // (status_0@2x is 2184 wide) fail its debug check.
         raw.max_texture_side = Some(gfx.gpu.device.limits().max_texture_dimension_2d as usize);
+        raw.events.append(&mut self.synth_events);
         let phase = self.phase_name();
         let mut script_shot = None;
         if let Some(sc) = &mut self.drive.input {
@@ -12556,6 +12569,11 @@ impl App {
             };
             // egui's points per pixel (its zoom included: the modern layer sets one), as egui reads the events.
             let (events, shot, action) = sc.next(phase, &probes, gfx.egui_ctx.pixels_per_point());
+            // Through the Lua mods first, as the window's keys and mouse go.
+            let events = match &mut self.phase {
+                Phase::World(w) => lua::input::drive_events(w, events, gfx.window.scale_factor()),
+                _ => events,
+            };
             for e in &events {
                 self.input.drive_event(e);
             }
@@ -13939,6 +13957,13 @@ impl ApplicationHandler for App {
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
+        // Lua mods see keys and the mouse first, and may take them.
+        if self.opening.is_none()
+            && let Phase::World(w) = &mut self.phase
+            && lua::input::window_event(w, &event)
+        {
+            return;
+        }
         let Some(gfx) = &mut self.gfx else { return };
         let consumed = gfx.egui_state.on_window_event(&gfx.window, &event).consumed;
         match event {

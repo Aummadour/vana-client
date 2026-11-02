@@ -59,12 +59,24 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   - `game.treasure`, `game.event` (the menu showing) to act on
   - checked live: the gate (a timer refused under `actions`), a cast refused with the menu's line, equip by id and
     off, run_to and turn in West Ronfaure
+- **Input** (`input`, `binds`):
+  - `input.on_key` / `on_mouse` see every key edge and mouse event before egui and the game, as a chain across
+    mods; returning true takes it (needs `input.capture`; a taken press takes its repeats and release). They are the
+    player's input, so `actions` may act there.
+  - `input.held`, `modifiers`, `mouse` (window pixels), `typing`; `input.press` ("ctrl+f1") and `send` (one edge),
+    which reach the key functions and the UI as the keyboard's do (`input.capture`)
+  - `binds.set` (exact modifiers, Windower's `^!~@` too) to a line run as typed or a function, on press or release,
+    optionally while typing; the key is taken. `binds.unset`, `binds.list`
+  - `chat.line` and `chat.set_line` (open the chat line with text, or close it)
+  - test drives' keys and mouse go through the same filters and binds
+  - checked live: a key taken (Space left the chat line shut), F9 taken, binds by function and by line, a click's
+    place, the chat line opened by a mod and sent by its own Enter
 - **Bundled mods:** `/dps` (the first Extra ported).
 - **Mods folder:** `mods/<id>/` (enabled through config `mods`); a test run uses `mods` beside its FFXI_CONFIG copy.
 
 Next (docs/lua-mods.md 6): packet layouts and decoded views, batch order (the rest of
-phase 4); the rest of phase 5 (trade, shops, BLU / PUP sets as actions; `input`; `ui.native`; `render`); the other
-Extras as bundled mods; then world-space drawing, audio, ipc / net, and the coverage table.
+phase 4); the rest of phase 5 (trade, shops, BLU / PUP sets as actions; `ui.native`; `render`); the other Extras as
+bundled mods; then world-space drawing, audio, ipc / net, and the coverage table.
 
 ## 1. The bar
 
