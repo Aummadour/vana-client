@@ -188,6 +188,7 @@ hud = {}
 ui.native = {}
 render = {}
 audio = {}
+draw = {}
 packets = {}
 chat = {}
 input = {}
@@ -423,6 +424,33 @@ function audio.play_se(id, volume) end
 --- Plays an interface sound by id (the menus' cursor, select, cancel...).
 ---@param id integer 
 function audio.play_ui(id) end
+
+--- Creates or replaces a line in the world: from, to ({x, y, z}, entity coordinates), colour {r, g, b, a}. It draws over the scene but behind what stands in front of it.
+---@param id string 
+---@param spec table 
+function draw.line(id, spec) end
+
+--- Creates or replaces a horizontal ring: at, radius (yalms), colour, segments (default 48), filled.
+---@param id string 
+---@param spec table 
+function draw.ring(id, spec) end
+
+--- Creates or replaces an axis-aligned wire box: at (its centre), size {x, y, z}, colour.
+---@param id string 
+---@param spec table 
+function draw.box(id, spec) end
+
+--- Removes a shape.
+---@param id string 
+function draw.remove(id) end
+
+--- Removes every shape of the mod.
+function draw.clear() end
+
+--- Where a world point is on the screen this frame (window pixels, as hud places take), or nil behind the camera.
+---@param point {x: number, y: number, z: number} 
+---@return {x: integer, y: integer, on_screen: boolean}?
+function draw.to_screen(point) end
 
 --- Hooks received packets (one id, or every one when nil) before the client reads them. The handler gets {id, data, original, injected, blocked, outgoing} (data and original are the whole sub-packet, header included) and returns nil to leave it, false to block it, or new bytes. Hooks chain across mods: a blocked packet still reaches later ones. Needs packets.read; changing or blocking needs packets.write.
 ---@param id integer? packet id

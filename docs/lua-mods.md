@@ -59,6 +59,9 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   one, ourselves translucent, the camera pulled back).
 - **Audio** (`audio`): the mod's WAV files (16-bit PCM, any rate) through our mixer at the effects volume, the game's
   sound effects and interface sounds by id. Checked live (a WAV, a game effect, an 8-bit file refused).
+- **World space** (`draw`): lines, rings (outline or filled) and wire boxes in entity coordinates, drawn after the
+  effects and tested against the scene's depth (no writes); `draw.to_screen` for labels (window pixels, as `hud` takes).
+  Checked live (rings at our feet, a line and a box at an NPC, a label over her head).
 - **Permissions:** each one a mod asks for is a row on its Extras page (ON / OFF, with what it allows on the help
   line), or `/lua grant` / `revoke`; kept in mod-data/grants.json. A mod loaded without them says where to allow them.
 - **Packets** (`packets.read` / `packets.write`):
@@ -103,7 +106,7 @@ Built (client/lua/, modern/modwin.rs), each checked live:
 
 Next (docs/lua-mods.md 6): packet layouts and decoded views, batch order (the rest of
 phase 4); the rest of phase 5 (trade, shops, BLU / PUP sets as actions; native window drive and list rows; engine settings such as draw distance and frame limit); the other Extras as
-bundled mods; then world-space drawing, music overrides, ipc / net, and the coverage table.
+bundled mods; then world-space text and quads, music overrides, ipc / net, and the coverage table.
 
 ## 1. The bar
 

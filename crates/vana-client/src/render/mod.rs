@@ -349,6 +349,10 @@ pub struct ZoneRenderer {
     /// Layout mode's overlay lines (set_lines): the buffer and its capacity in vertices, and what it holds.
     line_buf: Option<(wgpu::Buffer, usize)>,
     lines: Vec<LineVertex>,
+    /// The Lua mods' world shapes (set_world_shapes): line and triangle lists tested against the scene's depth.
+    world_pipelines: [wgpu::RenderPipeline; 2],
+    world_bufs: [Option<(wgpu::Buffer, usize)>; 2],
+    world_shapes: [Vec<LineVertex>; 2],
     texture_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     uniforms: wgpu::Buffer,
@@ -816,6 +820,7 @@ pub struct ZonePipes {
     shine_pipeline: wgpu::RenderPipeline,
     refract_pipeline: wgpu::RenderPipeline,
     line_pipeline: wgpu::RenderPipeline,
+    world_pipelines: [wgpu::RenderPipeline; 2],
     /// The shadow silhouette pass (render/shadow.rs): its group 3 layout and pipeline.
     sil_layout: wgpu::BindGroupLayout,
     sil_pipeline: wgpu::RenderPipeline,
@@ -1184,12 +1189,40 @@ impl ZonePipes {
             multiview_mask: None,
             cache: None,
         });
+        // The Lua mods' world shapes: the same shader, tested against the scene's depth (not written), alpha blended.
+        let world_pipelines = [wgpu::PrimitiveTopology::LineList, wgpu::PrimitiveTopology::TriangleList].map(|topology| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("world shapes"),
+                layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("world shapes"), bind_group_layouts: &[Some(&globals_layout)], immediate_size: 0 })),
+                vertex: wgpu::VertexState {
+                    module: &lines,
+                    entry_point: Some("vs_line"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<LineVertex>() as u64,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4],
+                    })],
+                },
+                primitive: wgpu::PrimitiveState { topology, ..Default::default() },
+                depth_stencil: Some(wgpu::DepthStencilState { format: DEPTH_FORMAT, depth_write_enabled: Some(false), depth_compare: Some(wgpu::CompareFunction::LessEqual), stencil: Default::default(), bias: Default::default() }),
+                multisample: Default::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &lines,
+                    entry_point: Some("fs_line"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState { format: color_format, blend: Some(wgpu::BlendState::ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        });
         // Culling binds the globals (camera, voyage, door parts) at group 0 and its own buffers at group 3.
         let cull_layout = cull::layout(device);
         let cull_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("cull"), bind_group_layouts: &[Some(&globals_layout), None, None, Some(&cull_layout)], immediate_size: 0 });
         let make_cull = |entry: &str| device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some(entry), layout: Some(&cull_pl), module: &shader, entry_point: Some(entry), compilation_options: Default::default(), cache: None });
         let cull = [make_cull("cs_cull_vis"), make_cull("cs_cull_compact")];
-        Self { globals_layout, texture_layout, pose_layout, scenery, scenery_bump, actor_pipeline, sky_pipeline, skin_pipeline, shine_layout, shine_wrap_layout, shine_pipeline, refract_pipeline, line_pipeline, sil_layout, sil_pipeline, cull_layout, cull }
+        Self { globals_layout, texture_layout, pose_layout, scenery, scenery_bump, actor_pipeline, sky_pipeline, skin_pipeline, shine_layout, shine_wrap_layout, shine_pipeline, refract_pipeline, line_pipeline, world_pipelines, sil_layout, sil_pipeline, cull_layout, cull }
     }
 }
 
@@ -1634,6 +1667,9 @@ impl ZoneRenderer {
             line_pipeline: p.line_pipeline,
             line_buf: None,
             lines: Vec::new(),
+            world_pipelines: p.world_pipelines,
+            world_bufs: [None, None],
+            world_shapes: [Vec::new(), Vec::new()],
             texture_layout: p.texture_layout,
             sampler,
             uniforms,
@@ -1956,6 +1992,62 @@ impl ZoneRenderer {
             }
         }
         self.lines = lines;
+    }
+
+    /// The Lua mods' world shapes: line pairs and triangles (gamma-space colours); written only when they change.
+    pub fn set_world_shapes(&mut self, gpu: &Gpu, mut shapes: [Vec<LineVertex>; 2]) {
+        if !self.encode_gamma {
+            for v in shapes.iter_mut().flatten() {
+                for c in &mut v.color[..3] {
+                    *c = c.powf(2.2);
+                }
+            }
+        }
+        for (k, list) in shapes.into_iter().enumerate() {
+            if list == self.world_shapes[k] {
+                continue;
+            }
+            if !list.is_empty() {
+                if self.world_bufs[k].as_ref().is_none_or(|b| b.1 < list.len()) {
+                    let cap = list.len().next_power_of_two().max(256);
+                    let buf = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("world shapes"),
+                        size: (cap * std::mem::size_of::<LineVertex>()) as u64,
+                        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    });
+                    self.world_bufs[k] = Some((buf, cap));
+                }
+                if let Some((buf, _)) = &self.world_bufs[k] {
+                    gpu.queue.put(buf, 0, bytemuck::cast_slice(&list));
+                }
+            }
+            self.world_shapes[k] = list;
+        }
+    }
+
+    /// The Lua mods' world shapes over the finished scene, behind what stands in front of them.
+    pub fn render_world_shapes(&self, encoder: &mut wgpu::CommandEncoder, color: &wgpu::TextureView, depth: &wgpu::TextureView) {
+        if self.world_shapes.iter().all(|s| s.is_empty()) {
+            return;
+        }
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("world shapes"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: color, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store } })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment { view: depth, depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store }), stencil_ops: None }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_bind_group(0, &self.globals, &[]);
+        // Triangles first, so outlines draw over their fills.
+        for k in [1, 0] {
+            if let (Some((buf, _)), false) = (self.world_bufs[k].as_ref(), self.world_shapes[k].is_empty()) {
+                pass.set_pipeline(&self.world_pipelines[k]);
+                pass.set_vertex_buffer(0, buf.slice(..));
+                pass.draw(0..self.world_shapes[k].len() as u32, 0..1);
+            }
+        }
     }
 
     /// The overlay over the finished scene (after effects); uses this frame's globals from render().

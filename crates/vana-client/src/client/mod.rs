@@ -1844,6 +1844,7 @@ fn window_closes(w: &mut World, events: &[egui::Event]) {
 fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2], keys: &mut HashSet<KeyCode>, view_proj: glam::Mat4, numpad_slash: bool) -> Vec<[f32; 4]> {
     let (sw, sh) = (size[0] as f32, size[1] as f32);
     world.ui_wh = (sw, sh);
+    world.lua.set_view_proj(view_proj);
     // The focused list's scroll bar and the wheel, before the windows see the press.
     let taken = scrollbar::frame(gu, world, input);
     let input = taken.as_ref().unwrap_or(input);
@@ -12933,8 +12934,10 @@ impl App {
             }
             let lines = layout::overlay(w);
             let ceiling = !w.layout.as_ref().is_some_and(|l| l.view == 0);
+            let shapes = lua::world_shapes(w);
             if let Some(r) = w.renderer.as_mut() {
                 r.set_lines(&gfx.gpu, lines);
+                r.set_world_shapes(&gfx.gpu, shapes);
                 r.show_link999(&gfx.gpu, ceiling);
             }
             let new_lamps = if w.renderer.as_ref().is_some_and(|r| r.ready(&gfx.gpu)) { w.lamps.update(&mut w.effects, w.ground.as_ref(), self.cfg.lamp_lights) } else { None };
@@ -13637,7 +13640,8 @@ impl App {
                     eg.draw(&gfx.gpu, &mut encoder, (&scene_raw, &scene_depth, bg), Some(&scene_tex), &w.effects, (camera.proj(aspect), camera.view(), camera.eye), [crate::render::NEAR, crate::render::FAR], fog_color, fog);
                     mark!("fx draw");
                 }
-                // Layout mode's overlay over the finished scene.
+                // The Lua mods' world shapes, then layout mode's overlay over the finished scene.
+                r.render_world_shapes(&mut encoder, &scene_raw, &scene_depth);
                 r.render_lines(&mut encoder, &scene_raw);
                 // A zone change's held frame under the fade to black (the camera has moved on).
                 if let (Some(_), Some(fx)) = (w.zone_hold.filter(|h| h.captured), &self.screen_fx_zone) {

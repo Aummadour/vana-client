@@ -6,6 +6,7 @@ mod actions;
 mod api;
 pub(super) mod audio;
 mod docs;
+mod draw;
 mod hud;
 pub(super) mod input;
 mod manifest;
@@ -835,6 +836,11 @@ fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
     }
 }
 
+/// The mods' world shapes as vertices for the renderer: [line pairs, triangles].
+pub(super) fn world_shapes(w: &World) -> [Vec<crate::render::LineVertex>; 2] {
+    if w.lua.started { draw::vertices(w) } else { [Vec::new(), Vec::new()] }
+}
+
 /// The mods' HUD elements, under the windows (world_hud).
 pub(super) fn draw_hud(gu: &mut super::game_ui::GameUi, w: &World) {
     if w.lua.started {
@@ -843,6 +849,11 @@ pub(super) fn draw_hud(gu: &mut super::game_ui::GameUi, w: &World) {
 }
 
 impl Host {
+    /// This frame's view-projection (world_hud), for draw.to_screen.
+    pub(in crate::client) fn set_view_proj(&self, m: glam::Mat4) {
+        self.info.borrow_mut().view_proj = m;
+    }
+
     /// Whether a mod hid a native HUD piece (ui.native.hide).
     pub(in crate::client) fn hides(&self, piece: &str) -> bool {
         self.info.borrow().hidden.get(piece).is_some_and(|m| !m.is_empty())

@@ -17,6 +17,8 @@ pub(super) struct FrameInfo {
     pub hud_rects: Vec<(String, String, [f32; 4])>,
     /// Native HUD pieces hidden (ui.native.hide): piece -> the mods hiding it.
     pub hidden: std::collections::BTreeMap<String, std::collections::BTreeSet<String>>,
+    /// This frame's view-projection, for draw.to_screen.
+    pub view_proj: glam::Mat4,
     /// Entity looks mods set (render.entity): server id -> (mod, look).
     pub looks: std::collections::HashMap<u32, (String, super::render::Look)>,
 }
