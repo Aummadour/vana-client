@@ -425,7 +425,7 @@ function ui.native.interface_hidden() end
 ---@param show boolean 
 function ui.native.interface(show) end
 
---- Hides a HUD piece of the game in both UIs while the mod is loaded: party (party and alliance lists, their status icons), target, buffs (our status icons), compass (the modern location panel), minimap, cast (the cast bar), plates (name plates), alliance (the alliance lists alone), log (the log windows: back while an event, a prompt or the chat line needs them), timers, regime (the training regime window). Needs ui.native.
+--- Hides a HUD piece of the game in both UIs while the mod is loaded: party (party and alliance lists, their status icons), target, buffs (our status icons), compass (the modern location panel), minimap, cast (the cast bar), plates (name plates), alliance (the alliance lists alone), log (the log windows: back while an event, a prompt or the chat line needs them), timers, regime (the training regime window), network (the connection panel), palette (the macro palette's drawing; its keys still run macros), clock (the Clock Extra's Earth time line). Needs ui.native.
 ---@param piece string 
 ---@param hidden? boolean default true; false shows it again
 function ui.native.hide(piece, hidden) end
@@ -453,19 +453,19 @@ function render.entity(id, look) end
 --- Clears every look the mod set.
 function render.clear() end
 
---- The camera's distance (the zoom's scale, 0.5..3).
+--- The drawn eye's distance as a share of retail's (1 unless a mod sets it).
 ---@return number
 function render.camera_distance() end
 
---- Sets the camera's distance, as the wheel does (not in first person).
+--- Sets the drawn eye's distance as a share of retail's (not in first person); as set_camera's distance.
 ---@param scale number 0.5..3
 function render.set_camera_distance(scale) end
 
---- The camera: {distance (the wheel's scale, 1 = retail), max_distance, speed (the pan speed's scale), battle_distance, first_person, eye, look}.
+--- The camera: {distance (the drawn eye's distance as a share of retail's, 1 unless a mod sets it), max_distance, speed (the pan speed's scale), battle_distance, first_person, eye, look (as drawn)}.
 ---@return table
 function render.camera() end
 
---- Changes the camera (only the fields given): distance, max_distance (how far the wheel may go, up to 10; retail's farthest is 3), speed (the pan speed's scale, 0.1..5), battle_distance (the distance while engaged, back to the player's after; false clears it).
+--- Changes the camera (only the fields given): distance (the drawn eye's distance as a share of retail's, for this session; the camera keeps retail's distances for its swing, and the eye stops short of walls), max_distance (the most a distance may be, up to 10; 3 by default), speed (the pan speed's scale, 0.1..5), battle_distance (the distance while engaged, back to the player's after; false clears it).
 ---@param camera {distance: number?, max_distance: number?, speed: number?, battle_distance: number|false|nil} 
 function render.set_camera(camera) end
 
@@ -1214,7 +1214,7 @@ function client.paste(handler) end
 ---@return boolean|number|table
 function client.option(name) end
 
---- Sets a behaviour switch while the mod is loaded (retail's back when it unloads): macro_palette_delay (false: the Ctrl / Alt palette opens at once, not at the next whole second), ah_result_delay (false: a bid's result prints at once), equipset_delay (false: no 0.9 s wait between equip sets), log_slide (false: new log lines show at once), cutscene_speed (1..4: events play that much faster), animation_rate (0.25..4: the actors' animation speed), clear_colour and ambient ({r, g, b} 0..255 in place of the zone's background colour and ambient light; false gives the zone's back), minimap_span (the minimap's zoom, map pixels across, 48..512; kept as the wheel keeps it).
+--- Sets a behaviour switch while the mod is loaded (retail's back when it unloads): macro_palette_delay (false: the Ctrl / Alt palette opens at once, not at the next whole second), ah_result_delay (false: a bid's result prints at once), equipset_delay (false: no 0.9 s wait between equip sets), log_slide (false: new log lines show at once), cutscene_speed (1..4: events play that much faster), animation_rate (0.25..4: the actors' animation speed), clear_colour and ambient ({r, g, b} 0..255 in place of the zone's background colour and ambient light; false gives the zone's back), minimap_span (the minimap's zoom, map pixels across, 48..512; kept as the minimap's own wheel keeps it).
 ---@param name string 
 ---@param value boolean|number|table 
 function client.set_option(name, value) end

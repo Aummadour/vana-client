@@ -1946,7 +1946,10 @@ From the research notes:
   FOV, not distance). Later ours had the wheel scale the eye's distance (0.5..3); a scaled spring trailed further back
   and a forward + left run swung in a wider arc than retail's, whose zoom (the focal length) leaves the path alone
   (user, live, 2026-11-02). Since 2026-11-02 the wheel zooms the focal length again, as the keys, and the eye is at
-  retail's distance (user: "keep the eye at the same distance behind the character as retail does").
+  retail's distance (user: "keep the eye at the same distance behind the character as retail does"). Only a Lua mod
+  (render.set_camera) scales the distance, and then only the drawn eye: view() draws it at look + (eye - look) x the
+  scale, 0.5 short of what the look -> drawn eye ray hits (in at once, out 20 % a tick), the camera itself at retail's
+  distances.
 - Home 0x51: 8 frames (ours 16 ticks) of eye += (3 behind the player at look height - eye) x 0.125 a tick, until the
   camera's yaw is within 0.05 of the player's.
 - Collision: ray look -> eye puts the eye 0.5 in front of a hit; 0.17 clear of the floor (FUN_1017a310, within 10) and

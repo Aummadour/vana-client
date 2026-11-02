@@ -97,7 +97,8 @@ pub(super) fn install(lua: &Lua, g: &Table, mod_id: &str) -> mlua::Result<()> {
             out.set("speed", super::super::camera::speed(st))?;
             out.set("battle_distance", st.battle)?;
             out.set("first_person", st.first)?;
-            for (k, v) in [("eye", w.cam.eye), ("look", w.cam.look)] {
+            let c = super::super::camera::view(w);
+            for (k, v) in [("eye", c.eye), ("look", c.target)] {
                 let p = lua.create_table()?;
                 (p.set("x", v.x)?, p.set("y", v.y)?, p.set("z", v.z)?);
                 out.set(k, p)?;

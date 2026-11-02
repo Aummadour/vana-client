@@ -332,10 +332,12 @@ pub(super) fn install(lua: &Lua, game: &Table) -> mlua::Result<()> {
         "camera",
         lua.create_function(|lua, ()| {
             let w = world(lua)?;
+            // The camera as drawn (the wheel's distance in).
+            let c = super::super::camera::view(w);
             let t = lua.create_table()?;
-            t.set("eye", vec3(lua, w.cam.eye)?)?;
-            t.set("look", vec3(lua, w.cam.look)?)?;
-            t.set("distance", (w.cam.look - w.cam.eye).length())?;
+            t.set("eye", vec3(lua, c.eye)?)?;
+            t.set("look", vec3(lua, c.target)?)?;
+            t.set("distance", (c.target - c.eye).length())?;
             Ok(t)
         })?,
     )?;

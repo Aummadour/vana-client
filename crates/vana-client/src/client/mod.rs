@@ -3613,6 +3613,7 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
     // the UI font.
     if world.palette.0 != 0
         && !world.modern
+        && !world.lua.hides("palette")
         && let Some(m) = world.macros.as_ref()
     {
         let p = world.palette.0 as usize;

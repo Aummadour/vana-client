@@ -18,6 +18,10 @@ pub(super) const PIECES: &[(&str, &[&str])] = &[
     ("log", &["chat"]),
     ("timers", &["timers"]),
     ("regime", &["regime"]),
+    // Parts drawn inside other windows, hidden where they draw.
+    ("network", &[]),
+    ("palette", &[]),
+    ("clock", &[]),
 ];
 
 fn info(lua: &Lua) -> std::rc::Rc<std::cell::RefCell<super::state::FrameInfo>> {
