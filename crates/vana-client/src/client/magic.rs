@@ -467,7 +467,7 @@ pub(super) fn magic_check(w: &World, s: u16) -> Option<usize> {
 }
 
 /// A refusal with no line and no sound.
-const SILENT: usize = usize::MAX;
+pub(super) const SILENT: usize = usize::MAX;
 
 /// Ours (the modern UI dims by it): an effect we carry stops every action: sleep, petrification, stun, charm, terror,
 /// lullaby. Retail leaves these to the server's refusal.
@@ -591,7 +591,7 @@ pub(super) fn ability_name(w: &World, i: u16) -> String {
 }
 
 /// A group 7 line (mode 0x7a, the magic / ability ones) and the error SE.
-fn refuse(w: &mut World, id: usize) {
+pub(super) fn refuse(w: &mut World, id: usize) {
     if let Some(bt) = w.battle.clone()
         && let Some(line) = bt.group7(id).filter(|l| !l.is_empty())
     {

@@ -98,6 +98,8 @@ pub(super) struct ModState {
     pub inject_out: Vec<Vec<u8>>,
     /// The permissions the user granted this mod.
     pub granted: Vec<String>,
+    /// The running coroutine began with the player's input (a typed command, a window event): `actions` suffices.
+    pub input: bool,
 }
 
 impl ModState {
@@ -135,6 +137,8 @@ pub(super) struct Timer {
 pub(super) struct Sleeper {
     pub thread: RegistryKey,
     pub wake: Wake,
+    /// Begun with the player's input (ModState::input), kept across sleeps.
+    pub input: bool,
 }
 
 pub(super) enum Wake {
@@ -218,11 +222,24 @@ impl Vm {
 
     /// Runs `func(args)` as a new coroutine.
     pub fn call(&self, func: Function, args: impl IntoLuaMulti) {
+        self.call_as(func, args, false);
+    }
+
+    /// As call, for a handler of the player's input (a command typed, a window event): `actions` allows game actions.
+    pub fn call_input(&self, func: Function, args: impl IntoLuaMulti) {
+        self.call_as(func, args, true);
+    }
+
+    fn call_as(&self, func: Function, args: impl IntoLuaMulti, input: bool) {
         if self.suspended.is_some() {
             return;
         }
         match self.lua.create_thread(func) {
-            Ok(t) => self.resume(t, args),
+            Ok(t) => {
+                self.st.borrow_mut().input = input;
+                self.resume(t, args);
+                self.st.borrow_mut().input = false;
+            }
             Err(e) => self.error(&e),
         }
     }
@@ -283,8 +300,9 @@ impl Vm {
         } else {
             Wake::Frames(1)
         };
+        let input = self.st.borrow().input;
         match self.lua.create_registry_value(thread) {
-            Ok(k) => self.st.borrow_mut().sleepers.push(Sleeper { thread: k, wake }),
+            Ok(k) => self.st.borrow_mut().sleepers.push(Sleeper { thread: k, wake, input }),
             Err(e) => self.error(&e),
         }
     }
@@ -313,7 +331,9 @@ impl Vm {
         self.st.borrow_mut().sleepers.extend(keep);
         for s in due {
             if let Ok(t) = self.lua.registry_value::<Thread>(&s.thread) {
+                self.st.borrow_mut().input = s.input;
                 self.resume(t, ());
+                self.st.borrow_mut().input = false;
             }
             let _ = self.lua.remove_registry_value(s.thread);
         }

@@ -47,12 +47,22 @@ Built (client/lua/, modern/modwin.rs), each checked live:
     a chain: original and current bytes, blocked, injected; a handler returns new bytes, `false` to block, or nothing
   - `inject_in` (decoded as if the server sent it) and `inject_out`, both through the hooks; `build`; `last`
   - checked live: counts by id, an injected tell, a say rewritten into a GM command the server answered, across zones
+- **Actions** (`actions`: only while handling the player's input, a typed command or a window event; `automation`:
+  any time; a coroutine keeps how it began across sleeps; `commands.run` of a game command is an action too):
+  - `cast`, `ability` / `weaponskill`, `ranged`, `use_item`, `use_slot`, `attack`, `disengage`, `assist`, `target`,
+    `lock`, `heal`, each through the menus' and text commands' own code (checks, refusal lines, packets)
+  - `equip` (one piece or a set table, by id or bag slot; worn pieces stay), `unequip`, `equip_set`, `move`, `sort`,
+    `drop`, `lot`, `pass`, `cancel`, `choose` (an event menu option), `talk`, `scan`, `track`, `untrack`
+  - movement on autorun: `run`, `run_to`, `follow`, `walk`, `stop`, `turn` (headings as entity.heading)
+  - `game.treasure`, `game.event` (the menu showing) to act on
+  - checked live: the gate (a timer refused under `actions`), a cast refused with the menu's line, equip by id and
+    off, run_to and turn in West Ronfaure
 - **Bundled mods:** `/dps` (the first Extra ported).
 - **Mods folder:** `mods/<id>/` (enabled through config `mods`); a test run uses `mods` beside its FFXI_CONFIG copy.
 
 Next (docs/lua-mods.md 6): the Mods page's permissions; packet layouts and decoded views, batch order (the rest of
-phase 4); actions and automation (phase 5); the other Extras as bundled mods; then world-space drawing, audio, ipc /
-net, and the coverage table.
+phase 4); the rest of phase 5 (trade, shops, BLU / PUP sets as actions; `input`; `ui.native`; `render`); the other
+Extras as bundled mods; then world-space drawing, audio, ipc / net, and the coverage table.
 
 ## 1. The bar
 

@@ -27,6 +27,19 @@ pub const MODERN_ROW: usize = 10;
 /// FUN_10222150 for the 9-column list: Left / Right one cell, Up / Down a row (staying when there is none; the wrap
 /// rules there are not followed), SE 0001 on a move; Enter (FUN_10227eb0) cancels a cancellable effect: c2s 0x0F1 and
 /// the icon goes at once. Escape does nothing here.
+/// FUN_10227eb0: a cancellable effect (its status info flag) is cancelled: c2s 0x0F1 and the icon goes at once.
+pub(super) fn cancel(gu: &GameUi, w: &mut World, id: u16) -> bool {
+    let small = w.game.get(0x99) & 4 != 0;
+    if !gu.status_entry(small, id).is_some_and(|e| e.cancel) || !w.buffs.contains(&id) {
+        return false;
+    }
+    let _ = w.net.commands.send(super::net::NetCommand::CancelStatus(id));
+    if let Some(b) = w.buffs.iter_mut().find(|b| **b == id) {
+        *b = 0xffff;
+    }
+    true
+}
+
 pub fn key(gu: &GameUi, w: &mut World, key: egui::Key) {
     let list = icons(w);
     if list.is_empty() {
@@ -49,14 +62,7 @@ pub fn key(gu: &GameUi, w: &mut World, key: egui::Key) {
             return;
         }
         egui::Key::Enter => {
-            let id = list[at].0;
-            let small = w.game.get(0x99) & 4 != 0;
-            if gu.status_entry(small, id).is_some_and(|e| e.cancel) {
-                let _ = w.net.commands.send(super::net::NetCommand::CancelStatus(id));
-                if let Some(b) = w.buffs.iter_mut().find(|b| **b == id) {
-                    *b = 0xffff;
-                }
-            }
+            cancel(gu, w, list[at].0);
             at
         }
         _ => at,

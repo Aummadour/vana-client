@@ -2,6 +2,7 @@
 //! character enters the world and dropped at logout. Once a frame the mod phase delivers events, commands, timers and
 //! wake-ups; what the mods asked for is applied after it.
 
+mod actions;
 mod api;
 mod docs;
 mod manifest;
@@ -18,6 +19,7 @@ pub(super) enum Op {
     Chat { text: String, mode: Option<u8>, colour: Option<u8> },
     Print(String),
     Run(String),
+    Act(actions::Action),
 }
 
 /// The mods of this session.
@@ -27,8 +29,8 @@ pub struct Host {
     started: bool,
     /// Events raised by the client since the last mod phase.
     events: Vec<(&'static str, Vec<serde_json::Value>)>,
-    /// Lines typed for mods (a registered command, or /lua), run in the next mod phase.
-    typed: Vec<String>,
+    /// Lines for mods (a registered command, or /lua), run in the next mod phase; true when the player typed it.
+    typed: Vec<(String, bool)>,
     last_frame: Option<std::time::Instant>,
     /// Last frame's state, for the derived change events.
     prev: Option<Snap>,
@@ -273,7 +275,7 @@ impl Host {
     }
 
     pub fn type_line(&mut self, line: &str) {
-        self.typed.push(line.to_string());
+        self.typed.push((line.to_string(), true));
     }
 
     fn char_file(w: &World) -> String {
@@ -505,7 +507,7 @@ impl Host {
                     let code = args[2..].join(" ");
                     let vm = &self.vms[k];
                     lend(vm, w, |vm| match vm.lua.load(code).set_name("=/lua run").into_function() {
-                        Ok(f) => vm.call(f, ()),
+                        Ok(f) => vm.call_input(f, ()),
                         Err(e) => vm.error(&e),
                     });
                 }
@@ -591,7 +593,7 @@ fn save(vm: &Vm, w: &World) {
 }
 
 /// The mod phase (docs/lua-mods.md 3.2): once a frame in the world.
-pub(super) fn frame(w: &mut World) {
+pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
     let mut host = std::mem::take(&mut w.lua);
     if !host.started {
         if w.zone.is_none() || w.name.is_empty() {
@@ -616,7 +618,7 @@ pub(super) fn frame(w: &mut World) {
         let w: &World = w;
         host.watch_upkeep(w, &mut out);
         // Lines typed for mods.
-        for line in std::mem::take(&mut host.typed) {
+        for (line, input) in std::mem::take(&mut host.typed) {
             let body = line.trim_start_matches('/');
             let mut words = body.split_whitespace();
             let name = words.next().unwrap_or("").to_ascii_lowercase();
@@ -631,7 +633,7 @@ pub(super) fn frame(w: &mut World) {
                     let f = vm.st.borrow().commands.iter().find(|(n, _)| *n == name).and_then(|(_, k)| vm.lua.registry_value::<mlua::Function>(k).ok());
                     if let Some(f) = f {
                         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-                        vm.call(f, mlua::Variadic::from_iter(args));
+                        if input { vm.call_input(f, mlua::Variadic::from_iter(args)) } else { vm.call(f, mlua::Variadic::from_iter(args)) }
                     }
                 }),
                 None => out.push((format!("No mod command {name}."), ERROR)),
@@ -654,7 +656,7 @@ pub(super) fn frame(w: &mut World) {
                     let f = vm.st.borrow().window_handlers.iter().find(|h| h.0 == win).and_then(|h| vm.lua.registry_value::<mlua::Function>(&h.1).ok());
                     if let Some(f) = f {
                         let t = vm.lua.to_value(&ev.json()).unwrap_or(mlua::Value::Nil);
-                        vm.call(f, (win, t));
+                        vm.call_input(f, (win, t));
                     }
                 }
                 vm.timers();
@@ -716,7 +718,7 @@ pub(super) fn frame(w: &mut World) {
         w.chat.push_colour(line, colour);
     }
     for op in ops {
-        apply(w, op);
+        apply(w, gu, op);
     }
     // Injected packets go through the hooks now, not with the next batch (which may be seconds away).
     if w.lua.vms.iter().any(|v| !v.st.borrow().inject_in.is_empty()) {
@@ -729,7 +731,7 @@ pub(super) fn frame(w: &mut World) {
     }
 }
 
-fn apply(w: &mut World, op: Op) {
+fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
     match op {
         Op::Print(text) => w.chat.push_colour(text, DIM),
         Op::Chat { text, mode, colour } => match (mode, colour) {
@@ -743,7 +745,10 @@ fn apply(w: &mut World, op: Op) {
             }
             (None, None) => w.chat.push(text),
         },
+        // A mod's line for a mod runs as the mod's own, not the player's input.
+        Op::Run(line) if line.starts_with('/') && w.lua.takes(&line) => w.lua.typed.push((line, false)),
         Op::Run(line) => super::textcmd::run(w, &line, super::textcmd::Mode::Typed),
+        Op::Act(a) => actions::apply(w, gu, a),
     }
 }
 
@@ -787,8 +792,11 @@ mod tests {
             let v: Value = if f.ns.is_empty() { g.get(f.name).unwrap() } else { g.get::<Table>(f.ns).unwrap().get(f.name).unwrap() };
             assert!(matches!(v, Value::Function(_)), "{}.{} is documented but not bound", f.ns, f.name);
         }
-        let namespaces: std::collections::BTreeSet<&str> = docs::FUNCS.iter().map(|f| f.ns).filter(|n| !n.is_empty()).collect();
+        // Every global table but Lua's own is a namespace of ours, documented or not.
+        const STD: [&str; 6] = ["_G", "table", "string", "math", "utf8", "coroutine"];
+        let namespaces: Vec<String> = g.pairs::<String, Value>().filter_map(|p| p.ok()).filter(|(k, v)| matches!(v, Value::Table(_)) && !STD.contains(&k.as_str())).map(|p| p.0).collect();
         for ns in namespaces {
+            let ns = ns.as_str();
             let t: Table = g.get(ns).unwrap();
             for pair in t.pairs::<String, Value>() {
                 let (name, v) = pair.unwrap();

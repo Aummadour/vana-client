@@ -5674,6 +5674,8 @@ struct World {
     /// Items /equip took in the last seconds (FUN_101efee0; six, each held while under 2 s old).
     equip_claims: Vec<((u8, u8), Instant)>,
     autorun_dir: Vec3,
+    /// Ours (docs/lua-mods.md 4.8): a mod's run to a point (x, z, stop within): autorun steers at it as /follow does.
+    run_to: Option<(f32, f32, f32)>,
     move_tier: f32,
     /// Player physics runs in retail frames (ground::STEP_TICKS): ticks not yet stepped, the last four step
     /// results (oldest first), the position after the last step, and where the player is drawn (drawn_pos).
@@ -7595,6 +7597,7 @@ impl App {
                             journal_on_list: false,
                             equip_claims: Vec::new(),
                             autorun_dir: Vec3::ZERO,
+                            run_to: None,
                             move_tier: 0.0,
                             step_ticks: 0.0,
                             step_hist: [Vec3::ZERO; 4],
@@ -8508,6 +8511,7 @@ impl App {
                     // FUN_10011a00 state 5 (each zone-in): first person (DAT_10487f80) and autorun (DAT_10487f81) off,
                     // set directly: no "Follow canceled." line.
                     (world.autorun, world.autorun_dir, world.follow, world.camst.first) = (false, Vec3::ZERO, None, false);
+                    world.run_to = None;
                     (world.fishing, world.fish_pending, world.fish_gauge, world.primer) = (None, false, None, None);
                     world.hud_top.enter();
                     // FUN_10095650 at the world start: the Unity chat setting (config 0xb2) and the job master display
@@ -10043,6 +10047,16 @@ impl App {
                 _ => world.autorun = false,
             }
         }
+        // A mod's run to a point: steered as /follow, ended there.
+        if let Some((x, z, within)) = world.run_to {
+            let d = Vec3::new(x - world.pos.x, 0.0, z - world.pos.z);
+            if !world.autorun || d.length() <= within.max(0.1) {
+                world.autorun = false;
+                world.run_to = None;
+            } else {
+                world.autorun_dir = d.normalize();
+            }
+        }
         if world.autorun && !world.locked && !move_locked {
             if world.autorun_dir == Vec3::ZERO && step != Vec3::ZERO {
                 world.autorun_dir = step.normalize();
@@ -10060,6 +10074,7 @@ impl App {
         }
         if !world.autorun {
             world.autorun_dir = Vec3::ZERO;
+            world.run_to = None;
             // Autorun ending for any reason ends the follow: group 9 0x41 "Follow canceled.".
             if world.follow.take().is_some() {
                 textcmd::log9(world, 0x41);
@@ -12485,7 +12500,7 @@ impl App {
             synth::update(w);
             resttick::update(w);
             servmes::frame(w);
-            lua::frame(w);
+            lua::frame(w, self.game_ui.as_ref());
         }
         // Config 0022: the opening movie before the title, which loads behind it.
         if self.opening.is_some() {

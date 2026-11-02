@@ -209,7 +209,7 @@ fn free_slot(w: &World) -> Option<u8> {
 
 /// FUN_1013f460's Cast Lot: a Rare item (flags 0x8000) held in any container is refused with group 7 0x7e, no free
 /// inventory slot with 0x7d; else c2s 0x041 [pool slot, free slot, 0, 0] and the slot is lotted.
-fn cast_lot(w: &mut World, slot: u8, item: u16) {
+pub(super) fn cast_lot(w: &mut World, slot: u8, item: u16) {
     let rare = w.item_info.as_ref().and_then(|c| c.item(item)).is_some_and(|it| it.flags & 0x8000 != 0);
     if rare && w.inv.slots.iter().any(|(&(c, _), &(id, _))| c < 0x12 && id == item) {
         super::textcmd::refuse(w, 0x7e);
@@ -224,7 +224,7 @@ fn cast_lot(w: &mut World, slot: u8, item: u16) {
 }
 
 /// c2s 0x042 [pool slot, 0] (FUN_100ebd10): passed.
-fn pass(w: &mut World, slot: u8) {
+pub(super) fn pass(w: &mut World, slot: u8) {
     let _ = w.net.commands.send(NetCommand::Packet { id: 0x042, body: vec![slot, 0] });
     w.treasure[slot as usize].acted = 1;
 }

@@ -872,7 +872,7 @@ fn auto_sort(w: &mut World) {
 }
 
 /// FUN_1021c7e0 on a container; 0x03A {c} is sent again by the storage view's itmsortw (LAB_101f3780: two in all).
-fn auto_sort_c(w: &mut World, c: u8) {
+pub(super) fn auto_sort_c(w: &mut World, c: u8) {
     let grouped = w.game.get(0xca) == 1;
     let info = w.item_info.clone();
     let key = |s: &Slot| (info.as_ref().and_then(|c| c.item(s.id)).map_or(0xffff, |it| it.resource), s.id);

@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 /// The world, lent while the host runs a mod's Lua (null otherwise).
 pub(super) struct WorldRef(pub *const World);
 
-fn world(lua: &Lua) -> mlua::Result<&World> {
+pub(super) fn world(lua: &Lua) -> mlua::Result<&World> {
     let p = lua.app_data_ref::<WorldRef>().map_or(std::ptr::null(), |r| r.0);
     if p.is_null() {
         return Err(mlua::Error::runtime("game state is not available outside the mod phase"));
@@ -20,7 +20,7 @@ fn world(lua: &Lua) -> mlua::Result<&World> {
     Ok(unsafe { &*p })
 }
 
-fn state(lua: &Lua) -> Rc<RefCell<ModState>> {
+pub(super) fn state(lua: &Lua) -> Rc<RefCell<ModState>> {
     lua.app_data_ref::<Rc<RefCell<ModState>>>().expect("vm state").clone()
 }
 
@@ -140,6 +140,9 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     commands.set(
         "run",
         lua.create_function(|lua, line: String| {
+            if !line.starts_with("//") {
+                need_action(lua)?;
+            }
             state(lua).borrow_mut().ops.push(Op::Run(line));
             Ok(())
         })?,
@@ -399,6 +402,7 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
         })?,
     )?;
     g.set("timer", timer)?;
+    super::actions::install(lua, &g)?;
     let start = Instant::now();
     g.set("clock", lua.create_function(move |_, ()| Ok(start.elapsed().as_secs_f64()))?)?;
 
@@ -558,6 +562,47 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     )?;
     game.set("weather", lua.create_function(|lua, ()| Ok(world(lua)?.weather))?)?;
     game.set("key_items", lua.create_function(|lua, ()| Ok(world(lua)?.key_items.clone()))?)?;
+    // The treasure pool: each item in it by slot (0..9, as actions.lot / pass take them).
+    game.set(
+        "treasure",
+        lua.create_function(|lua, ()| {
+            let w = world(lua)?;
+            let out = lua.create_table()?;
+            for (k, s) in w.treasure.iter().enumerate().filter(|(_, s)| s.state == 2) {
+                let t = lua.create_table()?;
+                t.set("slot", k)?;
+                t.set("item", s.item)?;
+                t.set("count", s.qty)?;
+                t.set("dropper", s.from)?;
+                t.set("lotted", s.acted == 2)?;
+                t.set("passed", s.acted == 1)?;
+                t.set("lot", (s.own_lot > 0).then_some(s.own_lot))?;
+                t.set("high_lot", s.high_lot)?;
+                t.set("high_name", s.high_name.as_str())?;
+                out.push(t)?;
+            }
+            Ok(out)
+        })?,
+    )?;
+    // An event (cutscene or NPC talk) under way: nil when none; its open menu (question, options, cursor from 1).
+    game.set(
+        "event",
+        lua.create_function(|lua, ()| {
+            let w = world(lua)?;
+            if w.event.is_none() {
+                return Ok(None);
+            }
+            let t = lua.create_table()?;
+            if let Some(c) = super::super::event::choice(w) {
+                let m = lua.create_table()?;
+                m.set("question", c.question.as_str())?;
+                m.set("options", c.options.iter().map(|o| o.1.as_str()).collect::<Vec<_>>())?;
+                m.set("cursor", c.cursor + 1)?;
+                t.set("menu", m)?;
+            }
+            Ok(Some(t))
+        })?,
+    )?;
     g.set("game", game)?;
 
     // res: the game's static data from its DATs (docs/lua-mods.md 4.9).
@@ -751,6 +796,11 @@ fn entity(lua: &Lua, w: &World, id: u32, e: &super::super::Entity) -> mlua::Resu
 }
 
 /// Our own character as an entity (the entity map holds the others only).
+/// Our facing (what 0x015 sends and the model shows), as entity headings are: radians, 0 east, pi / 2 south.
+fn my_heading(w: &World) -> f32 {
+    super::super::event::rad_of(w.net.me.lock().map_or(0, |m| m.dir))
+}
+
 fn self_entity(lua: &Lua, w: &World) -> mlua::Result<Table> {
     let t = lua.create_table()?;
     t.set("id", w.my_id)?;
@@ -762,7 +812,7 @@ fn self_entity(lua: &Lua, w: &World) -> mlua::Result<Table> {
     pos.set("y", w.pos.y)?;
     pos.set("z", w.pos.z)?;
     t.set("pos", pos)?;
-    t.set("heading", w.yaw)?;
+    t.set("heading", my_heading(w))?;
     t.set("distance", 0.0)?;
     t.set("hpp", w.vitals.map_or(100, |v| v.3))?;
     t.set("status", w.my_motion.status)?;
@@ -821,7 +871,7 @@ fn player(lua: &Lua) -> mlua::Result<Table> {
     pos.set("y", w.pos.y)?;
     pos.set("z", w.pos.z)?;
     t.set("pos", pos)?;
-    t.set("heading", w.yaw)?;
+    t.set("heading", my_heading(w))?;
     t.set("status", w.my_motion.status)?;
     if let Some((hp, mp, tp, hpp, mpp)) = w.vitals {
         t.set("hp", hp)?;
@@ -906,6 +956,20 @@ fn need(lua: &Lua, perm: &str) -> mlua::Result<()> {
         Ok(())
     } else {
         Err(mlua::Error::runtime(format!("this needs the {perm} permission: list it in mod.toml, then /lua grant <mod> {perm}")))
+    }
+}
+
+/// A game action: `automation` any time, `actions` while handling the player's input (a typed command, a window event).
+pub(super) fn need_action(lua: &Lua) -> mlua::Result<()> {
+    let st = state(lua);
+    let s = st.borrow();
+    let has = |p: &str| s.granted.iter().any(|g| g == p);
+    if has("automation") || (has("actions") && s.input) {
+        Ok(())
+    } else if has("actions") {
+        Err(mlua::Error::runtime("a game action outside the player's input needs the automation permission"))
+    } else {
+        Err(mlua::Error::runtime("game actions need the actions or automation permission: list it in mod.toml, then /lua grant <mod> actions"))
     }
 }
 

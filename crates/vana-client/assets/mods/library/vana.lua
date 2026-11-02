@@ -165,6 +165,7 @@ packets = {}
 chat = {}
 timer = {}
 game = {}
+actions = {}
 res = {}
 settings = {}
 
@@ -226,7 +227,7 @@ function events.off(id) end
 ---@param handler fun(...: string) 
 function commands.register(name, handler) end
 
---- Runs a line as if the player had typed it (game commands, our commands, other mods' commands).
+--- Runs a line as if the player had typed it (game commands, our commands, other mods' commands). Any line but a //mod command is a game action: it needs actions (while handling the player's input) or automation.
 ---@param line string e.g. '/ma "Cure" <t>'
 function commands.run(line) end
 
@@ -395,6 +396,150 @@ function game.weather() end
 --- The key item ids we hold.
 ---@return integer[]
 function game.key_items() end
+
+--- The treasure pool: {slot (0..9), item, count, dropper, lotted, passed, lot, high_lot, high_name} per item in it.
+---@return table[]
+function game.treasure() end
+
+--- The event (cutscene, NPC talk) under way, or nil: {menu = {question, options, cursor}} while it shows a menu (cursor from 1).
+---@return table?
+function game.event() end
+
+--- Casts a spell by id, with the magic menu's checks (recast, MP, learned, status) and its refusal lines.
+---@param spell integer spell id
+---@param target integer|string? a server id, a tag (<t>, <me>, <bt>, <st>...) or a name; none: the current target
+function actions.cast(spell, target) end
+
+--- Uses a job ability, weapon skill or pet command by record id (res.ability), with the ability menu's checks.
+---@param id integer ability id
+---@param target integer|string? as actions.cast
+function actions.ability(id, target) end
+
+--- As actions.ability (weapon skills are ability records).
+---@param id integer ability id
+---@param target integer|string? as actions.cast
+function actions.weaponskill(id, target) end
+
+--- A ranged attack (/range).
+---@param target integer|string? as actions.cast
+function actions.ranged(target) end
+
+--- Uses an item by id, as /item finds it (temporary items, inventory, wardrobes).
+---@param item integer item id
+---@param target integer|string? as actions.cast
+function actions.use_item(item, target) end
+
+--- Uses the item in a bag slot, as the item menu does.
+---@param bag integer 
+---@param index integer 
+---@param target integer? a server id; none: ourselves
+function actions.use_slot(bag, index, target) end
+
+--- Engages a target, or switches to it while engaged (/attack).
+---@param target integer|string? none: the current target
+function actions.attack(target) end
+
+--- Disengages (/attack off).
+function actions.disengage() end
+
+--- Assists a player (/assist).
+---@param target integer|string 
+function actions.assist(target) end
+
+--- Sets the current target, or clears it with nil.
+---@param id integer? server id
+function actions.target(id) end
+
+--- Locks on to the current target, or lets go.
+---@param on boolean 
+function actions.lock(on) end
+
+--- Rests (/heal): true on, false off, none toggles.
+---@param on boolean? 
+function actions.heal(on) end
+
+--- Wears pieces as the equipment window does: (slot, item) or ({slot = item, ...}). A slot is 0..15 or a name (main, sub, range, ammo, head, body, hands, legs, feet, neck, waist, left_ear, right_ear, left_ring, right_ring, back); an item is an id, {bag = , index = }, or false to take it off. Pieces already worn stay.
+---@param slot_or_set integer|string|table 
+---@param item integer|table|false|nil 
+function actions.equip(slot_or_set, item) end
+
+--- Takes off what a slot wears.
+---@param slot integer|string 
+function actions.unequip(slot) end
+
+--- Wears an equip set (/equipset).
+---@param n integer 1..200
+function actions.equip_set(n) end
+
+--- Moves an item to another bag (its first free slot).
+---@param bag integer 
+---@param index integer 
+---@param to integer bag
+---@param count integer? none: the whole stack
+function actions.move(bag, index, to, count) end
+
+--- Sorts a bag and merges its stacks.
+---@param bag integer 
+function actions.sort(bag) end
+
+--- Drops an inventory slot's whole stack (no confirmation).
+---@param index integer inventory slot
+function actions.drop(index) end
+
+--- Lots on a treasure pool item.
+---@param slot integer 0..9, as game.treasure gives it
+function actions.lot(slot) end
+
+--- Passes on a treasure pool item.
+---@param slot integer 0..9
+function actions.pass(slot) end
+
+--- Cancels a status effect we have, when it can be cancelled.
+---@param status integer status id
+function actions.cancel(status) end
+
+--- Picks an option of the event menu showing (game.event().menu), as the cursor and Enter would.
+---@param option integer from 1
+function actions.choose(option) end
+
+--- Talks to an NPC (or checks it), as Enter on it does.
+---@param id integer server id
+function actions.talk(id) end
+
+--- Asks for the Wide Scan list.
+function actions.scan() end
+
+--- Tracks an entity with Wide Scan.
+---@param index integer its index (entity.index)
+function actions.track(index) end
+
+--- Stops Wide Scan tracking.
+function actions.untrack() end
+
+--- Runs on (autorun) toward a heading (entity.heading's units), or the way we face. The player's keys still steer and stop it.
+---@param heading number? 
+function actions.run(heading) end
+
+--- Runs to a point and stops within a distance of it.
+---@param x number 
+---@param z number 
+---@param within number? yalms; 1 when none
+function actions.run_to(x, z, within) end
+
+--- Follows an entity (/follow).
+---@param id integer server id
+function actions.follow(id) end
+
+--- Walks (true) or runs (false), as the walk key.
+---@param on boolean 
+function actions.walk(on) end
+
+--- Stops a run, run_to or follow.
+function actions.stop() end
+
+--- Faces a heading (entity.heading's units).
+---@param heading number 
+function actions.turn(heading) end
 
 --- An item's record: name, description, kind, flags, stack, type, targets, level, slots, races, jobs (bits), superior_level, damage, delay, skill, max_charges, cast_time, use_delay, reuse_delay.
 ---@param id integer 
