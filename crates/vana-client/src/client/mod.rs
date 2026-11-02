@@ -14020,8 +14020,10 @@ impl ApplicationHandler for App {
         // No game files yet: the first-start window is a fixed size, whatever the config says.
         let bootstrap = firstrun::needed(&self.cfg.ffxi_dir());
         let [ww, wh] = if bootstrap { firstrun::WINDOW } else { self.cfg.window_size() };
-        // Test runs are always windowed.
-        let mode = if self.drive.driven() || bootstrap { 1 } else { self.cfg.window_mode() };
+        // Test runs are windowed, unless their config puts them borderless on a named monitor (mode 3), which keeps
+        // them off the screen the user works on.
+        let test_monitor = self.drive.driven() && self.cfg.window_mode() == 3 && !self.cfg.monitor.is_empty();
+        let mode = if bootstrap || (self.drive.driven() && !test_monitor) { 1 } else { self.cfg.window_mode() };
         let monitor = pick_monitor(&self.cfg.monitor, event_loop.primary_monitor(), event_loop.available_monitors(), [ww, wh]);
         let full = fullscreen(mode, [ww, wh], monitor.clone());
         let mut attrs = Window::default_attributes()
