@@ -79,6 +79,10 @@ Built (client/lua/, modern/modwin.rs), each checked live:
   - `equip` (one piece or a set table, by id or bag slot; worn pieces stay), `unequip`, `equip_set`, `move`, `sort`,
     `drop`, `lot`, `pass`, `cancel`, `choose` (an event menu option), `talk`, `scan`, `track`, `untrack`
   - movement on autorun: `run`, `run_to`, `follow`, `walk`, `stop`, `turn` (headings as entity.heading)
+  - `trade` (items and gil to an NPC within reach), `buy` / `sell` with the open NPC shop (`game.shop`), `blue_set` /
+    `blue_remove`, `attach` / `detach` (automaton), `invite`, `party_leave`, `party_kick`, `join`, `decline`, `mount`,
+    `dismount`, `advance`; trade and shop refusals are the mod's errors. Checked live: a bad trade refused, Eye Drops
+    bought from Gekko and sold back
   - `game.treasure`, `game.event` (the menu showing) to act on
   - checked live: the gate (a timer refused under `actions`), a cast refused with the menu's line, equip by id and
     off, run_to and turn in West Ronfaure
@@ -108,7 +112,7 @@ Built (client/lua/, modern/modwin.rs), each checked live:
 - **Mods folder:** `mods/<id>/` (enabled through config `mods`); a test run uses `mods` beside its FFXI_CONFIG copy.
 
 Next (docs/lua-mods.md 6): packet layouts and decoded views, batch order (the rest of
-phase 4); the rest of phase 5 (trade, shops, BLU / PUP sets as actions; native window drive and list rows; engine settings such as draw distance and frame limit); the other Extras as
+phase 4); the rest of phase 5 (native window drive and list rows; engine settings such as draw distance and frame limit); the other Extras as
 bundled mods; then world-space text and quads, music overrides, window focus between clients, and the coverage table.
 
 ## 1. The bar

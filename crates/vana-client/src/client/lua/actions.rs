@@ -32,6 +32,9 @@ pub(in crate::client) enum Action {
     Talk(u32),
     Target(Option<u32>),
     Lock(bool),
+    /// A BLU slot (0..19) set to a spell id or emptied (0), a PUP slot (0..13) to an item id or emptied.
+    BlueSlot(usize, u16),
+    PupSlot(usize, u16),
     Scan,
     Track(u16),
     Untrack,
@@ -165,6 +168,16 @@ pub(super) fn apply(w: &mut World, gu: Option<&GameUi>, a: Action) {
             event::talk(w, id);
         }
         Action::Target(t) => target::set(w, t),
+        Action::BlueSlot(i, spell) => {
+            if let Err(e) = super::super::bluset::set_slot(w, i, spell) {
+                w.chat.push_colour(format!("actions.blue_set: {e}"), super::ERROR);
+            }
+        }
+        Action::PupSlot(i, item) => {
+            if let Err(e) = super::super::pupset::set_slot(w, i, item) {
+                w.chat.push_colour(format!("actions.attach: {e}"), super::ERROR);
+            }
+        }
         Action::Lock(on) => target::lock(w, on, "mod"),
         Action::Scan => super::super::scan_request(w),
         Action::Track(index) => super::super::scan_track(w, index),
@@ -317,6 +330,44 @@ pub(super) fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
         })?,
     )?;
     t.set("talk", lua.create_function(|lua, id: u32| queue(lua, Action::Talk(id)))?)?;
+    // Trade and shops send at once, as the windows' confirmations do; a refusal is the mod's error.
+    t.set(
+        "trade",
+        lua.create_function(|lua, (npc, items, gil): (u32, Option<Table>, Option<u32>)| {
+            super::api::need_action(lua)?;
+            let list: Vec<(u8, u32)> = match items {
+                Some(t) => t.sequence_values::<Table>().map(|e| e.and_then(|e| Ok((e.get::<u8>("slot")?, e.get::<Option<u32>>("count")?.unwrap_or(1))))).collect::<mlua::Result<_>>()?,
+                None => Vec::new(),
+            };
+            super::super::trade::hand_over(super::api::world(lua)?, npc, &list, gil.unwrap_or(0)).map_err(|e| mlua::Error::runtime(format!("actions.trade: {e}")))
+        })?,
+    )?;
+    t.set(
+        "buy",
+        lua.create_function(|lua, (index, qty): (usize, Option<u32>)| {
+            super::api::need_action(lua)?;
+            let index = index.checked_sub(1).ok_or_else(|| mlua::Error::runtime("rows count from 1"))?;
+            super::super::shop::buy(super::api::world(lua)?, index, qty.unwrap_or(1)).map_err(|e| mlua::Error::runtime(format!("actions.buy: {e}")))
+        })?,
+    )?;
+    t.set(
+        "sell",
+        lua.create_function(|lua, (slot, qty): (u8, Option<u32>)| {
+            super::api::need_action(lua)?;
+            super::super::shop::sell(super::api::world(lua)?, slot, qty.unwrap_or(1)).map_err(|e| mlua::Error::runtime(format!("actions.sell: {e}")))
+        })?,
+    )?;
+    t.set("blue_set", lua.create_function(|lua, (slot, spell): (usize, u16)| queue(lua, Action::BlueSlot(slot.saturating_sub(1), spell)))?)?;
+    t.set("blue_remove", lua.create_function(|lua, slot: usize| queue(lua, Action::BlueSlot(slot.saturating_sub(1), 0)))?)?;
+    t.set("attach", lua.create_function(|lua, (slot, item): (usize, u16)| queue(lua, Action::PupSlot(slot, item)))?)?;
+    t.set("detach", lua.create_function(|lua, slot: usize| queue(lua, Action::PupSlot(slot, 0)))?)?;
+    t.set("invite", lua.create_function(|lua, name: String| queue(lua, Action::Line(format!("/pcmd add {name}"))))?)?;
+    t.set("party_leave", lua.create_function(|lua, ()| queue(lua, Action::Line("/pcmd leave".into())))?)?;
+    t.set("party_kick", lua.create_function(|lua, name: String| queue(lua, Action::Line(format!("/pcmd kick {name}"))))?)?;
+    t.set("join", lua.create_function(|lua, ()| queue(lua, Action::Line("/join".into())))?)?;
+    t.set("decline", lua.create_function(|lua, ()| queue(lua, Action::Line("/decline".into())))?)?;
+    t.set("mount", lua.create_function(|lua, name: String| queue(lua, Action::Line(format!("/mount \"{name}\""))))?)?;
+    t.set("dismount", lua.create_function(|lua, ()| queue(lua, Action::Line("/dismount".into())))?)?;
     t.set("advance", lua.create_function(|lua, ()| queue(lua, Action::Advance))?)?;
     t.set("scan", lua.create_function(|lua, ()| queue(lua, Action::Scan))?)?;
     t.set("track", lua.create_function(|lua, index: u16| queue(lua, Action::Track(index)))?)?;

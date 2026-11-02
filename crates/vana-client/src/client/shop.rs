@@ -720,6 +720,34 @@ fn packet(w: &World, id: u16, body: Vec<u8>) {
     let _ = w.net.commands.send(NetCommand::Packet { id, body });
 }
 
+/// The open NPC shop's stock (not a guild's): (index, item, price).
+pub(super) fn stock(w: &World) -> Option<Vec<(usize, u16, u32)>> {
+    let s = w.shop.as_ref().filter(|s| !s.guild)?;
+    Some(s.stock.iter().enumerate().filter_map(|(k, e)| e.map(|e| (k, e.item, e.price))).collect())
+}
+
+/// Buys from the open NPC shop without the window (a Lua mod's), as its Buy does.
+pub(super) fn buy(w: &World, index: usize, qty: u32) -> Result<(), &'static str> {
+    let s = w.shop.as_ref().filter(|s| !s.guild).ok_or("no shop open")?;
+    if s.stock.get(index).copied().flatten().is_none() || qty == 0 {
+        return Err("no such row");
+    }
+    send_buy(w, index as u8, qty);
+    Ok(())
+}
+
+/// Sells an inventory slot to the open NPC shop without the window, as its Sell does (0x084 then 0x085).
+pub(super) fn sell(w: &World, slot: u8, qty: u32) -> Result<(), &'static str> {
+    w.shop.as_ref().filter(|s| !s.guild).ok_or("no shop open")?;
+    let held = w.inv.slots.get(&(super::items::INVENTORY, slot)).map_or(0, |s| s.1);
+    if qty == 0 || qty > held {
+        return Err("not that many in the slot");
+    }
+    send_sell_req(w, slot, qty);
+    packet(w, 0x085, vec![1, 0, 0, 0]);
+    Ok(())
+}
+
 /// c2s 0x083 (FUN_100f8970): ItemNum, ShopNo 0, ShopItemIndex, PropertyItemIndex 0.
 fn send_buy(w: &World, index: u8, qty: u32) {
     let mut b = vec![0u8; 0xc];

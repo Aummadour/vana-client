@@ -709,6 +709,10 @@ function game.info() end
 ---@return {eye: {x: number, y: number, z: number}, look: {x: number, y: number, z: number}, distance: number}
 function game.camera() end
 
+--- The open NPC shop's rows ({index from 1, item, price}), or nil (no shop, or a guild's).
+---@return table[]?
+function game.shop() end
+
 --- The zone's NPC list by server id, spawned or not (Wide Scan's names).
 ---@return table<integer, string>
 function game.npc_names() end
@@ -812,6 +816,64 @@ function actions.choose(option) end
 
 --- Moves the event's waiting text on, as Enter does (enternity, stepdialog).
 function actions.advance() end
+
+--- Hands items (and gil) to an NPC within reach, as the trade window's Trade does: items {{slot = inventory slot, count = n}, ...}, at most 8 entries with the gil. Not worn or linkshell items. A refusal is an error.
+---@param npc integer server id
+---@param items? table 
+---@param gil? integer 
+function actions.trade(npc, items, gil) end
+
+--- Buys from the open NPC shop (game.shop()'s rows), as its Buy does.
+---@param row integer from 1
+---@param count? integer default 1
+function actions.buy(row, count) end
+
+--- Sells from an inventory slot to the open NPC shop, as its Sell does.
+---@param slot integer inventory slot
+---@param count? integer default 1
+function actions.sell(slot, count) end
+
+--- Sets a blue magic slot (1..20) to a spell id, as Set Spells does.
+---@param slot integer 
+---@param spell integer 
+function actions.blue_set(slot, spell) end
+
+--- Empties a blue magic slot (1..20).
+---@param slot integer 
+function actions.blue_remove(slot) end
+
+--- Sets an automaton slot to an item id: 0 head, 1 frame, 2..13 attachments.
+---@param slot integer 
+---@param item integer 
+function actions.attach(slot, item) end
+
+--- Empties an automaton slot (0..13).
+---@param slot integer 
+function actions.detach(slot) end
+
+--- Invites a player to the party (/pcmd add).
+---@param name string 
+function actions.invite(name) end
+
+--- Leaves the party (/pcmd leave).
+function actions.party_leave() end
+
+--- Removes a member from the party (/pcmd kick).
+---@param name string 
+function actions.party_kick(name) end
+
+--- Accepts a party invitation (/join).
+function actions.join() end
+
+--- Declines a party invitation (/decline).
+function actions.decline() end
+
+--- Calls a mount by name (/mount).
+---@param name string 
+function actions.mount(name) end
+
+--- Dismounts (/dismount).
+function actions.dismount() end
 
 --- Talks to an NPC (or checks it), as Enter on it does.
 ---@param id integer server id

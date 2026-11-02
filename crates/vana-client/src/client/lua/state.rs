@@ -258,6 +258,22 @@ pub(super) fn install(lua: &Lua, game: &Table) -> mlua::Result<()> {
         })?,
     )?;
     game.set(
+        "shop",
+        lua.create_function(|lua, ()| {
+            let w = world(lua)?;
+            let Some(rows) = super::super::shop::stock(w) else { return Ok(None) };
+            let out = lua.create_table()?;
+            for (k, item, price) in rows {
+                let r = lua.create_table()?;
+                r.set("index", k + 1)?;
+                r.set("item", item)?;
+                r.set("price", price)?;
+                out.push(r)?;
+            }
+            Ok(Some(out))
+        })?,
+    )?;
+    game.set(
         "npc_names",
         lua.create_function(|lua, ()| {
             let w = world(lua)?;
