@@ -112,14 +112,9 @@ target/release/vana-client play
 
 You log in on the game's login screen. The server address and ports come from the config file.
 
-To add it to your desktop's application menu with its icon, put the binary on your `PATH` and install the desktop
-entry. Wayland compositors find the icon through this entry rather than through the window:
-
-```sh
-install -Dm755 target/release/vana-client ~/.local/bin/vana-client
-install -Dm644 assets/vana-client.desktop ~/.local/share/applications/vana-client.desktop
-install -Dm644 assets/vana-client-512.png ~/.local/share/icons/hicolor/512x512/apps/vana-client.png
-```
+On Linux the client installs itself the first time it starts: it copies itself to
+`~/.local/share/vana-client/vana-client` and adds an application menu entry and its icon that start that copy.
+In-app updates replace the copy you run. Wayland compositors find the window's icon through this entry.
 
 To create an account on the server from the command line:
 

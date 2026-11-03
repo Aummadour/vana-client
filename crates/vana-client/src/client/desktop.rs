@@ -1,9 +1,9 @@
-//! Desktop integration on Linux (not retail): the icon and the .desktop entry. Wayland ignores window icons; the
-//! compositor finds ours through the app id ("vana-client") and an entry of that name, so the entry is always
-//! written, hidden from menus (NoDisplay) unless a menu entry was asked for.
+//! Desktop integration on Linux (not retail): the client's copy in the data dir, the icon and the .desktop entry.
+//! Wayland ignores window icons; the compositor finds ours through the app id ("vana-client") and an entry of that
+//! name, so the entry is always written, hidden from menus (NoDisplay) unless a menu entry was asked for.
 
 use anyhow::{Context, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const ICON_512: &[u8] = include_bytes!("../../../../assets/vana-client-512.png");
 const ICON_256: &[u8] = include_bytes!("../../assets/icon-256.png");
@@ -17,12 +17,59 @@ fn data_home() -> Result<PathBuf> {
     dirs::data_dir().context("no data directory")
 }
 
+/// The client's own copy, which the entries start.
+fn home_exe() -> PathBuf {
+    crate::config::data_dir().join("vana-client")
+}
+
+/// At every start: with no copy in the data dir yet, this binary is put there and the entries point at it (the menu
+/// keeps an entry's shown / hidden; shown when there was none, as the first-start page's default).
+pub fn settle() -> Result<()> {
+    let home = home_exe();
+    if home.exists() {
+        return Ok(());
+    }
+    let exe = super::updater::exe().context("no executable path")?;
+    std::fs::create_dir_all(home.parent().context("no data directory")?)?;
+    let part = home.with_extension("part");
+    std::fs::copy(&exe, &part)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o755))?;
+    }
+    std::fs::rename(&part, &home)?;
+    let menu = std::fs::read_to_string(data_home()?.join("applications/vana-client.desktop")).map_or(true, |t| !t.contains("NoDisplay=true"));
+    install(menu)?;
+    if dirs::desktop_dir().is_some_and(|d| d.join("vana-client.desktop").exists()) {
+        desktop_shortcut()?;
+    }
+    log::info!("installed {} from {}", home.display(), exe.display());
+    Ok(())
+}
+
+/// A path as a quoted Exec argument (the desktop entry spec's escapes: `\\\\` is one backslash).
+fn quoted(p: &Path) -> String {
+    let mut s = String::from("\"");
+    for c in p.to_string_lossy().chars() {
+        match c {
+            '"' | '`' | '$' => s.extend(['\\', c]),
+            '\\' => s.push_str("\\\\\\\\"),
+            '%' => s.push_str("%%"),
+            _ => s.push(c),
+        }
+    }
+    s.push('"');
+    s
+}
+
 fn entry(menu: bool) -> Result<String> {
-    let exe = std::env::current_exe()?;
+    let home = home_exe();
+    let exe = if home.is_file() { home } else { std::env::current_exe()? };
     Ok(format!(
         "[Desktop Entry]\nType=Application\nName=vana-client\nGenericName=FINAL FANTASY XI client\nComment=Native FINAL FANTASY XI client \
-         for LandSandBoat servers\nExec=\"{}\"\nIcon=vana-client\nTerminal=false\nCategories=Game;RolePlaying;\nStartupWMClass=vana-client\n{}",
-        exe.display(),
+         for LandSandBoat servers\nExec={}\nIcon=vana-client\nTerminal=false\nCategories=Game;RolePlaying;\nStartupWMClass=vana-client\n{}",
+        quoted(&exe),
         if menu { "" } else { "NoDisplay=true\n" }
     ))
 }
@@ -65,5 +112,11 @@ mod tests {
         assert!(shown.contains("StartupWMClass=vana-client") && !shown.contains("NoDisplay"));
         assert!(hidden.ends_with("NoDisplay=true\n"));
         assert!(shown.contains("Exec=\""));
+    }
+
+    #[test]
+    fn exec_escapes() {
+        let q = super::quoted(std::path::Path::new("/home/a b/$x\\y/100%/\"z\""));
+        assert_eq!(q, r#""/home/a b/\$x\\\\y/100%%/\"z\"""#);
     }
 }

@@ -329,12 +329,6 @@ fn run(game_dir: &Path, p: &Arc<Progress>) -> Result<()> {
     std::fs::remove_dir_all(&dl).with_context(|| format!("removing {}", dl.display()))?;
     let _ = std::fs::remove_dir_all(game_dir.join(".staging"));
     std::fs::remove_file(game_dir.join(MARKER))?;
-    // The window icon on Wayland needs the entry; hidden from menus until the finish page says otherwise.
-    if super::desktop::supported()
-        && let Err(e) = super::desktop::install(false)
-    {
-        log::warn!("desktop entry: {e:#}");
-    }
     Ok(())
 }
 

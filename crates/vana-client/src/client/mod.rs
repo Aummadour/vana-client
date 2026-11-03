@@ -14986,6 +14986,11 @@ fn area_resample(src: &[u8], from: [u32; 2], to: [u32; 2]) -> Vec<u8> {
 }
 
 pub fn run(cfg: Config, drive: Drive) -> Result<()> {
+    if desktop::supported()
+        && let Err(e) = desktop::settle()
+    {
+        log::warn!("installing the client copy: {e:#}");
+    }
     let event_loop = EventLoop::new()?;
     let mut app = App::new(cfg, drive);
     event_loop.run_app(&mut app)?;
