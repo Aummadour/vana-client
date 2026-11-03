@@ -88,6 +88,9 @@ pub struct SavedLogin {
     pub pol_id: String,
     pub remember_password: bool,
     pub saved_password: String,
+    /// Fields of a newer client, kept as they are.
+    #[serde(flatten)]
+    pub unknown: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Server names compare without case or outer spaces ("PlayOnline", "playonline").
@@ -237,6 +240,9 @@ pub struct Config {
     pub gamepad_padsin: String,
     /// padexsin000, the map used while slot 34 is held; empty = gamepad::DEFAULT_PADEXSIN.
     pub gamepad_padexsin: String,
+    /// Fields a newer client wrote, kept and saved back as they are: an older client drops nothing it doesn't know.
+    #[serde(flatten)]
+    pub unknown: serde_json::Map<String, serde_json::Value>,
 }
 
 /// A modern UI panel's place: its left and top (or, for the panels that grow upward, its bottom `b`) as fractions of the
@@ -392,6 +398,7 @@ impl Default for Config {
             gamepad_background: false,
             gamepad_padsin: String::new(),
             gamepad_padexsin: String::new(),
+            unknown: Default::default(),
             tool: Default::default(),
             retail_aspect: false,
             monitor: String::new(),
@@ -412,7 +419,17 @@ impl Config {
     }
 
     pub fn load() -> Self {
-        let mut c: Self = std::fs::read(config_path()).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+        let path = config_path();
+        let mut c: Self = match std::fs::read(&path) {
+            Ok(b) => serde_json::from_slice(&b).unwrap_or_else(|e| {
+                // Copied aside first, so the save that follows can't lose it.
+                let aside = path.with_extension("json.bad");
+                log::error!("{}: {e}; copied to {} and the defaults used", path.display(), aside.display());
+                let _ = std::fs::copy(&path, &aside);
+                Self::default()
+            }),
+            Err(_) => Self::default(),
+        };
         // A config from before the lists: its one login starts them.
         if c.logins.is_empty() && !c.server.trim().is_empty() && !c.username.trim().is_empty() {
             c.remember_login();
@@ -452,13 +469,10 @@ impl Config {
 
     /// The form's login, first in the lists (after a login that worked, or a change to its Remember password).
     pub fn remember_login(&mut self) {
-        let l = SavedLogin {
-            server: self.server.trim().to_string(),
-            username: self.username.trim().to_string(),
-            pol_id: self.pol_id.clone(),
-            remember_password: self.remember_password,
-            saved_password: self.saved_password.clone(),
-        };
+        let (server, username) = (self.server.trim().to_string(), self.username.trim().to_string());
+        // A newer client's fields of this login stay with it.
+        let unknown = self.logins.iter().find(|o| same_server(&o.server, &server) && o.username == username).map(|o| o.unknown.clone()).unwrap_or_default();
+        let l = SavedLogin { server, username, pol_id: self.pol_id.clone(), remember_password: self.remember_password, saved_password: self.saved_password.clone(), unknown };
         self.logins.retain(|o| !(same_server(&o.server, &l.server) && o.username == l.username));
         self.logins.insert(0, l);
     }
@@ -534,6 +548,48 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The first key or value of `a` that `b` lacks or changes (objects compared key by key, recursively).
+    fn lost(a: &serde_json::Value, b: &serde_json::Value, at: &str) -> Option<String> {
+        match (a, b) {
+            (serde_json::Value::Object(a), serde_json::Value::Object(b)) => {
+                a.iter().find_map(|(k, v)| b.get(k).map_or_else(|| Some(format!("{at}.{k} dropped")), |w| lost(v, w, &format!("{at}.{k}"))))
+            }
+            (serde_json::Value::Array(a), serde_json::Value::Array(b)) if a.len() == b.len() => {
+                a.iter().zip(b).enumerate().find_map(|(i, (v, w))| lost(v, w, &format!("{at}[{i}]")))
+            }
+            _ => (a != b).then(|| format!("{at}: {a} became {b}")),
+        }
+    }
+
+    /// The config as save writes it, read back (to_value would widen an f32: 0.33 to 0.33000001...).
+    fn written(c: &Config) -> serde_json::Value {
+        serde_json::from_slice(&serde_json::to_vec_pretty(c).unwrap()).unwrap()
+    }
+
+    fn kept(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+        lost(a, b, "").inspect(|l| eprintln!("lost: {l}")).is_none()
+    }
+
+    /// A newer client's fields, at the top and in a saved login, survive a load and a save.
+    #[test]
+    fn unknown_fields_kept() {
+        let text = r#"{"server": "x", "username": "u", "future": {"a": [1, 2]}, "logins": [{"server": "x", "username": "u", "later": 7}]}"#;
+        let mut c: Config = serde_json::from_str(text).unwrap();
+        assert_eq!(c.unknown.get("future"), Some(&serde_json::json!({"a": [1, 2]})));
+        c.remember_login();
+        let out = written(&c);
+        assert!(kept(&serde_json::from_str(text).unwrap(), &out), "{out}");
+    }
+
+    /// The real config (when there is one) loses nothing through a load and a save (read only).
+    #[test]
+    fn real_config_round_trips() {
+        let Ok(b) = std::fs::read(config_path()) else { return };
+        let Ok(before) = serde_json::from_slice::<serde_json::Value>(&b) else { return };
+        let c: Config = serde_json::from_slice(&b).expect("the config parses");
+        assert!(kept(&before, &written(&c)));
+    }
 
     #[test]
     fn name_file_stays_in_its_folder() {
