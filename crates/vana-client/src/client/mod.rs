@@ -2599,6 +2599,7 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
             (1, 7) => {
                 let mut c = configui::ConfigUi::open("configwi");
                 c.mon = monstrosity::active(world);
+                c.cam_keys = world.cam_keys;
                 world.config = Some(c);
                 world.menu = None;
                 world.sounds.push(crate::audio::Ui::Select as u32);
@@ -4091,6 +4092,9 @@ fn config_out(world: &mut World, out: configui::Out) {
     if let Some(mode) = out.lockstyle {
         equipsets::lock_mode(world, mode, false, 0);
     }
+    if let Some(k) = out.cam_keys {
+        world.cam_keys = k;
+    }
 }
 
 /// The indicator's draw `n` (from 1).
@@ -4149,7 +4153,7 @@ fn bar_text(gu: &GameUi, world: &World, items: &[(usize, [f32; 4])]) -> hudtop::
     if let Some((name, child)) = focus.filter(|_| world.confirm.is_none()) {
         let [help, title] = gu.focus_text(name, child);
         (bars.help[1], bars.title[1]) = (help.unwrap_or_default(), title.unwrap_or_default());
-        if let Some(h) = configui::our_help(child) {
+        if let Some(h) = configui::our_help(name, child) {
             bars.help[1] = h.into();
         }
     }
@@ -6382,6 +6386,8 @@ struct World {
     /// Our Settings or Extras page when opened from the Config window, and a request to open one.
     settings: Option<settings::SettingsUi>,
     want_settings: Option<settings::Kind>,
+    /// Ours: the camera keys' Y / X sense (Mouse/Cam.'s Camera Keys; the client's config keeps it).
+    cam_keys: [u8; 2],
     /// The Lua mods of this session (docs/lua-mods.md).
     lua: lua::Host,
 }
@@ -8233,6 +8239,7 @@ impl App {
                             game_save: false,
                             settings: None,
                             want_settings: None,
+                            cam_keys: [self.cfg.cam_keys_y as u8, self.cfg.cam_keys_x as u8],
                             lua: std::mem::take(&mut self.lobby_mods),
                         }));
                         if let Phase::World(w) = &mut self.phase {
@@ -10405,13 +10412,13 @@ impl App {
         // Mouse/Cam.: 0x8b / 0x8c invert the camera axes, 0x8d / 0x8e in first person.
         let first = world.camst.first;
         let (i6, i7) = [(0x8b, 0x8c), (0x8d, 0x8e)][first as usize];
-        // Ours (Settings > Client): the keys' own sense, else the Config rows'.
+        // Ours (Mouse/Cam.'s Camera Keys): the keys' own sense, else the camera rows'.
         let sense = |id: u16, ours: u32| match ours {
             1 => 1.0,
             2 => -1.0,
             _ => if world.game.get(id) == 1 { -1.0 } else { 1.0 },
         };
-        let (i6, i7) = (sense(i6, self.cfg.cam_keys_x), sense(i7, self.cfg.cam_keys_y));
+        let (i6, i7) = (sense(i6, world.cam_keys[1] as u32), sense(i7, world.cam_keys[0] as u32));
         let still = face_cam || in_event;
         let mut cam_in = camera::Inputs {
             v6: if still { 0.0 } else { cx * i6 },
@@ -12245,6 +12252,13 @@ impl App {
                     }
                 }
                 // What the Config windows and the settings screen hand to the app.
+                let keys = [world.cam_keys[1] as u32, world.cam_keys[0] as u32];
+                if keys != [self.cfg.cam_keys_x, self.cfg.cam_keys_y] {
+                    (self.cfg.cam_keys_x, self.cfg.cam_keys_y) = (keys[0], keys[1]);
+                    if let Err(e) = self.cfg.save() {
+                        log::warn!("config save: {e:#}");
+                    }
+                }
                 if let Some(kind) = world.want_settings.take() {
                     // Size lists come from the window, not the menu layout it is scaled to.
                     let mut s = settings::SettingsUi::open_kind(&self.cfg, window, kind);

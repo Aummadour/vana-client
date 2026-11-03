@@ -46,6 +46,8 @@ pub enum Act {
     AskReset(u8),
     /// Page code in configui2.
     Custom(u8),
+    /// Ours on Mouse/Cam.: the camera keys' axis (0 Y, 1 X) as the rows above (0), normal (1) or inverted (2).
+    CamKeys(u8, u8),
 }
 
 use Ctl::*;
@@ -146,7 +148,31 @@ const CONF7: &[(u16, Ctl)] = &[
     p(12, 0x8e, 1),
     p(13, 0x8d, 0),
     p(14, 0x8d, 1),
+    (CAM_KEYS, Act(Act::CamKeys(0, 0))),
+    (CAM_KEYS + 1, Act(Act::CamKeys(0, 1))),
+    (CAM_KEYS + 2, Act(Act::CamKeys(0, 2))),
+    (CAM_KEYS + 3, Act(Act::CamKeys(1, 0))),
+    (CAM_KEYS + 4, Act(Act::CamKeys(1, 1))),
+    (CAM_KEYS + 5, Act(Act::CamKeys(1, 2))),
 ];
+
+/// Ours (not retail): Mouse/Cam.'s Camera Keys rows, virtual children (Y Axis 110..112, X Axis 113..115).
+pub const CAM_KEYS: u16 = 110;
+const CAM_CAPTIONS: [&str; 3] = ["Same", "Normal", "Inverted"];
+/// The group under First-Person Camera at the page's pitches: the heading (bullet at 20), rows 20 apart.
+const CAM_HEAD_Y: f32 = 250.0;
+const CAM_ROW_Y: f32 = 262.0;
+
+/// A Camera Keys button's rect in conf7 (64-px buttons from the pairs' left edge, as conf3win's threes).
+fn cam_rect(child: u16) -> [f32; 4] {
+    let k = (child - CAM_KEYS) as f32;
+    [78.0 + 68.0 * (k % 3.0), CAM_ROW_Y + 20.0 * (k / 3.0).floor(), 64.0, 16.0]
+}
+
+/// A Camera Keys option's caption.
+pub fn cam_caption(value: u8) -> &'static str {
+    CAM_CAPTIONS.get(value as usize).copied().unwrap_or("")
+}
 
 /// Global (FUN_10194780): language filter 0x18, auto-disconnect minutes 0x41 (-1 off); both PlayOnline-wide.
 const CONF4: &[(u16, Ctl)] = &[
@@ -262,6 +288,8 @@ pub struct Out {
     pub open_extras: bool,
     /// The c2s 0x053 mode Misc. 3's style lock rows send (FUN_1019b9c0: Off 0, On 4, or 1 when already on).
     pub lockstyle: Option<u8>,
+    /// Ours: the camera keys' Y / X sense changed (the client's config keeps it).
+    pub cam_keys: Option<[u8; 2]>,
 }
 
 /// Our Settings button under lobycwin and our rows under configwi's list (not retail): virtual children.
@@ -278,13 +306,20 @@ fn our_rows() -> impl Iterator<Item = (u16, &'static str, [f32; 4])> {
     OUR_ROWS.iter().enumerate().map(|(i, &(id, label))| (id, label, [16.0, OUR_Y + OUR_PITCH * i as f32, 88.0, 16.0]))
 }
 
-/// How much taller configwi's frame is for them.
+/// How much taller configwi's frame is for them (Mouse/Cam.'s for its Camera Keys).
 pub fn grow(name: &str) -> f32 {
-    if name == "configwi" { OUR_PITCH * OUR_ROWS.len() as f32 } else { 0.0 }
+    match name {
+        "configwi" => OUR_PITCH * OUR_ROWS.len() as f32,
+        "conf7" => 60.0,
+        _ => 0.0,
+    }
 }
 
 /// The help bar's text for a row of ours.
-pub fn our_help(child: u16) -> Option<&'static str> {
+pub fn our_help(menu: &str, child: u16) -> Option<&'static str> {
+    if menu == "menu    conf7" {
+        return (CAM_KEYS..CAM_KEYS + 6).contains(&child).then(|| CAM_HELP[((child - CAM_KEYS) % 3) as usize]);
+    }
     match child {
         SETTINGS => Some(SETTINGS_HELP),
         EXTRAS => Some("Gameplay additions from the add-ons: the map overlay, the synthesis amount, timestamps on every line, timers."),
@@ -308,6 +343,13 @@ pub fn settings_rect(gu: &GameUi, w: &Win, sw: f32, sh: f32) -> Option<[f32; 4]>
     Some([r[0] + dx, r[1] + dy + r[3] + 2.0, 112.0, 24.0])
 }
 
+/// The Camera Keys options' help.
+pub const CAM_HELP: [&str; 3] = [
+    "The camera keys turn as the camera rows above set it, as the mouse does.",
+    "The camera keys turn the normal way, whatever the rows above say (the mouse keeps them).",
+    "The camera keys turn the inverted way, whatever the rows above say (the mouse keeps them).",
+];
+
 /// Our text for the button in the help bar.
 pub const SETTINGS_HELP: &str = "Window, resolution, frame limit and the other settings of the Windows Config tool.";
 
@@ -327,6 +369,8 @@ pub struct ConfigUi {
     pub covered: bool,
     /// Opened in Monstrosity: Misc. 3's style lock rows are off.
     pub mon: bool,
+    /// Ours: the camera keys' Y / X sense (Act::CamKeys values), from the client's config.
+    pub cam_keys: [u8; 2],
     /// The modern Config page: the entry chosen, whether its page has the keys, and the row there.
     pub m_entry: usize,
     pub m_open: bool,
@@ -453,6 +497,29 @@ impl ConfigUi {
                 return out;
             }
         }
+        // Mouse/Cam.: First Person's X row -> our Y row -> our X row -> Mouse Control, both ways; Left / Right in a row.
+        if w.name == "conf7" {
+            let ours = (CAM_KEYS..CAM_KEYS + 6).contains(&w.cursor);
+            let col = if ours { (w.cursor - CAM_KEYS) % 3 } else { 0 };
+            let to = match (key, w.cursor) {
+                (egui::Key::ArrowDown, 13) => Some(CAM_KEYS + 1),
+                (egui::Key::ArrowDown, 14) => Some(CAM_KEYS + 2),
+                (egui::Key::ArrowUp, 1) => Some(CAM_KEYS + 4),
+                (egui::Key::ArrowUp, 2) => Some(CAM_KEYS + 5),
+                (egui::Key::ArrowDown, c) if ours && c < CAM_KEYS + 3 => Some(c + 3),
+                (egui::Key::ArrowDown, _) if ours => Some(if col == 2 { 2 } else { 1 }),
+                (egui::Key::ArrowUp, c) if ours && c >= CAM_KEYS + 3 => Some(c - 3),
+                (egui::Key::ArrowUp, _) if ours => Some(if col == 2 { 14 } else { 13 }),
+                (egui::Key::ArrowRight, c) if ours => Some(c - col + (col + 1) % 3),
+                (egui::Key::ArrowLeft, c) if ours => Some(c - col + (col + 2) % 3),
+                _ => None,
+            };
+            if let Some(to) = to {
+                w.cursor = to;
+                out.sounds.push(Se::Cursor);
+                return out;
+            }
+        }
         if let Some((bottom, first)) = settings_host(&w.name) {
             let to = match key {
                 egui::Key::ArrowDown if w.cursor == bottom => Some(SETTINGS),
@@ -539,6 +606,10 @@ impl ConfigUi {
                 self.push("yesno");
             }
             Act(Act::Custom(k)) => super::configui2::custom(self, v, name, k, out),
+            Act(Act::CamKeys(axis, x)) => {
+                self.cam_keys[axis as usize & 1] = x;
+                out.cam_keys = Some(self.cam_keys);
+            }
             Act(Act::AskReset(mode)) => {
                 self.yn_mode = mode;
                 self.push("confyn");
@@ -603,6 +674,25 @@ impl ConfigUi {
                 } else {
                     out.open_extras = true;
                 }
+            }
+            return out;
+        }
+        if w.name == "conf7"
+            && let Some(id) = (CAM_KEYS..CAM_KEYS + 6).find(|&c| {
+                let r = cam_rect(c);
+                p.0 >= x + r[0] && p.1 >= y + r[1] && p.0 < x + r[0] + r[2] && p.1 < y + r[1] + r[3]
+            })
+        {
+            gu.hover.set(true);
+            let (name, at) = (w.name.clone(), w.cursor);
+            if (moved || clicked) && at != id {
+                out.sounds.push(Se::Cursor);
+                if let Some(w) = self.stack.last_mut() {
+                    w.cursor = id;
+                }
+            }
+            if clicked {
+                self.enter(v, &name, id, sw, &mut out);
             }
             return out;
         }
@@ -797,6 +887,32 @@ pub fn draw_page(ui: &ConfigUi, w: &Win, top: bool, gu: &mut GameUi, v: &Values,
             let tint = if on { 0x8080_5020 } else { 0x8080_8080 };
             super::settings::button(gu, [x + r[0] + d, y + r[1] + d, r[2], r[3]], tint);
             gu.label(label, x + r[0] + 5.0 + d, y + r[1] + 1.0 + d, tint, true);
+            if on && top {
+                gu.cursor(x + r[0], y + r[1]);
+            }
+        }
+    }
+    // Ours on Mouse/Cam.: Camera Keys under First-Person Camera, drawn as the page's own groups.
+    if w.name == "conf7" {
+        const N: u32 = 0x8080_8080;
+        if let Some(b) = gu.cell_bounds("menu    windowps", 465, 2) {
+            gu.sprite_cells("menu    windowps", 465, 2..3, x + 20.0 - b[0], y + CAM_HEAD_Y + 2.0 - b[1], N);
+        }
+        gu.label("Camera Keys", x + 33.0, y + CAM_HEAD_Y, N, false);
+        for (k, axis) in ["Y Axis", "X Axis"].iter().enumerate() {
+            gu.label(axis, x + 33.0, y + CAM_ROW_Y + 5.0 + 20.0 * k as f32, N, false);
+        }
+        for c in CAM_KEYS..CAM_KEYS + 6 {
+            let r = cam_rect(c);
+            let on = c == w.cursor;
+            let d = if on { -1.0 } else { 0.0 };
+            let tint = if on { 0x8080_5020 } else { N };
+            super::settings::button(gu, [x + r[0] + d, y + r[1] + d, r[2], r[3]], tint);
+            let k = (c - CAM_KEYS) as usize;
+            gu.label(CAM_CAPTIONS[k % 3], x + r[0] + 5.0 + d, y + r[1] + 1.0 + d, tint, true);
+            if ui.cam_keys[k / 3] as usize == k % 3 {
+                super::settings::marker(gu, x + r[0], y + r[1], r[2]);
+            }
             if on && top {
                 gu.cursor(x + r[0], y + r[1]);
             }

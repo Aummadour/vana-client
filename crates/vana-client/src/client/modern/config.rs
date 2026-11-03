@@ -64,6 +64,7 @@ fn shapes(menus: &[&'static str]) -> Vec<Shape> {
                 Ctl::Pick(id, ..) => Some(id as u64),
                 Ctl::Bit(id, mask, ..) => Some((id as u64) << 32 | mask as u64),
                 Ctl::Act(Act::Anon(_)) => Some(u64::MAX),
+                Ctl::Act(Act::CamKeys(axis, _)) => Some(u64::MAX - 1 - axis as u64),
                 _ => None,
             };
             match out.last_mut() {
@@ -82,7 +83,7 @@ fn full(menu: &str) -> String {
 
 /// Headings retail's captions leave unclear away from its layout: (page, first control, heading, help or "" for the
 /// page's own).
-const HEADINGS: [(&str, u16, &str, &str); 9] = [
+const HEADINGS: [(&str, u16, &str, &str); 11] = [
     ("conf2win", 5, "Gamma Adjustment: Red", ""),
     ("conf2win", 6, "Gamma Adjustment: Green", ""),
     ("conf2win", 7, "Gamma Adjustment: Blue", ""),
@@ -92,6 +93,8 @@ const HEADINGS: [(&str, u16, &str, &str); 9] = [
     ("conf7", 9, "Camera Behind You: Left / Right", "Inverts the left / right turn of the camera behind you (the mouse and the camera keys)."),
     ("conf7", 11, "First Person: Up / Down", "Inverts looking up and down in first person (the mouse and the camera keys)."),
     ("conf7", 13, "First Person: Left / Right", "Inverts looking left and right in first person (the mouse and the camera keys)."),
+    ("conf7", configui::CAM_KEYS, "Camera Keys: Up / Down", "The camera keys' up / down: Same as the rows above (as the mouse), or Normal or Inverted for the keys alone, in both views."),
+    ("conf7", configui::CAM_KEYS + 3, "Camera Keys: Left / Right", "The camera keys' left / right: Same as the rows above (as the mouse), or Normal or Inverted for the keys alone, in both views."),
 ];
 
 /// Settings left out here: Mouse/Cam.'s Mouse Control and Screen Edge Panning (the mouse acts as modern MMOs').
@@ -125,6 +128,7 @@ fn holds(c: &ConfigUi, v: &Values, ctl: Ctl) -> bool {
         Ctl::Pick(id, x, _) => v.get(id) == x,
         Ctl::Bit(id, mask, on, _) => (v.get(id) & mask != 0) == on,
         Ctl::Act(Act::Anon(h)) => c.anon == h,
+        Ctl::Act(Act::CamKeys(axis, x)) => c.cam_keys[axis as usize & 1] == x,
         _ => false,
     }
 }
@@ -188,7 +192,7 @@ fn native_stops(c: &ConfigUi, v: &Values, all: &[Shape], sw: f32) -> Vec<Stop> {
                 let step = step.max(1);
                 Stop::Value { n: ((hi - lo) / step) as usize + 1, at: ((v.get_i(id).clamp(lo, hi) - lo) / step) as usize, slider: true, off: 0 }
             }
-            Ctl::Pick(..) | Ctl::Bit(..) | Ctl::Act(Act::Anon(_)) => {
+            Ctl::Pick(..) | Ctl::Bit(..) | Ctl::Act(Act::Anon(_) | Act::CamKeys(..)) => {
                 let off = s.ctls.iter().enumerate().filter(|(_, (k, _))| c.off(s.menu, *k, sw)).fold(0u64, |m, (j, _)| m | 1 << j);
                 Stop::Value { n: s.ctls.len(), at: s.ctls.iter().position(|(_, ctl)| holds(c, v, *ctl)).unwrap_or(0), slider: false, off }
             }
@@ -1251,6 +1255,7 @@ fn fallback(ctl: Ctl) -> String {
         Ctl::Bit(_, _, on, _) => if on { "On" } else { "Off" }.into(),
         Ctl::Act(Act::Anon(h)) => if h { "Hide" } else { "Show" }.into(),
         Ctl::Act(Act::ResetKeys) => "Default".into(),
+        Ctl::Act(Act::CamKeys(_, x)) => configui::cam_caption(x).into(),
         Ctl::Open(n) => n.into(),
         _ => String::new(),
     }

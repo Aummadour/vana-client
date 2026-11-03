@@ -160,8 +160,8 @@ pub struct Config {
     /// The drawn cursor's size (config 0021 off) in percent of retail's pixels on screen; 0 = auto (grows with the
     /// window height from 720). Not retail: it was sized for 640 x 480. The .ani cursors keep their own size.
     pub cursor_size: u32,
-    /// Ours (user, 2026-11-02): the camera keys' horizontal / vertical sense apart from the mouse: 0 the Config
-    /// window's Mouse/Cam. rows (keys and mouse alike, as retail), 1 normal, 2 inverted.
+    /// Ours (user, 2026-11-02): Mouse/Cam.'s Camera Keys, the keys' X / Y sense apart from the mouse: 0 Same (the
+    /// camera rows, keys and mouse alike, as retail), 1 normal, 2 inverted.
     pub cam_keys_x: u32,
     pub cam_keys_y: u32,
     /// Ours (user, 2026-10-25): containers whose sort window's Auto stays on, bit = container: a new item there sorts

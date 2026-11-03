@@ -1930,9 +1930,13 @@ From the research notes:
   Y the other way (2026-11-02), so ours now follows that *(inf: our reading of the Z rotation's sense or of the mode-5
   axis in first person is off somewhere)*. Screen-edge panning (FUN_10120fc0, 0x8f = 0) feeds the same
   axes while a window is up or outside the field.
-- Ours (user, 2026-11-02; not retail): Settings > Client "Camera Keys Left / Right" and "Up / Down" (config.json
-  cam_keys_x / cam_keys_y): Config (the Mouse/Cam. rows, keys and mouse alike, as retail), Normal or Inverted for the
-  camera keys alone, in both views; the mouse keeps the Mouse/Cam. rows. Retail's Key Assignment cannot bind the arrow
+- Ours (user, 2026-11-02; not retail): Mouse/Cam. (conf7) gets a sixth group, Camera Keys, under First-Person Camera:
+  rows Y Axis / X Axis (retail's captions), options Same (the camera rows above, keys and mouse alike, as retail),
+  Normal, Inverted for the camera keys alone in both views; the mouse keeps the rows above. Classic: virtual children
+  110..115 (configui Act::CamKeys), the frame 60 taller, the group drawn as the page's (465's bullet at 20, heading and
+  row captions at 33, 64-px buttons from x 78, 68 apart, rows at 262 / 282, markers 412); First Person's X row Down
+  reaches it, Up from Mouse Control. Modern: the same controls on its Mouse/Cam. page. Kept in config.json
+  cam_keys_x / cam_keys_y. Retail's Key Assignment cannot bind the arrow
   keys (FUN_101a7c20's table holds only character keys; arrows, Enter and the modifiers are passed over in silence).
 
 ### Free camera (FUN_1001e030 free branch; client/camera.rs; traced by a sub-agent from all.c 22024..22887)
