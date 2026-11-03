@@ -19,13 +19,28 @@ pub fn data_dir() -> PathBuf {
     app_dir(dirs::data_dir())
 }
 
+/// A server-sent character name as a file name: letters and digits as they are, anything else (and a Windows device
+/// name) as '_' and the name's bytes in hex, so the file stays in its folder and two names never share one.
+fn name_file(name: &str) -> String {
+    if !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric()) && !(cfg!(windows) && device_name(name)) {
+        return format!("{name}.json");
+    }
+    format!("_{}.json", name.bytes().map(|b| format!("{b:02x}")).collect::<String>())
+}
+
+/// CON, PRN, AUX, NUL, COM0..9 and LPT0..9, which Windows opens as devices whatever the extension.
+fn device_name(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    matches!(n.as_str(), "con" | "prn" | "aux" | "nul") || (n.len() == 4 && (n.starts_with("com") || n.starts_with("lpt")) && n.as_bytes()[3].is_ascii_digit())
+}
+
 /// A character's saved chat lines (the modern chat's history): in the data dir, or beside an FFXI_CONFIG copy.
 pub fn chat_history_path(name: &str) -> PathBuf {
     let dir = match std::env::var_os("FFXI_CONFIG") {
         Some(p) => PathBuf::from(p).with_file_name("chat"),
         None => data_dir().join("chat"),
     };
-    dir.join(format!("{name}.json"))
+    dir.join(name_file(name))
 }
 
 /// A character's training regime state (client/regime.rs), beside the chat history.
@@ -34,7 +49,15 @@ pub fn regime_path(name: &str) -> PathBuf {
         Some(p) => PathBuf::from(p).with_file_name("regime"),
         None => data_dir().join("regime"),
     };
-    dir.join(format!("{name}.json"))
+    dir.join(name_file(name))
+}
+
+/// The servers' certificate fingerprints (net/tls.rs): in the data dir, or beside an FFXI_CONFIG copy.
+pub fn known_servers_path() -> PathBuf {
+    match std::env::var_os("FFXI_CONFIG") {
+        Some(p) => PathBuf::from(p).with_file_name("known_servers.json"),
+        None => data_dir().join("known_servers.json"),
+    }
 }
 
 /// The client's log: in the data dir, or beside an FFXI_CONFIG copy (test runs keep their own).
@@ -489,5 +512,23 @@ impl Config {
     /// The frame limit in effect: FFXI_FRAME_LIMIT overrides the file (test runs), 0 = unlimited.
     pub fn frame_limit(&self) -> u32 {
         std::env::var("FFXI_FRAME_LIMIT").ok().and_then(|v| v.parse().ok()).unwrap_or(self.frame_limit)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn name_file_stays_in_its_folder() {
+        assert_eq!(name_file("Steven"), "Steven.json");
+        assert_eq!(name_file("../x"), "_2e2e2f78.json");
+        assert_eq!(name_file("a/b\\c"), "_612f625c63.json");
+        assert_eq!(name_file(""), "_.json");
+        // Names that differ only in a replaced character keep separate files.
+        assert_ne!(name_file("a/b"), name_file("a\\b"));
+        assert_eq!(chat_history_path("../x").file_name().unwrap(), "_2e2e2f78.json");
+        assert!(device_name("Con") && device_name("nul") && device_name("COM1") && device_name("Lpt9"));
+        assert!(!device_name("Conan") && !device_name("Comx") && !device_name("Nine"));
     }
 }

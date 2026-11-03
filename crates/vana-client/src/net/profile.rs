@@ -406,8 +406,9 @@ impl MsgHeader {
         b64(&self.to_bytes(), true)
     }
 
+    /// The whole name is the 96 digits (no separator or dot among them): it becomes a file name in the mail folder.
     pub fn from_name(name: &str) -> Option<Self> {
-        Self::from_bytes(&b64_decode(name.get(..96)?)?)
+        Self::from_bytes(&b64_decode((name.len() == 96).then_some(name)?)?)
     }
 }
 
@@ -577,11 +578,12 @@ mod tests {
         assert_eq!(character_key(0x12_3456), 0x1200_3456);
     }
 
-    /// The local xi_profile with lnxtest01 (by hand: `cargo test --release profile_live -- --ignored --nocapture`).
+    /// The local xi_profile with a test account (by hand: `VANA_TEST_CREDENTIALS=<json with username and password>
+    /// cargo test --release profile_live -- --ignored --nocapture`).
     #[test]
     #[ignore]
     fn profile_live() {
-        let j: serde_json::Value = serde_json::from_slice(&std::fs::read("/home/lenon/ffxi/lab/lnxtest01.json").unwrap()).unwrap();
+        let j: serde_json::Value = serde_json::from_slice(&std::fs::read(std::env::var("VANA_TEST_CREDENTIALS").expect("VANA_TEST_CREDENTIALS")).unwrap()).unwrap();
         let req = super::super::auth::Request { username: j["username"].as_str().unwrap(), password: j["password"].as_str().unwrap(), ..Default::default() };
         let super::super::auth::Reply::LoggedIn { account_id, session_hash, .. } = super::super::auth::send("127.0.0.1", 54231, super::super::auth::Command::Login, &req).unwrap() else { panic!() };
         let c = Cred { host: "127.0.0.1".into(), port: 51220, irc_port: 51240, account: account_id, hash: session_hash };
@@ -600,7 +602,9 @@ mod tests {
     fn message_header() {
         let h = MsgHeader { from: 1000, to: 1003, sender: "Lnxcsfix".into(), title: "Hi".into(), seq: 7, date: 1_800_000_000, length: 12, kind: FRIEND_REQUEST, no_reply: false };
         assert_eq!(h.file_name().len(), 96);
-        assert_eq!(MsgHeader::from_name(&h.file_name()), Some(h));
+        assert_eq!(MsgHeader::from_name(&h.file_name()), Some(h.clone()));
+        // A server's name with more after the header would be a path out of the mail folder.
+        assert_eq!(MsgHeader::from_name(&format!("{}\\..\\..\\x.bat", h.file_name())), None);
         assert_eq!(decode_body(&encode_body(b"T", b"text")), (b"T".to_vec(), b"text".to_vec()));
     }
 

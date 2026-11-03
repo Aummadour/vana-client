@@ -46,6 +46,8 @@ tokio = { version = "1.54.0", features = ["rt-multi-thread", "net", "io-util", "
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["logging", "tls12", "ring"] }
 unrar = "0.5.8"
 ureq = "3"
+# The public authorities for TLS certificates (net/tls.rs), as ureq uses.
+webpki-roots = "1.0.10"
 wgpu = "30.0.1"
 winit = "0.30.13"
 zip = { version = "9.1.1", default-features = false, features = ["deflate-flate2-zlib-rs", "deflate64", "lzma"] }

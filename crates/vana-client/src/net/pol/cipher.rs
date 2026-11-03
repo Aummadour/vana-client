@@ -130,7 +130,7 @@ mod tests {
         hex::decode(s).unwrap()
     }
 
-    // Vectors from polcore 73b1864b run under Wine (lab: scratch/pol/chat/vectors.json).
+    // Vectors from polcore 73b1864b run under Wine.
 
     #[test]
     fn md5_after_final_starts_from_zero() {
@@ -156,7 +156,7 @@ mod tests {
         assert_eq!(z, h("5ad7dcb95eb2005f6255e9e90f1f7afd94aa41ec1e81cbfaeb113b5dd3232750f6a7c5074d1327451fc7a356a6c44e8a7635b8312964bc894165c6730eea3366"));
     }
 
-    /// The profile service's use: header reset, body continued (scratch/pol/profile/vectors.json).
+    /// The profile service's use: header reset, body continued.
     #[test]
     fn profile_stream_vectors() {
         let mut bf = PolBlowfish::new(&h("3141592653589793"), h("67452301efcdab89").try_into().unwrap());

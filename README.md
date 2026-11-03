@@ -144,6 +144,24 @@ changed from the in-game Config menus. The fields you may need to set by hand:
 | `gpu` | empty | Graphics adapter by name; empty picks the high-performance one |
 | `audio_device` | empty | Output device; empty uses the system default |
 
+
+### Server certificates
+
+The login and Friend List connections use TLS. A certificate signed by a public authority (Let's Encrypt, for one) is
+checked as a browser checks it, and renewals just work. A self-signed one (what LSB makes by default) can't be checked
+that way, so the client remembers the key each server's certificate has the first time (`known_servers.json` in the
+data folder: `~/.local/share/vana-client` on Linux, `%APPDATA%\vana-client` on Windows) and refuses a different one
+later, since that is what someone intercepting the connection would send. When a server really gets a new key (an LSB
+reinstall makes one), trust it with:
+
+```sh
+vana-client trust-server SERVER            # forget SERVER's pins (every port); the next login pins the new keys
+vana-client trust-server SERVER --port 54231 --fingerprint AB:CD:...   # or pin a known key up front
+```
+
+On the server, `openssl x509 -in login.cert -noout -pubkey | openssl pkey -pubin -outform DER | openssl dgst -sha256`
+prints the login port's key fingerprint (`profile.cert` is the Friend List's, ports 51220 and 51240).
+
 ## For developers
 
 - `MODLOG.md` records every reverse-engineered fact the code relies on: addresses in the original executable,

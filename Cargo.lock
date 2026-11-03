@@ -4401,6 +4401,7 @@ dependencies = [
  "toml 0.9.12+spec-1.1.0",
  "unrar",
  "ureq",
+ "webpki-roots",
  "wgpu",
  "windows-sys 0.61.2",
  "winit",

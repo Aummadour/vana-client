@@ -372,7 +372,7 @@ mod tests {
         hex::decode(s).unwrap()
     }
 
-    // Vectors from polcore 73b1864b run under Wine (lab: scratch/pol/profile/vectors.json).
+    // Vectors from polcore 73b1864b run under Wine.
 
     #[test]
     fn checksum_and_framing() {

@@ -15,7 +15,8 @@ xiloader (`~/ffxi/lab/xiloader`, ceb79a0), Ghidra on the installer. Decompiled o
 - Native install verified: 61349 files, 13.37 GiB, all MsiFileHash MD5s match, ~30 s.
 
 ## Auth (xi_connect, TCP 54231)
-- TLS 1.3. Server cert is X.509 v1 (webpki rejects it); no verification, as xiloader.
+- TLS 1.3. LSB's server certs are self-signed X.509 v1 (webpki rejects them): RSA-4096 on the login port, P-256 for
+  xi_profile, SHA-384. xiloader checks nothing; ours checks them (see "TLS: certificates checked or pinned").
 - JSON in, JSON out. Must send `"version": [2,2,x]`. Login reply: `result` 1, `account_id`,
   `session_hash` as a 16-int array. Verified live (account 1000 created via command 0x20).
 
@@ -20413,3 +20414,27 @@ Lessons from other games' mod layers (BG3 Script Extender, WoW, Skyrim, Factorio
   as for any C function), argument errors through luaL_argerror (the name as called, a method's self). An error of a
   replacement function passes on as its message (mlua's traceback cut off); a non-string error value becomes its text
   (C keeps the value). gsub's output is held to what is left of the mod's 64 MB.
+
+## TLS: certificates checked or pinned (ours, 2026-11-02)
+
+- net/tls.rs: the handshake signature is checked against the key of the certificate sent (its SubjectPublicKeyInfo
+  read from the DER by hand, v1 or v3; rustls verify_tls13_signature_with_raw_key): TLS 1.3 only, no PKCS#1, SHA-1 or
+  SHA-224 schemes.
+- The certificate is first checked against the public authorities (webpki-roots). One that passes is accepted and
+  the server is pinned as authority-signed, so a self-signed certificate is refused there later. One that doesn't
+  (LSB's self-signed v1) is pinned by the SHA-256 of its key at the first connection; a later one with another key is
+  refused before anything is sent. A learned key pin gives way to an authority-signed certificate; a fixed one (set
+  with `trust-server --fingerprint`) does not.
+- known_servers.json ("host:port" to {"trust": "authority"} or {"trust": "key", "sha256", "fixed"}) is in the data
+  folder, or beside an FFXI_CONFIG copy. One that doesn't read is renamed .bad and the pins learned again; a pin that
+  can't be written is logged and the login goes on. Saved through a synced temp file named for the process.
+- `vana-client trust-server HOST [--port P] [--fingerprint F]` forgets the host's pins (every port: an LSB reinstall
+  changes the login port's and xi_profile's 51220 / 51240), or sets a fixed key pin.
+- Character names from the server become file names (chat history, regime state) only as letters and digits, and not
+  a Windows device name on Windows; anything else as '_' and the name's bytes in hex.
+- The Friend List's message names (GetFileList, up to 0x100 bytes) are written as files in the mail folder only when
+  the whole name is the 96 digits of a message header (polcore's alphabet has no separator or dot); a longer one
+  could have walked out of the folder on Windows.
+- PlayOnline chat: a short session-key block, routing reply or notice is refused, not sliced out of range; a refusal
+  with bytes that are not UTF-8 before its "(POL " is read from the bytes (a lossy string's index was off by two
+  for each invalid byte).

@@ -371,7 +371,7 @@ mod tests {
         // Against the real mods folder: the hand-installed packs count as there (same files, same sizes).
         let there = scan(&[home.join("Downloads/FFXI")], &crate::config::mods_dir());
         println!("not installed yet: {:?}", there.iter().map(|p| &p.slug).collect::<Vec<_>>());
-        let root = home.join("ffxi/lab/scratch/modtest");
+        let root = std::path::PathBuf::from(std::env::var_os("VANA_SCRATCH").expect("VANA_SCRATCH: a scratch folder on disk")).join("modtest");
         let packs = scan(&[home.join("Downloads/FFXI")], &root);
         for p in &packs {
             println!("{} -> {} ({} files)", p.path.display(), p.slug, p.files);
