@@ -2196,6 +2196,16 @@ From the research notes:
   61-tick slide never ends between updates: live trace (FFXI_TRACE_MOVE=1) shows a rabbit at a steady 2.1-2.4 u/s,
   ratio 0.53-0.59, no stops (scratchpad hud/mvstat.py on h4_mv101.log). Rates are applied per 1/60 tick with powf so
   they hold at any frame rate *(inf: retail assumes one tick a frame or more)*.
+- PCs (s2c 0x00D, the call at 0x1009875b) slide by the same rule as NPCs (0x00E, 0x1009a2c6): u16 @0x18 & 0x1fff into
+  FUN_1008b610. LSB fills it from the player's c2s 0x015 @0x12 (MoveFlame, 0x015_pos.cpp) and from pathfind for
+  NPCs and bots (+0x35 a step, +0x28 with a speed change, WarpTo 0).
+- c2s 0x015 @0x12 (FUN_10096c00, built every frame): while the actor moved this frame (actor +0xf8) the frame's ticks
+  (FUN_10014000, at least one) add to +0x1b4 and the sum is sent; standing, the frame's ticks plus +0x1b4 are sent and
+  +0x1b4 clears. Ours sent 0 / 1 until 2026-11-02, so other clients slid us 8 or 9 ticks after each 400 ms update and
+  then stood: stop and go. Ours now counts 60 Hz time (not a tick a frame) and keeps it under 0x2000.
+- Live trace 2026-11-02 (FFXI_TRACE_MOVE=1 logs every PC update as "pcupd"): LSB bots walking on their own arrive
+  every ~0.4 s with +53 and slide smoothly; a bot following its party leader arrived with counters 0 / 1 (moved in
+  small jumps, a WarpTo sets 0; where the 1 comes from was not found in LSB), so it is stop and go in any client.
 - Ground: NPC ids without u32 @0x18 bit 15 and kind (@0x30 & 7) not 2 / 3 follow the collision floor every frame
   (FUN_1008dfb0 entity level, FUN_1017a400: a ray from y - 2 down 50, else from y + 2 up 15, nearest hit to the
   start, all faces). Before, only packets snapped, and monsters spawned before the zone loaded kept LSB's navmesh y

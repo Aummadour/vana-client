@@ -5030,6 +5030,12 @@ fn scan_track(world: &mut World, index: u16) {
 /// another level is more than 12 away and taken at once. `server` is the goal's height as sent and the server's
 /// height along the slide (unsnapped), which keeps an actor out of holes the server walks it over. Returns the slide
 /// (where the actor is drawn) and whether the goal was taken at once.
+/// FFXI_TRACE_MOVE=1: movement traces in the log (test runs).
+fn trace_move() -> bool {
+    static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *TRACE.get_or_init(|| std::env::var_os("FFXI_TRACE_MOVE").is_some())
+}
+
 fn slide_frame(pos: Vec3, target: &mut Vec3, remain: &mut f32, ticks: f32, floor: Option<&ground::Ground>, server: (f32, &mut f32)) -> (Vec3, bool) {
     let (sent, raw) = server;
     let mut slide = pos;
@@ -5793,6 +5799,8 @@ struct World {
     unsettled: bool,
     actors: HashMap<u32, Actor>,
     moving: bool,
+    /// The ticks of our move so far (c2s 0x015 @0x12, actor +0x1b4).
+    move_acc: f32,
     /// Walk mode (0x45, DAT_10565d34 +0x50 / player +0xfa), autorun (0x1c, DAT_10475579) and its world-space
     /// vector (DAT_1047555c), and this frame's speed fraction (FUN_100a5f60: 1, 1/3 or 0).
     walk: bool,
@@ -7861,6 +7869,7 @@ impl App {
                             inv_loaded: 0,
                             actors: HashMap::new(),
                             moving: false,
+                            move_acc: 0.0,
                             walk: false,
                             autorun: false,
                             mouse_look: false,
@@ -9093,6 +9102,9 @@ impl App {
                         // FUN_1008b610: slide over the counter delta + 8 ticks (a smaller counter restarts it).
                         let c = e.counter;
                         let dur = if c < entry.counter { c } else { c - entry.counter };
+                        if trace_move() && e.id < 0x0100_0000 && e.id != world.my_id {
+                            log::info!("pcupd {:#x} {} t {:.3} pos ({:.2}, {:.2}) counter {c} dur {dur}", e.id, entry.name, world.started.elapsed().as_secs_f32(), p.x, p.z);
+                        }
                         entry.remain = dur as f32 + 8.0;
                         entry.counter = c;
                         if fresh {
@@ -10221,12 +10233,12 @@ impl App {
                 world.knocks.remove(&id);
             }
         }
-        // FFXI_TRACE_MOVE=1: the nearest monster's drawn / goal position and motion ratio each frame (test runs).
-        static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        if *TRACE.get_or_init(|| std::env::var_os("FFXI_TRACE_MOVE").is_some())
-            && let Some((id, e)) = world.entities.iter().filter(|(_, e)| e.mob).min_by(|a, b| (a.1.pos - world.pos).length().total_cmp(&(b.1.pos - world.pos).length()))
-        {
-            log::info!("move {id:#x} {} t {:.3} drawn ({:.3}, {:.3}) goal ({:.3}, {:.3}) remain {:.1} ratio {:.3} yaw {:.2}", e.name, world.started.elapsed().as_secs_f32(), e.pos.x, e.pos.z, e.target.x, e.target.z, e.remain, e.ratio, e.yaw);
+        // FFXI_TRACE_MOVE=1: the nearest monster's and player's drawn / goal position and motion ratio each frame.
+        if trace_move() {
+            let near = |pc: bool| world.entities.iter().filter(|(id, e)| if pc { **id < 0x0100_0000 && **id != world.my_id } else { e.mob }).min_by(|a, b| (a.1.pos - world.pos).length().total_cmp(&(b.1.pos - world.pos).length()));
+            for (id, e) in [near(false), near(true)].into_iter().flatten() {
+                log::info!("move {id:#x} {} t {:.3} drawn ({:.3}, {:.3}) goal ({:.3}, {:.3}) remain {:.1} ratio {:.3} yaw {:.2}", e.name, world.started.elapsed().as_secs_f32(), e.pos.x, e.pos.z, e.target.x, e.target.z, e.remain, e.ratio, e.yaw);
+            }
         }
         // A refused zone line never brings a zone-in; give up waiting.
         if world.zoning_since.is_some_and(|t| t.elapsed().as_secs_f32() > 8.0) {
@@ -10512,15 +10524,16 @@ impl App {
             camera::ride(world, h - world.ride_y);
         }
         world.ride_y = world.draw_pos.y;
-        if *TRACE.get_or_init(|| std::env::var_os("FFXI_TRACE_MOVE").is_some()) && (stepping || world.riding) {
+        if trace_move() && (stepping || world.riding) {
             let c = Self::camera(world);
-            log::info!("me t {:.4} steps {steps} y {:.4} drawn ({:.3}, {:.4}, {:.3}) eye ({:.3}, {:.4}, {:.3}) look ({:.3}, {:.4}, {:.3})", world.started.elapsed().as_secs_f32(), world.pos.y, world.draw_pos.x, world.draw_pos.y, world.draw_pos.z, c.eye.x, c.eye.y, c.eye.z, c.target.x, c.target.y, c.target.z);
+            let mt = world.net.me.lock().map_or(0, |m| m.move_time);
+            log::info!("me t {:.4} steps {steps} y {:.4} drawn ({:.3}, {:.4}, {:.3}) eye ({:.3}, {:.4}, {:.3}) look ({:.3}, {:.4}, {:.3}) move_time {mt}", world.started.elapsed().as_secs_f32(), world.pos.y, world.draw_pos.x, world.draw_pos.y, world.draw_pos.z, c.eye.x, c.eye.y, c.eye.z, c.target.x, c.target.y, c.target.z);
         }
         camera::step(world, dt, &cam_in);
         let in_event = event::active(world);
         world.effects.in_event = in_event;
         camera::shake_step(world, dt);
-        if *TRACE.get_or_init(|| std::env::var_os("FFXI_TRACE_MOVE").is_some()) && (cx != 0.0 || cy != 0.0 || (world.started.elapsed().as_secs_f32() * 2.0).fract() < dt * 2.0) {
+        if trace_move() && (cx != 0.0 || cy != 0.0 || (world.started.elapsed().as_secs_f32() * 2.0).fract() < dt * 2.0) {
             log::info!("cam t {:.3} eye {:.3} look {:.3} drawn {:.3} unlock {:.1} v6 {cx:.2} v7 {cy:.2} first {}", world.started.elapsed().as_secs_f32(), world.cam.eye, world.cam.look, world.draw_pos, world.unlock_ticks, world.camst.first);
         }
         // FUN_1008b100, every frame: a zone line between our position and where we are drawn (an event's pose: Jeuno's
@@ -10547,6 +10560,21 @@ impl App {
                 me.dir = dir_from_forward(step.normalize());
             }
             me.moving = moving;
+            // FUN_10096c00: moving, the ticks add up; the frame after a stop sends the total, then it starts over.
+            // Retail counts a tick a frame or more; ours counts 60 Hz time at any frame rate.
+            let flame = if moving {
+                world.move_acc += dt * 60.0;
+                world.move_acc
+            } else {
+                let v = dt * 60.0 + world.move_acc;
+                world.move_acc = 0.0;
+                v
+            };
+            // Others read 13 bits: a whole lap off keeps the value they see.
+            if world.move_acc >= 8192.0 {
+                world.move_acc -= 8192.0;
+            }
+            me.move_time = (flame.round() as u32 & 0xffff) as u16;
         }
         world.moving = moving;
         // FUN_100c4390 (free camera): the heading turns at once, the model eases its drawn rotation (+0x61c) 0.125 a
