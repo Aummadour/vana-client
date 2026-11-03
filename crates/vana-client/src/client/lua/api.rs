@@ -57,6 +57,66 @@ fn names_in(w: &World, lang: crate::dat::items::Lang) -> Option<std::sync::Arc<c
     None
 }
 
+/// A Lua value as plain JSON data (storage, json.encode, values between mods): a table with keys 1..n is an array,
+/// any other an object whose number and boolean keys become text; functions and other non-data values are left out
+/// and named in `skipped`.
+pub(super) fn plain(v: &Value, path: &str, skipped: &mut Vec<String>) -> Result<serde_json::Value, String> {
+    use serde_json::Value as J;
+    fn go(v: &Value, path: &str, depth: usize, skipped: &mut Vec<String>) -> Result<J, String> {
+        if depth > 64 {
+            return Err(format!("{path}: tables more than 64 deep (a table inside itself?)"));
+        }
+        Ok(match v {
+            Value::Nil => J::Null,
+            Value::LightUserData(p) if p.0.is_null() => J::Null,
+            Value::Boolean(b) => J::Bool(*b),
+            Value::Integer(i) => J::from(*i),
+            Value::Number(n) => serde_json::Number::from_f64(*n).map(J::Number).ok_or_else(|| format!("{path}: {n} is not a finite number"))?,
+            Value::String(s) => J::String(s.to_str().map_err(|_| format!("{path}: a string that is not text (UTF-8)"))?.to_string()),
+            Value::Table(t) => {
+                let pairs: Vec<(Value, Value)> = t.pairs::<Value, Value>().filter_map(|p| p.ok()).collect();
+                let n = pairs.len();
+                let seq = n > 0 && pairs.iter().all(|(k, _)| matches!(k, Value::Integer(i) if *i >= 1 && (*i as usize) <= n));
+                if seq {
+                    let mut out = vec![J::Null; n];
+                    for (k, val) in &pairs {
+                        let Value::Integer(i) = k else { continue };
+                        out[*i as usize - 1] = go(val, &format!("{path}[{i}]"), depth + 1, skipped)?;
+                    }
+                    J::Array(out)
+                } else {
+                    let mut out = serde_json::Map::new();
+                    for (k, val) in &pairs {
+                        let key = match k {
+                            Value::String(s) => s.to_str().map_err(|_| format!("{path}: a key that is not text"))?.to_string(),
+                            Value::Integer(i) => i.to_string(),
+                            Value::Number(x) if x.fract() == 0.0 && x.abs() < 1e15 => format!("{}", *x as i64),
+                            Value::Number(x) => x.to_string(),
+                            Value::Boolean(b) => b.to_string(),
+                            _ => {
+                                skipped.push(format!("{path}: a key that is not text or a number"));
+                                continue;
+                            }
+                        };
+                        let sub = format!("{path}.{key}");
+                        if matches!(val, Value::Function(_) | Value::Thread(_) | Value::UserData(_) | Value::LightUserData(_)) && !matches!(val, Value::LightUserData(p) if p.0.is_null()) {
+                            skipped.push(sub);
+                            continue;
+                        }
+                        out.insert(key, go(val, &sub, depth + 1, skipped)?);
+                    }
+                    J::Object(out)
+                }
+            }
+            _ => {
+                skipped.push(path.to_string());
+                J::Null
+            }
+        })
+    }
+    go(v, path, 0, skipped)
+}
+
 /// A serde value (JSON) as Lua, null as nil.
 pub(super) fn to_lua(lua: &Lua, v: &(impl serde::Serialize + ?Sized)) -> mlua::Result<Value> {
     lua.to_value_with(v, mlua::serde::SerializeOptions::new().serialize_none_to_null(false).serialize_unit_to_null(false))
@@ -170,6 +230,10 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
             let name = name.trim_start_matches('/').to_ascii_lowercase();
             if name.is_empty() || name.contains(char::is_whitespace) {
                 return Err(mlua::Error::runtime(format!("command name {name:?}")));
+            }
+            // A mod command never hides a game command or /lua (the game's lines and actions would reach the mod).
+            if name == "lua" || super::super::textcmd::is_game_command(&name) {
+                return Err(mlua::Error::runtime(format!("/{name} is a game command: give yours another name")));
             }
             let st = state(lua);
             let key = lua.create_registry_value(func)?;
@@ -350,8 +414,14 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     )?;
     ui.set(
         "prompt",
-        lua.create_function(|lua, (text, items, handler): (String, Option<Vec<String>>, Function)| {
+        lua.create_function(|lua, (text, a, b): (String, Value, Value)| {
             use super::window::{Elem, Meta};
+            // prompt(text, handler) or prompt(text, buttons, handler).
+            let (items, handler) = match (a, b) {
+                (Value::Function(f), _) => (None, f),
+                (items, Value::Function(f)) => (lua.unpack::<Option<Vec<String>>>(items)?, f),
+                _ => return Err(mlua::Error::runtime("ui.prompt(text, [buttons], handler)")),
+            };
             let items = items.unwrap_or_else(|| vec!["Yes".into(), "No".into()]);
             let elems = vec![Elem::Text { id: String::new(), text, dim: false, colour: None }, Elem::Buttons { id: "answer".into(), label: String::new(), items, marked: None }];
             popup(lua, "__prompt", elems.into_iter().map(|e| (e, Meta::default())).collect(), false, handler)
@@ -481,7 +551,7 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     }
     packets.set(
         "build",
-        lua.create_function(|lua, (id, body): (u16, mlua::LuaString)| lua.create_string(crate::net::map::session::build(id, &body.as_bytes())))?,
+        lua.create_function(|lua, (id, body): (i64, mlua::LuaString)| lua.create_string(build_packet(id, &body.as_bytes())?))?,
     )?;
     packets.set(
         "last",
@@ -621,7 +691,8 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
         lua.create_function(|lua, bag: u8| {
             let w = world(lua)?;
             let out = lua.create_table()?;
-            for s in w.inv.viewed(bag) {
+            // Slot 0 of every bag is the gil (game.gil), not an item.
+            for s in w.inv.viewed(bag).into_iter().filter(|s| s.index != 0) {
                 let (id, count) = w.inv.slots.get(&(bag, s.index)).copied().unwrap_or((0, 0));
                 let t = lua.create_table()?;
                 t.set("bag", bag)?;
@@ -1063,8 +1134,9 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
             if let Some(v) = state(lua).borrow().settings.get(&key) {
                 return to_lua(lua, v);
             }
-            match decl.get(&key).and_then(|s| s.default.as_ref()) {
-                Some(v) => to_lua(lua, v),
+            // Declared without a default: nil until the player sets it.
+            match decl.get(&key) {
+                Some(d) => d.default.as_ref().map_or(Ok(Value::Nil), |v| to_lua(lua, v)),
                 None => Err(mlua::Error::runtime(format!("no setting {key:?} in mod.toml"))),
             }
         })?,
@@ -1493,9 +1565,24 @@ pub(super) fn need_action(lua: &Lua) -> mlua::Result<()> {
 /// A packet to inject: a whole sub-packet (header included), or (id, body).
 fn packet_bytes(a: Value, b: Option<mlua::LuaString>) -> mlua::Result<Vec<u8>> {
     match (a, b) {
-        (Value::Integer(id), Some(body)) => Ok(crate::net::map::session::build(id as u16, &body.as_bytes())),
-        (Value::Number(id), Some(body)) => Ok(crate::net::map::session::build(id as u16, &body.as_bytes())),
-        (Value::String(data), None) if data.as_bytes().len() >= 4 => Ok(data.as_bytes().to_vec()),
+        (Value::Integer(id), Some(body)) => build_packet(id, &body.as_bytes()),
+        (Value::Number(id), Some(body)) => build_packet(id as i64, &body.as_bytes()),
+        (Value::String(data), None) if (4..=MAX_PACKET).contains(&data.as_bytes().len()) => Ok(data.as_bytes().to_vec()),
+        (Value::String(_), None) => Err(mlua::Error::runtime(format!("a whole packet is 4 to {MAX_PACKET} bytes"))),
         _ => Err(mlua::Error::runtime("inject takes (id, body) or a whole sub-packet")),
     }
+}
+
+/// A packet's largest size, its header included (the size field counts 4-byte words in 7 bits).
+const MAX_PACKET: usize = 508;
+
+/// A whole packet from an id (0..0x1FF) and a body of at most 504 bytes.
+pub(super) fn build_packet(id: i64, body: &[u8]) -> mlua::Result<Vec<u8>> {
+    if !(0..=0x1FF).contains(&id) {
+        return Err(mlua::Error::runtime(format!("packet id {id}: ids are 0 to 0x1FF")));
+    }
+    if body.len() > MAX_PACKET - 4 {
+        return Err(mlua::Error::runtime(format!("a packet body is at most {} bytes ({} given)", MAX_PACKET - 4, body.len())));
+    }
+    Ok(crate::net::map::session::build(id as u16, body))
 }

@@ -198,6 +198,14 @@ fn release_options(w: &mut World) {
     }
 }
 
+/// Who ran a line for the mods: the player (the chat line, a macro), a mod's key bind, or a mod (commands.run).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum From {
+    Player,
+    Bind,
+    Mod,
+}
+
 /// The mods of this session.
 #[derive(Default)]
 pub struct Host {
@@ -209,8 +217,8 @@ pub struct Host {
     map: std::cell::RefCell<Option<super::map::Overlay>>,
     /// Events raised by the client since the last mod phase.
     events: Vec<(&'static str, Vec<serde_json::Value>)>,
-    /// Lines for mods (a registered command, or /lua), run in the next mod phase; true when the player typed it.
-    typed: Vec<(String, bool)>,
+    /// Lines for mods (a registered command, or /lua), run in the next mod phase, and who ran them.
+    typed: Vec<(String, From)>,
     last_frame: Option<std::time::Instant>,
     /// Last frame's state, for the derived change events.
     prev: Option<Snap>,
@@ -250,6 +258,10 @@ pub struct Host {
     info: std::rc::Rc<std::cell::RefCell<state::FrameInfo>>,
     /// HUD elements clicked since the last mod phase: (mod, element, button).
     hud_clicks: Vec<(String, String, &'static str)>,
+    /// Since when the world's mods wait for our character's state.
+    start_wait: Option<std::time::Instant>,
+    /// The game UI's data for this mod phase, lent to mods loaded during it too (their entry file and `load`).
+    gu: Option<*const super::game_ui::GameUi>,
     /// The lobby mods are loaded; the screen they last saw (for `lobby_screen`); what the lobby shows.
     lobby_started: bool,
     lobby_screen: Option<&'static str>,
@@ -497,7 +509,7 @@ impl Host {
     }
 
     pub fn type_line(&mut self, line: &str) {
-        self.typed.push((line.to_string(), true));
+        self.typed.push((line.to_string(), From::Player));
     }
 
     /// The character's storage file; none in the lobby.
@@ -543,6 +555,9 @@ impl Host {
         vm.lua.set_app_data(self.info.clone());
         vm.lua.set_app_data(self.lobby.clone());
         vm.lua.set_app_data(Recording(self.recording.clone()));
+        if let Some(p) = self.gu {
+            vm.lua.set_app_data(api::GuRef(p));
+        }
         api::install(&vm.lua, &vm, storage).map_err(|e| format!("{e}"))?;
         self.dir.borrow_mut().mods.push(runtime::Entry { id: vm.manifest.id.clone(), name: vm.manifest.name.clone(), version: vm.manifest.version.clone(), lua: vm.lua.weak(), st: vm.st.clone() });
         log::info!("lua mod {} {} loaded from {}", vm.manifest.id, vm.manifest.version, vm.dir.display());
@@ -876,15 +891,23 @@ fn save(vm: &Vm, w: Option<&World>) {
     for (key, file) in [("account", Some("account.json".to_string())), ("character", Host::char_file(w))] {
         let Some(file) = file else { continue };
         let Ok(t) = storage.get::<mlua::Value>(key) else { continue };
-        use mlua::LuaSerdeExt;
-        match vm.lua.from_value::<serde_json::Value>(t) {
+        let mut skipped = Vec::new();
+        match api::plain(&t, &format!("storage.{key}"), &mut skipped) {
             Ok(v) => {
                 let _ = std::fs::create_dir_all(&dir);
                 if let Err(e) = std::fs::write(dir.join(&file), serde_json::to_vec_pretty(&v).unwrap_or_default()) {
                     log::warn!("lua mod {}: saving {file}: {e}", vm.manifest.id);
+                    vm.st.borrow_mut().notices.push(format!("{}: storage.{key} not saved: {e}", vm.manifest.name));
                 }
             }
-            Err(e) => log::warn!("lua mod {}: storage.{key} is not plain data: {e}", vm.manifest.id),
+            Err(e) => {
+                log::warn!("lua mod {}: storage.{key} not saved: {e}", vm.manifest.id);
+                vm.st.borrow_mut().notices.push(format!("{}: storage.{key} not saved: {e}", vm.manifest.name));
+            }
+        }
+        if !skipped.is_empty() {
+            log::warn!("lua mod {}: left out of the save: {}", vm.manifest.id, skipped.join(", "));
+            vm.st.borrow_mut().notices.push(format!("{}: left out of the save (not plain data): {}", vm.manifest.name, skipped.join(", ")));
         }
     }
 }
@@ -895,11 +918,19 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
         release_options(w);
     }
     let mut host = std::mem::take(&mut w.lua);
+    host.gu = gu.map(|g| g as *const _);
     if !host.started {
-        if w.zone.is_none() || w.name.is_empty() {
+        // Mods start with our character's state in: in a zone, our vitals known (or 5 s on, whatever came).
+        let waited = *host.start_wait.get_or_insert_with(std::time::Instant::now);
+        if w.zone.is_none() || w.name.is_empty() || (w.vitals.is_none() && waited.elapsed().as_secs() < 5) {
+            if w.zone.is_none() {
+                host.start_wait = None;
+            }
+            host.gu = None;
             w.lua = host;
             return;
         }
+        host.start_wait = None;
         host.start(w);
     }
     // The derived change events (items only while someone listens: the bags are big).
@@ -926,13 +957,21 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
         host.watch_upkeep(Some(w), &mut out);
         bind_lines = input::run_binds(&mut host, w, &mut out);
         // Lines typed for mods.
-        for (line, input) in std::mem::take(&mut host.typed) {
+        for (line, from) in std::mem::take(&mut host.typed) {
+            // A bind is the player's key: its mod commands act as the player's input.
+            let input = from != From::Mod;
             let body = line.trim_start_matches('/');
             let mut words = body.split_whitespace();
             let name = words.next().unwrap_or("").to_ascii_lowercase();
             let args: Vec<&str> = words.collect();
             if name == "lua" {
-                host.lua_command(w, &args, &mut out);
+                // Permissions, other mods' code and settings are the player's alone, never a mod's or a bind's.
+                let player_only = matches!(args.first().map(|a| a.to_ascii_lowercase()).as_deref(), Some("grant" | "revoke" | "run" | "set" | "watch"));
+                if player_only && from != From::Player {
+                    out.push(("/lua grant, revoke, run, set and watch only work when you type them.".into(), ERROR));
+                } else {
+                    host.lua_command(w, &args, &mut out);
+                }
                 continue;
             }
             let owner = host.vms.iter().find(|v| v.suspended.is_none() && v.st.borrow().commands.iter().any(|(n, _)| *n == name));
@@ -1021,6 +1060,7 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
     for vm in &host.vms {
         vm.lua.remove_app_data::<api::GuRef>();
     }
+    host.gu = None;
     // Accounting, failures, saves and the mods' ops.
     let mut ops = Vec::new();
     for vm in host.vms.iter_mut() {
@@ -1030,6 +1070,8 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
         {
             out.push((format!("Mod {} suspended: {why}. /lua reload {} to start it again.", vm.manifest.name, vm.manifest.id), ERROR));
             vm.suspended = Some(why);
+            // Its chat filters stop with it.
+            vm.st.borrow_mut().filters_dirty = true;
         }
         let (notices, vm_ops, save_now) = {
             let mut st = vm.st.borrow_mut();
@@ -1191,7 +1233,7 @@ fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
             (None, None, text) => w.chat.push(text),
         },
         // A mod's line for a mod runs as the mod's own, not the player's input.
-        Op::Run(line) if line.starts_with('/') && w.lua.takes(&line) => w.lua.typed.push((line, false)),
+        Op::Run(line) if line.starts_with('/') && w.lua.takes(&line) => w.lua.typed.push((line, From::Mod)),
         Op::Run(line) => super::textcmd::run(w, &line, super::textcmd::Mode::Typed),
         Op::Act(a) => actions::apply(w, gu, a),
         Op::Key(k) => w.lua.synth.push(k),
@@ -1334,16 +1376,6 @@ impl Host {
 /// LuaLS stubs for the whole mod API (`vana-client lua-stubs`).
 pub fn stubs() -> String {
     docs::stubs()
-}
-
-/// The markers around docs/lua-api.md's generated reference.
-const DOC_BEGIN: &str = "<!-- Reference: generated by `vana-client lua-docs` from crates/vana-client/src/client/lua/docs.rs. Edit that, not this part. -->";
-const DOC_END: &str = "<!-- End of the generated reference. -->";
-
-/// docs/lua-api.md with its reference part made anew (`vana-client lua-docs`); the text around it stays.
-pub fn api_doc(existing: &str) -> anyhow::Result<String> {
-    let (Some(a), Some(b)) = (existing.find(DOC_BEGIN), existing.find(DOC_END)) else { anyhow::bail!("no reference markers in the file") };
-    Ok(format!("{}{DOC_BEGIN}\n\n{}{}", &existing[..a], docs::reference_md(), &existing[b..]))
 }
 
 /// The stubs for editors in the mods folder, off the UI thread: `.library/vana.lua` and a `.luarc.json` naming it
@@ -1824,7 +1856,7 @@ pub(super) fn pointer_classic(w: &mut World, gu: &super::game_ui::GameUi, p: (f3
             let mut st = vm.st.borrow_mut();
             let Some(win) = st.windows.iter_mut().find(|x| x.id == id) else { continue };
             let (wx, wy) = win.classic_size();
-            if win.drag.is_none() && (p.0 < x || p.1 < y || p.0 >= x + wx || p.1 >= y + wy) {
+            if win.drag.is_none() && win.press.is_none() && (p.0 < x || p.1 < y || p.0 >= x + wx || p.1 >= y + wy) {
                 continue;
             }
             let (hover, ev, se) = win.pointer_classic(gu, x, y, p, moved, clicked, held);
@@ -1868,12 +1900,21 @@ impl Host {
 
 #[cfg(test)]
 mod stub_tests {
-    /// docs/lua-api.md's reference is what `lua-docs` writes now (run it after an API change:
-    /// `vana-client lua-docs --out docs/lua-api.md`).
+    /// Every function and event in docs.rs has its section in docs/modding/reference.
     #[test]
-    fn committed_api_doc_current() {
-        let doc = include_str!("../../../../../docs/lua-api.md");
-        assert_eq!(super::api_doc(doc).unwrap(), doc, "docs/lua-api.md is stale");
+    fn reference_complete() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/modding/reference");
+        let mut text = String::new();
+        for e in std::fs::read_dir(&dir).unwrap().flatten() {
+            text += &std::fs::read_to_string(e.path()).unwrap();
+        }
+        for f in super::docs::FUNCS {
+            let full = if f.ns.is_empty() { f.name.to_string() } else { format!("{}.{}", f.ns, f.name) };
+            assert!(text.contains(&format!("\n## `{full}`\n")), "docs/modding/reference has no section for {full}");
+        }
+        for e in super::docs::EVENTS {
+            assert!(text.contains(&format!("\n## `{}`\n", e.name)), "docs/modding/reference/events.md has no section for {}", e.name);
+        }
     }
 
     /// The stubs in assets/mods/library are what `lua-stubs` writes now (regenerate them after an API change:
@@ -1987,7 +2028,7 @@ fn fit(mut data: Vec<u8>) -> Vec<u8> {
     data
 }
 
-/// Every mod's hooks of one direction over one packet, in load order and priority (Windower's chain): each sees the
+/// Every mod's hooks of one direction over one packet, in load order, then the order each mod added them: each sees the
 /// original and the current bytes, whether it was blocked by an earlier hook, and whether it was injected. The
 /// packet's bytes after them, or none when blocked.
 fn chain(host: &Host, w: &World, data: Vec<u8>, injected: bool, outgoing: bool) -> Option<Vec<u8>> {
@@ -2028,7 +2069,9 @@ fn chain(host: &Host, w: &World, data: Vec<u8>, injected: bool, outgoing: bool) 
                     Ok(mlua::Value::Boolean(false)) => blocked = true,
                     Ok(mlua::Value::String(s)) => {
                         let b = s.as_bytes().to_vec();
-                        if b.len() >= 4 {
+                        if b.len() > 508 {
+                            vm.error(&mlua::Error::runtime(format!("a packet is at most 508 bytes ({} returned): kept as it was", b.len())));
+                        } else if b.len() >= 4 {
                             cur = fit(b);
                         }
                     }
