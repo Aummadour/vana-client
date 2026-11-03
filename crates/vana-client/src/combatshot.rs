@@ -78,7 +78,7 @@ fn replay(bt: &BattleText, mob: &str) -> Vec<(String, [u8; 4])> {
 pub fn combat_shot(out: &Path, mob: &str, menu_layout: usize, width: u32, height: u32) -> Result<()> {
     let cfg = Config::load();
     let index = DatIndex::open(&cfg.ffxi_dir())?;
-    let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?;
+    let dll = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?;
     let menu = load_ui_full(&index, MENU_US)?;
     let style_file = load_ui(&index, WINDOW_STYLE_BASE)?;
     let style = style_file.libs.first().context("window style file has no sprite library")?;

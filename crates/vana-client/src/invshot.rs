@@ -120,7 +120,7 @@ fn shared() -> Result<Shared> {
     let index = DatIndex::open(&cfg.ffxi_dir())?;
     let menu = load_ui_full(&index, MENU_US)?;
     let style = load_ui(&index, WINDOW_STYLE_BASE)?;
-    let font = Font::load(&index, &std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?, 1, Quality::Compressed)?;
+    let font = Font::load(&index, &std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?, 1, Quality::Compressed)?;
     let info = item_source(&index);
     Ok(Shared { menu, style, font, info })
 }

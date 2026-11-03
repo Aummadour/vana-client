@@ -4235,7 +4235,8 @@ needs FixVt.java after analysis (3,478 vtable-only methods, 17,877 functions in 
 - Unchanged: motion, effect, audio (atrac3, mixer), dancer, inventory, map, HUD, weather, title buttons and logos,
   message group -> slot table (0x10371da8), name vtables, language tables.
 - The updater now patches code files too; the start-up check also compares code files against the stamped
-  manifest, so installs patched data-only get the current FFXiMain.
+  manifest, so installs patched data-only get the current FFXiMain. (Changed 2026-11-03: only FFXiMain.dll, kept in
+  the data dir; see "Updates: signed releases, pre-release order, manifest paths".)
 
 ## Event ops 0x34 / 0x35: another area during an event (2026-10-22)
 
@@ -20392,6 +20393,10 @@ Lessons from other games' mod layers (BG3 Script Extender, WoW, Skyrim, Factorio
   its source (Op::Run, bind lines, a macro started by actions.macro: Macros::start_for_mod, a chat line submitted by
   an Enter a mod pressed: Host::synth_enter). actions.macro_edit refuses a /lua line (lua::lua_line: any leading
   slashes, any case), since the player runs macros. A bind's text is trimmed as stored.
+- (2026-11-03) /lua load, unload, reload, hide and show from a mod's line need the mods permission (Windower and
+  Ashita add-ons load each other): commands.run raises the permission error and Op::Run carries whether the mod holds
+  it (From::Mod / Bind { mods }); a bind line needs it too. A macro a mod started and a chat line it submitted name no
+  one mod and never may. The player's own lines are unaffected.
 - wait_until: the test runs on the game thread each frame, under FILTER_CAP (20 ms), with the deadline it found
   restored after and its time added to the mod's frame time. A test that errors or runs past the budget ends the
   handler with that error (it was resumed as passed, the error dropped).
@@ -20437,6 +20442,10 @@ Lessons from other games' mod layers (BG3 Script Extender, WoW, Skyrim, Factorio
 - A pin is recorded under a lock against the store as it is then: if it changed since the connection began (another
   login thread, or `trust-server` meanwhile), the certificate is judged by the new pin, so a fixed pin made meanwhile
   is never overwritten by a connection that started before it.
+- (2026-11-03) A pin that can't be written is kept for the rest of the run, by store and server (tls::session_pins),
+  so the auth, profile and later connections are checked against it, and the player gets one red log line in game
+  naming the file and the error (tls::take_notice). trust-server drops the run's pins for the host too. Seen live with
+  known_servers.json a directory: the three servers (54231, 51220, 51240) pinned once each, the line in the log.
 - `vana-client trust-server HOST [--port P] [--fingerprint F]` forgets the host's pins (every port: an LSB reinstall
   changes the login port's and xi_profile's 51220 / 51240), or sets a fixed key pin.
 - Character names from the server become file names (chat history, regime state) only as letters and digits, and not
@@ -20467,6 +20476,13 @@ Lessons from other games' mod layers (BG3 Script Extender, WoW, Skyrim, Factorio
   49,413 paths of the 30261006_0 manifest is refused.
 - Not taken from the same batch: pinning game code files (.exe / .dll) against a list hashed from the patch server by
   a scheduled job: the client never runs them, and a missing list broke the first-start install.
+- (2026-11-03) Code files are never written into the game folder: retail, Windower and Ashita run them from there,
+  and the manifest and files come over plain TCP with MD5s only (corruption, not tampering). The client reads one of
+  them, FFXiMain.dll, as data (dat/tables.rs: each table found by content and checked by its MD5). The updater keeps
+  the current one in the data dir (dat::own_ffximain) and the client reads that copy, else the game folder's
+  (dat::ffximain); the start-up check compares only that file with the stamped manifest. The other 18 code files of
+  the 30261006_0 manifest (polboot.exe, FFXi.dll, FFXiResource.dll, the Config and PadConfig tools, xinputdll.dll,
+  ImeUiDll*.dll) are the Viewer's.
 
 ## Gamepad (2026-11-03)
 

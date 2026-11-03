@@ -59,7 +59,7 @@ mod tests {
         let cfg = crate::config::Config::load();
         let index = crate::dat::DatIndex::open(&cfg.ffxi_dir()).ok()?;
         let d = index.read(file).ok()?;
-        let keys = crate::dat::zone::Keys::from_ffximain(&std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).ok()?).ok()?;
+        let keys = crate::dat::zone::Keys::from_ffximain(&std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())).ok()?).ok()?;
         let scene = crate::dat::zone::load_scene(&keys, &d).ok()?;
         let k = (name[3] - b'0') as usize;
         Path::parse(scene.paths[k].as_deref()?)
@@ -72,7 +72,7 @@ mod tests {
     fn scene(file: u32) -> Option<crate::dat::zone::ZoneScene> {
         let cfg = crate::config::Config::load();
         let index = crate::dat::DatIndex::open(&cfg.ffxi_dir()).ok()?;
-        let keys = crate::dat::zone::Keys::from_ffximain(&std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).ok()?).ok()?;
+        let keys = crate::dat::zone::Keys::from_ffximain(&std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())).ok()?).ok()?;
         crate::dat::zone::load_scene(&keys, &index.read(file).ok()?).ok()
     }
 

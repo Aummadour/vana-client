@@ -205,7 +205,7 @@ mod tests {
     #[test]
     fn merit_name_of_id() {
         let Some(ix) = index() else { return };
-        let Ok(dll) = std::fs::read(crate::config::Config::load().ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&crate::config::Config::load().ffxi_dir())) else { return };
         let t = MeritTables::load(&ix, crate::dat::msg::current_slot_file(&dll, 1, 0x1d));
         assert_eq!(t.name_of_id(1).as_deref(), Some("HP/MP"));
         assert_eq!(t.name_of_id(0x40).as_deref(), Some("STR"));

@@ -2304,7 +2304,7 @@ mod tests {
     #[test]
     fn windurst_waters_pages() {
         let cfg = crate::config::Config::load();
-        let Ok(dll) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())) else { return };
         let regs = regions(&dll);
         let pages: Vec<(i8, u32)> = regs.iter().filter(|r| r.zone == 238).map(|r| (r.key, r.file_id())).collect();
         assert_eq!(pages, [(1, 5501), (2, 5502)]);
@@ -2319,7 +2319,7 @@ mod tests {
     #[test]
     fn map_category_10_through_dxt3() {
         let cfg = crate::config::Config::load();
-        let Ok(dll) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())) else { return };
         let Ok(index) = crate::dat::DatIndex::open_stock(&cfg.ffxi_dir()) else { return };
         let mut files: Vec<u32> = regions(&dll).iter().map(|r| r.file_id()).collect();
         files.sort_unstable();
@@ -2362,7 +2362,7 @@ mod tests {
     #[test]
     fn preview_points() {
         let cfg = crate::config::Config::load();
-        let (Ok(dll), Ok(index)) = (std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")), DatIndex::open(&cfg.ffxi_dir())) else { return };
+        let (Ok(dll), Ok(index)) = (std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())), DatIndex::open(&cfg.ffxi_dir())) else { return };
         let Ok(items) = crate::dat::items::Items::load(&index, crate::dat::items::Lang::En) else { return };
         let table = Arc::new(tpoints::load(&items));
         let region = Region::find(&regions(&dll), 230).unwrap();
@@ -2409,7 +2409,7 @@ mod tests {
     fn sub_keys() {
         use crate::client::ground::map_key_of;
         assert_eq!([0xe, 0x3e, 0x400_0004, 0x400_003c, 0x800_0004].map(map_key_of), [1, 7, 8, 15, 16]);
-        let Ok(dll) = std::fs::read(crate::config::Config::load().ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&crate::config::Config::load().ffxi_dir())) else { return };
         let regs = regions(&dll);
         assert!(Region::find_key(&regs, 9, 0).is_none());
         assert!((1..=16).all(|k| Region::find_key(&regs, 9, k).is_some()));
@@ -2418,7 +2418,7 @@ mod tests {
     /// Change Map's groups: 50, the first San d'Oria's four zones with name 0.
     #[test]
     fn region_groups_found() {
-        let Ok(dll) = std::fs::read(crate::config::Config::load().ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&crate::config::Config::load().ffxi_dir())) else { return };
         let g = region_groups(&dll);
         assert_eq!(g.len(), 50);
         assert_eq!(g[0], (0, vec![230, 231, 232, 233]));
@@ -2427,7 +2427,7 @@ mod tests {
     /// Jugner Forest (104): record key 0, scale 1, key item 1 (0x181), file 5 -> 5317, origin (-264, -256).
     #[test]
     fn jugner_region() {
-        let Ok(dll) = std::fs::read(crate::config::Config::load().ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&crate::config::Config::load().ffxi_dir())) else { return };
         let regs = regions(&dll);
         assert!(regs.len() > 700, "{}", regs.len());
         let r = Region::find(&regs, 104).unwrap();

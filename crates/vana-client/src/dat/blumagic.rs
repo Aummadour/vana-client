@@ -81,7 +81,7 @@ mod tests {
     fn real_file() {
         let cfg = crate::config::Config::load();
         let Ok(index) = DatIndex::open(&cfg.ffxi_dir()) else { return };
-        let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).ok();
+        let dll = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())).ok();
         let file = dll.as_deref().and_then(|d| crate::dat::msg::current_slot_file(d, 1, 0x1a));
         let b = BluData::load(&index, file);
         // Venom Shell 513: 3 points, Aquans, Lv 42, magical; Screwdriver 519: physical, Lv 26.

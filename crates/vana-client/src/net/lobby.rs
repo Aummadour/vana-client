@@ -762,7 +762,7 @@ mod create_tests {
         }
         assert_eq!(ffximain_checksum(&d), s);
         // The installed 30261006_0 (its value in MODLOG "PlayOnline sign-in"), when present.
-        let dll = crate::config::Config::load().ffxi_dir().join("FFXiMain.dll");
+        let dll = crate::dat::ffximain(&crate::config::Config::load().ffxi_dir());
         if let Ok(b) = std::fs::read(dll)
             && b.len() == 2_901_584
         {

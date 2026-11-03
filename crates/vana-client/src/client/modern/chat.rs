@@ -60,7 +60,7 @@ pub fn colour(c: [u8; 4]) -> Color32 {
 fn codes() -> &'static [u32; 17] {
     static T: OnceLock<[u32; 17]> = OnceLock::new();
     T.get_or_init(|| {
-        let dll = std::fs::read(crate::config::Config::load().ffxi_dir().join("FFXiMain.dll")).unwrap_or_default();
+        let dll = std::fs::read(crate::dat::ffximain(&crate::config::Config::load().ffxi_dir())).unwrap_or_default();
         crate::dat::tables::code_colours(&dll).unwrap_or_default()
     })
 }

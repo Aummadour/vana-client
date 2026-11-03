@@ -230,7 +230,7 @@ struct Commands {
 fn commands() -> &'static Commands {
     static T: OnceLock<Commands> = OnceLock::new();
     T.get_or_init(|| {
-        let dll = std::fs::read(crate::config::Config::load().ffxi_dir().join("FFXiMain.dll")).unwrap_or_default();
+        let dll = std::fs::read(crate::dat::ffximain(&crate::config::Config::load().ffxi_dir())).unwrap_or_default();
         let rows = parse_rows(&dll).unwrap_or_else(|| {
             log::warn!("text command table not found in FFXiMain.dll");
             Vec::new()
@@ -2992,7 +2992,7 @@ mod tests {
     /// The installed FFXiMain's table: /ma is magic, a target command; /y is no command; /h is /help.
     #[test]
     fn table_from_ffximain() {
-        let Ok(dll) = std::fs::read(crate::config::Config::load().ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&crate::config::Config::load().ffxi_dir())) else { return };
         let t = parse_table(&dll).unwrap();
         assert_eq!((t.len(), t["/ver"].0, t["/say"].0), (277, 0x1ae, 1));
         assert_eq!(t["/ma"], (id::MAGIC, 0x0101));

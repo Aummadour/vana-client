@@ -216,7 +216,7 @@ mod tests {
     fn english_dictionary() {
         let cfg = crate::config::Config::load();
         let Ok(index) = DatIndex::open(&cfg.ffxi_dir()) else { return };
-        let Ok(dll) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())) else { return };
         let d = Dictionary::load(&index, &dll).unwrap();
         assert_eq!(d.groups.len(), 42);
         let names = crate::dat::names::Names::load(&index, crate::dat::items::Lang::En).unwrap();

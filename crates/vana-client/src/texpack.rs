@@ -67,7 +67,7 @@ fn load_png(path: &Path) -> Result<(u32, u32, Vec<u8>)> {
 pub fn status_dump(out: &Path) -> Result<()> {
     let cfg = crate::config::Config::load();
     let index = dat::DatIndex::open_stock(&cfg.ffxi_dir())?;
-    let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?;
+    let dll = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?;
     let file = dat::msg::current_slot_file(&dll, 1, 0x3a).context("status info slot")?;
     let bytes = index.read(file)?;
     let names = dat::battle::BattleText::load(&index, &dll)?;

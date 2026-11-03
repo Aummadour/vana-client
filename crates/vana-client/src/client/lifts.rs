@@ -158,7 +158,7 @@ mod tests {
     fn metalworks_shaft() {
         let cfg = crate::config::Config::load();
         let Ok(index) = crate::dat::DatIndex::open(&cfg.ffxi_dir()) else { return };
-        let Ok(keys) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).map_err(anyhow::Error::from).and_then(|d| crate::dat::zone::Keys::from_ffximain(&d)) else { return };
+        let Ok(keys) = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())).map_err(anyhow::Error::from).and_then(|d| crate::dat::zone::Keys::from_ffximain(&d)) else { return };
         let file = index.read(crate::dat::zone::file_id(237)).unwrap();
         let scene = crate::dat::zone::load_scene(&keys, &file).unwrap();
         let mut lifts = Lifts::load(&scene.regions);

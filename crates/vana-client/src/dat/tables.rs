@@ -532,7 +532,7 @@ mod tests {
     /// The installed build's tables are found, and model key 1 is the copy next to key 2.
     #[test]
     fn found_in_the_installed_build() {
-        let Ok(dll) = std::fs::read(crate::config::Config::load().ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&crate::config::Config::load().ffxi_dir())) else { return };
         let t = Tables::find(&dll).unwrap();
         assert_eq!(t.key2_at - t.key1_at, 0x328);
         assert_eq!(t.mode_tables[6] - t.mode_tables[1], 0x1800);
@@ -541,7 +541,7 @@ mod tests {
     /// The /search word lists, regions and zone flags (MODLOG "Search: the /search grammar").
     #[test]
     fn search_words() {
-        let Ok(dll) = std::fs::read(crate::config::Config::load().ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&crate::config::Config::load().ffxi_dir())) else { return };
         let w = super::search_words(&dll).unwrap();
         assert_eq!(w.categories.len(), 14);
         assert_eq!(w.categories[13], (6, "UNITY".into()));
@@ -565,7 +565,7 @@ mod tests {
     /// cnqframe's markers (MODLOG "Region Info"): counts, first records, a zone, a label place.
     #[test]
     fn conquest_markers() {
-        let Ok(dll) = std::fs::read(crate::config::Config::load().ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&crate::config::Config::load().ffxi_dir())) else { return };
         let t = super::conquest(&dll).unwrap();
         assert_eq!(t.modes.iter().map(Vec::len).collect::<Vec<_>>(), [0xa9, 0x22, 0x2a, 0x15]);
         let ronfaure = t.modes[0][4];

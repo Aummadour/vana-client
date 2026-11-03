@@ -111,7 +111,7 @@ mod tests {
     fn southern_sandoria_house() {
         let cfg = crate::config::Config::load();
         let Ok(index) = crate::dat::DatIndex::open(&cfg.ffxi_dir()) else { return };
-        let Ok(keys) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).map_err(anyhow::Error::from).and_then(|d| zone::Keys::from_ffximain(&d)) else { return };
+        let Ok(keys) = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())).map_err(anyhow::Error::from).and_then(|d| zone::Keys::from_ffximain(&d)) else { return };
         let scene = zone::load_scene(&keys, &index.read(zone::file_id(230)).unwrap()).unwrap();
         let m = scene.regions.iter().find(|r| r.name.starts_with("m6eb")).unwrap();
         assert_eq!((m.class, m.param), (0, 335));

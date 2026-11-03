@@ -64,7 +64,7 @@ pub fn dialogue_shot(out: &Path, zone: u16, id: u32, speaker: &str, choice: Opti
     let menu = load_ui_full(&index, MENU_US)?;
     let style_file = load_ui(&index, WINDOW_STYLE_BASE)?;
     let style = style_file.libs.first().context("window style file has no sprite library")?;
-    let font = Font::load(&index, &std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?, 1, Quality::Compressed)?;
+    let font = Font::load(&index, &std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?, 1, Quality::Compressed)?;
     let dialog = Dialog::load(&index, zone)?;
     let ctx = Ctx { player: "Lenon".into(), speaker: speaker.into(), ..Default::default() };
     let (w, h) = (width as f32, height as f32);

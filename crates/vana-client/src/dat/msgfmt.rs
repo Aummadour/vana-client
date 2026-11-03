@@ -199,7 +199,7 @@ mod tests {
     fn group10() -> Option<super::super::msg::Messages> {
         let cfg = crate::config::Config::load();
         let index = crate::dat::DatIndex::open(&cfg.ffxi_dir()).ok()?;
-        let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).ok()?;
+        let dll = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())).ok()?;
         super::super::msg::Messages::load(&index, super::super::msg::group_file(&dll, 1, 10)?).ok()
     }
 

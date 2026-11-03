@@ -259,7 +259,11 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
             if !line.starts_with("//") {
                 need_action(lua)?;
             }
-            push_op(lua, Op::Run(line))?;
+            if super::controls_mods(&line) {
+                need(lua, "mods")?;
+            }
+            let mods = state(lua).borrow().granted.iter().any(|g| g == "mods");
+            push_op(lua, Op::Run(line, mods))?;
             Ok(())
         })?,
     )?;

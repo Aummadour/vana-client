@@ -64,7 +64,7 @@ pub struct Setting {
 }
 
 /// Every permission a mod may ask for.
-pub const PERMISSIONS: [&str; 13] = ["actions", "automation", "packets.read", "packets.write", "input.capture", "files.shared", "net", "exec", "multibox", "ui.native", "clipboard", "process", "devices"];
+pub const PERMISSIONS: [&str; 14] = ["actions", "automation", "packets.read", "packets.write", "input.capture", "files.shared", "net", "exec", "multibox", "ui.native", "clipboard", "process", "devices", "mods"];
 
 /// Reads `dir/mod.toml`.
 pub fn read(dir: &Path) -> Result<Manifest> {
