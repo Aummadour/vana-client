@@ -2,8 +2,8 @@
 
 `storage` keeps a mod's data between sessions. It holds two plain tables the client saves for you, and functions to
 save them now and to seal secrets. Read and change the tables like any Lua table; the client writes them to disk as
-JSON at logout, when the mod unloads (`/lua unload`, `/lua reload`, the client closing) and when you call
-`storage.save()`. The functions work anywhere (also in the lobby) and need no permission.
+JSON at logout, when the mod unloads (`/lua unload`, `/lua reload`, the client closing, also without a logout) and
+when you call `storage.save()`. The functions work anywhere (also in the lobby) and need no permission.
 
 - **`storage.account`**: one table for the mod, shared by every character you play on this computer. It is loaded
   when the mod loads.
@@ -30,7 +30,7 @@ What can be stored: booleans, numbers, strings and tables of them, as for [`json
 - A number that is not finite (`math.huge`, `0/0`), a string that is not UTF-8 text, or tables nested more than 64
   deep (a table inside itself) stop that table (`account` or `character`) from being saved; a line in the chat log
   says why, and the file on disk keeps its last good contents.
-- Keep the top level of each table keyed by strings: a top-level list is saved but not loaded back.
+- The top level may be a list too (`storage.character = {a, b, c}`): it comes back as one.
 - You may replace a table (`storage.account = {}`): the client saves whatever `storage.account` and
   `storage.character` hold at the time.
 

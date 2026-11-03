@@ -25,7 +25,7 @@ end
 | [`render.clear()`](#renderclear) | Clears every entity look the mod set. |
 | [`render.shader(id, wgsl?)`](#rendershader) | Adds, replaces or removes a post-process shader pass. |
 | [`render.shader_params(id, params)`](#rendershader_params) | Sets a shader pass's four parameter vectors. |
-| [`render.camera_distance()`](#rendercamera_distance) | The camera distance scale a mod set. |
+| [`render.camera_distance()`](#rendercamera_distance) | The camera distance scale (1 the game's). |
 | [`render.set_camera_distance(scale)`](#renderset_camera_distance) | Sets the camera distance scale. |
 | [`render.camera()`](#rendercamera) | The camera's settings and where it is. |
 | [`render.set_camera(camera)`](#renderset_camera) | Changes the camera's distance, limit, speed and battle distance. |
@@ -217,8 +217,7 @@ render.camera_distance() -> number
 The camera distance scale a mod set with `render.set_camera_distance` or `render.set_camera`: how far the drawn eye is
 from the point it looks at, as a share of the game's normal distance.
 
-**Returns** `number`: the scale (for example 1.5). It is `0` until a mod has set a distance in this session;
-`render.camera().distance` reports `1` in that case.
+**Returns** `number`: the scale (for example 1.5); `1`, the game's distance, until a mod has set one.
 
 **Errors** `game state is not available here ...` in the lobby or inside a chat filter.
 
@@ -226,7 +225,7 @@ from the point it looks at, as a share of the game's normal distance.
 
 ```lua
 local k = render.camera_distance()
-print(("Camera distance: %.2f"):format(k > 0 and k or 1))
+print(("Camera distance: %.2f"):format(k))
 ```
 
 ## `render.set_camera_distance`

@@ -513,7 +513,7 @@ end)
 
 ## `emote`
 
-Someone used an emote. It fires for every emote the server sends, even one from a player on the block list.
+Someone used an emote. It does not fire for a player on your block list, as the game shows neither the motion nor the line.
 
 | Argument | Type | Description |
 | --- | --- | --- |

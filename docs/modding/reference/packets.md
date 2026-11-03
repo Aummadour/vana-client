@@ -32,7 +32,7 @@ A hook is a function that gets one table, `p` (a [Packet](types.md#packet)):
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `id` | `integer` | The packet's id (0 to 0x1FF), as the packet arrived at the hooks. |
+| `id` | `integer` | The packet's id (0 to 0x1FF) as it is now: an earlier hook that changed the id changes it here too. |
 | `data` | `string` | The packet's bytes as they are now, header included: what an earlier hook returned, otherwise as the packet arrived. |
 | `original` | `string` | The bytes as they arrived, before any hook changed them. |
 | `injected` | `boolean` | `true` when a mod made this packet with `packets.inject_in` or `packets.inject_out`. |
@@ -49,7 +49,7 @@ What the hook returns decides what happens to the packet:
 
 A returned string shorter than 4 bytes is ignored; one longer than 508 bytes raises "a packet is at most 508 bytes (<n> returned): kept as it was", and the packet goes on unchanged. A mod without `packets.write` that returns `false` or a string gets the error "changing or blocking packets needs packets.write (/lua grant)", and the packet goes on unchanged. A hook that raises an error leaves the packet unchanged too.
 
-The hooks form a chain. Every running mod's hooks run in the order the mods were loaded, and a mod's own hooks in the order it added them. Each hook sees the packet as the hooks before it left it. A blocked packet still goes through the rest of the chain, with `blocked = true`, and stays blocked: a later hook cannot let it through again.
+The hooks form a chain. Every running mod's hooks run in the order the mods were loaded, and a mod's own hooks in the order it added them. Each hook sees the packet as the hooks before it left it. A hook for one id runs only while the packet still has that id: when an earlier hook changes the id, the hooks for the new id run and those for the old one do not. A blocked packet still goes through the rest of the chain, with `blocked = true`, and stays blocked: a later hook cannot let it through again.
 
 A hook runs inline, inside the client's packet handling: it cannot call `sleep`, `sleep_frames` or `wait_until`, and it stops with the error "ran past its time budget" after 20 ms. It may read game state, and calls that queue work (such as `chat.add`) take effect after the next mod phase.
 
@@ -65,14 +65,14 @@ Adds a hook on the packets the server sends, called before the client reads each
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `id` | `integer` or `nil` | yes (may be `nil`) | The packet id to hook, such as `0x017`; `nil` hooks every packet. Pass it as a number: any value that is not a number hooks every packet too. |
+| `id` | `integer` or `nil` | yes (may be `nil`) | The packet id to hook, 0 to 0x1FF, such as `0x017`; `nil` hooks every packet. |
 | `handler` | `function(p)` | yes | The hook; see [How hooks work](#how-hooks-work) for `p` and the return value. |
 
 **Returns** `integer`: the hook's id, for `packets.off`.
 
 **Needs** the `packets.read` permission to add the hook; the hook needs `packets.write` to change or block a packet.
 
-**Errors** without `packets.read`; when `handler` is missing (pass `nil` as the id to hook every packet: `packets.on_in(nil, fn)`).
+**Errors** without `packets.read`; `packet ids are 0..0x1FF, or nil for every packet (<type> given)` for any other id, such as the string `"0x28"`; when `handler` is missing (pass `nil` as the id to hook every packet: `packets.on_in(nil, fn)`).
 
 **Example**
 
@@ -167,7 +167,7 @@ Hands the client a packet as if the server had sent it. Give either an id and th
 
 **Needs** the `packets.write` permission.
 
-**Errors** "packet id <id>: ids are 0 to 0x1FF" for an id out of range; "a packet body is at most 504 bytes (<n> given)" for a longer body; "a whole packet is 4 to 508 bytes" for a whole packet of another size; `inject takes (id, body) or a whole sub-packet` when the arguments are neither an id with a body nor one string.
+**Errors** `not available in the lobby (before login)` in the lobby; "packet id <id>: ids are 0 to 0x1FF" for an id out of range; "a packet body is at most 504 bytes (<n> given)" for a longer body; "a whole packet is 4 to 508 bytes" for a whole packet of another size; `inject takes (id, body) or a whole sub-packet` when the arguments are neither an id with a body nor one string.
 
 **Example**
 
@@ -181,7 +181,7 @@ local body = string.pack("<BBI2", 3, 0, 0)
 packets.inject_in(0x017, body)
 ```
 
-The packet is queued. After this frame's mod phase it goes through every mod's `on_in` hooks (with `injected = true`), and then the client reads it. A whole packet is used as given, so its header must be right; build it with `packets.build`.
+The packet is queued. After this frame's mod phase it goes through every mod's `on_in` hooks (with `injected = true`), and then the client reads it. A whole packet keeps its id and sync bytes; its size field is set from its length (padded with zero bytes to a multiple of 4).
 
 ## `packets.inject_out`
 
@@ -265,16 +265,13 @@ The last packet of an id that came in from the server or went out to it, as it a
 **Example**
 
 ```lua
--- packets are recorded only while some mod hooks that direction
-packets.on_in(0x00D, function() end)
-
 commands.register("lastpc", function()
   local p = packets.last("in", 0x00D)
   print(p and ("last 0x00D: " .. #p .. " bytes") or "none yet")
 end)
 ```
 
-Packets are recorded only while at least one running mod has a hook in that direction (`on_in` for `"in"`, `on_out` for `"out"`), and for packets mods inject. Add a hook that does nothing, as above, if your mod relies on `packets.last`.
+Packets are recorded while at least one running mod holds `packets.read`, injected ones included. A packet that came before that (before the mod loaded, or before the permission was granted) is not there.
 
 ## Packet bytes
 

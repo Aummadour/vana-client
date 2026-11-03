@@ -39,9 +39,11 @@ Its life differs from other mods':
   not available here (in the lobby, or outside the mod phase)". `storage.account` is there; `storage.character` is an
   empty table, and character-scoped settings have their defaults.
 - What runs in the lobby: event handlers (`load`, `lobby_screen`, `frame`, events from `mods.emit`), timers, sleeps
-  and waits, and network callbacks. Typed commands do not reach mods there, and the HUD, windows, sounds and game
-  actions only work in the world. `print` and `chat.add` lines go to vana-client.log. `input.press` presses keys on
-  the lobby's screens.
+  and waits, network callbacks and `ipc` messages (sent from the lobby with an empty sender). Typed commands do not
+  reach mods there. Calls that act in the world (game actions, sounds and music, the clipboard, the game window,
+  screenshots, recording, `client.set_option`, the camera, Timers rows, game config, the chat line, `commands.run`,
+  packet injection, `draw.to_screen`) raise `not available in the lobby (before login)`; HUD elements and windows can be made, but show only in the world.
+  `print` and `chat.add` lines go to vana-client.log. `input.press` presses keys on the lobby's screens.
 - When a character enters the world, the lobby mod keeps running: it gets that character's `storage.character` and
   settings, then `login` and `lobby_screen` with `"world"`, and from then on everything the other mods get.
 - At logout it gets `logout` but is not unloaded: its `storage.character` is saved and emptied, and it goes on in the

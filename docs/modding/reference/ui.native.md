@@ -173,7 +173,7 @@ and the Key Items list. Read it to show extra columns or to find a row; to move 
 | `window` | `string` | Which list (see the table below). |
 | `rows` | `table[]` | Every row, top to bottom; the fields of a row depend on the list (below). |
 | `cursor` | `integer` | The row the cursor is on, from 1 (`rows[cursor]` is that row). |
-| `top` | `integer` | The row shown at the top of the list, from 1. |
+| `top` | `integer?` | The row shown at the top of the list, from 1; `nil` for a menu, which does not scroll. |
 
 The lists and their rows:
 
@@ -183,14 +183,14 @@ The lists and their rows:
 | `"ability"` | `ability` (ability id, as `res.ability` takes it); in the mount list `mount` (mount id) instead, in the emote list `emote` (emote id). |
 | `"items"` | `item` (item id), `count`, `bag` (the bag shown: 0 the inventory, as `game.items` numbers them), `slot` (its slot in that bag), `equipped` (boolean). |
 | `"shop buy"` | `item`, `price`; in a guild shop also `count` (its stock). |
-| `"shop sell"` | `item`, `count`, `bag` (0), `slot`, `price` (the appraised price for that item; `nil` when it has none). |
+| `"shop sell"` | `item`, `count`, `bag` (0), `slot`, `price`: at an NPC shop the appraised price (`nil` before the shop appraised it), at a guild the guild's price (`nil` for an item it does not buy). |
 | `"shop wanted"` | A guild's list of what it buys. The first row is the list's heading and is an empty table; then `item`, `count`, `price`. |
-| `"shop bazaar"` | Setting up your bazaar: `item`, `count`, `bag` (0), `slot`, `price` (`nil` when there is none). |
+| `"shop bazaar"` | Setting up your bazaar: `item`, `count`, `bag` (0), `slot`, `price` (the bazaar price you set; `nil` for an item not in your bazaar). |
 | `"shop wares"` | Another player's bazaar: `item`, `count`, `price`. |
 | `"auction list"` | While bidding: `item`, `stack` (true for a row of stacks), `single_count` and `stack_count` (the counts the list shows). In Sales Status: `item`, `sale_slot` (which of your sale slots), `price`. |
 | `"auction history"` | An item's price history: `item`, `price`, `date` (Unix time), `seller`, `buyer`. |
 | `"auction sell"` | The inventory to sell from: `item`, `count`, `bag` (0), `slot`. |
-| `"auction "` and a menu name | One of the auction house's menus, for example `"auction auc1"`. `rows` is empty and `top` is 1; `cursor` is the highlighted entry's number in the menu plus one (the first entry gives 2). |
+| `"auction "` and a menu name | One of the auction house's menus, for example `"auction auc1"`. `rows` is empty and `top` is `nil`; `cursor` is the highlighted entry's number in the menu, from 1. |
 | `"keyitems"` | `key_item` (key item id). |
 
 **Errors** In the lobby or a chat filter: `game state is not available here ...`.
@@ -421,13 +421,13 @@ settings.
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | `integer` | yes | The config id (0 to 65535). |
-| `value` | `integer` | yes | The new value (0 or more). A value outside the setting's range sets its default instead. |
+| `value` | `integer` | yes | The new value: 32 bits, so -2147483648 to 4294967295 (a negative value for a signed setting). A value outside the setting's range sets its default instead. |
 
 **Returns** nothing.
 
 **Needs** the `ui.native` permission.
 
-**Errors** Without the permission: `this needs the ui.native permission: ...`.
+**Errors** Without the permission: `this needs the ui.native permission: ...`; `config value <n>: 32 bits (-2147483648..4294967295)` for a value that does not fit.
 
 **Example**
 

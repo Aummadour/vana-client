@@ -140,6 +140,7 @@ Calls the function another mod offers under `name` (see `mods.provide`), right n
 
 - `mods.call: no mod <id> loaded` when no mod of that id is loaded.
 - `mods.call: <id> provides no <name>` when it offers nothing under that name.
+- `mods.call: <id> is suspended` when that mod is suspended for its errors.
 - `mods.call <id>.<name>: <error>` when the function raised an error, tried to sleep, or ran past its time budget.
 - `mods.call argument <n> is not plain data` (or `mods.call result <n> ...`, with the path inside a table, e.g.
   `mods.call argument 1.callback`) when a value holds a function or another value that cannot be copied; also an

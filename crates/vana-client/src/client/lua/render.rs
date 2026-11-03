@@ -1,7 +1,7 @@
 //! Render overrides for mods (docs/lua-mods.md 4.11): how an entity draws (hidden, name, name colour, alpha, tint,
 //! size) and the camera's distance. Looks last while the mod is loaded; the newest mod's wins per entity.
 
-use super::api::{state, world};
+use super::api::world;
 use mlua::{Lua, Table, Value};
 
 /// One entity's drawn look as a mod set it.
@@ -124,11 +124,12 @@ pub(super) fn install(lua: &Lua, g: &Table, mod_id: &str) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
-    t.set("camera_distance", lua.create_function(|lua, ()| Ok(world(lua)?.camst.dist))?)?;
+    // 1 (the game's distance) until a mod sets one, as render.camera() gives it.
+    t.set("camera_distance", lua.create_function(|lua, ()| Ok(super::super::camera::scale(&world(lua)?.camst)))?)?;
     t.set(
         "set_camera_distance",
         lua.create_function(|lua, k: f32| {
-            state(lua).borrow_mut().ops.push(super::Op::CameraDistance(k));
+            super::api::push_op(lua, super::Op::CameraDistance(k))?;
             Ok(())
         })?,
     )?;
@@ -161,9 +162,9 @@ pub(super) fn install(lua: &Lua, g: &Table, mod_id: &str) -> mlua::Result<()> {
                 v => Some(Some(lua.unpack::<f32>(v)?)),
             };
             // The new limits first, so a distance given with them is clamped to them.
-            state(lua).borrow_mut().ops.push(super::Op::Camera(o.get("speed")?, o.get("max_distance")?, battle));
+            super::api::push_op(lua, super::Op::Camera(o.get("speed")?, o.get("max_distance")?, battle))?;
             if let Some(d) = o.get::<Option<f32>>("distance")? {
-                state(lua).borrow_mut().ops.push(super::Op::CameraDistance(d));
+                super::api::push_op(lua, super::Op::CameraDistance(d))?;
             }
             Ok(())
         })?,

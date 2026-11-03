@@ -35,7 +35,8 @@ end)
 component counts as 0. x and z are the ground plane and y is the height, pointing down: a smaller y is higher, so to
 go up from a position you subtract from its y. A colour is `{r = ..., g = ..., b = ..., a = ...}` or `{r, g, b, a}`,
 each an integer 0..255 that defaults to 255 when left out (so `{255, 0, 0}` is opaque red); a value outside 0..255
-raises a conversion error. A shape with no `colour` (or a `colour` that is not a table) is white.
+raises a conversion error. A shape with no `colour` (or `colour = false`) is white; any other value that is not a
+table raises `a colour is {r, g, b, a} (0..255), or false for none`.
 
 **How shapes are drawn.** Lines, rings and boxes are drawn into the 3D scene: anything that stands in front of them
 (walls, characters) hides them, and they are blended by their alpha. Texts and images are drawn with the interface,
@@ -188,8 +189,8 @@ the same size on screen however far away the point is. Use it to label places or
 
 **Returns** nothing.
 
-**Errors** `a point is {x, y, z}` when `at` is missing or is not a table; `a colour is {r, g, b, a} (0..255)` when
-`outline` is given but is not a table.
+**Errors** `a point is {x, y, z}` when `at` is missing or is not a table; `a colour is {r, g, b, a} (0..255), or
+false for none` when `colour` or `outline` is neither a table nor `false`.
 
 **Example**
 
@@ -253,7 +254,8 @@ draw.image("arrow", {
 })
 ```
 
-The file is read from disk on every call, so for a moving picture prefer few calls (a timer) over one every frame.
+The file is read from disk on every call, so for a moving picture prefer few calls (a timer) over one every frame. A
+file changed on disk shows from the next call.
 Like texts, pictures are drawn with the interface: hidden by scenery in front of them and not drawn while the
 interface is hidden.
 
@@ -325,7 +327,7 @@ elements (which take window pixels) next to something in the world.
 | `y` | `integer` | Pixels from the window's top edge. |
 | `on_screen` | `boolean` | `true` when the point is inside the window and within the camera's view distance. When `false`, `x` and `y` may lie outside the window. |
 
-**Errors** `a point is {x, y, z}` when `point` is not a table.
+**Errors** `a point is {x, y, z}` when `point` is not a table; `not available in the lobby (before login)` in the lobby.
 
 **Example**
 

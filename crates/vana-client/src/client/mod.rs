@@ -9626,8 +9626,12 @@ impl App {
                     }
                 }
                 NetEvent::Emote { caster, target, emote, param, mode } => {
-                    world.lua.raise("emote", vec![caster.into(), target.into(), emote.into(), mode.into()]);
-                    combat::on_emote(world, caster, target, emote, param, mode)
+                    // A blocked player's emote is no event, as it is no motion or line (asked once: the check
+                    // asks for the list while it is not in).
+                    if !partyreq::sender_blocked(world, caster, emote, 2) {
+                        world.lua.raise("emote", vec![caster.into(), target.into(), emote.into(), mode.into()]);
+                        combat::on_emote(world, caster, target, emote, param, mode)
+                    }
                 }
                 NetEvent::AbilityRecasts(timers) => {
                     world.recasts_seen = true;
@@ -14105,15 +14109,26 @@ impl App {
         textures.clear();
         // A mod's recording: started or stopped as asked, ended with its mod or a new size, a frame copied for it.
         if let Phase::World(w) = &mut self.phase
-            && let Some(req) = w.lua.record_req.take()
+            && let Some((owner, req)) = w.lua.record_req.take()
         {
-            if let Some(r) = self.recorder.take() {
-                r.stop();
-            }
-            if let Some((owner, path, fps)) = req.filter(|_| gfx.config.usage.contains(wgpu::TextureUsages::COPY_SRC)) {
-                match record::Recorder::start(&gfx.gpu, size, gfx.config.format, path, fps, owner) {
-                    Ok(r) => self.recorder = Some(r),
-                    Err(e) => log::warn!("record: {e:#}"),
+            // Only the mod recording ends or replaces its recording.
+            if self.recorder.as_ref().is_none_or(|r| r.owner == owner) {
+                if let Some(r) = self.recorder.take() {
+                    r.stop();
+                }
+                if let Some((path, fps)) = req {
+                    let started = if gfx.config.usage.contains(wgpu::TextureUsages::COPY_SRC) {
+                        record::Recorder::start(&gfx.gpu, size, gfx.config.format, path, fps, owner.clone())
+                    } else {
+                        Err(anyhow::anyhow!("this window cannot be copied for recording"))
+                    };
+                    match started {
+                        Ok(r) => self.recorder = Some(r),
+                        Err(e) => {
+                            log::warn!("record: {e:#}");
+                            w.chat.push_colour(format!("{owner}: client.record: {e:#}"), lua::ERROR);
+                        }
+                    }
                 }
             }
         }
@@ -14130,7 +14145,7 @@ impl App {
             r.copy(&mut encoder, &frame.texture);
         }
         if let Phase::World(w) = &self.phase {
-            *w.lua.recording.borrow_mut() = self.recorder.as_ref().map(|r| r.path.clone());
+            *w.lua.recording.borrow_mut() = self.recorder.as_ref().map(|r| (r.owner.clone(), r.path.clone()));
         }
         let row = (size[0] * 4).div_ceil(256) * 256;
         let capture = (shoot && gfx.config.usage.contains(wgpu::TextureUsages::COPY_SRC)).then(|| {

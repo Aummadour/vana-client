@@ -611,7 +611,12 @@ pub fn run(w: &mut World, line: &str, mode: Mode) {
     }
     // The mods' typed-line filters may rewrite or block it (once: not again when a sub-target prompt completes it).
     let Some(filtered) = (if mode == Mode::SubTarget { Some(line.to_string()) } else { super::lua::filter_typed(w, line) }) else { return };
-    let line = filtered.trim();
+    run_unfiltered(w, &filtered, mode);
+}
+
+/// A line past the mods' dispatch and typed filters: a mod's own action lines start here.
+pub(super) fn run_unfiltered(w: &mut World, line: &str, mode: Mode) {
+    let line = line.trim();
     if line.is_empty() {
         return;
     }

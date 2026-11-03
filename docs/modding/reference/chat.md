@@ -46,7 +46,7 @@ Some modes the client prints received chat in: 9 say, 10 shout, 11 yell, 12 tell
 
 **Returns** nothing.
 
-**Errors** when a table's `mode` or `colour` is not a whole number from 0 to 255.
+**Errors** `a chat mode is 0..255, or {mode = , colour = }` when `how` is a number outside 0..255 or neither a number nor a table; a conversion error when a table's `mode` or `colour` is not a whole number from 0 to 255.
 
 **Example**
 

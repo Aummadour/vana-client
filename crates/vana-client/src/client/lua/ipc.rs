@@ -5,7 +5,10 @@ use std::net::UdpSocket;
 use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, channel};
 
-/// A message for a mod: (mod id, sending character, the character it is for or "", text).
+/// The largest encoded message: one UDP datagram on the loopback.
+pub(super) const MAX: usize = 65000;
+
+/// A message for a mod: (mod id, sending character ("" from the lobby), the character it is for or "", text).
 pub(super) type Msg = (String, String, String, String);
 
 pub(super) struct Bus {

@@ -4,7 +4,7 @@
 screenshots and video recording, starting other programs, and the client's process (CPU cores and priority). Calls
 that ask the client to do something (`copy`, `paste`, `set_option`, `set_window`, `focus`, `screenshot`, `record`,
 `stop_recording`) are queued and carried out after the mod phase, and only once the character is in the world: before
-login, in the lobby, they do nothing. Permissions differ per function: `paste` needs `clipboard`, `set_window` and
+login, in the lobby, they raise `not available in the lobby (before login)`. Permissions differ per function: `paste` needs `clipboard`, `set_window` and
 `focus` need `multibox`, `record` and `run` need `exec`, `set_affinity` and `set_priority` need `process`; the rest
 need none.
 
@@ -96,7 +96,7 @@ commands.register("pasteit", function()
 end)
 ```
 
-In the lobby the clipboard is not read, so the handler is not called there.
+In the lobby it raises `not available in the lobby (before login)`.
 
 ## `client.option`
 
@@ -174,8 +174,9 @@ Numbers outside a range are clamped to it. A colour is `{r = ..., g = ..., b = .
 
 **Returns** nothing.
 
-**Errors** `no option "<name>" (<every switch name>)` for an unknown name; a conversion error for a value that is not
-plain data (a function, for example).
+**Errors** `no option "<name>" (<every switch name>)` for an unknown name; `option <name>: true or false`, `option
+<name>: a number` or `option <name>: a colour {r, g, b} (0..255), or false` for a value of the wrong type; a conversion
+error for a value that is not plain data (a function, for example).
 
 **Example**
 
@@ -323,7 +324,8 @@ commands.register("snap", function()
 end)
 ```
 
-Queued: the picture is taken from the next frame, so the file appears a moment later. In the lobby nothing is saved.
+Queued: the picture is taken from the next frame, so the file appears a moment later. In the lobby it raises
+`not available in the lobby (before login)`.
 
 ## `client.record`
 
@@ -339,7 +341,7 @@ changes size, or until your mod unloads.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `name` | `string` | no, default the date and time (`20261102-143005`) | The file name without `.mp4`; `/` and `\` in it become `_`. |
+| `name` | `string` | no, default the date and time (`20261102-143005`) | The file name without `.mp4`; `/` and `\` in it become `_`. When that file exists, `-2`, `-3`... is added: an earlier video is never replaced. |
 | `options` | `table` | no | Recording options (below). |
 
 **`options` fields**
@@ -352,8 +354,8 @@ changes size, or until your mod unloads.
 
 **Needs** the `exec` permission.
 
-**Errors** `this needs the exec permission: ...` when the mod does not hold it; a conversion error when `options` is
-not a table.
+**Errors** `this needs the exec permission: ...` when the mod does not hold it; `<mod> is recording` while another mod's
+recording runs; a conversion error when `options` is not a table.
 
 **Example**
 
@@ -367,9 +369,9 @@ commands.register("clip", function()
 end)
 ```
 
-Queued: the recording starts after the mod phase. Only one recording runs at a time: starting one (from any mod) ends
-the one running. A file of the same name is overwritten. If the recording cannot start (for example `ffmpeg` is not
-installed), nothing is recorded, `client.recording()` stays `nil`, and the reason is written to `vana-client.log`.
+Queued: the recording starts after the mod phase. Only one recording runs at a time: your mod starting a new one ends
+its own running one, and another mod's raises the error above. If the recording cannot start (for example `ffmpeg` is
+not installed), nothing is recorded, `client.recording()` stays `nil`, and a red line in the chat log gives the reason.
 
 ## `client.stop_recording`
 
@@ -377,7 +379,7 @@ installed), nothing is recorded, `client.recording()` stays `nil`, and the reaso
 client.stop_recording() -> nothing
 ```
 
-Ends the recording; `ffmpeg` then finishes the file. It ends any recording, also one another mod started.
+Ends your mod's recording; `ffmpeg` then finishes the file. Another mod's recording goes on.
 
 **Returns** nothing.
 
@@ -436,7 +438,7 @@ program ends; without one, its output is thrown away.
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `status` | `integer` | The program's exit code (0 usually means success). |
+| `status` | `integer` | The program's exit code (0 usually means success; on Windows the whole 32-bit code, such as 3221225477 for a crash). A program ended by a signal (Linux, macOS) gives minus the signal's number: -9 for a kill, -15 for a terminate. |
 | `body` | `string` | Everything the program wrote to its standard output. |
 | `headers` | `table` | `{stderr = <text>}`: everything it wrote to its standard error. |
 | `error` | `string` | Present instead of the fields above when waiting for the program failed. |
@@ -469,7 +471,7 @@ unloads; its result is then not delivered.
 client.process() -> {pid: integer, cores: integer, affinity: integer[], priority: string}
 ```
 
-Facts about the client's process: its id, how many CPU cores it can use, which cores it may run on, and its
+Facts about the client's process: its id, how many CPU cores the computer has, which cores it may run on, and its
 scheduling priority.
 
 **Returns** `table`:
@@ -477,7 +479,7 @@ scheduling priority.
 | Field | Type | Description |
 | --- | --- | --- |
 | `pid` | `integer` | The client's process id. |
-| `cores` | `integer` | How many CPU cores the client can use. On some systems this counts only the cores the current affinity allows. |
+| `cores` | `integer` | How many CPU cores the computer has, whatever the affinity. |
 | `affinity` | `integer[]` | The cores it may run on, numbered from 0; empty where the system does not tell. |
 | `priority` | `string` | The level nearest its current priority: `"idle"`, `"low"`, `"below_normal"`, `"normal"`, `"above_normal"` or `"high"`. |
 

@@ -83,7 +83,7 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
                     Ok(b) => Ok(Some(lua.create_string(b)?)),
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                         let r = rel(&path)?;
-                        match src.read(&r.to_string_lossy().replace('\\', "/")) {
+                        match src.read_bytes(&r.to_string_lossy().replace('\\', "/")) {
                             Ok(t) => Ok(Some(lua.create_string(t)?)),
                             Err(_) => Ok(None),
                         }
@@ -328,7 +328,7 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
     client.set(
         "copy",
         lua.create_function(|lua, s: String| {
-            state(lua).borrow_mut().ops.push(super::Op::Copy(s));
+            super::api::push_op(lua, super::Op::Copy(s))?;
             Ok(())
         })?,
     )?;
@@ -336,11 +336,9 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
         "paste",
         lua.create_function(|lua, handler: Function| {
             super::api::need(lua, "clipboard")?;
+            super::api::push_op(lua, super::Op::Paste)?;
             let key = lua.create_registry_value(handler)?;
-            let st = state(lua);
-            let mut s = st.borrow_mut();
-            s.paste_handlers.push(key);
-            s.ops.push(super::Op::Paste);
+            state(lua).borrow_mut().paste_handlers.push(key);
             Ok(())
         })?,
     )?;
@@ -359,7 +357,8 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
                 return Err(mlua::Error::runtime(format!("no option {name:?} ({})", super::OPTIONS.join(", "))));
             }
             let v: serde_json::Value = lua.from_value(v)?;
-            state(lua).borrow_mut().ops.push(super::Op::Option(me.clone(), name, v));
+            super::option_value_ok(&name, &v).map_err(|want| mlua::Error::runtime(format!("option {name}: {want}")))?;
+            super::api::push_op(lua, super::Op::Option(me.clone(), name, v))?;
             Ok(())
         })?,
     )?;
@@ -398,7 +397,7 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
                 protected: t.get::<Option<bool>>("capture")?.map(|c| !c),
                 ..Default::default()
             };
-            state(lua).borrow_mut().ops.push(super::Op::Window(req));
+            super::api::push_op(lua, super::Op::Window(req))?;
             Ok(())
         })?,
     )?;
@@ -406,7 +405,7 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
         "focus",
         lua.create_function(|lua, ()| {
             super::api::need(lua, "multibox")?;
-            state(lua).borrow_mut().ops.push(super::Op::Window(super::WinReq { focus: true, ..Default::default() }));
+            super::api::push_op(lua, super::Op::Window(super::WinReq { focus: true, ..Default::default() }))?;
             Ok(())
         })?,
     )?;
@@ -423,7 +422,7 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
                 }
                 None => jiff::Zoned::now().strftime("mod%y%m%d%H%M%S.png").to_string(),
             };
-            state(lua).borrow_mut().ops.push(super::Op::Shot(name.clone()));
+            super::api::push_op(lua, super::Op::Shot(name.clone()))?;
             Ok(name)
         })?,
     )?;
@@ -457,7 +456,7 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
             std::thread::Builder::new()
                 .name("lua-run".into())
                 .spawn(move || {
-                    let r = child.wait_with_output().map_err(|e| e.to_string()).map(|o| (o.status.code().unwrap_or(-1).clamp(0, 65535) as u16, o.stdout, vec![("stderr".to_string(), String::from_utf8_lossy(&o.stderr).into_owned())]));
+                    let r = child.wait_with_output().map_err(|e| e.to_string()).map(|o| (exit_status(o.status), o.stdout, vec![("stderr".to_string(), String::from_utf8_lossy(&o.stderr).into_owned())]));
                     let _ = tx.send((id, r));
                 })
                 .map_err(|e| mlua::Error::runtime(format!("client.run: {e}")))?;
@@ -467,6 +466,22 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
     super::process::install(lua, &client, &vm.manifest.id)?;
     g.set("client", client)?;
     Ok(())
+}
+
+/// A finished program's status for a mod: its exit code (Windows: the whole 32-bit code); ended by a signal (Unix),
+/// minus the signal's number.
+fn exit_status(s: std::process::ExitStatus) -> i64 {
+    #[cfg(unix)]
+    if let Some(sig) = std::os::unix::process::ExitStatusExt::signal(&s) {
+        return -i64::from(sig);
+    }
+    match s.code() {
+        #[cfg(windows)]
+        Some(c) => i64::from(c as u32),
+        #[cfg(not(windows))]
+        Some(c) => i64::from(c),
+        None => -1,
+    }
 }
 
 /// An auto-translate phrase as the line holds it: its block (kind, language, group, id) as four private-use chars,
@@ -500,6 +515,9 @@ fn call(lua: &Lua, id: &str, name: &str, args: mlua::Variadic<Value>) -> mlua::R
     };
     let f: Function = {
         let s = st.borrow();
+        if s.suspended {
+            return Err(mlua::Error::runtime(format!("mods.call: {id} is suspended")));
+        }
         let p = s.provided.iter().find(|p| p.0 == name).ok_or_else(|| mlua::Error::runtime(format!("mods.call: {id} provides no {name}")))?;
         tl.registry_value(&p.1)?
     };

@@ -561,8 +561,9 @@ To talk to the same mod in your other game windows on this computer, use `ipc.se
 
 `lobby = true` in mod.toml makes a mod start on the login screen and stay loaded until the client closes. Before
 login it sees the lobby through `lobby.state()` and the `lobby_screen` event, and can sign in and pick a character
-with `lobby.sign_in` and `lobby.play`. There is no game to read there: game calls raise an error, and its prints go
-to `vana-client.log`. Once you are in the world it works like any other mod, and at logout it stays loaded for the
+with `lobby.sign_in` and `lobby.play`. There is no game to read there: game calls, and calls that act in the world
+(actions, sounds, the clipboard, the window...), raise an error, and its prints go to `vana-client.log`. `ipc`
+messages work there too. Once you are in the world it works like any other mod, and at logout it stays loaded for the
 next login. See [reference/lobby.md](reference/lobby.md).
 
 ## Limits and errors
@@ -572,7 +573,7 @@ next login. See [reference/lobby.md](reference/lobby.md).
 | A handler runs longer than 100 ms without pausing | It is stopped, with an error. |
 | A filter, packet hook or `mods.call` runs longer than 20 ms | It is stopped, with an error. |
 | The mod uses more than 64 MB | The allocation fails with an out-of-memory error. |
-| 20 errors within 60 seconds | The mod is suspended: its handlers stop and its windows close until you fix it and `/lua reload` it. |
+| 20 errors within 60 seconds | The mod is suspended: its handlers, commands, filters and offered functions stop and its windows close until you fix it and `/lua reload` it. |
 
 An error shows once in the chat log, in red, with your mod's name and where it happened (`init.lua:24: ...`). The full
 message goes to `vana-client.log` in the client's data folder. One failing handler doesn't stop the others.

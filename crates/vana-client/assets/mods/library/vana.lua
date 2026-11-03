@@ -358,7 +358,7 @@ function timers.clear() end
 ---@param spec vana.WindowSpec 
 function ui.window(id, spec) end
 
---- Changes one element of a window (only the fields given): e.g. a list's rows, a text's text, a slider's at and shown.
+--- Changes one element of a window (only the fields given): e.g. a list's rows, a text's text, a slider's at and shown. false clears a text's colour or a buttons element's marked.
 ---@param id string window
 ---@param element string element id
 ---@param fields table 
@@ -428,12 +428,12 @@ function hud.map(id, spec) end
 ---@param spec table 
 function hud.image(id, spec) end
 
---- Creates or replaces an icon: x, y, icon (status or item), id, size.
+--- Creates or replaces an icon: x, y, kind ("status" for a status effect's, else an item's), id, size.
 ---@param id string 
 ---@param spec table 
 function hud.icon(id, spec) end
 
---- Changes an element's fields (only those given).
+--- Changes an element's fields (only those given); false clears a colour; an image takes a new path.
 ---@param id string 
 ---@param fields table 
 function hud.set(id, fields) end
@@ -445,10 +445,14 @@ function hud.remove(id) end
 --- Removes every element of the mod.
 function hud.clear() end
 
---- An element's click handler: a left or right press on it is the mod's (not the game's): handler(id, {kind = 'click', id, button}). It is the player's input: actions may act here.
+--- An element's click handler: a left or right press on it is the mod's (not the game's): handler(id, {kind = 'click', id, button}). It is the player's input: actions may act here. Removed with its element (hud.remove, hud.clear) or by hud.off.
 ---@param id string 
 ---@param handler fun(id: string, e: table) 
 function hud.on(id, handler) end
+
+--- Removes an element's click handler (hud.on); the element stays.
+---@param id string 
+function hud.off(id) end
 
 --- The window in pixels, and ui_scale: pixels per UI unit (sizes given in UI units look the same at any resolution).
 ---@return {width: number, height: number, ui_scale: number}
@@ -467,7 +471,7 @@ function ui.native.windows() end
 ---@return {window: string, kind: string, id: integer, bag: integer?, slot: integer?}?
 function ui.native.highlighted() end
 
---- The game list with the keys: window (items, magic, ability, keyitems, shop buy / sell / wanted / bazaar / wares, auction list / history / sell or an auction menu's name), rows (each its item, spell, ability, mount, emote or key_item id, and count, price, bag, slot, equipped, stack counts where the list has them), cursor and top (the first row shown), both from 1. An auction menu has no rows; its cursor is the row's child id. Drive it with input.press.
+--- The game list with the keys: window (items, magic, ability, keyitems, shop buy / sell / wanted / bazaar / wares, auction list / history / sell or an auction menu's name), rows (each its item, spell, ability, mount, emote or key_item id, and count, price, bag, slot, equipped, stack counts where the list has them), cursor and top (the first row shown), both from 1. An auction menu has no rows and no top; its cursor is the highlighted row's child id. Drive it with input.press.
 ---@return {window: string, rows: table[], cursor: integer, top: integer}?
 function ui.native.list() end
 
@@ -503,7 +507,7 @@ function ui.native.item_colour(item, colour) end
 ---@return integer
 function ui.native.config(id) end
 
---- Sets a game config value by id and applies it, as the Config window does (saved with the character's settings). Needs ui.native.
+--- Sets a game config value by id and applies it, as the Config window does (saved with the character's settings). A value is 32 bits, negative for a signed setting. Needs ui.native.
 ---@param id integer 
 ---@param value integer 
 function ui.native.set_config(id, value) end
@@ -596,12 +600,12 @@ function draw.remove(id) end
 --- Removes every shape of the mod.
 function draw.clear() end
 
---- Where a world point is on the screen this frame (window pixels, as hud places take), or nil behind the camera.
+--- Where a world point is on the screen this frame (window pixels, as hud places take), or nil behind the camera. Not in the lobby.
 ---@param point {x: number, y: number, z: number} 
 ---@return {x: integer, y: integer, on_screen: boolean}?
 function draw.to_screen(point) end
 
---- Starts an HTTP(S) request on its own thread: {url, method (GET, POST, PUT, PATCH, DELETE, HEAD), body, headers, timeout (s)}; the callback later gets {status, body, headers} or {error}. A body of 16 MB or more gives {error}. Needs net.
+--- Starts an HTTP(S) request on its own thread: {url, method (any HTTP method; GET by default), body (sent with any method), body, headers, timeout (s)}; the callback later gets {status, body, headers} or {error}. A body of 16 MB or more gives {error}. Needs net.
 ---@param spec table 
 ---@param callback fun(res: table) 
 ---@return integer
@@ -614,7 +618,7 @@ function net.request(spec, callback) end
 ---@return integer
 function net.connect(host, port, handlers) end
 
---- Opens a local endpoint another program offers (Discord's IPC and the like): a Unix socket (a bare name is in the runtime folder, e.g. 'discord-ipc-0'; a path as given), on Windows the named pipe \\.\pipe\<name>; handlers and sending as net.connect's. Needs net.
+--- Opens a local endpoint another program offers (Discord's IPC and the like): a Unix socket by its path inside the runtime folder (e.g. 'discord-ipc-0' or 'app/com.discordapp.Discord/discord-ipc-0'), on Windows the named pipe \\.\pipe\<name>. The system's control sockets (session bus, systemd, agents, docker) are refused. Needs net.
 ---@param name string 
 ---@param handlers table 
 ---@return integer
@@ -649,12 +653,12 @@ function net.close(id) end
 ---@param url string 
 function net.open_url(url) end
 
---- Sends text to the same mod in the other game windows on this machine (their ipc_message event), or only to one character's. Needs multibox.
+--- Sends text to the same mod in the other game windows on this machine (their ipc_message event), or only to one character's; at most about 64 KB encoded. Works in the lobby too (sender ""). Needs multibox.
 ---@param text string 
 ---@param character? string 
 function ipc.send(text, character) end
 
---- Hooks received packets (one id, or every one when nil) before the client reads them. The handler gets {id, data, original, injected, blocked, outgoing} (data and original are the whole sub-packet, header included) and returns nil to leave it, false to block it, or new bytes. Hooks chain across mods: a blocked packet still reaches later ones. Needs packets.read; changing or blocking needs packets.write.
+--- Hooks received packets (one id 0..0x1FF, or every one when nil) before the client reads them. The handler gets {id, data, original, injected, blocked, outgoing} (data and original are the whole sub-packet, header included) and returns nil to leave it, false to block it, or new bytes. Hooks chain across mods: a blocked packet still reaches later ones. Needs packets.read; changing or blocking needs packets.write.
 ---@param id integer? packet id
 ---@param handler fun(p: vana.Packet): (string|false|nil) 
 ---@return integer
@@ -686,7 +690,7 @@ function packets.inject_out(id_or_data, body) end
 ---@return string
 function packets.build(id, body) end
 
---- The last packet of an id seen each way, or nil. Needs packets.read.
+--- The last packet of an id seen each way, or nil; kept while any mod holds packets.read. Needs packets.read.
 ---@param direction 'in'|'out' 
 ---@param id integer 
 ---@return string?
@@ -697,7 +701,7 @@ function packets.last(direction, id) end
 ---@return string
 function chat.icon(path) end
 
---- Adds a line to the chat log. With a mode it takes that mode's colour, filters and indent, like a game line; {colour = mode} takes only the mode's colour.
+--- Adds a line to the chat log. With a mode it takes that mode's colour, filters and indent, like a game line; {colour = mode} takes only the mode's colour. A mode is 0..255.
 ---@param text string 
 ---@param how? integer|{mode: integer?, colour: integer?} the game's chat mode (0..255), or a table
 function chat.add(text, how) end
@@ -742,11 +746,11 @@ function input.mouse() end
 ---@return boolean
 function input.typing() end
 
---- Presses and releases a key, with modifiers ("enter", "ctrl+f1", "^1"), as the keyboard would this frame (mods' on_key handlers and binds do not see it). Needs input.capture.
+--- Presses and releases a key, with modifiers ("enter", "ctrl+f1", "^1"; not the Windows key), as the keyboard would this frame (mods' on_key handlers and binds do not see it). Needs input.capture.
 ---@param key string 
 function input.press(key) end
 
---- Holds a key down or lets it go. Needs input.capture.
+--- Holds a key down or lets it go; keys still held come up when the mod unloads. Needs input.capture.
 ---@param key string 
 ---@param down boolean 
 function input.send(key, down) end
@@ -1018,7 +1022,7 @@ function actions.lock(on) end
 ---@param on boolean? 
 function actions.heal(on) end
 
---- Wears pieces as the equipment window does: (slot, item) or ({slot = item, ...}). A slot is 0..15 or a name (main, sub, range, ammo, head, body, hands, legs, feet, neck, waist, left_ear, right_ear, left_ring, right_ring, back); an item is an id, {bag = , index = }, or false (or 0) to take it off. Pieces already worn stay.
+--- Wears pieces as the equipment window does: (slot, item) or ({slot = item, ...}). A slot is 0..15 or a name (main, sub, range, ammo, head, body, hands, legs, feet, neck, waist, left_ear, right_ear, left_ring, right_ring, back); an item is an id, {bag = , index = }, or false (or 0) to take it off. Pieces already worn stay; two slots given one item id take two copies.
 ---@param slot_or_set integer|string|table 
 ---@param item integer|table|false|nil 
 function actions.equip(slot_or_set, item) end
@@ -1094,12 +1098,12 @@ function actions.blue_set(slot, spell) end
 ---@param slot integer 
 function actions.blue_remove(slot) end
 
---- Sets an automaton slot to an item id: 0 head, 1 frame, 2..13 attachments.
+--- Sets an automaton slot to an item id: 1 head, 2 frame, 3..14 attachments.
 ---@param slot integer 
 ---@param item integer 
 function actions.attach(slot, item) end
 
---- Empties an automaton slot (0..13).
+--- Empties an automaton slot (1..14).
 ---@param slot integer 
 function actions.detach(slot) end
 
@@ -1166,7 +1170,7 @@ function actions.stop() end
 ---@param heading number 
 function actions.turn(heading) end
 
---- An item's record: name, description, kind, flags, stack, type, targets, level, slots, races, jobs (bits), superior_level, damage, delay, skill, max_charges, cast_time, use_delay, reuse_delay.
+--- An item's record (65535 gil): name, description, kind (general, usable, automaton, armor, weapon, maze, instinct, objective, instinct_catalogue, monster, roe_category, teleport_point, primer_category, primer_topic, currency), flags, stack, type, targets, level, slots, races, jobs (bits), superior_level, damage, delay, skill, max_charges, cast_time, use_delay, reuse_delay.
 ---@param id integer 
 ---@return table?
 function res.item(id) end
@@ -1213,7 +1217,7 @@ function res.augments(item, extdata) end
 ---@return {text: string, mode: integer?}?
 function res.message(id, options) end
 
---- The auto-translate dictionary: the entries whose completion key starts with `word` (none: the group titles), or a group's entries: {text, group, id, phrase (the in-line string: put it in a chat line)}; nil before the dictionary loads.
+--- The auto-translate dictionary: the entries whose completion key starts with `word` (no word: the group titles; a word that matches nothing: an empty list), or a group's entries: {text, group, id, phrase (the in-line string: put it in a chat line)}; nil before the dictionary loads.
 ---@param word? string 
 ---@param group? integer 
 ---@return table[]?
@@ -1352,7 +1356,7 @@ function mods.installed() end
 ---@param func function 
 function mods.provide(name, func) end
 
---- Calls another mod's provided function now, in its VM, and returns what it returned (copies). It cannot sleep.
+--- Calls another mod's provided function now, in its VM, and returns what it returned (copies). It cannot sleep. A suspended mod's functions raise an error.
 ---@param mod string its id
 ---@param name string 
 ---@param ... any 
@@ -1417,20 +1421,20 @@ function devices.write(id, report) end
 ---@param id integer 
 function devices.close(id) end
 
---- Records the game window as drawn to an H.264 video (ffmpeg must be installed) under the client's ffxiuser/videos folder, as `name`.mp4 (the date and time when none): options {fps (30)}. It ends with stop_recording (any mod's), a new recording, a new window size, or the mod unloading; a file of that name is replaced; no sound. Returns the file's path (when ffmpeg cannot start, client.recording() stays nil and the reason is in vana-client.log). Needs exec.
+--- Records the game window as drawn to an H.264 video (ffmpeg must be installed) under the client's ffxiuser/videos folder, as `name`.mp4 (the date and time when none; -2, -3... when that file exists): options {fps (30)}. It ends with stop_recording, a new recording by this mod, a new window size, or the mod unloading; no sound. Another mod's recording running is an error; a start that fails puts the reason in the chat log. Returns the file's path. Needs exec.
 ---@param name? string 
 ---@param options? {fps: integer?} 
 ---@return string
 function client.record(name, options) end
 
---- Ends the recording (ffmpeg finishes the file).
+--- Ends this mod's recording (ffmpeg finishes the file).
 function client.stop_recording() end
 
 --- The file being recorded, or nil (as of the last frame).
 ---@return string?
 function client.recording() end
 
---- The client's process: pid, cores (how many), affinity (the cores it may run on, from 0; empty where unknown) and priority (idle, low, below_normal, normal, above_normal, high).
+--- The client's process: pid, cores (the computer's, whatever the affinity), affinity (the cores it may run on, from 0; empty where unknown) and priority (idle, low, below_normal, normal, above_normal, high).
 ---@return {pid: integer, cores: integer, affinity: integer[], priority: string}
 function client.process() end
 
@@ -1449,7 +1453,7 @@ function client.set_priority(level) end
 ---@return boolean|number|table
 function client.option(name) end
 
---- Sets a behaviour switch while the mod is loaded (the game's usual behaviour back when it unloads): macro_palette_delay (false: the Ctrl / Alt palette opens at once, not at the next whole second), ah_result_delay (false: a bid's result prints at once), equipset_delay (false: no 0.9 s wait between equip sets), log_slide (false: new log lines show at once), cutscene_speed (1..4: events play that much faster), animation_rate (0.25..4: the actors' animation speed), clear_colour and ambient ({r, g, b} 0..255 in place of the zone's background colour and ambient light; false gives the zone's back), minimap_span (the minimap's zoom, map pixels across, 48..512; kept as the minimap's own wheel keeps it); rules: move_lock (false: our abilities' and the weapon draw's move lock is lifted), all_maps (true: every map without its key item), dead_commands (true: text commands while K.O.), compass_monsters (true: monster dots on the compass for every job), player_collision (false: moving players never hold a step), occlusion (false: characters behind scenery still draw and target), menu_reach (false: the auction house and the nomad moogle menu stay open as we move away); send_interval (ms between the datagrams we send, 50..1000; the game's is 400); wireframe (true: the scenery drawn as lines, where the GPU draws them); ttf_text (true: the game font's text in the UI's TrueType face in the classic UI too: the log, the windows' text; sprite numbers and captions stay as the game draws them).
+--- Sets a behaviour switch while the mod is loaded (the game's usual behaviour back when it unloads): macro_palette_delay (false: the Ctrl / Alt palette opens at once, not at the next whole second), ah_result_delay (false: a bid's result prints at once), equipset_delay (false: no 0.9 s wait between equip sets), log_slide (false: new log lines show at once), cutscene_speed (1..4: events play that much faster), animation_rate (0.25..4: the actors' animation speed), clear_colour and ambient ({r, g, b} 0..255 in place of the zone's background colour and ambient light; false gives the zone's back), minimap_span (the minimap's zoom, map pixels across, 48..512; kept as the minimap's own wheel keeps it); rules: move_lock (false: our abilities' and the weapon draw's move lock is lifted), all_maps (true: every map without its key item), dead_commands (true: text commands while K.O.), compass_monsters (true: monster dots on the compass for every job), player_collision (false: moving players never hold a step), occlusion (false: characters behind scenery still draw and target), menu_reach (false: the auction house and the nomad moogle menu stay open as we move away); send_interval (ms between the datagrams we send, 50..1000; the game's is 400); wireframe (true: the scenery drawn as lines, where the GPU draws them); ttf_text (true: the game font's text in the UI's TrueType face in the classic UI too: the log, the windows' text; sprite numbers and captions stay as the game draws them). A value of the wrong type is an error.
 ---@param name string 
 ---@param value boolean|number|table 
 function client.set_option(name, value) end
@@ -1470,7 +1474,7 @@ function client.focus() end
 ---@return string
 function client.screenshot(name) end
 
---- Starts a program with its arguments (no shell). With a handler, it gets {status (exit code), body (stdout), headers = {stderr}} when the program ends, or {error}. Returns the process id. Needs exec.
+--- Starts a program with its arguments (no shell). With a handler, it gets {status (the exit code; minus the signal's number for a program a signal ended), body (stdout), headers = {stderr}} when the program ends, or {error}. Returns the process id. Needs exec.
 ---@param program string 
 ---@param args? string[] 
 ---@param handler? fun(result: table) 

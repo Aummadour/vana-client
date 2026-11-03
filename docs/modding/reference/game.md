@@ -150,7 +150,7 @@ A field of the wrong type is ignored, as if it were absent.
 
 **Returns** `Entity[]`: a list (index 1, 2, ...) of [Entity](types.md#entity) tables. Never nil; it is empty when nothing matches.
 
-**Errors** "game state is not available here" in the lobby or a chat filter; an error when `filter` is given but is not a table.
+**Errors** "game state is not available here" in the lobby or a chat filter; an error when `filter` is given but is not a table; `distance is a number`, `kinds is a list of "player", "npc", "mob"` or `no entity kind "<k>" (player, npc, mob)` for a filter field of the wrong type or value.
 
 **Example**
 

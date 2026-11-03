@@ -71,6 +71,26 @@ fn affinity() -> Vec<usize> {
     (0..usize::BITS as usize).filter(|c| process >> c & 1 != 0).collect()
 }
 
+/// The computer's cores, whatever the affinity (available_parallelism follows it on Linux).
+fn cores() -> usize {
+    #[cfg(unix)]
+    {
+        let n = unsafe { libc::sysconf(libc::_SC_NPROCESSORS_ONLN) };
+        if n > 0 {
+            return n as usize;
+        }
+    }
+    #[cfg(windows)]
+    {
+        // ALL_PROCESSOR_GROUPS
+        let n = unsafe { windows_sys::Win32::System::Threading::GetActiveProcessorCount(0xffff) };
+        if n > 0 {
+            return n as usize;
+        }
+    }
+    std::thread::available_parallelism().map_or(1, |n| n.get())
+}
+
 #[cfg(windows)]
 fn set_priority(nice: i32) -> Result<(), String> {
     use windows_sys::Win32::System::Threading::*;
@@ -130,28 +150,41 @@ pub(super) fn install(lua: &Lua, client: &Table, mod_id: &str) -> mlua::Result<(
             let fps = opts.map(|o| o.get::<Option<u32>>("fps")).transpose()?.flatten().unwrap_or(30).clamp(1, 120);
             let stamp = jiff::Zoned::now().strftime("%Y%m%d-%H%M%S").to_string();
             let name = name.unwrap_or(stamp).replace(['/', '\\'], "_");
-            let path = crate::config::data_dir().join("ffxiuser").join("videos").join(format!("{name}.mp4"));
-            super::api::state(lua).borrow_mut().ops.push(super::Op::Record(Some((me.clone(), path.clone(), fps))));
+            // Another mod's recording is not ours to end.
+            if let Some((owner, _)) = lua.app_data_ref::<super::Recording>().and_then(|r| r.0.borrow().clone()).filter(|r| r.0 != me) {
+                return Err(mlua::Error::runtime(format!("{owner} is recording")));
+            }
+            // A new name for each file: an earlier recording is never replaced.
+            let dir = crate::config::data_dir().join("ffxiuser").join("videos");
+            let mut path = dir.join(format!("{name}.mp4"));
+            for n in 2.. {
+                if !path.exists() {
+                    break;
+                }
+                path = dir.join(format!("{name}-{n}.mp4"));
+            }
+            super::api::push_op(lua, super::Op::Record(me.clone(), Some((path.clone(), fps))))?;
             Ok(path.display().to_string())
         })?,
     )?;
+    let me2 = mod_id.to_string();
     client.set(
         "stop_recording",
-        lua.create_function(|lua, ()| {
-            super::api::state(lua).borrow_mut().ops.push(super::Op::Record(None));
+        lua.create_function(move |lua, ()| {
+            super::api::push_op(lua, super::Op::Record(me2.clone(), None))?;
             Ok(())
         })?,
     )?;
     client.set(
         "recording",
-        lua.create_function(|lua, ()| Ok(lua.app_data_ref::<super::Recording>().and_then(|r| r.0.borrow().as_ref().map(|p| p.display().to_string()))))?,
+        lua.create_function(|lua, ()| Ok(lua.app_data_ref::<super::Recording>().and_then(|r| r.0.borrow().as_ref().map(|p| p.1.display().to_string()))))?,
     )?;
     client.set(
         "process",
         lua.create_function(|lua, ()| {
             let t = lua.create_table()?;
             t.set("pid", std::process::id())?;
-            t.set("cores", std::thread::available_parallelism().map_or(1, |n| n.get()))?;
+            t.set("cores", cores())?;
             t.set("affinity", affinity())?;
             t.set("priority", level_of(priority()))?;
             Ok(t)

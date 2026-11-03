@@ -1,7 +1,7 @@
 //! Lobby-phase mods (docs/lua-mods.md 3.4, manifest `lobby = true`): the screens before the world, read through
 //! `lobby.state` and acted on by `lobby.sign_in` / `lobby.play`; `storage.seal` keeps a password unreadable on disk.
 
-use super::api::{need_action, state};
+use super::api::need_action;
 use mlua::{Lua, Table, Value};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -51,6 +51,12 @@ fn view(lua: &Lua) -> Shared {
     lua.app_data_ref::<Shared>().map(|v| v.clone()).unwrap_or_default()
 }
 
+/// Before login (or back at the lobby after a logout): the screens, not the world.
+pub(super) fn in_lobby(lua: &Lua) -> bool {
+    let s = view(lua).borrow().screen;
+    !s.is_empty() && s != "world"
+}
+
 /// The sealing key's names: a mod's sealed text opens only for that mod, on this machine.
 const SEAL_SERVER: &str = "lua-mod";
 
@@ -92,7 +98,7 @@ pub(super) fn install(lua: &Lua, g: &Table, mod_id: &str) -> mlua::Result<()> {
                 pol_id: o.get("pol_id")?,
                 pol_password: o.get::<Option<String>>("pol_password")?.unwrap_or_default(),
             };
-            state(lua).borrow_mut().ops.push(super::Op::Lobby(act));
+            super::api::push_op(lua, super::Op::Lobby(act))?;
             Ok(())
         })?,
     )?;
@@ -105,7 +111,7 @@ pub(super) fn install(lua: &Lua, g: &Table, mod_id: &str) -> mlua::Result<()> {
                 Value::String(s) => Who::Name(s.to_str()?.to_string()),
                 _ => return Err(mlua::Error::runtime("lobby.play takes a character's name or its slot (from 1)")),
             };
-            state(lua).borrow_mut().ops.push(super::Op::Lobby(Act::Play(who)));
+            super::api::push_op(lua, super::Op::Lobby(Act::Play(who)))?;
             Ok(())
         })?,
     )?;

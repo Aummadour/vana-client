@@ -2,8 +2,8 @@
 //! are queued as ops and applied after it, through the paths keys and text commands take.
 
 use super::vm::{Handler, ModState, Timer};
-use super::{Op, World};
-use mlua::{Function, Lua, LuaSerdeExt, Table, Value, Variadic};
+use super::{Op, World, ipc};
+use mlua::{FromLua, Function, Lua, LuaSerdeExt, Table, Value, Variadic};
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -126,6 +126,15 @@ pub(super) fn state(lua: &Lua) -> Rc<RefCell<ModState>> {
     lua.app_data_ref::<Rc<RefCell<ModState>>>().expect("vm state").clone()
 }
 
+/// Queues an op for after the mod phase; in the lobby only lines, keys and lobby actions are carried out.
+pub(super) fn push_op(lua: &Lua, op: Op) -> mlua::Result<()> {
+    if !matches!(op, Op::Print(_) | Op::Chat { .. } | Op::Key(_) | Op::Lobby(_) | Op::Ipc(..)) && super::lobby::in_lobby(lua) {
+        return Err(mlua::Error::runtime("not available in the lobby (before login)"));
+    }
+    state(lua).borrow_mut().ops.push(op);
+    Ok(())
+}
+
 pub(super) fn next_id(st: &Rc<RefCell<ModState>>) -> u64 {
     let mut s = st.borrow_mut();
     s.next_id += 1;
@@ -152,7 +161,7 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
         lua.create_function(move |lua, args: Variadic<Value>| {
             let text = args.iter().map(|v| v.to_string().unwrap_or_else(|_| format!("{v:?}"))).collect::<Vec<_>>().join("\t");
             log::info!("lua {id}: {text}");
-            state(lua).borrow_mut().ops.push(Op::Print(text));
+            push_op(lua, Op::Print(text))?;
             Ok(())
         })?,
     )?;
@@ -191,7 +200,7 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
         })?,
     )?;
 
-    // events.on(name, fn[, {priority}]) -> id; events.off(id); events.emit(name, ...) within this mod.
+    // events.on(name, fn[, {priority}]) -> id; events.off(id).
     let events = lua.create_table()?;
     events.set(
         "on",
@@ -249,13 +258,13 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
             if !line.starts_with("//") {
                 need_action(lua)?;
             }
-            state(lua).borrow_mut().ops.push(Op::Run(line));
+            push_op(lua, Op::Run(line))?;
             Ok(())
         })?,
     )?;
     g.set("commands", commands)?;
 
-    // filters.chat(fn) / filters.typed(fn) -> id; filters.off(id). Run inline: no sleeping, no game state.
+    // filters.chat(fn) / filters.typed(fn) -> id; filters.off(id). Run inline: no sleeping; chat filters have no game state.
     let filters = lua.create_table()?;
     for (name, typed) in [("chat", false), ("typed", true)] {
         filters.set(
@@ -380,9 +389,14 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     ui.set(
         "open",
         lua.create_function(|lua, id: String| {
+            let pointer = super::input::cursor(lua);
             let st = state(lua);
             let mut s = st.borrow_mut();
             let w = s.windows.iter_mut().find(|w| w.id == id).ok_or_else(|| mlua::Error::runtime(format!("no window {id:?}")))?;
+            // A popup opens at the pointer as it is now.
+            if w.popup && !w.open {
+                w.anchor = Some(pointer);
+            }
             w.open = true;
             w.settle();
             if !w.hud {
@@ -472,7 +486,7 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
                 total = o.get::<Option<f32>>("total")?.unwrap_or(0.0);
                 fills = o.get::<Option<bool>>("fills")?.unwrap_or(section == 0);
             }
-            state(lua).borrow_mut().ops.push(super::Op::Timer { mod_id: me.clone(), name: Some(name), secs: Some(secs), section, group, icon, total, fills });
+            push_op(lua, super::Op::Timer { mod_id: me.clone(), name: Some(name), secs: Some(secs), section, group, icon, total, fills })?;
             Ok(())
         })?,
     )?;
@@ -480,7 +494,7 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     timers.set(
         "remove",
         lua.create_function(move |lua, name: String| {
-            state(lua).borrow_mut().ops.push(super::Op::Timer { mod_id: me.clone(), name: Some(name), secs: None, section: 0, group: None, icon: None, total: 0.0, fills: false });
+            push_op(lua, super::Op::Timer { mod_id: me.clone(), name: Some(name), secs: None, section: 0, group: None, icon: None, total: 0.0, fills: false })?;
             Ok(())
         })?,
     )?;
@@ -488,7 +502,7 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     timers.set(
         "clear",
         lua.create_function(move |lua, ()| {
-            state(lua).borrow_mut().ops.push(super::Op::Timer { mod_id: me.clone(), name: None, secs: None, section: 0, group: None, icon: None, total: 0.0, fills: false });
+            push_op(lua, super::Op::Timer { mod_id: me.clone(), name: None, secs: None, section: 0, group: None, icon: None, total: 0.0, fills: false })?;
             Ok(())
         })?,
     )?;
@@ -501,10 +515,12 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
             name,
             lua.create_function(move |lua, (which, func): (Value, Function)| {
                 need(lua, "packets.read")?;
+                // nil hooks every packet; anything else must be an id.
                 let id = match which {
-                    Value::Integer(i) => Some(i as u16),
-                    Value::Number(n) => Some(n as u16),
-                    _ => None,
+                    Value::Nil => None,
+                    Value::Integer(i) if (0..=0x1ff).contains(&i) => Some(i as u16),
+                    Value::Number(n) if n.fract() == 0.0 && (0.0..=511.0).contains(&n) => Some(n as u16),
+                    v => return Err(mlua::Error::runtime(format!("packet ids are 0..0x1FF, or nil for every packet ({} given)", v.type_name()))),
                 };
                 let st = state(lua);
                 let h = next_id(&st);
@@ -541,6 +557,9 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
             name,
             lua.create_function(move |lua, (a, b): (Value, Option<mlua::LuaString>)| {
                 need(lua, "packets.write")?;
+                if super::lobby::in_lobby(lua) {
+                    return Err(mlua::Error::runtime("not available in the lobby (before login)"));
+                }
                 let data = packet_bytes(a, b)?;
                 let st = state(lua);
                 let mut s = st.borrow_mut();
@@ -557,11 +576,10 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
         "last",
         lua.create_function(|lua, (dir, id): (String, u16)| {
             need(lua, "packets.read")?;
-            let last = lua.app_data_ref::<std::rc::Rc<std::cell::RefCell<super::LastPackets>>>().map(|r| r.clone());
-            let Some(last) = last else { return Ok(None) };
-            let l = last.borrow();
-            let m = if dir == "out" { &l.outgoing } else { &l.incoming };
-            m.get(&id).map(|d| lua.create_string(d)).transpose()
+            let stats = &world(lua)?.net.stats;
+            let m = if dir == "out" { &stats.last_out } else { &stats.last_in };
+            let d = m.lock().ok().and_then(|m| m.get(&id).cloned());
+            d.map(|d| lua.create_string(d)).transpose()
         })?,
     )?;
     g.set("packets", packets)?;
@@ -572,12 +590,12 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
         "add",
         lua.create_function(|lua, (text, how): (String, Value)| {
             let (mode, colour) = match how {
-                Value::Integer(m) => (Some(m as u8), None),
-                Value::Number(m) => (Some(m as u8), None),
+                Value::Nil => (None, None),
                 Value::Table(t) => (t.get::<Option<u8>>("mode")?, t.get::<Option<u8>>("colour")?),
-                _ => (None, None),
+                // A number is checked as the table's fields are: 0..255.
+                v => (Some(u8::from_lua(v, lua).map_err(|_| mlua::Error::runtime("a chat mode is 0..255, or {mode = , colour = }"))?), None),
             };
-            state(lua).borrow_mut().ops.push(Op::Chat { text, mode, colour });
+            push_op(lua, Op::Chat { text, mode, colour })?;
             Ok(())
         })?,
     )?;
@@ -628,7 +646,12 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
         "send",
         lua.create_function(move |lua, (text, to): (String, Option<String>)| {
             need(lua, "multibox")?;
-            state(lua).borrow_mut().ops.push(Op::Ipc(me.clone(), to, text));
+            // One UDP datagram each: the encoded message (with room for the sender's name) must fit.
+            let size = serde_json::json!({"mod": me, "from": "", "to": to, "text": text}).to_string().len() + 32;
+            if size > ipc::MAX {
+                return Err(mlua::Error::runtime(format!("an ipc message is at most {} bytes encoded ({size} given)", ipc::MAX)));
+            }
+            push_op(lua, Op::Ipc(me.clone(), to, text))?;
             Ok(())
         })?,
     )?;
@@ -655,8 +678,12 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
         "entities",
         lua.create_function(|lua, opts: Option<Table>| {
             let w = world(lua)?;
-            let max = opts.as_ref().and_then(|o| o.get::<f32>("distance").ok());
-            let kinds: Option<Vec<String>> = opts.as_ref().and_then(|o| o.get::<Vec<String>>("kinds").ok());
+            // A filter field of the wrong type is an error, not silently no filter.
+            let max = opts.as_ref().map(|o| o.get::<Option<f32>>("distance")).transpose().map_err(|_| mlua::Error::runtime("distance is a number"))?.flatten();
+            let kinds = opts.as_ref().map(|o| o.get::<Option<Vec<String>>>("kinds")).transpose().map_err(|_| mlua::Error::runtime("kinds is a list of \"player\", \"npc\", \"mob\""))?.flatten();
+            if let Some(k) = kinds.as_ref().and_then(|k| k.iter().find(|k| !["player", "npc", "mob"].contains(&k.as_str()))) {
+                return Err(mlua::Error::runtime(format!("no entity kind {k:?} (player, npc, mob)")));
+            }
             let out = lua.create_table()?;
             if kinds.as_ref().is_none_or(|k| k.iter().any(|k| k == "player")) {
                 out.push(self_entity(lua, w)?)?;
@@ -841,14 +868,19 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
     let res = lua.create_table()?;
     res.set(
         "item",
-        lua.create_function(|lua, id: u16| {
+        lua.create_function(|lua, id: u32| {
             let w = world(lua)?;
-            let Some(it) = w.item_info.as_ref().and_then(|c| c.item(id)) else { return Ok(None) };
+            // The currency file's range runs past 0xffff (only gil has a record now).
+            let it = match u16::try_from(id) {
+                Ok(small) => w.item_info.as_ref().and_then(|c| c.item(small)),
+                Err(_) => w.names.as_ref().and_then(|n| n.items.item(id)).map(std::sync::Arc::new),
+            };
+            let Some(it) = it else { return Ok(None) };
             let t = lua.create_table()?;
             t.set("id", id)?;
             t.set("name", it.name.as_str())?;
             t.set("description", it.description.as_str())?;
-            t.set("kind", it.kind.map(|k| format!("{k:?}")))?;
+            t.set("kind", it.kind.map(item_kind))?;
             t.set("flags", it.flags)?;
             t.set("stack", it.stack)?;
             t.set("type", it.item_type)?;
@@ -1023,8 +1055,13 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
         lua.create_function(|lua, (word, group): (Option<String>, Option<u8>)| {
             let w = world(lua)?;
             let Some(d) = w.battle.as_ref().and_then(|b| b.phrases.as_ref()) else { return Ok(None) };
-            let (hits, _) = d.query(word.as_deref().unwrap_or(""), group);
+            let word = word.unwrap_or_default();
+            let (hits, matched) = d.query(&word, group);
             let out = lua.create_table()?;
+            // A word that matches nothing gives nothing (the game's candidate list shows the groups instead).
+            if !word.trim().is_empty() && group.is_none() && !matched {
+                return Ok(Some(out));
+            }
             for (text, id) in hits {
                 let t = lua.create_table()?;
                 (t.set("text", text)?, t.set("group", id[2])?, t.set("id", id[3])?, t.set("phrase", super::runtime::phrase(id))?);
@@ -1052,6 +1089,9 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
         lua.create_function(|lua, (kind, id, lang): (String, u32, Option<String>)| {
             use crate::dat::names::NameSource;
             let w = world(lua)?;
+            if !["item", "key_item", "spell", "ability", "zone", "title"].contains(&kind.as_str()) {
+                return Err(mlua::Error::runtime("kind: item, key_item, spell, ability, zone or title"));
+            }
             let lang = crate::dat::items::Lang::parse(lang.as_deref().unwrap_or("en")).ok_or_else(|| mlua::Error::runtime("lang: ja, en, de or fr"))?;
             let Some(n) = names_in(w, lang) else { return Ok(None) };
             Ok(match kind.as_str() {
@@ -1149,7 +1189,30 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
 pub(super) fn json_table(lua: &Lua, v: &serde_json::Value) -> mlua::Result<Value> {
     match v {
         serde_json::Value::Object(o) if !o.is_empty() => to_lua(lua, v),
+        serde_json::Value::Array(a) if !a.is_empty() => to_lua(lua, v),
         _ => Ok(Value::Table(lua.create_table()?)),
+    }
+}
+
+/// An item record's layout by name, as mods read it (res.item's kind).
+fn item_kind(k: crate::dat::items::Kind) -> &'static str {
+    use crate::dat::items::Kind as K;
+    match k {
+        K::General => "general",
+        K::Usable => "usable",
+        K::Automaton => "automaton",
+        K::Armor => "armor",
+        K::Weapon => "weapon",
+        K::K7000 => "maze",
+        K::K7400 => "instinct",
+        K::Objective => "objective",
+        K::Keff8 => "instinct_catalogue",
+        K::Monster => "monster",
+        K::RoeCategory => "roe_category",
+        K::Kf600 => "teleport_point",
+        K::Guide => "primer_category",
+        K::GuidePage => "primer_topic",
+        K::Currency => "currency",
     }
 }
 
@@ -1488,7 +1551,14 @@ fn update(e: &mut super::window::Elem, t: &Table) -> mlua::Result<()> {
         Elem::Buttons { label, items, marked, .. } => {
             if let Some(v) = t.get::<Option<String>>("label")? { *label = v; }
             if let Some(v) = t.get::<Option<Vec<String>>>("items")? { *items = v; }
-            if let Some(v) = t.get::<Option<i64>>("marked")? { *marked = Some((v.max(1) - 1) as usize); }
+            // false clears the mark (a nil field is not seen).
+            match t.get::<Value>("marked")? {
+                Value::Nil => {}
+                Value::Boolean(false) => *marked = None,
+                Value::Integer(v) => *marked = Some((v.max(1) - 1) as usize),
+                Value::Number(v) => *marked = Some((v.max(1.0) - 1.0) as usize),
+                _ => return Err(mlua::Error::runtime("marked is a button's number, or false")),
+            }
         }
         Elem::Slider { label, n, at, shown, .. } => {
             if let Some(v) = t.get::<Option<String>>("label")? { *label = v; }
@@ -1567,7 +1637,8 @@ fn packet_bytes(a: Value, b: Option<mlua::LuaString>) -> mlua::Result<Vec<u8>> {
     match (a, b) {
         (Value::Integer(id), Some(body)) => build_packet(id, &body.as_bytes()),
         (Value::Number(id), Some(body)) => build_packet(id as i64, &body.as_bytes()),
-        (Value::String(data), None) if (4..=MAX_PACKET).contains(&data.as_bytes().len()) => Ok(data.as_bytes().to_vec()),
+        // A whole packet: its size field made to fit its length.
+        (Value::String(data), None) if (4..=MAX_PACKET).contains(&data.as_bytes().len()) => Ok(super::fit(data.as_bytes().to_vec())),
         (Value::String(_), None) => Err(mlua::Error::runtime(format!("a whole packet is 4 to {MAX_PACKET} bytes"))),
         _ => Err(mlua::Error::runtime("inject takes (id, body) or a whole sub-packet")),
     }

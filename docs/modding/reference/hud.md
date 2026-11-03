@@ -28,6 +28,7 @@ end)
 | [`hud.remove(id)`](#hudremove) | Removes an element. |
 | [`hud.clear()`](#hudclear) | Removes every element of the mod. |
 | [`hud.on(id, handler)`](#hudon) | Sets the function called when the player clicks an element. |
+| [`hud.off(id)`](#hudoff) | Removes an element's click handler. |
 | [`hud.screen()`](#hudscreen) | The game window's size in pixels, and the UI's scale. |
 | [`hud.bounds(id)`](#hudbounds) | Where an element was drawn last frame. |
 
@@ -64,8 +65,8 @@ place in the drawing order. `hud.set` changes only the fields you give. Changes 
 frame drawn).
 
 **Colours** are `{r, g, b, a}` tables with values 0 to 255, by position (`{255, 0, 0}`) or by name
-(`{r = 255, g = 0, b = 0}`); a missing channel is 255. Anything else than a table raises
-`a colour is {r, g, b, a} (0..255)`.
+(`{r = 255, g = 0, b = 0}`); a missing channel is 255. `false` means no colour (it clears one in `hud.set`).
+Anything else raises `a colour is {r, g, b, a} (0..255), or false for none`.
 
 **Clicks.** An element takes clicks only once you give it a handler with [`hud.on`](#hudon).
 
@@ -105,7 +106,7 @@ outline or shadow behind it. Use it for counters, labels and short messages.
 
 **Returns** nothing.
 
-**Errors** A colour field that is not a table: `a colour is {r, g, b, a} (0..255)`. A field of the wrong kind raises a
+**Errors** A colour field that is not a table or `false`: `a colour is {r, g, b, a} (0..255), or false for none`. A field of the wrong kind raises a
 conversion error.
 
 **Example**
@@ -144,7 +145,7 @@ Creates or replaces a filled rectangle. Use it as a panel behind other elements,
 
 **Returns** nothing.
 
-**Errors** A `colour` that is not a table: `a colour is {r, g, b, a} (0..255)`.
+**Errors** A `colour` that is not a table or `false`: `a colour is {r, g, b, a} (0..255), or false for none`.
 
 **Example**
 
@@ -182,7 +183,7 @@ progress.
 
 **Returns** nothing.
 
-**Errors** A `colour` that is not a table: `a colour is {r, g, b, a} (0..255)`.
+**Errors** A `colour` that is not a table or `false`: `a colour is {r, g, b, a} (0..255), or false for none`.
 
 **Example**
 
@@ -278,7 +279,7 @@ or broken file is an error at once.
 - A path that would leave the mod's folder: `"...": outside the mod's folder`.
 - A file that cannot be read: the path and the system's reason.
 - A file that is not a PNG: the path, the reason and `(a PNG)`.
-- A `colour` that is not a table: `a colour is {r, g, b, a} (0..255)`.
+- A `colour` that is not a table or `false`: `a colour is {r, g, b, a} (0..255), or false for none`.
 
 **Example**
 
@@ -286,7 +287,7 @@ or broken file is an error at once.
 hud.image("logo", {x = -74, y = -74, path = "img/logo.png", w = 64, h = 64, colour = {255, 255, 255, 200}})
 ```
 
-`hud.set` cannot change an image's `path`: call `hud.image` again with the new one.
+`hud.set(id, {path = "img/other.png"})` swaps the picture; it takes the new file's size unless the same call gives `w` and `h`. A file changed on disk shows the next time it is loaded (`hud.image` or a `path` in `hud.set`).
 
 ## `hud.icon`
 
@@ -308,7 +309,7 @@ Creates or replaces a square icon: an item's icon or a status effect's icon, by 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `x`, `y`, `visible`, `layer` | | | As for [every element](#places-sizes-and-layers). |
-| `icon` | `string` | status | `"item"` for an item's icon; any other value, or none, for a status effect's icon. |
+| `kind` | `string` | item | `"status"` for a status effect's icon; any other value, or none, for an item's icon (as for list and canvas icons). |
 | `id` | `integer` | `0` | The item id or the status effect id. |
 | `size` | `number` | `32` | Its width and height in window pixels (at least 1). |
 
@@ -319,7 +320,7 @@ Creates or replaces a square icon: an item's icon or a status effect's icon, by 
 ```lua
 local x = 20
 for _, b in ipairs(game.buffs()) do
-  hud.icon("buff" .. b.id, {x = x, y = 120, id = b.id, size = 24})
+  hud.icon("buff" .. b.id, {x = x, y = 120, kind = "status", id = b.id, size = 24})
   x = x + 26
 end
 ```
@@ -332,7 +333,8 @@ hud.set(id, fields)
 
 Changes some fields of one of your mod's HUD elements; the others keep their values. The fields are those of the
 element's create call (`hud.text`, `hud.bar`, ...); fields that belong to other kinds are ignored. An element's kind
-cannot change: create it again for that.
+cannot change: create it again for that. A field left out keeps its value, so to take away a text's `colour`, `bg` or
+`outline`, or a bar's `colour`, set it to `false`. An image takes a new `path`.
 
 **Parameters**
 
@@ -344,7 +346,8 @@ cannot change: create it again for that.
 **Returns** nothing.
 
 **Errors** No element with that id: `no HUD element "..."`. Fields of the wrong kind raise the same errors as the
-create call.
+create call. A `path` on an element that is not an image: `path is an image's field`; a `path` that cannot be loaded
+raises the errors of [`hud.image`](#hudimage).
 
 **Example**
 
@@ -362,8 +365,7 @@ end)
 hud.remove(id)
 ```
 
-Removes one of your mod's HUD elements. An id with no element is ignored. A click handler set for the id with `hud.on`
-stays, and works again if you create an element with that id later.
+Removes one of your mod's HUD elements, and its click handler (`hud.on`). An id with no element is ignored.
 
 **Parameters**
 
@@ -386,7 +388,7 @@ timer.after(3, function() hud.remove("note") end)
 hud.clear()
 ```
 
-Removes every HUD element of your mod (other mods' elements stay). Click handlers set with `hud.on` stay registered.
+Removes every HUD element of your mod and every click handler set with `hud.on` (other mods' elements stay).
 
 **Returns** nothing.
 
@@ -405,8 +407,9 @@ hud.on(id, handler)
 ```
 
 Sets the function called when the player clicks one of your HUD elements with the left or the right mouse button. The
-press then belongs to your mod: the game sees neither it nor its release, and `input.on_mouse` filters do not see the
-press. An element has one handler: a second call replaces the first. You may set it before the element exists.
+press then belongs to your mod: the game sees neither it nor its release, and `input.on_mouse` filters see both with
+`blocked = true`. An element has one handler: a second call replaces the first. You may set it before the element
+exists. `hud.off`, `hud.remove` and `hud.clear` take it away.
 
 **Parameters**
 
@@ -442,6 +445,32 @@ Notes:
   handler does not stop the rectangle's clicks.
 - The handler runs as the player's input, so with the `actions` permission it may do game actions (`actions.heal()`
   above needs it).
+
+## `hud.off`
+
+```lua
+hud.off(id)
+```
+
+Removes the click handler of one of your HUD elements; the element stays and clicks go through to the game again. An
+id without a handler is ignored.
+
+**Parameters**
+
+| Parameter | Type | Required | Description |
+| --- | --- | --- | --- |
+| `id` | `string` | yes | The element's id. |
+
+**Returns** nothing.
+
+**Example**
+
+```lua
+-- The "heal" button above stops taking clicks while you are engaged.
+events.on("status_change", function(status)
+  if status == 1 then hud.off("heal") end
+end)
+```
 
 ## `hud.screen`
 

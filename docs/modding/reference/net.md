@@ -63,8 +63,8 @@ Starts an HTTP or HTTPS request on a background thread and returns at once. When
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `url` | `string` | (required) | The address. It must start with `http://` or `https://`. |
-| `method` | `string` | `"GET"` | `"GET"`, `"POST"`, `"PUT"`, `"PATCH"`, `"DELETE"` or `"HEAD"`, in any case. Any other name is sent as `POST`. |
-| `body` | `string` | none | The bytes to send. `POST`, `PUT` and `PATCH` send it (an empty body when missing); `GET` and `HEAD` never send one. Leave it out for `DELETE`: a `DELETE` with a body is sent as a `POST`. |
+| `method` | `string` | `"GET"` | Any HTTP method (`"GET"`, `"POST"`, `"PUT"`, `"PATCH"`, `"DELETE"`, `"HEAD"`, `"OPTIONS"`...), in any case. |
+| `body` | `string` | none | The bytes to send, with whatever method is given. |
 | `headers` | `table` | none | Request headers, as `{ ["Name"] = "value" }`. |
 | `timeout` | `number` | `30` | Seconds the whole request may take, kept between 1 and 300. |
 
@@ -81,7 +81,7 @@ The callback's `res` table has either the first three fields or `error`:
 
 **Needs** the `net` permission.
 
-**Errors** when `url` is missing or does not start with `http://` or `https://` (`"ftp://x": only http and https`).
+**Errors** when `url` is missing or does not start with `http://` or `https://` (`"ftp://x": only http and https`); `"<method>" is not an HTTP method` for a method name with spaces or other characters a method cannot have.
 
 **Example**
 
@@ -185,18 +185,20 @@ Connecting gives up after 10 seconds. Bytes you send before `open` runs are kept
 net.pipe(name, handlers) -> integer
 ```
 
-Connects to a local endpoint that another program on this computer offers, such as a desktop app's control socket. On Linux and macOS it is a Unix socket: a bare name is looked up in the user's runtime folder (`$XDG_RUNTIME_DIR`, else `$TMPDIR`, else `/tmp`), and a name with a `/` in it is used as a path. On Windows it is the named pipe `\\.\pipe\<name>`; a name that starts with `\` is used as given.
+Connects to a local endpoint that another program on this computer offers, such as a desktop app's control socket. On Linux and macOS it is a Unix socket in the user's runtime folder (`$XDG_RUNTIME_DIR`, else `$TMPDIR`, else `/tmp`): `name` is its path inside that folder, such as `discord-ipc-0` or `app/com.discordapp.Discord/discord-ipc-0`. On Windows it is the named pipe `\\.\pipe\<name>`. The system's control sockets, which would let a mod run programs (the session bus, systemd, the gpg, ssh and keyring agents, docker and podman), are refused.
 
 **Parameters**
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `name` | `string` | yes | The socket's or pipe's name, or a full path. |
+| `name` | `string` | yes | The socket's path inside the runtime folder (Windows: the pipe's name). No absolute path, no `..`, no `\`. |
 | `handlers` | `table` | yes | `open`, `data` and `close`, as for [`net.connect`](#netconnect). |
 
 **Returns** `integer`: the pipe's id, for `net.send` and `net.close`.
 
 **Needs** the `net` permission.
+
+**Errors** `net.pipe "<name>": a name in the runtime folder, not a path out of it` for an absolute path, `..` or `\`; `net.pipe "<name>": a system control socket, refused`; on Windows, `net.pipe "<name>": a pipe name has no folders` for a name with `/`.
 
 **Example**
 

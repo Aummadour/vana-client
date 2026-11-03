@@ -1,6 +1,6 @@
 # `ipc`
 
-The `ipc` namespace lets copies of the same mod running in several game windows on one computer talk to each other: one window can tell the others to do something, or share what it sees. A message is a string (turn a table into one with `json.encode`). It goes to the same mod (the same mod id) in every other game window, which receives it as the `ipc_message` event. Sending and receiving both need the `multibox` permission, and both windows must be logged in to the world: messages sent from the lobby are dropped, and a window that is not in the world yet does not receive them.
+The `ipc` namespace lets copies of the same mod running in several game windows on one computer talk to each other: one window can tell the others to do something, or share what it sees. A message is a string (turn a table into one with `json.encode`). It goes to the same mod (the same mod id) in every other game window, which receives it as the `ipc_message` event. Sending and receiving both need the `multibox` permission. Lobby mods can send and receive before login too: a message from the lobby has an empty sender, and a message for a named character reaches only the window where that character is in the world.
 
 ```lua
 commands.register("all", function(...)
@@ -39,6 +39,8 @@ Sends `text` to the same mod in every other game window on this computer, or onl
 
 **Needs** the `multibox` permission.
 
+**Errors** `an ipc message is at most 65000 bytes encoded (<n> given)` for a longer message (the text is sent as JSON, so quotes and control characters take more room).
+
 **Example**
 
 ```lua
@@ -49,7 +51,7 @@ if me.target then
 end
 ```
 
-The message is queued and sent after this frame's mod phase. Delivery is not kept for later: a window that has not logged in, or whose copy of the mod lacks `multibox`, never sees it. Keep messages short (well under 64 KB); a message too large to send is lost without an error.
+The message is queued and sent after this frame's mod phase. Delivery is not kept for later: a window whose copy of the mod is not running, or lacks `multibox`, never sees it.
 
 ## The `ipc_message` event
 
@@ -62,7 +64,7 @@ Runs when the same mod in another game window sent a message with `ipc.send`.
 | Argument | Type | Description |
 | --- | --- | --- |
 | `text` | `string` | The text given to `ipc.send`. |
-| `from` | `string` | The name of the character playing the window that sent it. |
+| `from` | `string` | The name of the character playing the window that sent it; `""` when it was sent from the lobby. |
 
 The mod receives it only while it holds the `multibox` permission. The handler is a normal event handler: it may sleep and read game state. It is not the player's input, so a game action started from it (such as `commands.run` with a game command) needs the `automation` permission.
 

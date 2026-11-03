@@ -57,7 +57,7 @@ level, jobs and slots of a piece of equipment. The ids are the ones `game.items`
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `id` | `integer` | yes | The item id, 0..65535. |
+| `id` | `integer` | yes | The item id, 0..65535 (65535 is gil). |
 
 **Returns** `table?`: the item's record, or `nil` when there is no item with this id or the item tables have not
 loaded yet. A field the record's kind does not have is `0`.
@@ -67,7 +67,7 @@ loaded yet. A field the record's kind does not have is `0`.
 | `id` | `integer` | The item id. |
 | `name` | `string` | The item's name. |
 | `description` | `string` | Its description text (may be empty). |
-| `kind` | `string` | Which layout the record has, set by the id range: `"General"` (0x0000-0x0FFF, 0x2200-0x27FF, 0x7800-0x7BFF), `"Usable"` (0x1000-0x1FFF), `"Automaton"` (0x2000-0x21FF, automaton attachments), `"Armor"` (0x2800-0x3FFF, 0x5A00-0x6FFF), `"Weapon"` (0x4000-0x59FF), `"K7000"` (0x7000-0x73FF), `"K7400"` (0x7400-0x77FF), `"Objective"` (0xE000-0xEFF7, Records of Eminence objectives), `"Keff8"` (0xEFF8-0xEFFF), `"Monster"` (0xF000-0xF1FF, Monstrosity species), `"RoeCategory"` (0xF200-0xF5FF), `"Kf600"` (0xF600-0xF613), `"Guide"` (0xF620-0xF62F) and `"GuidePage"` (0xF630-0xF71F) for the Adventuring Primer, `"Currency"` (0xFFFF). |
+| `kind` | `string` | Which layout the record has, set by the id range: `"general"` (0x0000-0x0FFF, 0x2200-0x27FF, 0x7800-0x7BFF), `"usable"` (0x1000-0x1FFF), `"automaton"` (0x2000-0x21FF, automaton heads, frames and attachments), `"armor"` (0x2800-0x3FFF, 0x5A00-0x6FFF), `"weapon"` (0x4000-0x59FF), `"maze"` (0x7000-0x73FF, Maze Monger tabulae, vouchers and runes), `"instinct"` (0x7400-0x77FF, Monstrosity instincts), `"objective"` (0xE000-0xEFF7, Records of Eminence objectives), `"instinct_catalogue"` (0xEFF8-0xEFFF), `"monster"` (0xF000-0xF1FF, Monstrosity species), `"roe_category"` (0xF200-0xF5FF, Records of Eminence categories), `"teleport_point"` (0xF600-0xF613), `"primer_category"` (0xF620-0xF62F) and `"primer_topic"` (0xF630-0xF71F) for the Adventuring Primer, `"currency"` (0xFFFF, gil). |
 | `flags` | `integer` | Flag bits: 0x8000 Rare, 0x4000 Ex. |
 | `stack` | `integer` | How many fit in one stack. |
 | `type` | `integer` | The item type: 4 for weapons, 5 for armour, among others. |
@@ -85,8 +85,8 @@ loaded yet. A field the record's kind does not have is `0`.
 | `use_delay` | `integer` | Seconds after equipping before it can be used. |
 | `reuse_delay` | `integer` | Seconds between uses. |
 
-**Errors** "game state is not available here" in the lobby or inside a filter. An `id` that is not an integer in
-0..65535 raises an error.
+**Errors** "game state is not available here" in the lobby or inside a filter. An `id` that is not a whole number from
+0 up raises an error.
 
 **Example**
 
@@ -412,7 +412,7 @@ res.autotranslate(word?, group?) -> table[]?
 
 Searches the auto-translate dictionary, as the chat line's completion list does. With a `group`, it lists that group's
 entries. Otherwise it lists the group titles and phrases whose completion key starts with `word` (ignoring case),
-sorted, each text once. With no `word`, or when nothing matches, it lists every group's title instead.
+sorted, each text once. With no `word` it lists every group's title; a `word` that matches nothing gives an empty list.
 
 **Parameters**
 

@@ -34,8 +34,9 @@ pub(super) fn colour(v: Value) -> mlua::Result<Option<[u8; 4]>> {
             let get = |k: &str, i: i64, d: u8| -> mlua::Result<u8> { Ok(t.get::<Option<u8>>(k)?.or(t.get::<Option<u8>>(i)?).unwrap_or(d)) };
             Some([get("r", 1, 255)?, get("g", 2, 255)?, get("b", 3, 255)?, get("a", 4, 255)?])
         }
-        Value::Nil => None,
-        _ => return Err(mlua::Error::runtime("a colour is {r, g, b, a} (0..255)")),
+        // false clears a colour set before (a nil field is not seen).
+        Value::Nil | Value::Boolean(false) => None,
+        _ => return Err(mlua::Error::runtime("a colour is {r, g, b, a} (0..255), or false for none")),
     })
 }
 
@@ -156,8 +157,9 @@ fn apply(e: &mut Elem, t: &Table) -> mlua::Result<()> {
             }
         }
         Kind::Icon { item, id, size } => {
-            if let Some(v) = t.get::<Option<String>>("icon")? {
-                *item = v == "item";
+            // As list and canvas icons: kind = "status" for a status icon, else an item's.
+            if let Some(v) = t.get::<Option<String>>("kind")? {
+                *item = v != "status";
             }
             if let Some(v) = t.get::<Option<u16>>("id")? {
                 *id = v;
@@ -180,6 +182,22 @@ fn put(lua: &Lua, id: String, kind: Kind, spec: Table) -> mlua::Result<()> {
         None => s.hud.push(e),
     }
     Ok(())
+}
+
+/// A PNG from the mod's folder: its texture key (with the file's hash, so a changed file is drawn anew) and pixels.
+pub(super) fn load_png(src: &super::vm::Source, mod_id: &str, path: &str) -> mlua::Result<(String, std::sync::Arc<(u32, u32, Vec<u8>)>)> {
+    if path.contains("..") || path.starts_with('/') || path.contains(':') {
+        return Err(mlua::Error::runtime(format!("{path:?}: outside the mod's folder")));
+    }
+    let bytes = match src {
+        super::vm::Source::Dir(d) => std::fs::read(d.join(path)).map_err(|e| mlua::Error::runtime(format!("{path}: {e}")))?,
+        super::vm::Source::Bundled(_) => return Err(mlua::Error::runtime("bundled mods carry no image files")),
+    };
+    let img = decode_png(&bytes).map_err(|e| mlua::Error::runtime(format!("{path}: {e} (a PNG)")))?;
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut h);
+    Ok((format!("lua image {mod_id}/{path}#{:016x}", h.finish()), std::sync::Arc::new(img)))
 }
 
 /// A PNG's pixels as RGBA.
@@ -208,17 +226,9 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
         "image",
         lua.create_function(move |lua, (id, spec): (String, Table)| {
             let path: String = spec.get("path")?;
-            if path.contains("..") || path.starts_with('/') || path.contains(':') {
-                return Err(mlua::Error::runtime(format!("{path:?}: outside the mod's folder")));
-            }
-            let bytes = match &src {
-                super::vm::Source::Dir(d) => std::fs::read(d.join(&path)).map_err(|e| mlua::Error::runtime(format!("{path}: {e}")))?,
-                super::vm::Source::Bundled(_) => return Err(mlua::Error::runtime("bundled mods carry no image files")),
-            };
-            let img = decode_png(&bytes).map_err(|e| mlua::Error::runtime(format!("{path}: {e} (a PNG)")))?;
+            let (key, img) = load_png(&src, &mod_id, &path)?;
             let (iw, ih) = (img.0 as f32, img.1 as f32);
-            let key = format!("lua image {mod_id}/{path}");
-            put(lua, id, Kind::Image { key, img: std::sync::Arc::new(img), w: iw, h: ih, tint: [255; 4] }, spec)
+            put(lua, id, Kind::Image { key, img, w: iw, h: ih, tint: [255; 4] }, spec)
         })?,
     )?;
     let (src2, mod2) = (vm.src.clone(), vm.manifest.id.clone());
@@ -241,31 +251,54 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
     t.set("text", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Text { text: String::new(), size: 1.0, colour: None, bg: None, align: 0, pad: 4.0, font: None, outline: None, outline_w: 1.0, shadow: false }, spec))?)?;
     t.set("rect", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Rect { w: 100.0, h: 20.0, colour: [0, 0, 0, 160] }, spec))?)?;
     t.set("bar", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Bar { w: 120.0, h: 8.0, value: 0.0, colour: None, kind: "hp".into() }, spec))?)?;
-    t.set("icon", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Icon { item: false, id: 0, size: 32.0 }, spec))?)?;
+    t.set("icon", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Icon { item: true, id: 0, size: 32.0 }, spec))?)?;
     t.set("map", lua.create_function(|lua, (id, spec): (String, Table)| put(lua, id, Kind::Map { w: 200.0, h: 200.0, centre: None, span: 256.0, alpha: 1.0 }, spec))?)?;
+    let (src3, mod3) = (vm.src.clone(), vm.manifest.id.clone());
     t.set(
         "set",
-        lua.create_function(|lua, (id, fields): (String, Table)| {
+        lua.create_function(move |lua, (id, fields): (String, Table)| {
+            let png = fields.get::<Option<String>>("path")?.map(|p| load_png(&src3, &mod3, &p)).transpose()?;
             let st = super::api::state(lua);
             let mut s = st.borrow_mut();
             let e = s.hud.iter_mut().find(|x| x.id == id).ok_or_else(|| mlua::Error::runtime(format!("no HUD element {id:?}")))?;
+            // A new picture: its own size unless the fields give one.
+            if let Some((k, i)) = png {
+                let Kind::Image { key, img, w, h, .. } = &mut e.kind else { return Err(mlua::Error::runtime("path is an image's field")) };
+                (*w, *h) = (i.0 as f32, i.1 as f32);
+                (*key, *img) = (k, i);
+            }
             apply(e, &fields)
         })?,
     )?;
+    // An element's click handler goes with it.
+    let off = |lua: &Lua, which: &dyn Fn(&str) -> bool| -> mlua::Result<()> {
+        let gone: Vec<mlua::RegistryKey> = {
+            let st = super::api::state(lua);
+            let mut s = st.borrow_mut();
+            let (gone, keep) = std::mem::take(&mut s.hud_handlers).into_iter().partition(|h| which(&h.0));
+            s.hud_handlers = keep;
+            gone.into_iter().map(|h| h.1).collect()
+        };
+        for k in gone {
+            lua.remove_registry_value(k)?;
+        }
+        Ok(())
+    };
     t.set(
         "remove",
-        lua.create_function(|lua, id: String| {
+        lua.create_function(move |lua, id: String| {
             super::api::state(lua).borrow_mut().hud.retain(|x| x.id != id);
-            Ok(())
+            off(lua, &|h| h == id)
         })?,
     )?;
     t.set(
         "clear",
-        lua.create_function(|lua, ()| {
+        lua.create_function(move |lua, ()| {
             super::api::state(lua).borrow_mut().hud.clear();
-            Ok(())
+            off(lua, &|_| true)
         })?,
     )?;
+    t.set("off", lua.create_function(move |lua, id: String| off(lua, &|h| h == id))?)?;
     t.set(
         "on",
         lua.create_function(|lua, (id, func): (String, mlua::Function)| {

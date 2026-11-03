@@ -54,7 +54,7 @@ pub struct Setting {
     pub default: Option<toml::Value>,
     pub label: String,
     pub help: String,
-    /// account (default), character or server.
+    /// account (default) or character.
     pub scope: String,
     pub min: Option<f64>,
     pub max: Option<f64>,
@@ -91,6 +91,15 @@ pub fn parse(text: &str, folder: &str) -> Result<Manifest> {
     }
     if let Some(p) = m.permissions.iter().find(|p| !PERMISSIONS.contains(&p.as_str())) {
         bail!("{}: unknown permission {p:?}", m.id);
+    }
+    const TYPES: [&str; 7] = ["bool", "int", "number", "enum", "string", "colour", "key"];
+    for (key, s) in &m.settings {
+        if !["", "account", "character"].contains(&s.scope.as_str()) {
+            bail!("{}: setting {key}: scope is \"account\" or \"character\" ({:?} given)", m.id, s.scope);
+        }
+        if !s.kind.is_empty() && !TYPES.contains(&s.kind.as_str()) {
+            bail!("{}: setting {key}: type is one of {} ({:?} given)", m.id, TYPES.join(", "), s.kind);
+        }
     }
     Ok(m)
 }

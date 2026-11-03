@@ -2,7 +2,7 @@
 //! pieces hidden, the game config by id. Changing anything needs ui.native.
 
 use super::World;
-use super::api::{need, state, to_lua, world};
+use super::api::{need, to_lua, world};
 use mlua::{Lua, Table};
 
 /// HUD pieces a mod may hide, and the modern panels each is.
@@ -39,25 +39,27 @@ fn list_rows(w: &World, l: &super::super::magic::ListWin) -> (&'static str, &'st
     }
 }
 
-/// The list with the keys: its window, rows, cursor and top (0-based), for ui.native.list.
-fn list(w: &World) -> Option<(String, Vec<serde_json::Value>, usize, usize)> {
+/// The list with the keys: its window, rows, cursor and top (0-based; no top for a menu), for ui.native.list.
+fn list(w: &World) -> Option<(String, Vec<serde_json::Value>, usize, Option<usize>)> {
     use serde_json::json;
     if let Some(l) = w.magic.as_ref().or(w.ability.as_ref()).filter(|l| !l.hidden) {
         let (win, kind, ids) = list_rows(w, l);
-        return Some((win.into(), ids.iter().map(|id| json!({ kind: id })).collect(), l.scroll + l.cursor, l.scroll));
+        return Some((win.into(), ids.iter().map(|id| json!({ kind: id })).collect(), l.scroll + l.cursor, Some(l.scroll)));
     }
     if let Some((bag, slots, cursor, top)) = super::super::items::native_list(w) {
         let rows = slots.iter().map(|s| json!({"item": s.id, "count": s.count, "bag": bag, "slot": s.index, "equipped": s.equipped})).collect();
-        return Some(("items".into(), rows, cursor, top));
+        return Some(("items".into(), rows, cursor, Some(top)));
     }
     if let Some((view, rows, cursor, top)) = super::super::shop::native_list(w) {
-        return Some((format!("shop {view}"), rows, cursor, top));
+        return Some((format!("shop {view}"), rows, cursor, Some(top)));
     }
     if let Some((layer, rows, cursor, top)) = super::super::auction::native_list(w) {
-        return Some((format!("auction {layer}"), rows, cursor, top));
+        // A menu's cursor is its entry's child id (from 1) and it does not scroll.
+        let menu = !matches!(layer.as_str(), "list" | "history" | "sell");
+        return Some((format!("auction {layer}"), rows, if menu { cursor.saturating_sub(1) } else { cursor }, (!menu).then_some(top)));
     }
     if let Some(k) = w.keyitems.as_ref().filter(|k| k.state >= 2) {
-        return Some(("keyitems".into(), k.items.iter().map(|(id, _)| json!({"key_item": id})).collect(), k.cursor, k.top));
+        return Some(("keyitems".into(), k.items.iter().map(|(id, _)| json!({"key_item": id})).collect(), k.cursor, Some(k.top)));
     }
     None
 }
@@ -98,7 +100,7 @@ pub(super) fn install(lua: &Lua, ui: &Table, mod_id: &str) -> mlua::Result<()> {
         "list",
         lua.create_function(|lua, ()| {
             let Some((window, rows, cursor, top)) = list(world(lua)?) else { return Ok(None) };
-            to_lua(lua, &serde_json::json!({"window": window, "rows": rows, "cursor": cursor + 1, "top": top + 1})).map(Some)
+            to_lua(lua, &serde_json::json!({"window": window, "rows": rows, "cursor": cursor + 1, "top": top.map(|t| t + 1)})).map(Some)
         })?,
     )?;
     t.set("interface_hidden", lua.create_function(|lua, ()| Ok(world(lua)?.ui_hidden))?)?;
@@ -106,7 +108,7 @@ pub(super) fn install(lua: &Lua, ui: &Table, mod_id: &str) -> mlua::Result<()> {
         "interface",
         lua.create_function(|lua, show: bool| {
             need(lua, "ui.native")?;
-            state(lua).borrow_mut().ops.push(super::Op::Interface(show));
+            super::api::push_op(lua, super::Op::Interface(show))?;
             Ok(())
         })?,
     )?;
@@ -158,9 +160,13 @@ pub(super) fn install(lua: &Lua, ui: &Table, mod_id: &str) -> mlua::Result<()> {
     t.set("config", lua.create_function(|lua, id: u16| Ok(world(lua)?.game.get(id)))?)?;
     t.set(
         "set_config",
-        lua.create_function(|lua, (id, value): (u16, u32)| {
+        lua.create_function(|lua, (id, value): (u16, i64)| {
             need(lua, "ui.native")?;
-            state(lua).borrow_mut().ops.push(super::Op::Config(id, value));
+            // The game keeps 32 bits; a negative value is a signed setting's.
+            if !(i64::from(i32::MIN)..=i64::from(u32::MAX)).contains(&value) {
+                return Err(mlua::Error::runtime(format!("config value {value}: 32 bits (-2147483648..4294967295)")));
+            }
+            super::api::push_op(lua, super::Op::Config(id, value as u32))?;
             Ok(())
         })?,
     )?;

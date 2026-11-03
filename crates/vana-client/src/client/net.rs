@@ -772,6 +772,8 @@ pub struct NetHandle {
 
 pub const HOOK_IN: u8 = 1;
 pub const HOOK_OUT: u8 = 2;
+/// A mod may read packets.last: the net thread keeps the last of each id.
+pub const HOOK_LAST: u8 = 4;
 
 /// Datagram bytes sent and received (whole UDP payloads, as FUN_100f9b80 / FUN_100f9b90 count them) and
 /// when the last server datagram came, in ms since the session started.
@@ -783,6 +785,19 @@ pub struct NetStats {
     pub start: std::sync::OnceLock<Instant>,
     /// A mod's datagram interval in ms (client.set_option send_interval); 0 retail's 400.
     pub send_ms: std::sync::atomic::AtomicU32,
+    /// The last sub-packet of each id each way (packets.last), kept while HOOK_LAST is set.
+    pub last_in: Mutex<std::collections::HashMap<u16, Vec<u8>>>,
+    pub last_out: Mutex<std::collections::HashMap<u16, Vec<u8>>>,
+}
+
+impl NetStats {
+    /// Keeps a sub-packet as the last of its id.
+    pub fn keep_last(&self, out: bool, data: &[u8]) {
+        let id = if data.len() < 2 { 0 } else { u16::from_le_bytes([data[0], data[1]]) & 0x1ff };
+        if let Ok(mut m) = if out { &self.last_out } else { &self.last_in }.lock() {
+            m.insert(id, data.to_vec());
+        }
+    }
 }
 
 impl NetStats {
@@ -1063,6 +1078,11 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
                 tx.send(NetEvent::RawIn(sess, packets))?;
                 None
             } else {
+                if hooks.load(Ordering::Relaxed) & HOOK_LAST != 0 {
+                    for p in &packets {
+                        stats.keep_last(false, &p.data);
+                    }
+                }
                 Some(packets)
             }
         } else {
@@ -1594,6 +1614,11 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
                 away_out += 1;
                 tx.send(NetEvent::RawOut(sess, std::mem::take(&mut queue)))?;
             } else {
+                if hooks.load(Ordering::Relaxed) & HOOK_LAST != 0 {
+                    for p in &queue {
+                        stats.keep_last(true, p);
+                    }
+                }
                 map.send(&queue)?;
                 stats.sent.fetch_add(map.bytes_out - tx_seen, Relaxed);
                 tx_seen = map.bytes_out;

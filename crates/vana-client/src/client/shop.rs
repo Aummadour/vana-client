@@ -1156,9 +1156,25 @@ pub(in crate::client) fn native_list(w: &World) -> Option<(&'static str, Vec<ser
         View::Sell => ("sell", sell_rows(w).iter().map(slot).collect()),
         // The wanted list's first row is its header.
         View::Wanted => ("wanted", std::iter::once(json!({})).chain(wanted(w).iter().map(|g| json!({"item": g.item, "count": g.count, "price": g.price & 0x7fff_ffff}))).collect()),
-        View::Inv(_) if s.guild => ("sell", Vec::new()),
-        View::Inv(filter) => ("sell", inv_rows(w, filter).iter().map(slot).collect()),
-        View::Bazaar => ("bazaar", sell_rows(w).iter().map(slot).collect()),
+        // A guild buys at its own list's prices; the bazaar shows the prices set on it (locked 0x19).
+        View::Inv(filter) => (
+            "sell",
+            inv_rows(w, filter)
+                .iter()
+                .map(|r| json!({"item": r.id, "count": r.count, "bag": super::items::INVENTORY, "slot": r.index, "price": w.guild[1].find(r.id).map(|g| g.price & 0x7fff_ffff)}))
+                .collect(),
+        ),
+        View::Bazaar => (
+            "bazaar",
+            sell_rows(w)
+                .iter()
+                .map(|r| {
+                    let key = (super::items::INVENTORY, r.index);
+                    let price = (w.inv.locks.get(&key) == Some(&0x19)).then(|| w.inv.prices.get(&key).copied().unwrap_or(0));
+                    json!({"item": r.id, "count": r.count, "bag": super::items::INVENTORY, "slot": r.index, "price": price})
+                })
+                .collect(),
+        ),
         View::Wares => ("wares", w.wares.rows().iter().map(|r| json!({"item": r.item, "count": r.count, "price": r.price})).collect()),
     };
     Some((name, rows, s.list.0 + s.list.1, s.list.0))

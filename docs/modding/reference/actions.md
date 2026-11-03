@@ -1,6 +1,6 @@
 # `actions`
 
-Do things in the game the way the player does: cast spells, use abilities and items, change gear, target, move, talk to NPCs and answer their menus, run macros and manage the party. Each call goes through the same checks, refusal lines and server requests as the game's menus, keys and text commands, so whatever the game would refuse is refused the same way, with its usual line in the chat log (a refusal is not a Lua error). Every function needs one of two permissions: `actions` lets the mod act only while it handles the player's input (one of its commands typed by the player or run from a macro or key bind, but not by a mod's `commands.run`; a `ui.on` window event, a `hud.on` click, a `binds.set` function, an `input.on_key` / `input.on_mouse` filter, `/lua run`), and a handler that started that way keeps the right through `sleep` and `wait_until`; `automation` lets it act at any time, from `events.on` handlers and timers too. Without them a call raises `game actions need the actions or automation permission: list it in mod.toml, then /lua grant <mod> actions`, or, with `actions` outside the player's input, `a game action outside the player's input needs the automation permission` (the **Errors** lines below list only the other errors). Most calls are queued and carried out right after the mod phase of the same frame (in the lobby they are dropped), so the game state you read back in the same handler is still the old one and the server's answer comes frames later: wait for it with `sleep` or `wait_until`; `actions.trade`, `actions.buy` and `actions.sell` send at once and raise their refusals as errors.
+Do things in the game the way the player does: cast spells, use abilities and items, change gear, target, move, talk to NPCs and answer their menus, run macros and manage the party. Each call goes through the same checks, refusal lines and server requests as the game's menus, keys and text commands, so whatever the game would refuse is refused the same way, with its usual line in the chat log (a refusal is not a Lua error). Every function needs one of two permissions: `actions` lets the mod act only while it handles the player's input (one of its commands typed by the player or run from a macro or key bind, but not by a mod's `commands.run`; a `ui.on` window event, a `hud.on` click, a `binds.set` function, an `input.on_key` / `input.on_mouse` filter, `/lua run`), and a handler that started that way keeps the right through `sleep` and `wait_until`; `automation` lets it act at any time, from `events.on` handlers and timers too. Without them a call raises `game actions need the actions or automation permission: list it in mod.toml, then /lua grant <mod> actions`, or, with `actions` outside the player's input, `a game action outside the player's input needs the automation permission` (the **Errors** lines below list only the other errors). Most calls are queued and carried out right after the mod phase of the same frame (in the lobby every call raises `not available in the lobby (before login)`), so the game state you read back in the same handler is still the old one and the server's answer comes frames later: wait for it with `sleep` or `wait_until`; `actions.trade`, `actions.buy` and `actions.sell` send at once and raise their refusals as errors.
 
 ```lua
 -- mod.toml: permissions = ["actions", "automation"]
@@ -619,7 +619,7 @@ Pieces:
 
 | Form | Means |
 | --- | --- |
-| an item id (`integer`) | The piece already in that slot if it is this item; else the first copy in the inventory, then wardrobes 8 and 10..16, that no other slot wears. |
+| an item id (`integer`, 1..65535) | The piece already in that slot if it is this item; else the first copy in the inventory, then wardrobes 8 and 10..16, that no other slot wears and no other slot of this call took. |
 | `{bag = , index = }` | That exact piece: its bag number and slot (from `game.items`). |
 | `false` or `0` | Take off what the slot wears. |
 
@@ -627,7 +627,7 @@ Pieces:
 
 **Needs** the `actions` permission (while handling the player's input) or `automation`.
 
-**Errors** `no equipment slot "<name>"` for an unknown slot name; `an equipment slot is 0..15 or a name (main, sub, range, ammo, head, ...)` for another slot value; `a piece is an item id, {bag = , index = }, or false` for another piece value; `actions.equip(slot, item) or actions.equip({slot = item, ...})` when called with one argument that is not a table (or with nil as the piece).
+**Errors** `no equipment slot "<name>"` for an unknown slot name; `an equipment slot is 0..15 or a name (main, sub, range, ammo, head, ...)` for another slot value; `a piece is an item id, {bag = , index = }, or false` for another piece value; `no item id <n> (ids are 1..65535)` for an id out of range; `actions.equip(slot, item) or actions.equip({slot = item, ...})` when called with one argument that is not a table (or with nil as the piece).
 
 **Example**
 
@@ -642,7 +642,7 @@ commands.register("nohat", function()
 end)
 ```
 
-Refused with the game's line while fishing or synthesizing. Each piece is then tried as the equipment window tries it: a slot your job's encumbrance locks, a piece you cannot wear now (race, main job, level), a piece that does not fit the slot, or a wardrobe that is not open to you is skipped without a line. A weapon for the sub slot is refused with the game's line unless your main or sub job is Thief, Ninja, Blue Mage or Dancer, when no main weapon is worn, or when the main weapon is two-handed. The pieces of a table go in the order `pairs` gives (no fixed order). The game learns what you wear only when the server answers, so two slots given the same item id in one call (a pair of rings or earrings) both pick the same copy: name the second copy as `{bag = , index = }`.
+Refused with the game's line while fishing or synthesizing. Each piece is then tried as the equipment window tries it: a slot your job's encumbrance locks, a piece you cannot wear now (race, main job, level), a piece that does not fit the slot, or a wardrobe that is not open to you is skipped without a line. A weapon for the sub slot is refused with the game's line unless your main or sub job is Thief, Ninja, Blue Mage or Dancer, when no main weapon is worn, or when the main weapon is two-handed. The pieces of a table go in slot order (main first, back last). Two slots given the same item id in one call (a pair of rings or earrings) take two different copies; with only one copy, the second slot gets nothing.
 
 ## `actions.unequip`
 
@@ -1040,6 +1040,8 @@ Sets a blue magic slot to a spell, as the Set Spells window does. Read the slots
 
 **Needs** the `actions` permission (while handling the player's input) or `automation`.
 
+**Errors** `blue magic slots are 1..20` for another slot; `spell <id> is not blue magic` for a spell id outside 513..767 (other than 0).
+
 **Example**
 
 ```lua
@@ -1055,7 +1057,7 @@ commands.register("blu", function(...)
 end)
 ```
 
-Problems found when the action runs are printed in the log in red, not raised: `actions.blue_set: not a blue mage` (neither job is Blue Mage), `actions.blue_set: slot 1..20`, `actions.blue_set: not a blue magic spell`. One change goes out per second: a change within a second of the last blue magic or automaton change, or before the server has sent your setup, does nothing. Whether you know the spell and have the points for it is the server's to check.
+Problems found when the action runs are printed in the log in red, not raised: `actions.blue_set: not a blue mage` (neither job is Blue Mage). One change goes out per second: a change within a second of the last blue magic or automaton change, or before the server has sent your setup, does nothing. Whether you know the spell and have the points for it is the server's to check.
 
 ## `actions.blue_remove`
 
@@ -1075,6 +1077,8 @@ Empties a blue magic slot.
 
 **Needs** the `actions` permission (while handling the player's input) or `automation`.
 
+**Errors** `blue magic slots are 1..20` for another slot.
+
 **Example**
 
 ```lua
@@ -1086,7 +1090,7 @@ commands.register("bluclear", function()
 end)
 ```
 
-Problems are printed in the log in red: `actions.blue_set: not a blue mage`, `actions.blue_set: slot 1..20`, `actions.blue_set: the slot is empty`. The one-change-a-second rule of [`actions.blue_set`](#actionsblue_set) applies.
+Problems are printed in the log in red: `actions.blue_remove: not a blue mage`, `actions.blue_remove: the slot is empty`. The one-change-a-second rule of [`actions.blue_set`](#actionsblue_set) applies.
 
 ## `actions.attach`
 
@@ -1100,12 +1104,14 @@ Sets an automaton slot to a head, frame or attachment, as the automaton customiz
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `slot` | `integer` | yes | Counted from 0: 0 the head, 1 the frame, 2..13 the attachments. |
+| `slot` | `integer` | yes | 1 the head, 2 the frame, 3..14 the attachments. |
 | `item` | `integer` | yes | The item id: a head or frame 8193..8447, an attachment 8449..8703 (0 empties the slot). |
 
 **Returns** nothing.
 
 **Needs** the `actions` permission (while handling the player's input) or `automation`.
+
+**Errors** `automaton slots are 1..14 (1 head, 2 frame, 3..14 attachments)` for another slot; `item <id> does not go in automaton slot <n>` for an item that is not a head or frame (slots 1, 2) or an attachment (3..14).
 
 **Example**
 
@@ -1114,13 +1120,13 @@ Sets an automaton slot to a head, frame or attachment, as the automaton customiz
 local SET = { 8449, 8450, 8451 }
 commands.register("pupset", function()
   for k, item in ipairs(SET) do
-    actions.attach(k + 1, item)
+    actions.attach(k + 2, item)
     sleep(1.1)
   end
 end)
 ```
 
-Problems are printed in the log in red: `actions.attach: not a puppetmaster` (neither job is Puppetmaster), `actions.attach: slot 0..13`, `actions.attach: not an item for that slot`. Nothing happens when the slot already holds the item, within a second of the last blue magic or automaton change, or before the server has sent your setup.
+Problems are printed in the log in red: `actions.attach: not a puppetmaster` (neither job is Puppetmaster). Nothing happens when the slot already holds the item, within a second of the last blue magic or automaton change, or before the server has sent your setup.
 
 ## `actions.detach`
 
@@ -1134,24 +1140,26 @@ Empties an automaton slot.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `slot` | `integer` | yes | Counted from 0: 0 the head, 1 the frame, 2..13 the attachments. |
+| `slot` | `integer` | yes | 1 the head, 2 the frame, 3..14 the attachments. |
 
 **Returns** nothing.
 
 **Needs** the `actions` permission (while handling the player's input) or `automation`.
 
+**Errors** `automaton slots are 1..14 (1 head, 2 frame, 3..14 attachments)` for another slot.
+
 **Example**
 
 ```lua
 commands.register("pupclear", function()
-  for slot = 2, 13 do
+  for slot = 3, 14 do
     actions.detach(slot)
     sleep(1.1)
   end
 end)
 ```
 
-Problems are printed in the log in red: `actions.attach: not a puppetmaster`, `actions.attach: slot 0..13`. An empty slot, or a change within a second of the last one, does nothing.
+Problems are printed in the log in red: `actions.detach: not a puppetmaster`. An empty slot, or a change within a second of the last one, does nothing.
 
 ## `actions.invite`
 

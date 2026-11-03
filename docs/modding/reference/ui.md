@@ -369,7 +369,7 @@ redraws it with the new elements; the values you give (`at`, `text`, `open` and 
 | `frame` | `boolean` | `true` | `false` draws the window without its frame. |
 | `x`, `y` | `number` | none | The window's top left corner in the classic UI, in its own units. Give both, or neither. Without them, windows are placed one below and right of the other from the top left. The modern UI places its windows itself and does not use these. |
 | `modal` | `boolean` | `false` | While a modal window is open it keeps the keys and is the only mod window the pointer reaches; other mod windows cannot take the keys from it. It is centred on the screen (in the classic UI, at `x`, `y` when given). A click outside it does not close it. |
-| `popup` | `boolean` | `false` | A pop-up: a modal window placed with its top left at the pointer, which a click outside it closes (sending `close`). The pointer's place is taken when `ui.window` is called. |
+| `popup` | `boolean` | `false` | A pop-up: a modal window placed with its top left at the pointer, which a click outside it closes (sending `close`). It opens where the pointer is when `ui.open` opens it. |
 
 **Returns** nothing.
 
@@ -378,7 +378,7 @@ redraws it with the new elements; the values you give (`at`, `text`, `open` and 
   error).
 - An element of a type that needs an id but has none: `a list element needs an id` (with its type).
 - A canvas drawing command with a type not in the list: `unknown draw command "..."`.
-- A colour field that is not a table: `a colour is {r, g, b, a} (0..255)`.
+- A colour field that is neither a table nor `false`: `a colour is {r, g, b, a} (0..255), or false for none`.
 - A field of the wrong kind (for example a string where a number belongs) raises a conversion error.
 
 **Example**
@@ -421,8 +421,8 @@ Which fields an element takes depends on its type. Any other field is ignored. E
 
 | Element type | Fields it takes |
 | --- | --- |
-| text | `text`, `dim`, `colour` |
-| buttons | `label`, `items`, `marked` (it can be set, but not taken away) |
+| text | `text`, `dim`, `colour` (`false` takes it away) |
+| buttons | `label`, `items`, `marked` (`false` takes the mark away) |
 | slider | `label`, `steps`, `at`, `shown` |
 | list | `rows`, `columns`, `at`, `height` |
 | gauge | `label`, `value`, `text`, `kind` |

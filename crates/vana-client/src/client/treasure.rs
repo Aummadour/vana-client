@@ -96,7 +96,8 @@ pub(super) fn on_solution(w: &mut World, slot: u8, judge: u8, loot: u32, loot_po
     if entry == me {
         (s.own_lot, s.acted) = (entry_point, if entry_flg { 2 } else { 1 });
     }
-    (s.high_lot, s.high_id, s.high_name) = (loot_point as u16, loot, loot_name.clone());
+    // A lot of -1 (none) is no high lot, not 65535.
+    (s.high_lot, s.high_id, s.high_name) = (loot_point.max(0) as u16, loot, loot_name.clone());
     // The lot line needs a lot (not -1 / 0) and the lotter's name (sLootName2).
     let lot_line = |w: &mut World| {
         if entry_point > 0 && !entry_name.is_empty() {

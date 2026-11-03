@@ -121,8 +121,8 @@ fn ready(_: &std::fs::File) -> bool {
     true
 }
 
-/// The device's reader and writer threads: one report a read, until it fails or the mod closes it.
-fn run(id: u64, path: &str, report: Sender<Msg>, out: Receiver<Vec<u8>>, stop: Arc<AtomicBool>) -> std::io::Result<()> {
+/// The device's reader and writer threads: one report a read, until it fails or the mod closes it; the reader's handle.
+fn run(id: u64, path: &str, report: Sender<Msg>, out: Receiver<Vec<u8>>, stop: Arc<AtomicBool>) -> std::io::Result<std::thread::JoinHandle<()>> {
     let mut f = std::fs::OpenOptions::new().read(true).write(true).open(path)?;
     let mut w = f.try_clone()?;
     std::thread::Builder::new().name("lua-hid-w".into()).spawn(move || {
@@ -151,8 +151,7 @@ fn run(id: u64, path: &str, report: Sender<Msg>, out: Receiver<Vec<u8>>, stop: A
                 }
             }
         }
-    })?;
-    Ok(())
+    })
 }
 
 pub(super) fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
@@ -183,10 +182,23 @@ pub(super) fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
             let report = super::sock::reports(lua);
             let (tx, rx) = channel::<Vec<u8>>();
             let stop = Arc::new(AtomicBool::new(false));
-            let _ = report.send(match run(id, &path, report.clone(), rx, stop.clone()) {
-                Ok(()) => Msg::Open(id, Box::new(|| {})),
-                Err(e) => Msg::Closed(id, Some(format!("{path}: {e}"))),
-            });
+            // Open is reported before the reader starts, so no report comes ahead of it.
+            let slot = super::sock::ReaderSlot::default();
+            #[cfg(windows)]
+            let close = super::sock::reader_closer(slot.clone());
+            #[cfg(not(windows))]
+            let close: super::sock::Closer = Box::new(|| {});
+            let _ = report.send(Msg::Open(id, close));
+            match run(id, &path, report.clone(), rx, stop.clone()) {
+                Ok(h) => {
+                    if let Ok(mut g) = slot.lock() {
+                        *g = Some(h);
+                    }
+                }
+                Err(e) => {
+                    let _ = report.send(Msg::Closed(id, Some(format!("{path}: {e}"))));
+                }
+            }
             super::sock::keep(lua, id, handlers, Kind::Tcp { tx, stream: None, stop })?;
             Ok(id)
         })?,

@@ -2,7 +2,7 @@
 
 Rows in the client's Timers window: a name, a countdown and a gauge, in one of the window's three sections (recasts,
 buffs, debuffs), optionally under a group heading. A mod's rows show even when the Timers Extra is off. Each mod has
-its own rows, known by name. The calls are queued and take effect after the mod phase; in the lobby they do nothing.
+its own rows, known by name. The calls are queued and take effect after the mod phase; in the lobby they raise `not available in the lobby (before login)`.
 No permission is needed.
 
 ```lua

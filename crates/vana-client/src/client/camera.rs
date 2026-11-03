@@ -91,7 +91,7 @@ pub fn max_dist(st: &State) -> f32 {
 /// A mod's distance range: retail's rest 3..6 at 1.
 pub const DIST: (f32, f32) = (0.5, 3.0);
 
-fn scale(st: &State) -> f32 {
+pub(super) fn scale(st: &State) -> f32 {
     if st.dist > 0.0 { st.dist } else { 1.0 }
 }
 

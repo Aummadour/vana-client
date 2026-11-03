@@ -38,7 +38,7 @@ Binds `key` (with exactly the modifiers given) to `action`. When the key fires, 
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `up` | `boolean` | `false` | Fire when the key is released instead of pressed. The press itself then still reaches the game; only the release is taken. |
+| `up` | `boolean` | `false` | Fire when the key is released instead of pressed. The press is taken too, so the game sees neither. |
 | `typing` | `boolean` | `false` | Fire while a text field (the chat line, a search...) has the keyboard too. Without it the key goes to the text field then, and the bind does not fire. |
 
 **Returns** nothing.

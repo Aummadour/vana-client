@@ -1,7 +1,6 @@
 //! Sound for mods (docs/lua-mods.md 4.14): the mod's own WAV (or SeWave) files and the game's effects through our
 //! mixer, at the effects volume.
 
-use super::api::state;
 use mlua::{Lua, Table};
 use std::sync::Arc;
 
@@ -40,21 +39,21 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
                 super::vm::Source::Bundled(_) => return Err(mlua::Error::runtime("bundled mods carry no sound files")),
             };
             crate::audio::format::Header::parse(&bytes).map_err(|e| mlua::Error::runtime(format!("{path}: {e} (16-bit PCM WAV, mono or stereo)")))?;
-            state(lua).borrow_mut().ops.push(super::Op::Sound(Sound::File(bytes.into(), level(volume))));
+            super::api::push_op(lua, super::Op::Sound(Sound::File(bytes.into(), level(volume))))?;
             Ok(())
         })?,
     )?;
     t.set(
         "play_se",
         lua.create_function(|lua, (id, volume): (u32, Option<f32>)| {
-            state(lua).borrow_mut().ops.push(super::Op::Sound(Sound::Se(id, level(volume))));
+            super::api::push_op(lua, super::Op::Sound(Sound::Se(id, level(volume))))?;
             Ok(())
         })?,
     )?;
     t.set(
         "play_ui",
         lua.create_function(|lua, id: u32| {
-            state(lua).borrow_mut().ops.push(super::Op::Sound(Sound::Ui(id)));
+            super::api::push_op(lua, super::Op::Sound(Sound::Ui(id)))?;
             Ok(())
         })?,
     )?;
@@ -66,7 +65,7 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
                 Some(id) => Some(Music::Track(id)),
                 None => None,
             };
-            state(lua).borrow_mut().ops.push(super::Op::Music(me.clone(), m));
+            super::api::push_op(lua, super::Op::Music(me.clone(), m))?;
             Ok(())
         })?,
     )?;
@@ -75,7 +74,7 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
         "mute_music",
         lua.create_function(move |lua, on: Option<bool>| {
             let m = on.unwrap_or(true).then_some(Music::Mute);
-            state(lua).borrow_mut().ops.push(super::Op::Music(me.clone(), m));
+            super::api::push_op(lua, super::Op::Music(me.clone(), m))?;
             Ok(())
         })?,
     )?;

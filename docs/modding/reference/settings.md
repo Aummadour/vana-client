@@ -39,11 +39,11 @@ scope = "character"
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
-| `type` | string | `""` | `"bool"`, `"int"`, `"number"`, `"enum"`, `"string"`, `"colour"` or `"key"`. The Extras page shows `bool`, `enum`, `int` and `number` settings; the others are read with `settings.get` and set with `/lua set` only. |
+| `type` | string | `""` | `"bool"`, `"int"`, `"number"`, `"enum"`, `"string"`, `"colour"` or `"key"`; any other type stops the mod from loading. The Extras page shows `bool`, `enum`, `int` and `number` settings; the others are read with `settings.get` and set with `/lua set` only. |
 | `default` | any TOML value | none | The value `settings.get` returns while the user has chosen none. |
 | `label` | string | the key | The row's name on the Extras page. |
 | `help` | string | `""` | The help text the Extras page shows for the row. |
-| `scope` | string | `"account"` | `"account"`: one value for every character on this computer. `"character"`: a value per character. Any other value works as `"account"`. |
+| `scope` | string | `"account"` | `"account"`: one value for every character on this computer. `"character"`: a value per character. Any other value stops the mod from loading. |
 | `min` | number | `0` | The smallest value an `int` or `number` row offers. |
 | `max` | number | `100` | The largest value an `int` or `number` row offers. |
 | `step` | number | `1` for `int`, a twentieth of the range for `number` | The step between the values the row offers (at most 201 values). |

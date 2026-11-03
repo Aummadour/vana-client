@@ -141,7 +141,7 @@ Pauses the running handler for `n` frames.
 
 | Parameter | Type | Required | Description |
 | --- | --- | --- | --- |
-| `n` | `integer` | no, default `1` | How many frames to wait, at least 1. Pass an integer: a float such as `2.0` counts as 1. |
+| `n` | `integer` | no, default `1` | How many frames to wait, at least 1. A whole float such as `2.0` counts as 2; a fraction such as `1.5` counts as 1. |
 
 **Returns** nothing.
 

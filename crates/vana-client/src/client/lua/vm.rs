@@ -44,6 +44,14 @@ impl Source {
         }
     }
 
+    /// A file's bytes, text or not (fs.read).
+    pub fn read_bytes(&self, rel: &str) -> std::io::Result<Vec<u8>> {
+        match self {
+            Source::Dir(d) => std::fs::read(d.join(rel)),
+            Source::Bundled(files) => files.iter().find(|f| f.0 == rel).map(|f| f.1.as_bytes().to_vec()).ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound)),
+        }
+    }
+
     pub fn exists(&self, rel: &str) -> bool {
         match self {
             Source::Dir(d) => d.join(rel).is_file(),
@@ -68,6 +76,12 @@ pub(super) struct Vm {
 pub(super) struct ModState {
     /// Frames this mod has run (sleepers wake in a later frame than they slept).
     pub frame_no: u64,
+    /// Suspended for its errors (the Vm's flag, seen by other mods' calls).
+    pub suspended: bool,
+    /// The character storage file it loaded (saved there even when the client closes without a world).
+    pub char_file: Option<String>,
+    /// Keys it holds down for the game (input.send), let go when it unloads.
+    pub keys_down: Vec<winit::keyboard::KeyCode>,
     pub handlers: Vec<Handler>,
     pub commands: Vec<(String, RegistryKey)>,
     pub timers: Vec<Timer>,
@@ -357,7 +371,8 @@ impl Vm {
                         }
                     }
                 }
-                _ => Wake::Frames(it.next().and_then(|v| v.as_integer()).unwrap_or(1).max(1) as u32),
+                // A whole float (2.0) counts as its integer.
+                _ => Wake::Frames(it.next().and_then(|v| v.as_integer().or(v.as_number().filter(|n| n.fract() == 0.0).map(|n| n as i64))).unwrap_or(1).clamp(1, u32::MAX as i64) as u32),
             }
         } else {
             Wake::Frames(1)

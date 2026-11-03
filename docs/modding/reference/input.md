@@ -116,7 +116,7 @@ input.on_mouse(function(e)
 end)
 ```
 
-Taking a button press takes its release too (the filters still see the release). A left or right press on a [HUD](hud.md) element that has a click handler goes to that element and is not shown to mouse filters. The chain of filters, the time limit and the player's-input rule are as for [`input.on_key`](#inputon_key).
+Taking a button press takes its release too (the filters still see the release). A left or right press on a [HUD](hud.md) element that has a click handler goes to that element; the filters still see the press and its release, with `blocked = true`. The chain of filters, the time limit and the player's-input rule are as for [`input.on_key`](#inputon_key).
 
 ## `input.off`
 
@@ -255,7 +255,7 @@ Taps a key for the game: the key and the modifiers given count as pressed for on
 
 **Needs** the `input.capture` permission.
 
-**Errors** `no key "<key>" (e.g. "f1", "ctrl+a", "^!1", "numpad+")` when the key is not a known combination.
+**Errors** `no key "<key>" (e.g. "f1", "ctrl+a", "^!1", "numpad+")` when the key is not a known combination; `"<key>": the Windows key cannot be pressed for the game` for a combination with Win.
 
 **Example**
 
@@ -265,7 +265,7 @@ commands.register("confirm", function()
 end)
 ```
 
-The press is queued and given to the game and its windows after this frame's mod phase. It goes to them directly: no mod's key filters or binds see it. The Win modifier is accepted in the text but not pressed.
+The press is queued and given to the game and its windows after this frame's mod phase. It goes to them directly: no mod's key filters or binds see it. The game reads no Windows key, so a combination with Win raises an error.
 
 ## `input.send`
 
@@ -273,7 +273,7 @@ The press is queued and given to the game and its windows after this frame's mod
 input.send(key, down)
 ```
 
-Holds a key down for the game (`down = true`) or lets it go (`down = false`). The key stays down until you send it up. Use it for keys that do something while held.
+Holds a key down for the game (`down = true`) or lets it go (`down = false`). The key stays down until you send it up, or until the mod unloads (its held keys then come up). Use it for keys that do something while held.
 
 **Parameters**
 

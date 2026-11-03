@@ -128,7 +128,7 @@ pub(super) fn apply(w: &mut World, gu: Option<&GameUi>, a: Action) {
             let name = magic::spell_name(w, spell);
             let targets = w.actions.as_ref().and_then(|x| x.spells.iter().find(|s| s.id == spell)).map_or(0x20, |s| s.targets);
             let t = t.or_else(|| default_target(w, targets));
-            textcmd::run(w, &format!("/magic \"{name}\"{}", token(&t)), textcmd::Mode::Internal);
+            textcmd::run_unfiltered(w, &format!("/magic \"{name}\"{}", token(&t)), textcmd::Mode::Internal);
         }
         Action::Ability(id, t) => {
             let Some(i) = w.actions.as_ref().and_then(|x| x.abilities.iter().position(|a| a.id == id)) else { return };
@@ -146,9 +146,9 @@ pub(super) fn apply(w: &mut World, gu: Option<&GameUi>, a: Action) {
             let name = magic::ability_name(w, i as u16);
             let t = t.or_else(|| default_target(w, a.targets));
             let cmd = if a.kind == 3 { "/weaponskill" } else if a.kind == 0x14 { "/monsterskill" } else { "/jobability" };
-            textcmd::run(w, &format!("{cmd} \"{name}\"{}", token(&t)), textcmd::Mode::Internal);
+            textcmd::run_unfiltered(w, &format!("{cmd} \"{name}\"{}", token(&t)), textcmd::Mode::Internal);
         }
-        Action::Line(line) => textcmd::run(w, &line, textcmd::Mode::Internal),
+        Action::Line(line) => textcmd::run_unfiltered(w, &line, textcmd::Mode::Internal),
         Action::UseSlot { bag, index, target } => {
             // As /item: the status gate, then the use (target: ourselves when none).
             if !textcmd::status_gate(w, 0x7f) {
@@ -162,6 +162,8 @@ pub(super) fn apply(w: &mut World, gu: Option<&GameUi>, a: Action) {
             if !textcmd::status_gate(w, 0x46) {
                 return;
             }
+            // The server answers each piece later: the copies picked here are not picked again for another slot.
+            let mut taken: Vec<(u8, u8)> = Vec::new();
             for (slot, p) in pieces {
                 let worn = w.inv.equip.get(slot).copied().flatten();
                 let at = match p {
@@ -173,11 +175,15 @@ pub(super) fn apply(w: &mut World, gu: Option<&GameUi>, a: Action) {
                     }
                     Piece::At(b, i) => Some((b, i)),
                     // The worn piece if it is this item, else the first not worn elsewhere.
-                    Piece::Item(id) => worn.filter(|&(b, i)| w.inv.item(b, i) == Some(id)).or_else(|| {
-                        WEAR_BAGS.iter().flat_map(|&b| (0..=80u8).map(move |i| (b, i))).find(|&(b, i)| w.inv.item(b, i) == Some(id) && !w.inv.equip.contains(&Some((b, i))))
+                    Piece::Item(id) => worn.filter(|&(b, i)| w.inv.item(b, i) == Some(id) && !taken.contains(&(b, i))).or_else(|| {
+                        WEAR_BAGS
+                            .iter()
+                            .flat_map(|&b| (1..=80u8).map(move |i| (b, i)))
+                            .find(|&(b, i)| w.inv.item(b, i) == Some(id) && !w.inv.equip.contains(&Some((b, i))) && !taken.contains(&(b, i)))
                     }),
                 };
                 let Some((b, i)) = at else { continue };
+                taken.push((b, i));
                 // Already worn there: nothing (try_equip would take it off).
                 if worn == Some((b, i)) {
                     continue;
@@ -218,7 +224,7 @@ pub(super) fn apply(w: &mut World, gu: Option<&GameUi>, a: Action) {
         Action::Invite(name) => {
             let here = w.entities.values().any(|e| e.name.eq_ignore_ascii_case(&name));
             if here {
-                textcmd::run(w, &format!("/pcmd add {name}"), textcmd::Mode::Internal);
+                textcmd::run_unfiltered(w, &format!("/pcmd add {name}"), textcmd::Mode::Internal);
             } else {
                 super::super::search::lookup(w, &name, super::super::search::Then::PartyAdd);
             }
@@ -264,12 +270,12 @@ pub(super) fn apply(w: &mut World, gu: Option<&GameUi>, a: Action) {
         Action::Target(t) => target::set(w, t),
         Action::BlueSlot(i, spell) => {
             if let Err(e) = super::super::bluset::set_slot(w, i, spell) {
-                w.chat.push_colour(format!("actions.blue_set: {e}"), super::ERROR);
+                w.chat.push_colour(format!("actions.{}: {e}", if spell == 0 { "blue_remove" } else { "blue_set" }), super::ERROR);
             }
         }
         Action::PupSlot(i, item) => {
             if let Err(e) = super::super::pupset::set_slot(w, i, item) {
-                w.chat.push_colour(format!("actions.attach: {e}"), super::ERROR);
+                w.chat.push_colour(format!("actions.{}: {e}", if item == 0 { "detach" } else { "attach" }), super::ERROR);
             }
         }
         Action::Lock(on) => target::lock(w, on, "mod"),
@@ -291,7 +297,7 @@ pub(super) fn apply(w: &mut World, gu: Option<&GameUi>, a: Action) {
                 (w.autorun, w.autorun_dir, w.follow, w.run_to) = (true, d.normalize(), None, Some((x, z, within)));
             }
         }
-        Action::Follow(id) => textcmd::run(w, &format!("/follow {id}"), textcmd::Mode::Internal),
+        Action::Follow(id) => textcmd::run_unfiltered(w, &format!("/follow {id}"), textcmd::Mode::Internal),
         Action::Walk(on) => w.walk = on,
         Action::Stop => {
             w.autorun = false;
@@ -337,7 +343,7 @@ fn slot_arg(v: &Value) -> mlua::Result<usize> {
 fn piece_arg(v: &Value) -> mlua::Result<Piece> {
     match v {
         Value::Nil | Value::Boolean(false) | Value::Integer(0) => Ok(Piece::None),
-        Value::Integer(i) => Ok(Piece::Item(*i as u16)),
+        Value::Integer(i) => u16::try_from(*i).map(Piece::Item).map_err(|_| mlua::Error::runtime(format!("no item id {i} (ids are 1..65535)"))),
         Value::Table(t) => Ok(Piece::At(t.get("bag")?, t.get("index")?)),
         _ => Err(mlua::Error::runtime("a piece is an item id, {bag = , index = }, or false")),
     }
@@ -345,7 +351,7 @@ fn piece_arg(v: &Value) -> mlua::Result<Piece> {
 
 fn queue(lua: &Lua, a: Action) -> mlua::Result<()> {
     super::api::need_action(lua)?;
-    super::api::state(lua).borrow_mut().ops.push(super::Op::Act(a));
+    super::api::push_op(lua, super::Op::Act(a))?;
     Ok(())
 }
 
@@ -367,6 +373,7 @@ pub(super) fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
     t.set(
         "use_item",
         lua.create_function(|lua, (item, to): (u16, Option<Value>)| {
+            super::api::need_action(lua)?;
             let w = super::api::world(lua)?;
             let it = w.item_info.as_ref().and_then(|c| c.item(item)).ok_or_else(|| mlua::Error::runtime(format!("no item {item}")))?;
             let (name, targets) = (it.name.clone(), it.targets);
@@ -406,6 +413,8 @@ pub(super) fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
                 (_, Some(p)) => vec![(slot_arg(&a)?, piece_arg(&p)?)],
                 _ => return Err(mlua::Error::runtime("actions.equip(slot, item) or actions.equip({slot = item, ...})")),
             };
+            let mut pieces = pieces;
+            pieces.sort_by_key(|p| p.0);
             queue(lua, Action::Equip(pieces))
         })?,
     )?;
@@ -468,10 +477,32 @@ pub(super) fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
             super::super::shop::sell(super::api::world(lua)?, slot, qty.unwrap_or(1)).map_err(|e| mlua::Error::runtime(format!("actions.sell: {e}")))
         })?,
     )?;
-    t.set("blue_set", lua.create_function(|lua, (slot, spell): (usize, u16)| queue(lua, Action::BlueSlot(slot.saturating_sub(1), spell)))?)?;
-    t.set("blue_remove", lua.create_function(|lua, slot: usize| queue(lua, Action::BlueSlot(slot.saturating_sub(1), 0)))?)?;
-    t.set("attach", lua.create_function(|lua, (slot, item): (usize, u16)| queue(lua, Action::PupSlot(slot, item)))?)?;
-    t.set("detach", lua.create_function(|lua, slot: usize| queue(lua, Action::PupSlot(slot, 0)))?)?;
+    // Job setups count slots from 1, as every list here does.
+    let blue = |slot: usize| if (1..=20).contains(&slot) { Ok(slot - 1) } else { Err(mlua::Error::runtime("blue magic slots are 1..20")) };
+    let pup = |slot: usize| if (1..=14).contains(&slot) { Ok(slot - 1) } else { Err(mlua::Error::runtime("automaton slots are 1..14 (1 head, 2 frame, 3..14 attachments)")) };
+    t.set(
+        "blue_set",
+        lua.create_function(move |lua, (slot, spell): (usize, u16)| {
+            // 0 empties the slot.
+            if spell != 0 && !(0x201..0x300).contains(&spell) {
+                return Err(mlua::Error::runtime(format!("spell {spell} is not blue magic")));
+            }
+            queue(lua, Action::BlueSlot(blue(slot)?, spell))
+        })?,
+    )?;
+    t.set("blue_remove", lua.create_function(move |lua, slot: usize| queue(lua, Action::BlueSlot(blue(slot)?, 0)))?)?;
+    t.set(
+        "attach",
+        lua.create_function(move |lua, (slot, item): (usize, u16)| {
+            let i = pup(slot)?;
+            let base = if i < 2 { 0x2000 } else { 0x2100 };
+            if item != 0 && !(base + 1..base + 0x100).contains(&item) {
+                return Err(mlua::Error::runtime(format!("item {item} does not go in automaton slot {slot}")));
+            }
+            queue(lua, Action::PupSlot(i, item))
+        })?,
+    )?;
+    t.set("detach", lua.create_function(move |lua, slot: usize| queue(lua, Action::PupSlot(pup(slot)?, 0)))?)?;
     t.set(
         "invite",
         lua.create_function(|lua, name: String| queue(lua, Action::Invite(name)))?,

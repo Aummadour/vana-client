@@ -121,8 +121,9 @@ end)
 
 Notes:
 
-- Typed filters see lines typed in the chat line, macro lines, key bind lines and lines mods run with `commands.run`.
-  They do not see lines for mods (`//name`, `/lua`, or a mod's registered `/name`): those go to the mods first. A line
+- Typed filters see lines typed in the chat line, macro lines, key bind lines, lines mods run with `commands.run`,
+  and the lines the game's menus run (a spell picked in the magic menu runs `/magic "Cure" <t>`). They do not see
+  what mods' `actions` calls run, so one mod cannot rewrite another's action. They do not see lines for mods (`//name`, `/lua`, or a mod's registered `/name`): those go to the mods first. A line
   finished in the sub-target prompt (`<st>`) is not filtered a second time.
 - The line comes as typed: text without a leading `/` arrives without the chat mode's prefix (`hello` typed in say
   mode arrives as `hello`).

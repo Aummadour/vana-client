@@ -2,7 +2,7 @@
 
 `audio` plays sounds: WAV files that ship with your mod, the game's sound effects and interface sounds, and it
 can take over the background music (hold a track of your choice, or silence it). No permission is needed. Every call
-is queued and the sound starts after the mod phase; nothing plays without an audio device, and a sound is skipped
+is queued and the sound starts after the mod phase (in the lobby a call raises `not available in the lobby (before login)`); nothing plays without an audio device, and a sound is skipped
 when the game is already playing as many sounds at once as it allows. Sounds play at the player's effects volume, so
 a `volume` of 1 is as loud as the game's effects. A mod's hold on the music ends when it gives it back or unloads.
 

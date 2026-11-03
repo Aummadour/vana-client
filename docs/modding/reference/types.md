@@ -260,7 +260,7 @@ The mouse as an `input.on_mouse` filter sees it.
 | `delta` | `number?` | For `wheel`: how far it turned, in notches, up positive (a touchpad's scroll counts 40 pixels a notch). nil otherwise. |
 | `blocked` | `boolean` | An earlier mod's filter took this event. |
 
-A left or right press on a HUD element that has a click handler (`hud.on`) goes to that handler and does not reach the filters.
+A left or right press on a HUD element that has a click handler (`hud.on`) goes to that handler; the filters see it with `blocked = true`.
 
 ```lua
 input.on_mouse(function(e)

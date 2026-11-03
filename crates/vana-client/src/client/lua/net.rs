@@ -6,44 +6,29 @@ use mlua::{Function, Lua, Table};
 use std::time::Duration;
 
 /// An answer for a mod: its request's id and {status, body, headers} or an error.
-pub(super) type Answer = (u64, Result<(u16, Vec<u8>, Vec<(String, String)>), String>);
+pub(super) type Answer = (u64, Result<(i64, Vec<u8>, Vec<(String, String)>), String>);
 
 /// A body larger than this is cut (16 MB).
 const MAX_BODY: u64 = 16 << 20;
 
-fn fetch(method: &str, url: &str, headers: &[(String, String)], body: Option<Vec<u8>>, timeout: Duration) -> Result<(u16, Vec<u8>, Vec<(String, String)>), String> {
+fn fetch(method: &str, url: &str, headers: &[(String, String)], body: Option<Vec<u8>>, timeout: Duration) -> Result<(i64, Vec<u8>, Vec<(String, String)>), String> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .user_agent(concat!("vana-client/", env!("CARGO_PKG_VERSION")))
         .timeout_global(Some(timeout))
         .http_status_as_error(false)
         .build()
         .into();
-    let resp = match (method, body) {
-        ("GET", _) | ("HEAD", _) | ("DELETE", None) => {
-            let mut r = match method {
-                "HEAD" => agent.head(url),
-                "DELETE" => agent.delete(url),
-                _ => agent.get(url),
-            };
-            for (k, v) in headers {
-                r = r.header(k, v);
-            }
-            r.call()
-        }
-        (m, b) => {
-            let mut r = match m {
-                "PUT" => agent.put(url),
-                "PATCH" => agent.patch(url),
-                _ => agent.post(url),
-            };
-            for (k, v) in headers {
-                r = r.header(k, v);
-            }
-            r.send(&b.unwrap_or_default()[..])
-        }
+    // Any method, with or without a body (the binding checked the name).
+    let mut req = ureq::http::Request::builder().method(method).uri(url);
+    for (k, v) in headers {
+        req = req.header(k, v);
+    }
+    let resp = match body {
+        Some(b) => agent.run(req.body(b).map_err(|e| e.to_string())?),
+        None => agent.run(req.body(()).map_err(|e| e.to_string())?),
     };
     let mut resp = resp.map_err(|e| e.to_string())?;
-    let status = resp.status().as_u16();
+    let status = i64::from(resp.status().as_u16());
     let hdrs = resp.headers().iter().map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string())).collect();
     let body = resp.body_mut().with_config().limit(MAX_BODY).read_to_vec().map_err(|e| e.to_string())?;
     Ok((status, body, hdrs))
@@ -60,6 +45,9 @@ pub(super) fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
                 return Err(mlua::Error::runtime(format!("{url:?}: only http and https")));
             }
             let method = spec.get::<Option<String>>("method")?.unwrap_or_else(|| "GET".into()).to_ascii_uppercase();
+            if ureq::http::Method::from_bytes(method.as_bytes()).is_err() {
+                return Err(mlua::Error::runtime(format!("{method:?} is not an HTTP method")));
+            }
             let body = spec.get::<Option<mlua::LuaString>>("body")?.map(|b| b.as_bytes().to_vec());
             let headers: Vec<(String, String)> = match spec.get::<Option<Table>>("headers")? {
                 Some(h) => h.pairs::<String, String>().collect::<mlua::Result<_>>()?,

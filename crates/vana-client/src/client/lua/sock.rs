@@ -69,14 +69,28 @@ fn tcp_closer(s: TcpStream) -> Closer {
     })
 }
 
-/// A TCP stream's reader and writer threads, and what shuts it.
-fn run_tcp(id: u64, s: &TcpStream, report: Sender<Msg>, out: Receiver<Vec<u8>>) -> std::io::Result<Closer> {
-    run_stream(id, s.try_clone()?, s.try_clone()?, report, out)?;
-    Ok(tcp_closer(s.try_clone()?))
+/// A TCP stream's reader and writer threads.
+fn run_tcp(id: u64, s: &TcpStream, report: Sender<Msg>, out: Receiver<Vec<u8>>) -> std::io::Result<()> {
+    run_stream(id, s.try_clone()?, s.try_clone()?, report, out).map(|_| ())
 }
 
-/// A connected stream's reader and writer threads (the writer takes what `out` queues).
-fn run_stream<R: Read + Send + 'static, W: Write + Send + 'static>(id: u64, mut r: R, mut w: W, report: Sender<Msg>, out: Receiver<Vec<u8>>) -> std::io::Result<()> {
+/// Where a reader thread is put once it runs, for a closer made before it (see `reader_closer`).
+pub(super) type ReaderSlot = Arc<std::sync::Mutex<Option<std::thread::JoinHandle<()>>>>;
+
+/// Windows: a blocking read on a file or pipe never ends by itself; closing cancels the reader thread's read.
+#[cfg(windows)]
+pub(super) fn reader_closer(slot: ReaderSlot) -> Closer {
+    use std::os::windows::io::AsRawHandle;
+    Box::new(move || {
+        if let Some(h) = slot.lock().ok().as_ref().and_then(|g| g.as_ref()) {
+            // SAFETY: the JoinHandle keeps the thread handle open.
+            unsafe { windows_sys::Win32::System::IO::CancelSynchronousIo(h.as_raw_handle() as _) };
+        }
+    })
+}
+
+/// A connected stream's reader and writer threads (the writer takes what `out` queues); the reader's handle.
+fn run_stream<R: Read + Send + 'static, W: Write + Send + 'static>(id: u64, mut r: R, mut w: W, report: Sender<Msg>, out: Receiver<Vec<u8>>) -> std::io::Result<std::thread::JoinHandle<()>> {
     std::thread::Builder::new().name("lua-tcp-w".into()).spawn(move || {
         for b in out {
             if w.write_all(&b).is_err() {
@@ -103,8 +117,7 @@ fn run_stream<R: Read + Send + 'static, W: Write + Send + 'static>(id: u64, mut 
                 }
             }
         }
-    })?;
-    Ok(())
+    })
 }
 
 fn addr(host: &str, port: u16) -> mlua::Result<SocketAddr> {
@@ -117,17 +130,33 @@ pub(super) fn keep(lua: &Lua, id: u64, handlers: Table, kind: Kind) -> mlua::Res
     Ok(())
 }
 
+/// The system's control sockets, refused: each lets a client run programs (the session bus, systemd, agents, docker).
+const PIPES_REFUSED: [&str; 12] = ["bus", "dbus-1", "systemd", "gnupg", "keyring", "gcr", "ssh-agent", "openssh-ssh-agent", "docker.sock", "docker_engine", "podman", "containerd"];
+
+/// A pipe name: a path inside the runtime folder (as `app/com.discordapp.Discord/discord-ipc-0`), never out of it,
+/// and not one of the system's control sockets.
+fn pipe_allowed(name: &str) -> Result<(), &'static str> {
+    let parts: Vec<&str> = name.split('/').collect();
+    if name.is_empty() || name.starts_with('/') || name.contains('\\') || parts.iter().any(|p| p.is_empty() || *p == "." || *p == "..") {
+        return Err("a name in the runtime folder, not a path out of it");
+    }
+    if cfg!(windows) && parts.len() > 1 {
+        return Err("a pipe name has no folders");
+    }
+    let first = parts[0].to_ascii_lowercase();
+    if PIPES_REFUSED.iter().any(|r| first == *r || first.starts_with(&format!("{r}."))) || first.starts_with("ssh-") {
+        return Err("a system control socket, refused");
+    }
+    Ok(())
+}
+
 /// A local endpoint another program offers: a Unix socket (a bare name in the runtime folder, as Discord's
 /// `discord-ipc-0`), or on Windows the named pipe `\\.\pipe\<name>`.
 #[cfg(unix)]
-fn open_pipe(name: &str) -> std::io::Result<(Box<dyn Read + Send>, Box<dyn Write + Send>, Closer)> {
+fn open_pipe(name: &str, _: ReaderSlot) -> std::io::Result<(Box<dyn Read + Send>, Box<dyn Write + Send>, Closer)> {
     use std::os::unix::net::UnixStream;
-    let path = if name.contains('/') {
-        std::path::PathBuf::from(name)
-    } else {
-        let dir = std::env::var_os("XDG_RUNTIME_DIR").or_else(|| std::env::var_os("TMPDIR")).map_or_else(|| std::path::PathBuf::from("/tmp"), std::path::PathBuf::from);
-        dir.join(name)
-    };
+    let dir = std::env::var_os("XDG_RUNTIME_DIR").or_else(|| std::env::var_os("TMPDIR")).map_or_else(|| std::path::PathBuf::from("/tmp"), std::path::PathBuf::from);
+    let path = dir.join(name);
     let s = UnixStream::connect(path)?;
     let (r, w, c) = (s.try_clone()?, s.try_clone()?, s);
     Ok((Box::new(r), Box::new(w), Box::new(move || {
@@ -136,11 +165,11 @@ fn open_pipe(name: &str) -> std::io::Result<(Box<dyn Read + Send>, Box<dyn Write
 }
 
 #[cfg(windows)]
-fn open_pipe(name: &str) -> std::io::Result<(Box<dyn Read + Send>, Box<dyn Write + Send>, Closer)> {
-    let path = if name.starts_with('\\') { name.to_string() } else { format!(r"\\.\pipe\{name}") };
+fn open_pipe(name: &str, slot: ReaderSlot) -> std::io::Result<(Box<dyn Read + Send>, Box<dyn Write + Send>, Closer)> {
+    let path = format!(r"\\.\pipe\{name}");
     let f = std::fs::OpenOptions::new().read(true).write(true).open(path)?;
     let w = f.try_clone()?;
-    Ok((Box::new(f), Box::new(w), Box::new(|| {})))
+    Ok((Box::new(f), Box::new(w), reader_closer(slot)))
 }
 
 pub(super) fn install(lua: &Lua, t: &Table) -> mlua::Result<()> {
@@ -160,13 +189,13 @@ pub(super) fn install(lua: &Lua, t: &Table) -> mlua::Result<()> {
                     match s {
                         Ok(s) if !flag.load(Ordering::Relaxed) => {
                             let _ = s.set_nodelay(true);
-                            match run_tcp(id, &s, report.clone(), rx) {
-                                Ok(c) => {
-                                    let _ = report.send(Msg::Open(id, c));
-                                }
-                                Err(e) => {
-                                    let _ = report.send(Msg::Closed(id, Some(e.to_string())));
-                                }
+                            // Open is reported before the reader starts, so no data comes ahead of it.
+                            let r = s.try_clone().map(tcp_closer).and_then(|c| {
+                                let _ = report.send(Msg::Open(id, c));
+                                run_tcp(id, &s, report.clone(), rx)
+                            });
+                            if let Err(e) = r {
+                                let _ = report.send(Msg::Closed(id, Some(e.to_string())));
                             }
                         }
                         Ok(_) => {}
@@ -184,6 +213,7 @@ pub(super) fn install(lua: &Lua, t: &Table) -> mlua::Result<()> {
         "pipe",
         lua.create_function(|lua, (name, handlers): (String, Table)| {
             need(lua, "net")?;
+            pipe_allowed(&name).map_err(|e| mlua::Error::runtime(format!("net.pipe {name:?}: {e}")))?;
             let id = next_id(&state(lua));
             let report = reports(lua);
             let (tx, rx) = channel::<Vec<u8>>();
@@ -191,11 +221,18 @@ pub(super) fn install(lua: &Lua, t: &Table) -> mlua::Result<()> {
             std::thread::Builder::new()
                 .name("lua-pipe".into())
                 .spawn(move || {
-                    let r = open_pipe(&name).and_then(|(r, w, close)| run_stream(id, r, w, report.clone(), rx).map(|_| close));
-                    let _ = report.send(match r {
-                        Ok(close) => Msg::Open(id, close),
-                        Err(e) => Msg::Closed(id, Some(format!("{name}: {e}"))),
+                    let slot = ReaderSlot::default();
+                    let r = open_pipe(&name, slot.clone()).and_then(|(r, w, close)| {
+                        let _ = report.send(Msg::Open(id, close));
+                        let h = run_stream(id, r, w, report.clone(), rx)?;
+                        if let Ok(mut g) = slot.lock() {
+                            *g = Some(h);
+                        }
+                        Ok(())
                     });
+                    if let Err(e) = r {
+                        let _ = report.send(Msg::Closed(id, Some(format!("{name}: {e}"))));
+                    }
                 })
                 .map_err(|e| mlua::Error::runtime(format!("net.pipe: {e}")))?;
             keep(lua, id, handlers, Kind::Tcp { tx, stream: None, stop })?;
@@ -224,10 +261,13 @@ pub(super) fn install(lua: &Lua, t: &Table) -> mlua::Result<()> {
                                 let _ = s.set_nodelay(true);
                                 let cid = NEXT.fetch_add(1, Ordering::Relaxed);
                                 let (tx, rx) = channel::<Vec<u8>>();
-                                if let Ok(c) = run_tcp(cid, &s, report.clone(), rx)
-                                    && report.send(Msg::Accept(id, cid, peer, tx, c)).is_err()
-                                {
+                                // Accept is reported before the reader starts, so no data comes ahead of it.
+                                let Ok(c) = s.try_clone().map(tcp_closer) else { continue };
+                                if report.send(Msg::Accept(id, cid, peer, tx, c)).is_err() {
                                     return;
+                                }
+                                if let Err(e) = run_tcp(cid, &s, report.clone(), rx) {
+                                    let _ = report.send(Msg::Closed(cid, Some(e.to_string())));
                                 }
                             }
                             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(50)),

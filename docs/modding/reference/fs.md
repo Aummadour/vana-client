@@ -64,8 +64,7 @@ else
 end
 ```
 
-A file from the mod's own folder is read as text: one there that is not valid UTF-8 reads as `nil`. Binary files in
-the data folder read as they are.
+Files read as they are, text or binary, from the data folder and from the mod's own folder alike.
 
 ## `fs.write`
 
