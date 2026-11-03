@@ -20438,3 +20438,23 @@ Lessons from other games' mod layers (BG3 Script Extender, WoW, Skyrim, Factorio
 - PlayOnline chat: a short session-key block, routing reply or notice is refused, not sliced out of range; a refusal
   with bytes that are not UTF-8 before its "(POL " is read from the bytes (a lossy string's index was off by two
   for each invalid byte).
+
+## Updates: signed releases, pre-release order, manifest paths (ours, 2026-11-02)
+
+- A client release is offered only with "<asset>.sig" beside its asset: the Ed25519 signature, by the release key,
+  of "vana-client release\n<tag>\n<asset name>\n<asset SHA-256 hex>\n" (updater::signed_text), so a signed binary
+  can't come back under a newer tag or as the other platform's. The download is checked before it replaces the
+  running binary, and removed when it fails. The public half is release/signing-key.pub (built in); release/publish.sh
+  signs with the private one (VANA_SIGNING_KEY or ~/.config/vana-client-release/signing.pem), checks it is that key,
+  and refuses a binary that doesn't carry the public half. A newer release with no signature shows "<tag> is not
+  signed; not offered" on the Update window's row; check failures are logged. Clients up to 1.0.2 check nothing.
+- updater::newer: semver order, so "1.2.0-rc1" comes before "1.2.0" (pre-release parts numbers below words,
+  numerically); a +build part is ignored. A pre-release tagged without GitHub's pre-release flag would still be
+  "latest".
+- patch::check_path: a manifest path (plain TCP from the patch server) must be relative, with no empty, "." or ".."
+  part, no colon or control character, no part ending in a dot or space, no Windows device name; parse_manifest
+  refuses the manifest otherwise. Writes go through no symbolic link or junction below the install folder (Rust's
+  is_symlink: name-surrogate reparse tags, so OneDrive folders pass); the folder itself may be a link. None of the
+  49,413 paths of the 30261006_0 manifest is refused.
+- Not taken from the same batch: pinning game code files (.exe / .dll) against a list hashed from the patch server by
+  a scheduled job: the client never runs them, and a missing list broke the first-start install.

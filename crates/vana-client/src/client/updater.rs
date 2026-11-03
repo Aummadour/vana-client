@@ -38,12 +38,16 @@ pub struct Release {
     pub tag: String,
     pub url: String,
     pub size: u64,
+    /// "<asset>.sig" beside it: the release key's Ed25519 signature of [`signed_text`].
+    pub sig_url: Option<String>,
 }
 
 pub enum Client {
     Checking,
     Current,
     Available(Release),
+    /// A newer release with no signature: never offered.
+    Unsigned(String),
     /// No release (or none for this platform) or the check failed; not offered.
     Unavailable(String),
 }
@@ -94,11 +98,17 @@ pub fn start(root: PathBuf) -> Shared {
     let c = s.clone();
     std::thread::spawn(move || {
         let client = match latest_release() {
+            Ok(Some(r)) if newer(&r.tag, env!("CARGO_PKG_VERSION")) && r.sig_url.is_none() => Client::Unsigned(r.tag),
             Ok(Some(r)) if newer(&r.tag, env!("CARGO_PKG_VERSION")) => Client::Available(r),
             Ok(Some(_)) => Client::Current,
             Ok(None) => Client::Unavailable("no release for this platform".into()),
             Err(e) => Client::Unavailable(format!("{e:#}")),
         };
+        match &client {
+            Client::Unsigned(tag) => log::warn!("update check: release {tag} has no {}.sig; not offered", asset_name()),
+            Client::Unavailable(why) => log::warn!("update check: no client release: {why}"),
+            _ => {}
+        }
         c.lock().unwrap().client = client;
     });
     s
@@ -119,8 +129,36 @@ fn latest_release() -> Result<Option<Release>> {
     };
     let v: serde_json::Value = serde_json::from_str(&resp.body_mut().read_to_string()?)?;
     let tag = v["tag_name"].as_str().unwrap_or_default().to_string();
-    let asset = v["assets"].as_array().and_then(|a| a.iter().find(|x| x["name"].as_str() == Some(asset_name())));
-    Ok(asset.map(|a| Release { tag, url: a["browser_download_url"].as_str().unwrap_or_default().to_string(), size: a["size"].as_u64().unwrap_or(0) }))
+    let find = |name: &str| v["assets"].as_array().and_then(|a| a.iter().find(|x| x["name"].as_str() == Some(name)));
+    let url = |a: &serde_json::Value| a["browser_download_url"].as_str().unwrap_or_default().to_string();
+    let sig_url = find(&format!("{}.sig", asset_name())).map(url);
+    Ok(find(asset_name()).map(|a| Release { tag, url: url(a), size: a["size"].as_u64().unwrap_or(0), sig_url }))
+}
+
+/// The release signing key's public half (release/signing-key.pub; release/publish.sh signs with the private one).
+const SIGNING_KEY: &str = include_str!("../../../../release/signing-key.pub");
+
+/// What a release's signature covers: its tag, the asset's name and the asset's SHA-256, so a signed binary can't be
+/// served under another tag or for the other platform.
+pub fn signed_text(tag: &str, asset: &str, file: &[u8]) -> String {
+    format!("vana-client release\n{tag}\n{asset}\n{}\n", hex::encode(ring::digest::digest(&ring::digest::SHA256, file)))
+}
+
+/// `sig` is the key's Ed25519 signature of `text`.
+fn signed_by(key: &str, text: &str, sig: &[u8]) -> bool {
+    let Some(key) = hex::decode(key.trim()).ok().filter(|k| k.len() == 32) else { return false };
+    ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, key).verify(text.as_bytes(), sig).is_ok()
+}
+
+/// A downloaded binary checked against its release's signature before it is installed; one that fails is removed.
+fn verify(r: &Release, file: &Path) -> Result<()> {
+    let url = r.sig_url.as_ref().with_context(|| format!("release {} is not signed", r.tag))?;
+    let sig = agent().get(url).call().with_context(|| url.clone())?.body_mut().with_config().limit(1024).read_to_vec()?;
+    if !signed_by(SIGNING_KEY, &signed_text(&r.tag, asset_name(), &std::fs::read(file)?), &sig) {
+        let _ = std::fs::remove_file(file);
+        bail!("the downloaded vana-client {} is not signed by the release key; not installed", r.tag);
+    }
+    Ok(())
 }
 
 /// 5321 as "5,321".
@@ -136,10 +174,36 @@ pub fn thousands(n: u64) -> String {
     out
 }
 
-/// "v0.2.0" newer than "0.1.0" (numeric parts, a leading v ignored).
+/// "v0.2.0" newer than "0.1.0": numeric parts (a leading v and any +build ignored, missing parts count as 0), then
+/// semver's pre-release rule: "1.2.0-rc1" comes before "1.2.0", and pre-releases compare part by part, numbers
+/// numerically and below words.
 pub fn newer(tag: &str, current: &str) -> bool {
-    let parts = |s: &str| s.trim_start_matches('v').split(['.', '-']).map(|p| p.parse::<u64>().unwrap_or(0)).collect::<Vec<_>>();
-    parts(tag) > parts(current)
+    use std::cmp::Ordering;
+    fn split(s: &str) -> (Vec<u64>, Option<Vec<&str>>) {
+        let s = s.trim_start_matches('v');
+        let s = s.split_once('+').map_or(s, |(v, _)| v);
+        let (core, pre) = s.split_once('-').map_or((s, None), |(c, p)| (c, Some(p.split('.').collect())));
+        (core.split('.').map(|p| p.parse::<u64>().unwrap_or(0)).collect(), pre)
+    }
+    fn ident(a: &str, b: &str) -> Ordering {
+        match (a.parse::<u64>(), b.parse::<u64>()) {
+            (Ok(x), Ok(y)) => x.cmp(&y),
+            (Ok(_), Err(_)) => Ordering::Less,
+            (Err(_), Ok(_)) => Ordering::Greater,
+            (Err(_), Err(_)) => a.cmp(b),
+        }
+    }
+    let ((mut a, pa), (mut b, pb)) = (split(tag), split(current));
+    let n = a.len().max(b.len());
+    a.resize(n, 0);
+    b.resize(n, 0);
+    let order = a.cmp(&b).then_with(|| match (&pa, &pb) {
+        (None, None) => Ordering::Equal,
+        (None, Some(_)) => Ordering::Greater,
+        (Some(_), None) => Ordering::Less,
+        (Some(x), Some(y)) => x.iter().zip(y).map(|(p, q)| ident(p, q)).find(|o| o.is_ne()).unwrap_or(x.len().cmp(&y.len())),
+    });
+    order == Ordering::Greater
 }
 
 /// Downloads `url` to `dest` (through `dest.part`, resumed when one is there), reporting (bytes, total).
@@ -321,6 +385,7 @@ impl UpdateUi {
                 if let Some(r) = release {
                     let dest = exe().context("no executable path")?.with_extension("new");
                     download(&r.url, &dest, &|d, t| set(Progress { label: format!("Downloading vana-client {}", r.tag), done: d, total: t.max(r.size), detail: format!("{:.1} of {:.1} MB", d as f64 / 1e6, t.max(r.size) as f64 / 1e6) }))?;
+                    verify(&r, &dest)?;
                     replace_self(&dest)?;
                     status.lock().unwrap().client = Client::Current;
                     lines.push(format!("vana-client {} is installed; restart to use it.", r.tag));
@@ -536,6 +601,7 @@ impl UpdateUi {
                             Client::Available(r) => format!("{} to {} ({:.1} MB)", env!("CARGO_PKG_VERSION"), r.tag, r.size as f64 / 1e6),
                             Client::Checking => "Checking...".into(),
                             Client::Current => format!("Up to date ({})", env!("CARGO_PKG_VERSION")),
+                            Client::Unsigned(tag) => format!("{tag} is not signed; not offered"),
                             Client::Unavailable(_) => format!("No newer release ({})", env!("CARGO_PKG_VERSION")),
                         },
                         matches!(s.client, Client::Available(_)),
@@ -564,7 +630,34 @@ impl UpdateUi {
 
 #[cfg(test)]
 mod tests {
-    use super::{newer, thousands};
+    use super::{SIGNING_KEY, newer, signed_by, signed_text, thousands};
+
+    /// A signature covers the tag, the asset's name and its bytes; openssl's Ed25519 (pkeyutl -sign -rawin) checks.
+    #[test]
+    fn release_signatures() {
+        use ring::signature::{Ed25519KeyPair, KeyPair};
+        // release/publish.sh's text and openssl's signature by the release key check against the built-in half.
+        let sig = hex::decode("6db22e308db928bf583baf80d49e91a6573ce88302c67964811dd7f9e0bf2bfa8b00d47f8889e6789d505fe2530cbba9402206e45e29cbd91bf8ba7a3015da01").unwrap();
+        assert!(signed_by(SIGNING_KEY, &signed_text("v0.0.0-test", "vana-client-linux-x86_64", b"binary"), &sig));
+        let rng = ring::rand::SystemRandom::new();
+        let pair = |rng| Ed25519KeyPair::from_pkcs8(Ed25519KeyPair::generate_pkcs8(rng).unwrap().as_ref()).unwrap();
+        let (ours, theirs) = (pair(&rng), pair(&rng));
+        let key = hex::encode(ours.public_key());
+        let text = signed_text("v1.0.3", "vana-client-linux-x86_64", b"binary");
+        let sig = ours.sign(text.as_bytes());
+        assert!(signed_by(&key, &text, sig.as_ref()));
+        // Another key, another tag (a downgrade), the other platform's name, other bytes, a cut signature: refused.
+        assert!(!signed_by(&key, &text, theirs.sign(text.as_bytes()).as_ref()));
+        for other in [signed_text("v1.0.4", "vana-client-linux-x86_64", b"binary"), signed_text("v1.0.3", "vana-client-windows-x86_64.exe", b"binary"), signed_text("v1.0.3", "vana-client-linux-x86_64", b"binarY")] {
+            assert!(!signed_by(&key, &other, sig.as_ref()));
+        }
+        assert!(!signed_by(&key, &text, &sig.as_ref()[..63]));
+        assert!(!signed_by("", &text, sig.as_ref()));
+        // RFC 8032 section 7.1, test 3 (message af82): the Ed25519 openssl makes.
+        let sig = hex::decode("6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a").unwrap();
+        let key = "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025";
+        assert!(ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, hex::decode(key).unwrap()).verify(&hex::decode("af82").unwrap(), &sig).is_ok());
+    }
 
     #[test]
     fn versions_compare_numerically() {
@@ -572,6 +665,16 @@ mod tests {
         assert!(newer("0.10.0", "0.9.9"));
         assert!(!newer("v0.1.0", "0.1.0"));
         assert!(!newer("0.0.9", "0.1.0"));
+        // A pre-release comes before its release.
+        assert!(!newer("1.2.0-rc1", "1.2.0"));
+        assert!(newer("1.2.0", "1.2.0-rc1"));
+        assert!(newer("1.2.1-rc1", "1.2.0"));
+        assert!(newer("1.2.0-rc.2", "1.2.0-rc.1"));
+        assert!(newer("1.2.0-rc.10", "1.2.0-rc.9"));
+        assert!(newer("1.2.0-beta", "1.2.0-alpha"));
+        assert!(newer("1.2.0-alpha.1", "1.2.0-alpha"));
+        assert!(!newer("v1.2", "1.2.0"));
+        assert!(!newer("1.2.0+build5", "1.2.0"));
         assert_eq!((thousands(5321), thousands(452), thousands(1_234_567)), ("5,321".into(), "452".into(), "1,234,567".into()));
     }
 }
