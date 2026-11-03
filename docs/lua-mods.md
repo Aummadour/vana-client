@@ -356,6 +356,7 @@ and revoke them there.
 | `ui.native` | hide HUD pieces, the whole interface, set game config values | XIUI, hideui, config tools |
 | `process` | CPU affinity and scheduling priority of the client | Affinity |
 | `devices` | HID devices by their raw reports | Binder, GBinder, Stream Deck tools |
+| `mods` | `/lua load`, `unload`, `reload`, `hide`, `show` from the mod's lines (`commands.run`, binds) | add-on managers, per-job or per-zone loaders |
 
 Never exposed to any mod, not even read-only: the password, the 2FA secret, `secret.key`, session keys and the
 Blowfish state. Outgoing chat, commands and packets are rate-limited per mod. There is no WoW-style taint or combat

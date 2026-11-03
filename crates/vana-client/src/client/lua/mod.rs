@@ -33,7 +33,8 @@ pub(super) enum Op {
     /// A line with a mode (its colour, filters and indent), or only a mode's colour.
     Chat { text: String, mode: Option<u8>, colour: Option<u8> },
     Print(String),
-    Run(String),
+    /// commands.run: the line, and whether the mod holds the mods permission.
+    Run(String, bool),
     Act(actions::Action),
     /// A key the mod pressed (input.press / input.send).
     Key(input::Synth),
@@ -976,15 +977,18 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
             let args: Vec<&str> = words.collect();
             if name == "lua" {
                 // Permissions, other mods' code and settings are the player's alone, never a mod's or a bind's.
-                let player_only = matches!(args.first().map(|a| a.to_ascii_lowercase()).as_deref(), Some("grant" | "revoke" | "run" | "set" | "watch"));
+                let sub = args.first().map(|a| a.to_ascii_lowercase());
+                let player_only = matches!(sub.as_deref(), Some("grant" | "revoke" | "run" | "set" | "watch"));
                 if player_only && from != From::Player {
                     out.push(("/lua grant, revoke, run, set and watch only work when you type them.".into(), ERROR));
+                } else if sub.as_deref().is_some_and(|s| MOD_CONTROL.contains(&s)) && !from.controls_mods() {
+                    out.push(("/lua load, unload, reload, hide and show from a mod need its mods permission.".into(), ERROR));
                 } else {
                     host.lua_command(w, &args, &mut out);
                 }
                 continue;
             }
-            let input = from != From::Mod;
+            let input = !matches!(from, From::Mod { .. });
             let owner = host.vms.iter().find(|v| v.suspended.is_none() && v.st.borrow().commands.iter().any(|(n, _)| *n == name));
             match owner {
                 Some(vm) => lend(vm, w, |vm| {
@@ -1131,7 +1135,7 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
         apply(w, gu, op);
     }
     for line in bind_lines {
-        run_line(w, &line, super::textcmd::Mode::Typed, From::Bind);
+        run_line(w, &line, super::textcmd::Mode::Typed, From::Bind { mods: false });
     }
     // Injected packets go through the hooks now, not with the next batch (which may be seconds away).
     if w.lua.vms.iter().any(|v| !v.st.borrow().inject_in.is_empty()) {
@@ -1144,22 +1148,39 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
     }
 }
 
-/// Where a line for the mods came from.
+/// Where a line for the mods came from. `mods`: the mod that sent it holds the mods permission (false where no one
+/// mod can be named: a macro a mod started, a chat line it submitted).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum From {
     /// Typed by the player (the chat line, a macro).
     Player,
     /// A mod's key bind the player pressed: the mod's command runs as the player's input, but /lua grant, revoke,
     /// run, set and watch do not.
-    Bind,
+    Bind { mods: bool },
     /// A mod's own line (commands.run, actions): runs as the mod's own, not the player's input.
-    Mod,
+    Mod { mods: bool },
 }
+
+impl From {
+    fn controls_mods(self) -> bool {
+        matches!(self, From::Player | From::Bind { mods: true } | From::Mod { mods: true })
+    }
+}
+
+/// The /lua subcommands that control other mods: a mod's lines run them only with the mods permission.
+const MOD_CONTROL: [&str; 8] = ["load", "l", "unload", "u", "reload", "r", "hide", "show"];
 
 /// A /lua line, as the host reads one (any number of leading slashes, any case).
 pub(super) fn lua_line(line: &str) -> bool {
     let line = line.trim();
     line.starts_with('/') && line.trim_start_matches('/').split_whitespace().next().is_some_and(|w| w.eq_ignore_ascii_case("lua"))
+}
+
+/// A /lua line that loads, unloads, reloads, hides or shows mods (split as the host splits it).
+pub(super) fn controls_mods(line: &str) -> bool {
+    let line = line.trim();
+    let mut words = line.trim_start_matches('/').split_whitespace();
+    line.starts_with('/') && words.next().is_some_and(|n| n.eq_ignore_ascii_case("lua")) && words.next().is_some_and(|s| MOD_CONTROL.contains(&s.to_ascii_lowercase().as_str()))
 }
 
 /// A line from a mod or a mod's bind, run as typed. Lines for the mods are queued here with their source, so that
@@ -1290,7 +1311,7 @@ fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
             }
             (None, None, text) => w.chat.push(text),
         },
-        Op::Run(line) => run_line(w, &line, super::textcmd::Mode::Typed, From::Mod),
+        Op::Run(line, mods) => run_line(w, &line, super::textcmd::Mode::Typed, From::Mod { mods }),
         Op::Act(a) => actions::apply(w, gu, a),
         Op::Key(k) => w.lua.synth.push(k),
         Op::Copy(text) => w.copied = Some(text),
@@ -1538,6 +1559,28 @@ mod tests {
         for l in ["/luax", "/echo /lua", "lua grant", ""] {
             assert!(!lua_line(l), "{l:?}");
         }
+    }
+
+    /// Loading, unloading, reloading, hiding and showing mods from a mod's commands.run needs mods; the op says so.
+    #[test]
+    fn mod_control_needs_mods() {
+        for l in ["//lua unload other", "/ lua UNLOAD other", "/lua l x", "///lua reload", "/lua hide"] {
+            assert!(controls_mods(l), "{l:?}");
+        }
+        for l in ["//lua list", "/lua settings x", "lua unload x", "//luaunload x", "/echo lua unload"] {
+            assert!(!controls_mods(l), "{l:?}");
+        }
+        let vm = Vm::new(manifest::Manifest::default(), PathBuf::from("."), vm::Source::Dir(PathBuf::from("."))).unwrap();
+        api::install(&vm.lua, &vm, (serde_json::Value::Null, serde_json::Value::Null)).unwrap();
+        let e = vm.lua.load("commands.run('//lua unload other')").exec().unwrap_err();
+        assert!(e.to_string().contains("mods permission"), "{e}");
+        vm.lua.load("commands.run('//lua list')").exec().unwrap();
+        vm.st.borrow_mut().granted.push("mods".into());
+        vm.lua.load("commands.run('//lua unload other')").exec().unwrap();
+        let ops: Vec<bool> = vm.st.borrow().ops.iter().filter_map(|o| if let Op::Run(_, m) = o { Some(*m) } else { None }).collect();
+        assert_eq!(ops, [false, true]);
+        assert!(!From::Mod { mods: false }.controls_mods() && !From::Bind { mods: false }.controls_mods());
+        assert!(From::Player.controls_mods() && From::Mod { mods: true }.controls_mods());
     }
 
     /// Injected and hook-built packets carry a size field that matches their bytes, and none overflows it.
@@ -2143,6 +2186,7 @@ fn permission_text(p: &str) -> (&'static str, &'static str) {
         "ui.native" => ("Allow game windows", "Opens, hides and drives the game's own windows."),
         "process" => ("Allow process settings", "Sets which CPU cores the game runs on, and its priority."),
         "devices" => ("Allow devices", "Talks to USB devices directly (G-keys, Stream Decks and the like)."),
+        "mods" => ("Allow controlling mods", "Loads, unloads, reloads, hides and shows your other mods."),
         _ => ("Allow", ""),
     }
 }

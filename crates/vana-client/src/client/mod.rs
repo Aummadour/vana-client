@@ -2102,7 +2102,7 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
                     world.line_hist.record(&text);
                     let text = fep::outgoing(world, text);
                     if world.lua.synth_enter {
-                        lua::run_line(world, &text, textcmd::Mode::Typed, lua::From::Mod);
+                        lua::run_line(world, &text, textcmd::Mode::Typed, lua::From::Mod { mods: false });
                     } else {
                         textcmd::run(world, &text, textcmd::Mode::Typed);
                     }
@@ -10871,7 +10871,7 @@ impl App {
         if let Some(line) = world.macros.as_mut().filter(|_| !sub_up).and_then(|m| m.step(dt * 60.0)) {
             let line = crate::dat::font::decode_sjis(&line);
             if by_mod {
-                lua::run_line(world, &line, textcmd::Mode::Macro, lua::From::Mod);
+                lua::run_line(world, &line, textcmd::Mode::Macro, lua::From::Mod { mods: false });
             } else {
                 textcmd::run(world, &line, textcmd::Mode::Macro);
             }

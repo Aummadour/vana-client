@@ -429,9 +429,12 @@ pub(super) fn run_binds(host: &mut super::Host, w: &World, out: &mut Vec<(String
         });
         match act {
             Some(Ok(line)) => {
-                let may = line.starts_with("//") || vm.st.borrow().granted.iter().any(|g| g == "actions" || g == "automation");
-                if may {
-                    lines.push(line);
+                let granted = |p: &str| vm.st.borrow().granted.iter().any(|g| g == p);
+                let mods = granted("mods");
+                if super::controls_mods(&line) && !mods {
+                    out.push((format!("{}: the bind {text} loads or unloads mods, which needs mods.", vm.manifest.name), super::ERROR));
+                } else if line.starts_with("//") || granted("actions") || granted("automation") {
+                    lines.push((line, mods));
                 } else {
                     out.push((format!("{}: the bind {text} runs a game command, which needs actions.", vm.manifest.name), super::ERROR));
                 }
@@ -441,10 +444,10 @@ pub(super) fn run_binds(host: &mut super::Host, w: &World, out: &mut Vec<(String
         }
     }
     let mut game = Vec::new();
-    for line in lines {
+    for (line, mods) in lines {
         let line = line.trim().to_string();
         if line.starts_with('/') && host.takes(&line) {
-            host.typed.push((line, super::From::Bind));
+            host.typed.push((line, super::From::Bind { mods }));
         } else {
             game.push(line);
         }
