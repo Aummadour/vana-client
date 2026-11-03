@@ -20434,6 +20434,10 @@ Lessons from other games' mod layers (BG3 Script Extender, WoW, Skyrim, Factorio
 - known_servers.json ("host:port" to {"trust": "authority"} or {"trust": "key", "sha256", "fixed"}) is in the data
   folder, or beside an FFXI_CONFIG copy. One that doesn't read is renamed .bad and the pins learned again; a pin that
   can't be written is logged and the login goes on. Saved through a synced temp file named for the process.
+- (2026-11-03) A pin that can't be written is kept for the rest of the run, by store and server (tls::session_pins),
+  so the auth, profile and later connections are checked against it, and the player gets one red log line in game
+  naming the file and the error (tls::take_notice). trust-server drops the run's pins for the host too. Seen live with
+  known_servers.json a directory: the three servers (54231, 51220, 51240) pinned once each, the line in the log.
 - `vana-client trust-server HOST [--port P] [--fingerprint F]` forgets the host's pins (every port: an LSB reinstall
   changes the login port's and xi_profile's 51220 / 51240), or sets a fixed key pin.
 - Character names from the server become file names (chat history, regime state) only as letters and digits, and not

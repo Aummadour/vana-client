@@ -13015,6 +13015,10 @@ impl App {
             synth::update(w);
             resttick::update(w);
             servmes::frame(w);
+            // A server's certificate pin that could not be saved: told once a run.
+            if let Some(n) = crate::net::tls::take_notice() {
+                w.chat.push_colour(n, lua::ERROR);
+            }
             lua::frame(w, self.game_ui.as_ref());
             // Keys the mods pressed: the key functions now, egui with this frame's input.
             for k in std::mem::take(&mut w.lua.synth) {

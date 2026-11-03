@@ -11,8 +11,26 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::net::TcpStream;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
+
+/// Pins learned this run, by store and server: they still hold when the store can't be written.
+fn session_pins() -> &'static Mutex<BTreeMap<(PathBuf, String), Pin>> {
+    static PINS: OnceLock<Mutex<BTreeMap<(PathBuf, String), Pin>>> = OnceLock::new();
+    PINS.get_or_init(Default::default)
+}
+
+fn session_pin(store: &Path, key: &str) -> Option<Pin> {
+    session_pins().lock().unwrap_or_else(|e| e.into_inner()).get(&(store.to_path_buf(), key.to_string())).cloned()
+}
+
+/// The player's line when a pin could not be saved: set once a run, taken by the client.
+static NOTICE: Mutex<(bool, Option<String>)> = Mutex::new((false, None));
+
+/// The unsaved-pin line, once (the client shows it in the log).
+pub fn take_notice() -> Option<String> {
+    NOTICE.lock().unwrap_or_else(|e| e.into_inner()).1.take()
+}
 
 pub type Fingerprint = [u8; 32];
 
@@ -241,7 +259,7 @@ fn describe(pin: &Pin) -> String {
 /// (a password) is sent, and a new pin is kept once the handshake has passed.
 pub fn connect_pinned(store: &Path, host: &str, port: u16) -> Result<TlsStream> {
     let key = key(host, port);
-    let pin = KnownServers::load(store).0.get(&key).cloned();
+    let pin = KnownServers::load(store).0.get(&key).cloned().or_else(|| session_pin(store, &key));
     let seen: Arc<Mutex<Option<Seen>>> = Default::default();
     let mut tcp = TcpStream::connect((host, port))?;
     // The login server sends nothing back for requests it rejects as malformed.
@@ -276,12 +294,12 @@ pub fn connect_pinned(store: &Path, host: &str, port: u16) -> Result<TlsStream> 
 
 /// Keeps `want` for `key` after a handshake. The auth and profile connections run on their own threads: re-read under
 /// a lock, and refuse a first certificate that differs from a pin made meanwhile. A pin that can't be written is
-/// only logged (the next connection learns it again).
+/// kept for this run and the player told once; the next run learns it again.
 fn record_pin(store: &Path, key: &str, want: Pin, replace: bool) -> Result<()> {
     static PINNING: Mutex<()> = Mutex::new(());
     let _held = PINNING.lock().unwrap_or_else(|e| e.into_inner());
     let mut known = KnownServers::load(store);
-    match known.0.get(key) {
+    match known.0.get(key).cloned().or_else(|| session_pin(store, key)).as_ref() {
         Some(have) if *have == want => return Ok(()),
         Some(have) if !replace => bail!(
             "{key} sent two different certificates while it was being pinned (kept {}, refused {}). Someone may be \
@@ -292,9 +310,17 @@ fn record_pin(store: &Path, key: &str, want: Pin, replace: bool) -> Result<()> {
         _ => {}
     }
     log::info!("tls: {key} pinned: {want:?}");
+    session_pins().lock().unwrap_or_else(|e| e.into_inner()).insert((store.to_path_buf(), key.to_string()), want.clone());
     known.0.insert(key.to_string(), want);
     if let Err(e) = known.save(store) {
         log::warn!("tls: {key}'s pin not saved: {e:#}");
+        let mut n = NOTICE.lock().unwrap_or_else(|e| e.into_inner());
+        if !n.0 {
+            *n = (true, Some(format!(
+                "The server's certificate could not be saved ({}: {e:#}). It is checked until you quit, but the next login can't tell whether it changed.",
+                store.display()
+            )));
+        }
     }
     Ok(())
 }
@@ -328,6 +354,9 @@ pub fn trust(store: &Path, host: &str, port: Option<u16>, fingerprint: Option<&s
             }
         }
     }
+    // This run's pins for the host go too, so the store's say what holds.
+    let prefix = format!("{}:", host.trim().to_ascii_lowercase());
+    session_pins().lock().unwrap_or_else(|e| e.into_inner()).retain(|(s, k), _| !(s == store && k.starts_with(&prefix) && port.is_none_or(|p| *k == key(host, p))));
     known.save(store)?;
     Ok(out)
 }
@@ -576,6 +605,28 @@ mod tests {
         trust(&store, "127.0.0.1", Some(port), Some(&show(&der("a")))).unwrap();
         assert!(attempt("b").is_err());
         attempt("a").unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A pin the store can't take holds for the rest of the run, and the player is told once.
+    #[test]
+    fn unsaved_pin_holds_this_run() {
+        let dir = std::env::temp_dir().join(format!("vana-tls-unsaved-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // A file where the store's folder should be: every save fails.
+        std::fs::write(dir.join("not-a-dir"), b"").unwrap();
+        let store = dir.join("not-a-dir/known_servers.json");
+        let (a, b) = (Pin::Key { sha256: "aa".repeat(32), fixed: false }, Pin::Key { sha256: "bb".repeat(32), fixed: false });
+        record_pin(&store, "lsb:54231", a.clone(), false).unwrap();
+        assert_eq!(session_pin(&store, "lsb:54231"), Some(a.clone()));
+        assert!(take_notice().is_some_and(|n| n.contains("could not be saved")));
+        assert!(take_notice().is_none());
+        assert!(record_pin(&store, "lsb:54231", b, false).is_err());
+        record_pin(&store, "lsb:54231", a, false).unwrap();
+        assert!(take_notice().is_none());
+        trust(&store, "lsb", None, None).ok();
+        assert_eq!(session_pin(&store, "lsb:54231"), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
