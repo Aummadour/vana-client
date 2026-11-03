@@ -810,7 +810,7 @@ pub fn topbar_shot(out: &std::path::Path, fade: &str, menu: Option<u16>, menu_sw
             (bars.help[1], bars.title[1]) = (s.help(), s.title().into());
         }
         if let Some(u) = &update {
-            u.draw(&mut gu, sw, sh);
+            super::updater::UpdateUi::draw(&mut gu, &u.view(sw, sh));
             (bars.help[1], bars.title[1]) = (u.help(), "Update".into());
         }
     }

@@ -20624,3 +20624,38 @@ From the 30261006_0 decompile; ours in client/swkbd.rs (classic) and modern/keyb
   48-point keys (the same pages, cursor and pad buttons; the European keys muted), centred over the chat window when it
   opens; the mouse hovers and clicks keys in both.
 - Not built: the Japanese keyboards (keypad, keypad2 / keypad3 / keyselec, edit mode), the lobby's (state 0x40) path.
+
+## Enter on a trust, the action menu's layouts, ninja tools and bursts in the suggestions, the modern Update window (2026-11-03)
+
+- Enter on a target (FUN_101524e0) talks only when the UniqueNo's high byte is 0x01 (not 0x01000000 itself) and none
+  of these hold: the target is our pet (player +0x1f6), or our fellow (player +0x29c) while player +0x130 bit 19
+  (not modelled), or has +0x12c bit 22; it has +0x1cc 0x100 without +0x12c bit 30; FUN_1008ca40 (not a PC, no 0x100, +0x1fb allegiance 1).
+  Otherwise the action menu opens. The 0x00E handler (asm 0x10098ff2 / 0x1009acb2) copies byte 0x28 bit 0 (LSB's
+  TrustFlag) into +0x12c bit 22 and byte 0x28 bit 6 into +0x12c bit 30 (asm 0x10098f8c). LSB sends 0x28 |= 0x45 for
+  every trust ("this also allows trusts to be despawned") and allegiance 1 (Player); a talk (0x01A action 0) from the
+  trust's master releases it. Ours talked to every non-monster NPC and so released trusts; now it follows the rule
+  (target::talks_to). FUN_100edd70's direct-talk branch is not modelled.
+- FUN_1007aac0's check "an index above 0x6ff needs +0x12c bit 30" is now in event::talk.
+- /check's talk (FUN_10130280) tests actor +0x13c bit 10, not traced; ours uses the Enter rule there too *(inferred)*,
+  so a trust is checked, not released.
+- Action menu layout (FUN_10127790), correcting "Action menu libraries" and "NPC trade": no target 0; an attackable
+  target 2; a PC (+0x1cc & 2 clear) or FUN_1008ca40 1; any other NPC 0; doubled, then 6 engaged or + 1 riding. An NPC
+  with +0x1cc 0x100 takes layout 7 directly. FUN_10127230 cases 6 / 0x11 / 0x14 (Talk, NPC Trade) show only when the
+  target is our fellow (FUN_101c29d0: player +0x29c) and the fellow's +0x16c is not 1. So the Talk row is the fellow's
+  "Talk to fellow.", and NPC trade comes from the main menu's Trade (child 7). A trust now gets layout 2: Magic,
+  Abilities, Trust, Items (Chat and Trade drop out on an NPC id). Seen live with Kupipi in West Ronfaure: Enter opens
+  that menu and she stays; Enter on Laillera (the gate guard) still talks.
+- Spell record +0x46 / +0x47 (POLUtils: unknown): +0x47 is nonzero exactly where LSB's spell_list AOE is 1, 2 or 5
+  (radial, conal, songs), across all ~890 records, and zero for 0 / 3 / 4 / 6; +0x46 looks like the radius (3, 4, 8,
+  11, 15) *(inferred)*. Holy 0, Banishga / Banishga II 1. dat/actions.rs Spell.area.
+- Suggestions (ours): a burst takes a one-target spell over an area one, then the highest MP (Holy before Banishga
+  II). Ninjutsu are offered only with the tool in the inventory, or with NIN main the universal one (the server's
+  rule, LSB HasNinjaTool; the client has no tool table and FFXiMain's spell check FUN_1022cf30 tests none; the spell
+  record's MP field is 0 for ninjutsu, while LSB keeps the tool id in its mpCost). Inoshishinofuda 2971 elemental
+  (Katon .. Suiton), Shikanofuda 2972 support (Utsusemi, Tonko, Monomi, Migawari, Myoshu, Gekka, Yain, Kakka),
+  Chonofuda 2973 enfeebling (Hojo, Jubaku, Kurayami, Dokumori, Aisha, Yurin).
+- The Update window had only the classic drawing. It now builds a view (updater::View: frame, line height, texts,
+  rows, On / Off boxes, gauge, buttons) that both UIs draw and the mouse reads. The modern one is the kit frame zoomed
+  1.35 about the screen's centre for its text, with the lobby buttons and a rounded progress bar. The OK pages no
+  longer draw a blank second button. Seen live through a local mock release (VANA_RELEASE_API, FFXI_UPDATE_CHECK=1):
+  the pick page and the failed-download page.

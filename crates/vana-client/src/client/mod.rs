@@ -1552,9 +1552,9 @@ fn bar_full_log(w: &mut World, m: scrollbar::Msg, (total, lines, _): (usize, usi
     fl.key(key, true, lines, total)
 }
 
-/// FUN_10130280 (Ctrl+C): talk to an NPC target, check anything else.
+/// FUN_10130280 (Ctrl+C): talk to an NPC target, check anything else (a trust *(inferred)*: talk releases it on LSB).
 fn check_target(world: &mut World) {
-    match world.target.filter(|t| t >> 24 != 0 && world.entities.get(t).is_some_and(|e| !e.mob)) {
+    match world.target.filter(|&t| target::talks_to(world, t)) {
         Some(t) => {
             event::talk(world, t);
         }
@@ -11861,6 +11861,7 @@ impl App {
                                 }
                             }
                             if let Some(u) = self.update_ui.as_mut() {
+                                u.zoom = if modern_title { 1.35 } else { 1.0 };
                                 let mut outs = vec![u.poll()];
                                 for ev in input.events.iter() {
                                     if let egui::Event::Key { key, pressed: true, .. } = ev {
@@ -11873,7 +11874,12 @@ impl App {
                                         lu.hover.set(true);
                                     }
                                 }
-                                u.draw(lu, sw, sh);
+                                let v = u.view(sw, sh);
+                                if modern_title {
+                                    self.modern.get_or_insert_with(|| modern::Modern::new(ctx)).update_window(ctx, [screen_size[0] as u32, screen_size[1] as u32], self.cfg.modern_scale, self.ui_k, &v);
+                                } else {
+                                    updater::UpdateUi::draw(lu, &v);
+                                }
                                 for out in outs {
                                     if let Some(a) = self.audio.as_mut() {
                                         for x in &out.sounds {

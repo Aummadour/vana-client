@@ -41,6 +41,8 @@ pub struct SpellFact {
     pub element: u16,
     pub mp: u16,
     pub targets: u16,
+    /// Always hits an area (spell record +0x47).
+    pub area: bool,
 }
 
 /// A job ability or weapon skill usable now (its table index, name); a weapon skill's properties and power order.
@@ -166,6 +168,42 @@ const RENEW: [(u16, &[u16], &str); 10] = [
 /// Effects worth having up between fights when missing, and their spells (strongest first).
 const BETWEEN: [(u16, &[u16], &str); 3] = [(40, &[47, 46, 45, 44, 43], "Protect"), (41, &[52, 51, 50, 49, 48], "Shell"), (113, &[848, 142, 141, 135], "Reraise")];
 
+/// Each ninjutsu's tool and the universal tool a NIN main may use instead (LSB's spell_list and HasNinjaTool; the
+/// client has no such table): Inoshishinofuda elemental, Shikanofuda support, Chonofuda enfeebling.
+/// (first spell, last spell, tool, universal tool).
+const NINJA_TOOLS: [(u16, u16, u16, u16); 20] = [
+    (318, 318, 2553, 2972),
+    (319, 319, 2555, 2973),
+    (320, 322, 1161, 2971),
+    (323, 325, 1164, 2971),
+    (326, 328, 1167, 2971),
+    (329, 331, 1170, 2971),
+    (332, 334, 1173, 2971),
+    (335, 337, 1176, 2971),
+    (338, 340, 1179, 2972),
+    (341, 343, 1182, 2973),
+    (344, 346, 1185, 2973),
+    (347, 349, 1188, 2973),
+    (350, 352, 1191, 2973),
+    (353, 354, 1194, 2972),
+    (505, 505, 8803, 2972),
+    (506, 506, 8804, 2972),
+    (507, 507, 2642, 2972),
+    (508, 508, 2643, 2973),
+    (509, 509, 2644, 2972),
+    (510, 510, 2970, 2972),
+];
+
+/// A ninjutsu's (tool, universal tool); None for other spells.
+fn ninja_tool(spell: u16) -> Option<(u16, u16)> {
+    NINJA_TOOLS.iter().find(|t| (t.0..=t.1).contains(&spell)).map(|t| (t.2, t.3))
+}
+
+/// The tool is in the inventory, or the universal one with NIN (13) the main job.
+fn has_tool(spell: u16, held: impl Fn(u16) -> bool, main: u8) -> bool {
+    ninja_tool(spell).is_none_or(|(own, any)| held(own) || (main == 13 && held(any)))
+}
+
 /// Seconds left under which an effect is worth renewing.
 const SOON: f32 = 30.0;
 
@@ -286,7 +324,8 @@ pub fn suggest(f: &Facts) -> Vec<Suggestion> {
         match r.chain {
             Some(c) if r.left > 1.0 => {
                 let els = sc::elements(c);
-                let best = f.spells.iter().filter(|s| nuke(s) && sc::Element::of_spell(s.element as u8).is_some_and(|e| els.contains(&e))).max_by_key(|s| s.mp);
+                // One target over an area (Holy before Banishga II), then the strongest.
+                let best = f.spells.iter().filter(|s| nuke(s) && sc::Element::of_spell(s.element as u8).is_some_and(|e| els.contains(&e))).max_by_key(|s| (!s.area, s.mp));
                 if let Some(s) = best {
                     push(&mut out, Suggestion { action: Action::Spell(s.id), target: None, reason: format!("Burst {}: {:.0} s left.", super::skillchain::chain_text(c), r.left) });
                 }
@@ -439,12 +478,15 @@ pub fn facts(w: &World) -> Facts {
     }
     let own = super::buffs::icons(w).into_iter().map(|(id, end)| (id, (end != 0x7fff_ffff).then(|| (end.wrapping_sub(now) as i32) as f32 / 60.0))).collect();
     let known: Vec<u16> = (0..1024u16).filter(|&s| w.spells_known.get(s as usize / 8).is_some_and(|b| b & (1 << (s % 8)) != 0)).collect();
+    // Ninjutsu only with its tool in the inventory (the server's check; retail's client has none).
+    let held = |item: u16| w.inv.slots.iter().any(|(&(bag, _), &(id, n))| bag == super::items::INVENTORY && id == item && n > 0);
+    let main = w.stats.as_ref().map_or(0, |s| s.main.0);
     let spells = known
         .into_iter()
-        .filter(|&s| magic::magic_check(w, s).is_none())
+        .filter(|&s| magic::magic_check(w, s).is_none() && has_tool(s, held, main))
         .filter_map(|s| {
             let r = w.actions.as_ref()?.spell(s)?;
-            Some(SpellFact { id: s, name: magic::spell_name(w, s), skill: r.skill, element: r.element, mp: r.mp, targets: r.targets })
+            Some(SpellFact { id: s, name: magic::spell_name(w, s), skill: r.skill, element: r.element, mp: r.mp, targets: r.targets, area: r.area != 0 })
         })
         .collect();
     let d = sc::data();
@@ -549,6 +591,30 @@ mod tests {
         f.tp = 0;
         f.spells = vec![SpellFact { id: 144, name: "Fire".into(), skill: 36, element: 0, mp: 9, targets: 0x20, ..Default::default() }, SpellFact { id: 149, name: "Blizzard".into(), skill: 36, element: 1, mp: 8, targets: 0x20, ..Default::default() }];
         assert_eq!(suggest(&f)[0].action, Action::Spell(144));
+    }
+
+    #[test]
+    fn bursts_prefer_one_target() {
+        // Fusion (fire, light): Holy over Banishga II though it costs less.
+        let nuke = |id, name: &str, mp, area| SpellFact { id, name: name.into(), skill: 32, element: 6, mp, targets: 0x20, area };
+        let f = Facts { party: vec![me(1000, 1000)], resonance: Some(ResonanceFact { against: vec![11], chain: Some(11), age: 1.0, left: 8.0 }), spells: vec![nuke(39, "Banishga II", 120, true), nuke(21, "Holy", 100, false)], ..Default::default() };
+        assert_eq!(suggest(&f)[0].action, Action::Spell(21));
+    }
+
+    #[test]
+    fn ninjutsu_needs_its_tool() {
+        let none = |_| false;
+        let shihei = |i| i == 1179;
+        let shikanofuda = |i| i == 2972;
+        assert!(!has_tool(339, none, 13));
+        assert!(has_tool(339, shihei, 1));
+        // The universal tool only for a NIN main; Katon takes Inoshishinofuda, not Shikanofuda.
+        assert!(has_tool(339, shikanofuda, 13));
+        assert!(!has_tool(339, shikanofuda, 1));
+        assert!(!has_tool(320, shikanofuda, 13));
+        assert!(has_tool(510, |i| i == 2970, 1));
+        // Not ninjutsu: no tool.
+        assert!(has_tool(1, none, 1));
     }
 
     #[test]

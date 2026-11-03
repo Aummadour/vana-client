@@ -2647,6 +2647,10 @@ pub fn talk(w: &mut World, target: u32) -> bool {
     if target >> 24 == 0 || e.index == 0 || !(w.actors.contains_key(&target) || e.door != 0) || e.flags & 6 != 0 {
         return false;
     }
+    // An index past 0x6ff (pets, trusts) only when talkable (+0x12c bit 30: 0x00E @0x28 bit 6).
+    if e.index > 0x6ff && !e.marks.npc_pet {
+        return false;
+    }
     // Not while invisible (own +0x128 bit 6 = 0x037 flags1 bit 15): system message 0xac.
     if w.my_plate.invisible {
         super::textcmd::system_line(w, 0xac);

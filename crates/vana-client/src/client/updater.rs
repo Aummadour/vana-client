@@ -311,6 +311,8 @@ pub struct UpdateUi {
     cursor: usize,
     job: Option<Arc<Mutex<Job>>>,
     reloaded: bool,
+    /// The view's scale about the screen's centre: 1 classic, larger for the modern UI's text.
+    pub zoom: f32,
 }
 
 impl UpdateUi {
@@ -319,7 +321,7 @@ impl UpdateUi {
             let s = status.lock().unwrap();
             (s.game.offered(), matches!(s.client, Client::Available(_)))
         };
-        Self { status, root, pick: [g, c], cursor: if g || c { 2 } else { 3 }, job: None, reloaded: false }
+        Self { status, root, pick: [g, c], cursor: if g || c { 2 } else { 3 }, job: None, reloaded: false, zoom: 1.0 }
     }
 
     fn available(&self, row: usize) -> bool {
@@ -494,15 +496,11 @@ impl UpdateUi {
 
     /// The pointer: rows and buttons follow it; a click acts as Enter on them.
     pub fn pointer(&mut self, p: (f32, f32), moved: bool, clicked: bool, sw: f32, sh: f32) -> Out {
-        let [x, y, _, h] = Self::rect(sw, sh);
         let inside = |r: [f32; 4]| p.0 >= r[0] && p.1 >= r[1] && p.0 < r[0] + r[2] && p.1 < r[1] + r[3];
         let busy = self.running();
-        let done = self.job.is_some() && !busy;
-        let targets: Vec<(usize, [f32; 4])> = if done {
-            vec![(2, Self::button_rect(x, y, h, 0)), (3, Self::button_rect(x, y, h, 1))]
-        } else {
-            vec![(0, Self::row_rect(x, y, 0)), (1, Self::row_rect(x, y, 1)), (2, Self::button_rect(x, y, h, 0)), (3, Self::button_rect(x, y, h, 1))]
-        };
+        // The rows (whole width) and the buttons the view shows.
+        let v = self.view(sw, sh);
+        let targets: Vec<(usize, [f32; 4])> = v.rows.iter().copied().enumerate().chain(v.buttons.iter().enumerate().map(|(i, b)| (2 + i, b.0))).collect();
         for (i, r) in targets {
             if inside(r) && !busy {
                 if moved || clicked {
@@ -526,60 +524,42 @@ impl UpdateUi {
         }
     }
 
-    pub fn draw(&self, gu: &mut GameUi, sw: f32, sh: f32) -> [f32; 4] {
-        let white = [0x80u8; 4];
-        let grey = [0x58, 0x58, 0x58, 0x80];
+    /// The window as both UIs draw it (UI pixels); the mouse stays on these rects (`pointer`).
+    pub fn view(&self, sw: f32, sh: f32) -> View {
         let [x, y, w, h] = Self::rect(sw, sh);
-        gu.rect(x + 2.0, y + 2.0, w - 4.0, h - 4.0, [0.0, 0.0, 0.0, 0.55]);
-        gu.frame(x, y, w, h);
-        gu.cell_stretch("menu    windowps", 465, 1, x, y + 4.0, w, 16.0, 0x8080_8080);
-        gu.text("Update", x + 8.0, y + 4.0, 0, white);
+        let mut v = View { frame: [x, y, w, h], line: 16.0, texts: Vec::new(), rows: Vec::new(), toggles: Vec::new(), gauge: None, buttons: Vec::new() };
+        let text = |v: &mut View, at: [f32; 2], s: &str, white: bool, max: usize| v.texts.push(Text { at, text: s.to_string(), white, wrap: w - 40.0, max });
+        let buttons = |v: &mut View, labels: &[&'static str], cursor: usize| {
+            for (i, &label) in labels.iter().enumerate() {
+                v.buttons.push((Self::button_rect(x, y, h, i), label, cursor == 2 + i));
+            }
+        };
         let job = self.job.as_ref().map(|j| match &*j.lock().unwrap() {
             Job::Running(p) => Job::Running(p.clone()),
             Job::Done(l, r) => Job::Done(l.clone(), *r),
             Job::Failed(e) => Job::Failed(e.clone()),
         });
-        let buttons = |gu: &mut GameUi, labels: [&str; 2], cursor: usize| {
-            for (i, label) in labels.iter().enumerate() {
-                let r = Self::button_rect(x, y, h, i);
-                let on = cursor == 2 + i;
-                super::settings::button(gu, r, if on { 0x8080_5020 } else { 0x8080_8080 });
-                gu.text(label, r[0] + r[2] / 2.0, r[1], 1, white);
-                if on {
-                    gu.cursor(r[0], r[1]);
-                }
-            }
-        };
         match job {
             Some(Job::Running(p)) => {
-                gu.text(if p.label.is_empty() { "Starting..." } else { &p.label }, x + 20.0, y + 48.0, 0, white);
-                // The config pages' slider as the gauge: track windowps 383, fill 384.
-                let (gx, gy, gw) = (x + 20.0, y + 80.0, w - 40.0);
-                gu.sprite_scaled("menu    windowps", 383, gx, gy, gw / 192.0, 1.0, 0x8080_8080);
-                if p.total > 0 && p.done > 0 {
-                    let f = (p.done as f32 / p.total as f32).clamp(0.0, 1.0);
-                    gu.sprite_scaled("menu    windowps", 384, gx, gy, f * gw / 192.0, 1.0, 0xa0a0_a0a0);
-                }
-                gu.text(&p.detail, x + 20.0, y + 104.0, 0, grey);
-                gu.text("Please wait; you can keep this window open.", x + 20.0, y + h - 32.0, 0, grey);
+                text(&mut v, [x + 20.0, y + 48.0], if p.label.is_empty() { "Starting..." } else { &p.label }, true, 1);
+                let f = if p.total > 0 { (p.done as f32 / p.total as f32).clamp(0.0, 1.0) } else { 0.0 };
+                v.gauge = Some(([x + 20.0, y + 80.0, w - 40.0, 16.0], f));
+                text(&mut v, [x + 20.0, y + 104.0], &p.detail, false, 1);
+                text(&mut v, [x + 20.0, y + h - 32.0], "Please wait; you can keep this window open.", false, 1);
             }
             Some(Job::Done(lines, restart)) => {
                 for (i, l) in lines.iter().enumerate() {
-                    for (k, part) in gu.wrap(l, w - 40.0).iter().enumerate().take(2) {
-                        gu.text(part, x + 20.0, y + 48.0 + 34.0 * i as f32 + 16.0 * k as f32, 0, white);
-                    }
+                    text(&mut v, [x + 20.0, y + 48.0 + 34.0 * i as f32], l, true, 2);
                 }
                 if lines.is_empty() {
-                    gu.text("Nothing was updated.", x + 20.0, y + 48.0, 0, white);
+                    text(&mut v, [x + 20.0, y + 48.0], "Nothing was updated.", true, 1);
                 }
-                buttons(gu, if restart { ["Restart", "Later"] } else { ["OK", ""] }, if restart { self.cursor } else { 2 });
+                if restart { buttons(&mut v, &["Restart", "Later"], self.cursor) } else { buttons(&mut v, &["OK"], 2) }
             }
             Some(Job::Failed(e)) => {
-                gu.text("The update did not finish:", x + 20.0, y + 48.0, 0, white);
-                for (k, part) in gu.wrap(&e, w - 40.0).iter().enumerate().take(4) {
-                    gu.text(part, x + 20.0, y + 68.0 + 16.0 * k as f32, 0, grey);
-                }
-                buttons(gu, ["OK", ""], 2);
+                text(&mut v, [x + 20.0, y + 48.0], "The update did not finish:", true, 1);
+                text(&mut v, [x + 20.0, y + 68.0], &e, false, 4);
+                buttons(&mut v, &["OK"], 2);
             }
             None => {
                 let s = self.status.lock().unwrap();
@@ -610,21 +590,94 @@ impl UpdateUi {
                 drop(s);
                 for (i, (name, detail, avail)) in rows.iter().enumerate() {
                     let r = Self::row_rect(x, y, i);
-                    let on = self.cursor == i;
+                    v.rows.push(r);
                     // The config pages' On / Off button as the checkbox.
-                    let b = [r[0], r[1] + 6.0, 40.0, 16.0];
-                    super::settings::button(gu, b, if on { 0x8080_5020 } else { 0x8080_8080 });
-                    gu.text(if self.pick[i] && *avail { "On" } else { "Off" }, b[0] + 20.0, b[1], 1, if *avail { white } else { grey });
-                    gu.text(name, r[0] + 52.0, r[1], 0, if *avail { white } else { grey });
-                    gu.text(detail, r[0] + 52.0, r[1] + 14.0, 0, grey);
-                    if on {
-                        gu.cursor(b[0], b[1]);
-                    }
+                    v.toggles.push(([r[0], r[1] + 6.0, 40.0, 16.0], if self.pick[i] && *avail { "On" } else { "Off" }, *avail, self.cursor == i));
+                    text(&mut v, [r[0] + 52.0, r[1]], name, *avail, 1);
+                    text(&mut v, [r[0] + 52.0, r[1] + 14.0], detail, false, 1);
                 }
-                buttons(gu, ["Update", "Close"], self.cursor);
+                buttons(&mut v, &["Update", "Close"], self.cursor);
             }
         }
-        [x, y, w, h]
+        v.zoomed(self.zoom, sw / 2.0, sh / 2.0)
+    }
+
+    /// The classic window: the game's frame, title strip, the config pages' buttons and slider.
+    pub fn draw(gu: &mut GameUi, v: &View) {
+        let white = [0x80u8; 4];
+        let grey = [0x58, 0x58, 0x58, 0x80];
+        let [x, y, w, h] = v.frame;
+        gu.rect(x + 2.0, y + 2.0, w - 4.0, h - 4.0, [0.0, 0.0, 0.0, 0.55]);
+        gu.frame(x, y, w, h);
+        gu.cell_stretch("menu    windowps", 465, 1, x, y + 4.0, w, 16.0, 0x8080_8080);
+        gu.text("Update", x + 8.0, y + 4.0, 0, white);
+        for t in &v.texts {
+            for (k, part) in gu.wrap(&t.text, t.wrap).iter().enumerate().take(t.max) {
+                gu.text(part, t.at[0], t.at[1] + 16.0 * k as f32, 0, if t.white { white } else { grey });
+            }
+        }
+        for &(b, label, avail, on) in &v.toggles {
+            super::settings::button(gu, b, if on { 0x8080_5020 } else { 0x8080_8080 });
+            gu.text(label, b[0] + 20.0, b[1], 1, if avail { white } else { grey });
+            if on {
+                gu.cursor(b[0], b[1]);
+            }
+        }
+        // The config pages' slider as the gauge: track windowps 383, fill 384.
+        if let Some(([gx, gy, gw, _], f)) = v.gauge {
+            gu.sprite_scaled("menu    windowps", 383, gx, gy, gw / 192.0, 1.0, 0x8080_8080);
+            if f > 0.0 {
+                gu.sprite_scaled("menu    windowps", 384, gx, gy, f * gw / 192.0, 1.0, 0xa0a0_a0a0);
+            }
+        }
+        for &(r, label, on) in &v.buttons {
+            super::settings::button(gu, r, if on { 0x8080_5020 } else { 0x8080_8080 });
+            gu.text(label, r[0] + r[2] / 2.0, r[1], 1, white);
+            if on {
+                gu.cursor(r[0], r[1]);
+            }
+        }
+    }
+}
+
+/// A line of the window: where (top left), its text, white or grey, wrapped at `wrap` to `max` lines.
+pub struct Text {
+    pub at: [f32; 2],
+    pub text: String,
+    pub white: bool,
+    pub wrap: f32,
+    pub max: usize,
+}
+
+/// The update window for either UI (UI pixels): the frame, the line height, its lines, the rows the mouse takes, the
+/// On / Off boxes (rect, label, available, cursor), the gauge (rect, fraction done), the buttons (rect, label, cursor).
+pub struct View {
+    pub frame: [f32; 4],
+    pub line: f32,
+    pub texts: Vec<Text>,
+    pub rows: Vec<[f32; 4]>,
+    pub toggles: Vec<([f32; 4], &'static str, bool, bool)>,
+    pub gauge: Option<([f32; 4], f32)>,
+    pub buttons: Vec<([f32; 4], &'static str, bool)>,
+}
+
+impl View {
+    /// Every place and size scaled by `z` about (cx, cy).
+    fn zoomed(mut self, z: f32, cx: f32, cy: f32) -> View {
+        let r = |r: &mut [f32; 4]| *r = [cx + (r[0] - cx) * z, cy + (r[1] - cy) * z, r[2] * z, r[3] * z];
+        r(&mut self.frame);
+        self.line *= z;
+        for t in &mut self.texts {
+            t.at = [cx + (t.at[0] - cx) * z, cy + (t.at[1] - cy) * z];
+            t.wrap *= z;
+        }
+        self.rows.iter_mut().for_each(r);
+        self.toggles.iter_mut().for_each(|t| r(&mut t.0));
+        if let Some(g) = self.gauge.as_mut() {
+            r(&mut g.0);
+        }
+        self.buttons.iter_mut().for_each(|b| r(&mut b.0));
+        self
     }
 }
 

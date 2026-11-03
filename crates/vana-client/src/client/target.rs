@@ -669,10 +669,25 @@ pub fn mouse_candidate(w: &World, hidden: &std::collections::HashSet<u32>, id: u
     w.entities.get(&id).is_some_and(|e| candidate(w, hidden, id, e))
 }
 
-/// FUN_10158db0(0), the confirm on the target (Enter, a click on the target): an NPC is talked to; anything else,
-/// or no target, opens the action menu ("menu    playermo").
+/// FUN_101524e0's talk test: an NPC id (high byte 1), not our pet, not a trust (+0x12c bit 22: 0x00E @0x28 bit 0),
+/// charmed only when talkable (+0x12c bit 30), not allied with players (FUN_1008ca40: allegiance 1, LSB's trusts).
+/// Monsters take the menu *(inferred)*.
+pub fn talks_to(w: &World, t: u32) -> bool {
+    let Some(e) = w.entities.get(&t) else { return false };
+    let m = &e.marks;
+    t >> 24 == 1 && t != 0x0100_0000 && !e.mob && !m.trust && !(w.my_pet != 0 && e.index == w.my_pet) && (!m.charm || m.npc_pet) && !allied(w, t, e)
+}
+
+/// FUN_1008ca40: not a PC, not charmed (+0x1cc 0x100), allegiance (+0x1fb) 1, the players' side: LSB's trusts.
+pub fn allied(w: &World, t: u32, e: &super::Entity) -> bool {
+    let k = super::radar::kind_bits(w, t, e);
+    k & 1 == 0 && k & 0x100 == 0 && e.marks.alleg == 1
+}
+
+/// FUN_10158db0(0), the confirm on the target (Enter, a click on the target): an NPC is talked to; anything else
+/// (a trust too), or no target, opens the action menu ("menu    playermo").
 pub fn confirm_target(w: &mut World) {
-    match w.target.filter(|t| t >> 24 != 0 && w.entities.get(t).is_some_and(|e| !e.mob)) {
+    match w.target.filter(|&t| talks_to(w, t)) {
         // FUN_10158db0: SE 0009 once the talk went out (after FUN_1007bf30).
         Some(t) => {
             if super::event::talk(w, t) {

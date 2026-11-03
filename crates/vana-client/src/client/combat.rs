@@ -1627,24 +1627,37 @@ pub(super) fn right(w: &mut World) -> bool {
     }
 }
 
-/// Layout choice (FUN_10127790): engaged 6; an attackable target 4 (2 * 2); an NPC 7 (Talk first;
-/// inferred: actor +0x1cc bits 2 and 0x100 taken as "not a monster"); another target 2; none 0.
+/// Layout choice (FUN_10127790) by the target's +0x1cc kind: an attackable one 2, a PC or a player-allied NPC
+/// (FUN_1008ca40: a trust) 1, any other NPC 0, each doubled; engaged 6, riding the odd one. An NPC with the 0x100 bit
+/// (charmed, the fellow) takes 7 as it is.
 fn layout(w: &World) -> usize {
-    if w.my_motion.status == 1 {
-        return 6;
-    }
     let base = match w.target.and_then(|t| w.entities.get(&t).map(|e| (t, e))) {
-        Some((_, e)) if e.mob && !matches!(e.motion.status, 2 | 3) => 4,
-        Some((t, e)) if t >> 24 != 0 && !e.mob => 7,
-        Some(_) => 2,
         None => 0,
+        Some((_, e)) if e.mob && !matches!(e.motion.status, 2 | 3) => 2,
+        Some((t, e)) => {
+            let k = super::radar::kind_bits(w, t, e);
+            if k & 2 == 0 || super::target::allied(w, t, e) {
+                1
+            } else if k & 0x100 == 0 {
+                0
+            } else {
+                return 7;
+            }
+        }
     };
-    // FUN_1012b4b0: riding (status 5 chocobo, 0x55 mount) takes the odd layout (Dig, Dismount), but the NPC one.
-    if matches!(w.my_motion.status, 5 | 0x55) && base != 7 { base + 1 } else { base }
+    // FUN_1012b4b0: riding (status 5 chocobo, 0x55 mount) takes the odd layout (Dig, Dismount).
+    if w.my_motion.status == 1 {
+        6
+    } else if matches!(w.my_motion.status, 5 | 0x55) {
+        base * 2 + 1
+    } else {
+        base * 2
+    }
 }
 
-/// FUN_10127230's filters, as far as they apply to us (no treasure pool, trust, fellow or party).
-fn shown(target: Option<u32>, c: u8, treasure: bool) -> Option<u8> {
+/// FUN_10127230's filters, as far as they apply to us (no party). `fellow`: the target is our fellow (player +0x29c),
+/// not engaged.
+fn shown(target: Option<u32>, c: u8, treasure: bool, fellow: bool) -> Option<u8> {
     let npc = target.is_some_and(|t| t >= 0x0100_0000);
     match c {
         // FUN_1012af30 case 0xc: every layout while the pool holds items, not in Conflict.
@@ -1653,12 +1666,13 @@ fn shown(target: Option<u32>, c: u8, treasure: bool) -> Option<u8> {
         cmd::CHAT if npc => None,
         cmd::CHAT if target.is_some() => Some(cmd::TELL),
         cmd::CHECK if target.is_none() => None,
-        // Talk: the target is an NPC that is not engaged (FUN_10127230 case 6); NPC Trade by the same rule.
-        cmd::TALK | cmd::TRADE_NPC if npc => Some(c),
+        // Talk and NPC Trade: only on our fellow, not engaged (FUN_10127230 cases 6 / 0x14).
+        cmd::TALK | cmd::TRADE_NPC if fellow => Some(c),
+        cmd::TALK | cmd::TRADE_NPC => None,
         // Player Trade (layout 2): a player target (the costume bit +0x1d0 & 0x400 not checked).
         cmd::TRADE if target.is_some() && !npc => Some(c),
         0xa if target.is_none() || npc => None,
-        6 | 0xc | 0xd | 0x10 | 0x11 | 0x13 | 0x14 | 0x1a | 0x1b => None,
+        0xc | 0xd | 0x10 | 0x11 | 0x13 | 0x1a | 0x1b => None,
         _ if LABELS[c as usize].1 != 0 => None,
         _ => Some(c),
     }
@@ -1666,11 +1680,11 @@ fn shown(target: Option<u32>, c: u8, treasure: bool) -> Option<u8> {
 
 /// The commands of a layout (0..8) for a target id.
 pub fn menu_items(layout: usize, target: Option<u32>) -> Vec<u8> {
-    menu_rows(layout, target, false)
+    menu_rows(layout, target, false, false)
 }
 
-fn menu_rows(layout: usize, target: Option<u32>, treasure: bool) -> Vec<u8> {
-    LAYOUTS[layout.min(7)].iter().filter_map(|&c| shown(target, c, treasure)).collect()
+fn menu_rows(layout: usize, target: Option<u32>, treasure: bool, fellow: bool) -> Vec<u8> {
+    LAYOUTS[layout.min(7)].iter().filter_map(|&c| shown(target, c, treasure, fellow)).collect()
 }
 
 /// The rows now (FUN_1012b2d0 over FUN_1012af30): engaged, Disengage becomes Call for help while toggled and
@@ -1682,7 +1696,8 @@ fn current_items(w: &World, call_help: bool) -> Vec<u8> {
     }
     let l = layout(w);
     let treasure = super::treasure::count(w) > 0 && !conflict(w.my_team);
-    let mut items = menu_rows(l, w.target.filter(|t| w.entities.contains_key(t)), treasure);
+    let fellow = w.target.and_then(|t| w.entities.get(&t)).is_some_and(|e| w.my_fellow != 0 && e.index == w.my_fellow && e.motion.status != 1);
+    let mut items = menu_rows(l, w.target.filter(|t| w.entities.contains_key(t)), treasure, fellow);
     // FUN_1012af30 case 0xe: Dig only on a chocobo (not a mount); its further zone tests are not traced.
     if w.my_motion.status == 0x55 {
         items.retain(|&c| c != 0xe);
@@ -2098,6 +2113,9 @@ mod tests {
         // Chat becomes Tell on a player; an NPC target drops it.
         assert_eq!(menu_items(2, Some(0x0000_0042))[0], cmd::TELL);
         assert_eq!(menu_items(2, Some(0x0100_0042))[0], 8);
+        // Talk and NPC Trade only on our fellow (a trust's Talk would release it).
+        assert!(!menu_items(7, Some(0x0100_0742)).iter().any(|&c| c == cmd::TALK || c == cmd::TRADE_NPC));
+        assert_eq!(menu_rows(7, Some(0x0100_0742), false, true)[..2], [cmd::TALK, 8]);
     }
 
     #[test]

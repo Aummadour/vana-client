@@ -201,6 +201,46 @@ impl Modern {
         ctx.request_repaint();
     }
 
+    /// The Update window (client/updater.rs) on the rects its view placed (UI pixels): the frame and title, its lines,
+    /// the On / Off boxes, the progress bar, the buttons; their mouse stays the window's.
+    pub fn update_window(&mut self, ctx: &Context, window: [u32; 2], scale: u32, ui_k: (f32, f32), v: &super::super::updater::View) {
+        self.zoom_to(ctx, window, scale);
+        let k = ctx.pixels_per_point();
+        let pt = |r: [f32; 4]| egui::Rect::from_min_size(pos2(r[0] / (k * ui_k.0), r[1] / (k * ui_k.1)), vec2(r[2] / (k * ui_k.0), r[3] / (k * ui_k.1)));
+        let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("modern update")));
+        let frame = pt(v.frame).expand(6.0);
+        // Opaque whatever the Opacity setting: the title's buttons must not show through.
+        let opacity = self.opacity.replace(1.0);
+        p.add(super::borders::window(self, "window_focused", frame));
+        self.opacity.set(opacity);
+        // Text to the view's line height (the window is zoomed for it).
+        let size = (v.line / (k * ui_k.1) * 0.8).max(self.theme.small);
+        let title = pt([v.frame[0] + v.line * 0.5, v.frame[1] + v.line * 0.25, v.frame[2], v.line]);
+        p.text(pos2(title.min.x, title.center().y), Align2::LEFT_CENTER, "Update", FontId::new(size, FontFamily::Name(super::STRONG.into())), self.theme.color("gold"));
+        for t in &v.texts {
+            let at = pt([t.at[0], t.at[1], t.wrap, v.line]);
+            let c = if t.white { self.theme.color("text") } else { self.theme.color("muted") };
+            let mut job = egui::text::LayoutJob::simple(t.text.clone(), FontId::proportional(size), c, at.width());
+            job.wrap.max_rows = t.max;
+            p.galley(pos2(at.min.x, at.center().y - size * 0.6), p.layout_job(job), c);
+        }
+        let hover = ctx.input(|i| i.pointer.hover_pos());
+        for &(r, label, avail, on) in &v.toggles {
+            self.lobby_button(&p, pt(r).expand2(vec2(3.0, 2.0)), label, on, avail, hover, size);
+        }
+        if let Some((r, f)) = v.gauge {
+            let bar = pt(r).shrink2(vec2(0.0, pt(r).height() * 0.25));
+            p.rect(bar, bar.height() / 2.0, self.theme.color("charcoal"), egui::Stroke::new(1.0, self.theme.color("bronze").gamma_multiply(0.7)), egui::StrokeKind::Outside);
+            if f > 0.0 {
+                p.rect_filled(egui::Rect::from_min_max(bar.min, pos2(bar.min.x + bar.width() * f, bar.max.y)), bar.height() / 2.0, self.theme.color("focus"));
+            }
+        }
+        for &(r, label, on) in &v.buttons {
+            self.lobby_button(&p, pt(r).expand2(vec2(4.0, 3.0)), label, on, true, hover, size);
+        }
+        ctx.request_repaint();
+    }
+
     /// The lobby's help bar on retail's lobyhelp strip (UI pixels, the screen's width): the help line centred in its
     /// colour, the client version above the strip at retail's spot.
     #[allow(clippy::too_many_arguments)]

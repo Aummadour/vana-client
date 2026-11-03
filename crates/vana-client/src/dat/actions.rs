@@ -65,6 +65,8 @@ pub struct Spell {
     /// +0x44: 8 SCH main only, 0x20 GEO main only (bit 5 also the free 3D cursor); +0x45: range index.
     pub flags: u8,
     pub range: u8,
+    /// +0x47: nonzero for a spell that always hits an area (+0x46 its radius) *(inferred: matches LSB's AOE)*.
+    pub area: u8,
     /// +0x5c: per main job, the level is in job points (needs level 99).
     pub jp_mask: u32,
 }
@@ -119,6 +121,7 @@ impl Actions {
                 icon_hd: u16_at(r, 0x42),
                 flags: r[0x44],
                 range: r[0x45],
+                area: r[0x47],
                 jp_mask: u32::from_le_bytes(r[0x5c..0x60].try_into().unwrap()),
             })
             .collect();
