@@ -12,6 +12,13 @@ pub struct Func {
     pub ret: &'static str,
 }
 
+/// A table type the API hands out or takes (LuaLS `---@class`): (field, type, doc).
+pub struct Class {
+    pub name: &'static str,
+    pub doc: &'static str,
+    pub fields: &'static [(&'static str, &'static str, &'static str)],
+}
+
 pub struct Event {
     pub name: &'static str,
     pub doc: &'static str,
@@ -336,17 +343,15 @@ pub fn stubs() -> String {
     for e in EVENTS {
         s += &format!("---| \"{}\" # {}\n", e.name, e.doc);
     }
-    s += "\n---@class vana.Player\n---@field name string\n---@field id integer\n---@field index integer\n---@field zone integer?\n---@field pos {x: number, y: number, z: number}\n---@field heading number\n---@field status integer\n---@field hp integer?\n---@field mp integer?\n---@field tp integer?\n---@field hpp integer?\n---@field mpp integer?\n---@field hp_max integer?\n---@field mp_max integer?\n---@field main_job integer?\n---@field main_level integer?\n---@field sub_job integer?\n---@field sub_level integer?\n---@field target integer?\n\n";
-    s += "---@class vana.Entity\n---@field id integer\n---@field index integer\n---@field name string\n---@field kind 'player'|'npc'|'mob'\n---@field pos {x: number, y: number, z: number}\n---@field heading number\n---@field distance number\n---@field hpp integer\n---@field status integer\n---@field speed number\n---@field claim integer\n---@field targetable boolean\n---@field hidden boolean\n---@field master integer the master's index (pets), 0 for none\n---@field me boolean? true for our own character\n---@field race integer?\n---@field model integer a monster or NPC model id (0 for a player-style look)\n---@field look {face: integer, head: integer, body: integer, hands: integer, legs: integer, feet: integer, main: integer, sub: integer, range: integer}? a player-style look\n---@field in_party boolean\n---@field in_alliance boolean\n---@field hitbox number the model radius the server gives (actor +0x208)\n---@field target_index integer? what it targets (its face target; ours: our target)\n---@field target_id integer? that target's server id, when known\n---@field pet boolean? true for our pet, which also has:\n---@field mpp integer? our pet's MP %\n---@field tp integer? our pet's TP\n\n";
-    s += "---@class vana.Member\n---@field slot integer\n---@field party integer\n---@field id integer\n---@field index integer\n---@field name string\n---@field hp integer\n---@field mp integer\n---@field tp integer\n---@field hpp integer\n---@field mpp integer\n---@field zone integer\n---@field in_zone boolean\n---@field main_job integer\n---@field main_level integer\n---@field sub_job integer\n---@field sub_level integer\n---@field leader boolean\n---@field alliance_leader boolean\n---@field buffs integer[]\n\n";
-    s += "---@class vana.Item\n---@field bag integer\n---@field slot integer\n---@field id integer\n---@field count integer\n---@field extdata string? 24 raw bytes\n---@field locked integer\n---@field price integer?\n\n";
-    s += "---@class vana.Action\n---@field actor integer\n---@field category integer\n---@field param integer\n---@field info integer\n---@field targets {id: integer, results: {miss: integer, kind: integer, animation: integer, info: integer, scale: integer, value: integer, message: integer, bit: integer, proc: table?, react: table?}[]}[]\n\n";
-    s += "---@class vana.WindowSpec\n---@field title string?\n---@field width number?\n---@field help string?\n---@field hud boolean?\n---@field frame boolean?\n---@field x number?\n---@field y number?\n---@field elements table[]?\n\n";
-    s += "---@class vana.Packet\n---@field id integer\n---@field data string\n---@field original string\n---@field injected boolean\n---@field blocked boolean\n---@field outgoing boolean\n\n";
-    s += "---@class vana.KeyEvent\n---@field key string a, 1, f1, enter, numpad+, lctrl...\n---@field down boolean\n---@field repeated boolean\n---@field ctrl boolean\n---@field alt boolean\n---@field shift boolean\n---@field typing boolean a text field has the keys\n---@field blocked boolean an earlier mod took it\n\n";
-    s += "---@class vana.MouseEvent\n---@field kind 'down'|'up'|'move'|'wheel'\n---@field button string?\n---@field x number\n---@field y number\n---@field delta number?\n---@field blocked boolean\n\n";
-    s += "---@class vana.Time\n---@field earth integer\n---@field year integer\n---@field month integer\n---@field day integer\n---@field hour integer\n---@field minute integer\n---@field weekday integer\n---@field moon_phase integer\n---@field moon integer\n\n";
-    s += "---@class vana.Mod\n---@field id string\n---@field name string\n---@field version string\n---@field api integer\n---@field path string\n\n---@type vana.Mod\n---@diagnostic disable-next-line: missing-fields\nmod = {}\n\n";
+    s += "\n";
+    for c in CLASSES {
+        s += &format!("---@class {}\n", c.name);
+        for (f, ty, doc) in c.fields {
+            s += &format!("---@field {f} {ty}{}\n", if doc.is_empty() { String::new() } else { format!(" {doc}") });
+        }
+        s += "\n";
+    }
+    s += "---@type vana.Mod\n---@diagnostic disable-next-line: missing-fields\nmod = {}\n\n";
     s += "storage = {\n    ---@type table plain data kept for every character of the account\n    account = {},\n    ---@type table plain data kept for this character\n    character = {},\n}\n\n";
     let mut seen = Vec::new();
     for f in FUNCS {
@@ -379,3 +384,233 @@ pub fn stubs() -> String {
     }
     s
 }
+
+/// Each namespace's one-line description, in the reference's order ("" the globals).
+pub const NAMESPACES: &[(&str, &str)] = &[
+    ("", "Functions every mod has: printing, modules, waiting, the clock."),
+    ("log", "Lines in vana-client.log."),
+    ("events", "Handlers for the client's events (see the event list)."),
+    ("commands", "The mod's own text commands, and running the game's."),
+    ("filters", "Chat lines and typed lines rewritten or dropped before the client takes them."),
+    ("timers", "Rows in the client's Timers window."),
+    ("ui", "The mod's windows, in the active UI's own look."),
+    ("hud", "Text, bars, images and maps drawn over the game, under the game's windows."),
+    ("ui.native", "The game's own windows and HUD pieces: what is open, what is highlighted, hiding, the config."),
+    ("render", "How entities and the camera draw, and post-process passes."),
+    ("audio", "The game's sounds and music, and the mod's own."),
+    ("draw", "Lines, shapes, text and images placed in the world."),
+    ("net", "HTTP, TCP, UDP, local pipes and sockets, and links (the net permission)."),
+    ("ipc", "Messages between game windows on this computer (multibox)."),
+    ("packets", "Hooks on the packets the server and the client send, and injecting them."),
+    ("chat", "The chat log and the chat line."),
+    ("input", "The keys and the mouse: watching, taking and pressing them."),
+    ("binds", "Key binds that run lines, as the game's own binds do."),
+    ("timer", "Calls after a delay or at an interval."),
+    ("game", "The game's state: our character, the zone, entities, party, items, jobs and more."),
+    ("actions", "Doing things in the game: casting, items, equipment, targeting, moving, menus (actions or automation)."),
+    ("res", "Game data from the DATs: items, spells, abilities, statuses, zones, messages, names."),
+    ("fs", "Files in the mod's data folder (and its own files, read only)."),
+    ("json", "JSON text to Lua tables and back."),
+    ("mods", "The other mods: the list, calls into them, events to them."),
+    ("text", "Shift-JIS and auto-translate phrases in strings."),
+    ("client", "The client itself: the window, the clipboard, screenshots, recording, programs, the process, switches."),
+    ("devices", "USB HID devices by their raw reports (the devices permission)."),
+    ("storage", "The mod's saved data (storage.account, storage.character) and sealed secrets."),
+    ("lobby", "The screens before login, for lobby mods."),
+    ("settings", "The settings declared in mod.toml."),
+];
+
+/// A GitHub heading anchor.
+fn anchor(heading: &str) -> String {
+    heading.to_lowercase().chars().filter_map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { Some(c) } else if c == ' ' { Some('-') } else { None }).collect()
+}
+
+fn ns_title(ns: &str) -> String {
+    if ns.is_empty() { "Globals".into() } else { format!("`{ns}`") }
+}
+
+/// The reference part of docs/lua-api.md: every namespace's functions, the events and the types.
+pub fn reference_md() -> String {
+    let cell = |t: &str| t.replace('|', "\\|");
+    let mut s = String::new();
+    s += "### Namespaces\n\n| Namespace | Functions | What it is |\n| --- | --: | --- |\n";
+    for (ns, what) in NAMESPACES {
+        let n = FUNCS.iter().filter(|f| f.ns == *ns).count();
+        s += &format!("| [{}](#{}) | {n} | {what} |\n", ns_title(ns), anchor(&ns_title(ns)));
+    }
+    s += &format!("| [Event list](#event-list) | {} | What `events.on` can watch. |\n| [Types](#types) | {} | The tables the API hands out and takes. |\n\n", EVENTS.len(), CLASSES.len());
+    for (ns, what) in NAMESPACES {
+        s += &format!("### {}\n\n{what}\n\n", ns_title(ns));
+        for f in FUNCS.iter().filter(|f| f.ns == *ns) {
+            let full = if f.ns.is_empty() { f.name.to_string() } else { format!("{}.{}", f.ns, f.name) };
+            let args: Vec<&str> = f.params.iter().map(|p| p.0).collect();
+            s += &format!("#### `{full}({})`\n\n{}\n\n", args.join(", "), f.doc);
+            for (name, ty, doc) in f.params {
+                s += &format!("- `{name}` `{ty}`{}\n", if doc.is_empty() { String::new() } else { format!(": {doc}") });
+            }
+            if !f.ret.is_empty() {
+                s += &format!("{}Returns `{}`.\n", if f.params.is_empty() { "" } else { "\n" }, f.ret);
+            }
+            if !f.params.is_empty() || !f.ret.is_empty() {
+                s += "\n";
+            }
+        }
+    }
+    s += "### Event list\n\nEach is watched with `events.on(name, handler)`; the handler gets the arguments listed.\n\n| Event | Arguments | When |\n| --- | --- | --- |\n";
+    for e in EVENTS {
+        let args: Vec<String> = e.args.iter().map(|(n, t)| format!("`{n}: {}`", cell(t))).collect();
+        s += &format!("| `{}` | {} | {} |\n", e.name, if args.is_empty() { "-".into() } else { args.join(", ") }, cell(e.doc));
+    }
+    s += "\n### Types\n\nTables the API hands out or takes. A type ending in `?` may be nil.\n\n";
+    for c in CLASSES {
+        s += &format!("#### `{}`\n\n{}\n\n| Field | Type | Note |\n| --- | --- | --- |\n", c.name, c.doc);
+        for (f, ty, doc) in c.fields {
+            s += &format!("| `{f}` | `{}` | {} |\n", cell(ty), cell(doc));
+        }
+        s += "\n";
+    }
+    s
+}
+
+pub const CLASSES: &[Class] = &[
+    Class { name: "vana.Player", doc: "Our character (game.player): its ids, zone, place, vitals, jobs and target.", fields: &[
+        ("name", "string", ""),
+        ("id", "integer", ""),
+        ("index", "integer", ""),
+        ("zone", "integer?", ""),
+        ("pos", "{x: number, y: number, z: number}", "where we stand: x and z on the ground, y down (a smaller y is higher)"),
+        ("heading", "number", "radians, 0 to 2π"),
+        ("status", "integer", "the server's status: 0 idle, 1 engaged, 2 and 3 K.O., 5 mounted, 33 resting"),
+        ("hp", "integer?", ""),
+        ("mp", "integer?", ""),
+        ("tp", "integer?", ""),
+        ("hpp", "integer?", ""),
+        ("mpp", "integer?", ""),
+        ("hp_max", "integer?", ""),
+        ("mp_max", "integer?", ""),
+        ("main_job", "integer?", ""),
+        ("main_level", "integer?", ""),
+        ("sub_job", "integer?", ""),
+        ("sub_level", "integer?", ""),
+        ("target", "integer?", "our target's server id"),
+    ] },
+    Class { name: "vana.Entity", doc: "A character, NPC or monster in the zone (game.entity, game.entities, game.target); ours too, with `me`.", fields: &[
+        ("id", "integer", ""),
+        ("index", "integer", ""),
+        ("name", "string", ""),
+        ("kind", "'player'|'npc'|'mob'", ""),
+        ("pos", "{x: number, y: number, z: number}", "x and z on the ground, y down"),
+        ("heading", "number", "radians, 0 to 2π"),
+        ("distance", "number", "from us, in yalms"),
+        ("hpp", "integer", ""),
+        ("status", "integer", ""),
+        ("speed", "number", ""),
+        ("claim", "integer", ""),
+        ("targetable", "boolean", ""),
+        ("hidden", "boolean", ""),
+        ("master", "integer", "the master's index (pets), 0 for none"),
+        ("me", "boolean?", "true for our own character"),
+        ("race", "integer?", ""),
+        ("model", "integer", "a monster or NPC model id (0 for a player-style look)"),
+        ("look", "{face: integer, head: integer, body: integer, hands: integer, legs: integer, feet: integer, main: integer, sub: integer, range: integer}?", "a player-style look"),
+        ("in_party", "boolean", ""),
+        ("in_alliance", "boolean", ""),
+        ("hitbox", "number", "the model radius the server gives (actor +0x208)"),
+        ("target_index", "integer?", "what it targets (its face target; ours: our target)"),
+        ("target_id", "integer?", "that target's server id, when known"),
+        ("pet", "boolean?", "true for our pet, which also has:"),
+        ("mpp", "integer?", "our pet's MP %"),
+        ("tp", "integer?", "our pet's TP"),
+    ] },
+    Class { name: "vana.Member", doc: "A party or alliance member (game.party).", fields: &[
+        ("slot", "integer", ""),
+        ("party", "integer", ""),
+        ("id", "integer", ""),
+        ("index", "integer", ""),
+        ("name", "string", ""),
+        ("hp", "integer", ""),
+        ("mp", "integer", ""),
+        ("tp", "integer", ""),
+        ("hpp", "integer", ""),
+        ("mpp", "integer", ""),
+        ("zone", "integer", ""),
+        ("in_zone", "boolean", ""),
+        ("main_job", "integer", ""),
+        ("main_level", "integer", ""),
+        ("sub_job", "integer", ""),
+        ("sub_level", "integer", ""),
+        ("leader", "boolean", ""),
+        ("alliance_leader", "boolean", ""),
+        ("buffs", "integer[]", ""),
+    ] },
+    Class { name: "vana.Item", doc: "An item in a bag (game.items).", fields: &[
+        ("bag", "integer", ""),
+        ("slot", "integer", ""),
+        ("id", "integer", ""),
+        ("count", "integer", ""),
+        ("extdata", "string?", "24 raw bytes"),
+        ("locked", "integer", ""),
+        ("price", "integer?", ""),
+    ] },
+    Class { name: "vana.Action", doc: "An action packet (s2c 0x028) decoded: the `action` event's argument.", fields: &[
+        ("actor", "integer", ""),
+        ("category", "integer", ""),
+        ("param", "integer", ""),
+        ("info", "integer", ""),
+        ("targets", "{id: integer, results: {miss: integer, kind: integer, animation: integer, info: integer, scale: integer, value: integer, message: integer, bit: integer, proc: table?, react: table?}[]}[]", ""),
+    ] },
+    Class { name: "vana.WindowSpec", doc: "A window's definition (ui.window).", fields: &[
+        ("title", "string?", ""),
+        ("width", "number?", ""),
+        ("help", "string?", ""),
+        ("hud", "boolean?", ""),
+        ("frame", "boolean?", ""),
+        ("x", "number?", ""),
+        ("y", "number?", ""),
+        ("elements", "table[]?", ""),
+    ] },
+    Class { name: "vana.Packet", doc: "A packet as a hook sees it (packets.on_in / on_out).", fields: &[
+        ("id", "integer", ""),
+        ("data", "string", ""),
+        ("original", "string", ""),
+        ("injected", "boolean", ""),
+        ("blocked", "boolean", ""),
+        ("outgoing", "boolean", ""),
+    ] },
+    Class { name: "vana.KeyEvent", doc: "A key as input.on_key sees it.", fields: &[
+        ("key", "string", "a, 1, f1, enter, numpad+, lctrl..."),
+        ("down", "boolean", ""),
+        ("repeated", "boolean", ""),
+        ("ctrl", "boolean", ""),
+        ("alt", "boolean", ""),
+        ("shift", "boolean", ""),
+        ("typing", "boolean", "a text field has the keys"),
+        ("blocked", "boolean", "an earlier mod took it"),
+    ] },
+    Class { name: "vana.MouseEvent", doc: "The mouse as input.on_mouse sees it.", fields: &[
+        ("kind", "'down'|'up'|'move'|'wheel'", ""),
+        ("button", "string?", ""),
+        ("x", "number", ""),
+        ("y", "number", ""),
+        ("delta", "number?", ""),
+        ("blocked", "boolean", ""),
+    ] },
+    Class { name: "vana.Time", doc: "The time (game.time): Vana'diel's date and clock, the moon, and Earth's.", fields: &[
+        ("earth", "integer", ""),
+        ("year", "integer", ""),
+        ("month", "integer", ""),
+        ("day", "integer", ""),
+        ("hour", "integer", ""),
+        ("minute", "integer", ""),
+        ("weekday", "integer", ""),
+        ("moon_phase", "integer", ""),
+        ("moon", "integer", ""),
+    ] },
+    Class { name: "vana.Mod", doc: "The running mod (the `mod` global).", fields: &[
+        ("id", "string", ""),
+        ("name", "string", ""),
+        ("version", "string", ""),
+        ("api", "integer", ""),
+        ("path", "string", ""),
+    ] },
+];

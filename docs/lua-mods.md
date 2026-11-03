@@ -1,5 +1,8 @@
 # Lua mods: design
 
+The API as mod authors use it, every function, event and type: [lua-api.md](lua-api.md). This document is the design
+and the state of the work.
+
 The add-on surveys behind it are in MODLOG "Lua mods: the add-on surveys".
 
 ## State

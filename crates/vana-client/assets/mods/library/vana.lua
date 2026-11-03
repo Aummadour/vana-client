@@ -45,9 +45,9 @@
 ---@field id integer
 ---@field index integer
 ---@field zone integer?
----@field pos {x: number, y: number, z: number}
----@field heading number
----@field status integer
+---@field pos {x: number, y: number, z: number} where we stand: x and z on the ground, y down (a smaller y is higher)
+---@field heading number radians, 0 to 2π
+---@field status integer the server's status: 0 idle, 1 engaged, 2 and 3 K.O., 5 mounted, 33 resting
 ---@field hp integer?
 ---@field mp integer?
 ---@field tp integer?
@@ -59,16 +59,16 @@
 ---@field main_level integer?
 ---@field sub_job integer?
 ---@field sub_level integer?
----@field target integer?
+---@field target integer? our target's server id
 
 ---@class vana.Entity
 ---@field id integer
 ---@field index integer
 ---@field name string
 ---@field kind 'player'|'npc'|'mob'
----@field pos {x: number, y: number, z: number}
----@field heading number
----@field distance number
+---@field pos {x: number, y: number, z: number} x and z on the ground, y down
+---@field heading number radians, 0 to 2π
+---@field distance number from us, in yalms
 ---@field hpp integer
 ---@field status integer
 ---@field speed number
