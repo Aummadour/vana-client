@@ -496,6 +496,11 @@ impl GameUi {
         }
     }
 
+    /// The press ring on `child` of `name` (a window that draws its own hand).
+    pub fn press_on(&self, name: &str, child: u16) {
+        self.presses.borrow_mut().insert(name.to_string(), (child, 9.0));
+    }
+
     /// A click on the focused window's cursor child is its Enter.
     pub fn press_at(&self, p: (f32, f32)) {
         if self.focus.1.as_ref().is_some_and(|(_, _, r)| p.0 >= r[0] && p.0 < r[0] + r[2] && p.1 >= r[1] && p.1 < r[1] + r[3]) {
@@ -944,6 +949,51 @@ impl GameUi {
             children.push((c.id, [cx, cy, c.w as f32, c.h as f32]));
         }
         Some(LobbyWin { frame: [fx, fy, fw, fh], children })
+    }
+
+    /// Ours: window `name` drawn `s` times its size with its own top left at `at` (the frame keeps its header offset,
+    /// scaled), its cursor child `sel` lifted and tinted, `hide` not drawn. No hand: the caller draws its own.
+    pub fn window_scaled(&mut self, name: &str, at: (f32, f32), s: f32, sel: Option<u16>, hide: &[u16]) -> Option<LobbyWin> {
+        let e = &self.data.lobby.menu(name)?.elements[0];
+        let ox = i16::from_le_bytes([e.head[0x0e], e.head[0x0f]]) as f32;
+        let oy = i16::from_le_bytes([e.head[0x10], e.head[0x11]]) as f32;
+        let (x, y) = at;
+        let (ew, eh) = (e.w as f32, e.h as f32);
+        let frame = [x + ox * s, y + oy * s, ew * s, eh * s];
+        if !self.win_gate(name, frame) {
+            return None;
+        }
+        let ui = &self.data.lobby;
+        let m = ui.menu(name)?;
+        self.batch.push_frame(ui, &self.data.style, frame[0], frame[1], ew, eh, s, s, 0x8080_8080, 0, false, false);
+        if let Some(r) = m.elements[0].refs.iter().find(|r| r.kind == 0)
+            && let Some(lib) = ui.lib(&r.lib)
+        {
+            self.batch.push_sprite_from(ui, lib, r.index as usize, 1, x, y, s, s, 0x8080_8080, 0);
+        }
+        let pressed = self.presses.borrow().get(name).copied();
+        let mut children = Vec::new();
+        for c in m.elements.iter().skip(1).filter(|c| !hide.contains(&c.id)) {
+            let (cx, cy) = (x + c.x as f32 * s, y + c.y as f32 * s);
+            if let Some(r) = c.refs.iter().find(|r| r.kind == 0)
+                && let Some(lib) = ui.lib(&r.lib)
+            {
+                let on = sel == Some(c.id);
+                let press = pressed.filter(|p| on && p.0 == c.id).map(|p| p.1);
+                let d = if press.is_some() { s } else if on { -s } else { 0.0 };
+                let k = r.index as usize;
+                self.batch.push_sprite(ui, lib, k, cx + d, cy + d, s, s, if on { 0x8080_5020 } else { 0x8080_8080 }, 0);
+                if let Some(t) = press {
+                    let (bw, bh) = (screens::sprite_width(lib, k) * s, screens::sprite_height(lib, k) * s);
+                    for (rs, a, blend) in screens::press_rings(20.0, t) {
+                        let (rx, ry) = (cx + d - ((rs - 1.0) * bw / 2.0).trunc(), cy + d - ((rs - 1.0) * bh / 2.0).trunc());
+                        self.batch.push_sprite(ui, lib, k, rx, ry, rs * s, rs * s, a << 24 | 0x80_5020, blend);
+                    }
+                }
+            }
+            children.push((c.id, [cx, cy, c.w as f32 * s, c.h as f32 * s]));
+        }
+        Some(LobbyWin { frame, children })
     }
 
     /// FUN_1011a1a0 in (x0, y0, x1, y1): a block of lines 16 px apart, centred when it fits, else from the corner

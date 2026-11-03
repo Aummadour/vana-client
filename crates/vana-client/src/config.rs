@@ -218,7 +218,7 @@ pub struct Config {
     pub modern_chat_font: f32,
     /// The modern edge windows folded to their tabs, by panel (the minimap, Wide Scan).
     pub modern_folded: std::collections::BTreeMap<String, bool>,
-    /// The Wide Scan flyout's kinds shown: 1 players, 2 NPCs, 4 monsters.
+    /// The Wide Scan flyout's kinds shown: 2 NPCs, 4 monsters (players, 1, always: LSB sends none).
     pub modern_scan_kinds: u8,
     /// The modern chat's All tab shows the battle lines too (the Battle tab has them alone).
     pub modern_battle_in_all: bool,
@@ -226,6 +226,17 @@ pub struct Config {
     pub modern_condense: bool,
     /// The list search's recent picks by character, newest first (listsearch.rs).
     pub modern_recent: std::collections::BTreeMap<String, Vec<String>>,
+    /// Read a game controller (client/gamepad.rs; retail: padmode000's first flag).
+    pub gamepad: bool,
+    /// Stick travel ignored around the centre as a fraction of full: retail's 42 of 127 (ours round).
+    pub gamepad_deadzone: f32,
+    /// Read the pad while the window is in the background (padmode000's [4], DISCL_BACKGROUND).
+    pub gamepad_background: bool,
+    /// The button settings in retail's padsin000 format (FFXiPadConfig's registry value: 32 numbers, XInput button
+    /// numbers or axis codes 32 + n); empty = gamepad::DEFAULT_PADSIN.
+    pub gamepad_padsin: String,
+    /// padexsin000, the map used while slot 34 is held; empty = gamepad::DEFAULT_PADEXSIN.
+    pub gamepad_padexsin: String,
 }
 
 /// A modern UI panel's place: its left and top (or, for the panels that grow upward, its bottom `b`) as fractions of the
@@ -376,6 +387,11 @@ impl Default for Config {
             modern_battle_in_all: true,
             modern_condense: true,
             modern_recent: Default::default(),
+            gamepad: true,
+            gamepad_deadzone: 0.33,
+            gamepad_background: false,
+            gamepad_padsin: String::new(),
+            gamepad_padexsin: String::new(),
             tool: Default::default(),
             retail_aspect: false,
             monitor: String::new(),

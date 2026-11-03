@@ -51,6 +51,9 @@ pub struct Settings {
     pub mods: Vec<crate::config::ModRef>,
     /// Panel Places' Reset pressed: this character's modern panels go back to where they start (not kept).
     pub reset_places: bool,
+    /// A game controller read (config gamepad), and its sticks' dead zone in % of full (gamepad_deadzone).
+    pub gamepad: bool,
+    pub gamepad_dead: u32,
 }
 
 impl Settings {
@@ -94,6 +97,8 @@ impl Settings {
             modern_opacity: pct(c.modern_opacity),
             mods: crate::modpack::merged(&c.mods, &crate::modpack::folders()),
             reset_places: false,
+            gamepad: c.gamepad,
+            gamepad_dead: (c.gamepad_deadzone * 100.0).round() as u32,
         }
     }
 
@@ -131,6 +136,8 @@ impl Settings {
         c.modern_scale = self.modern_scale;
         c.modern_opacity = self.modern_opacity as f32 / 100.0;
         c.mods = self.mods.clone();
+        c.gamepad = self.gamepad;
+        c.gamepad_deadzone = self.gamepad_dead as f32 / 100.0;
     }
 }
 
@@ -191,6 +198,8 @@ enum Val {
     ModernScale,
     ModernOpacity,
     ResetPlaces,
+    Gamepad,
+    PadDeadZone,
     /// A Lua mod's declared setting: its row on the mod's page (docs/lua-mods.md 4.12).
     Mod(usize),
 }
@@ -311,6 +320,8 @@ fn rows(kind: Kind, tab: usize, in_game: bool, modern: bool) -> &'static [SRow] 
         row("Interface Size", "The modern interface's size (not retail).", ModernScale, MODERN_SCALES, Now),
         row("Panel Opacity", "How opaque the modern interface's window backgrounds are (not retail).", ModernOpacity, &[], Now),
         row("Panel Places", "Reset puts this character's modern windows back where they start (not retail).", ResetPlaces, &[(0, "As Moved"), (1, "Reset")], Now),
+        row("Gamepad", "Read a game controller, with FFXiPadConfig's layout (padsin in config.json changes it).", Gamepad, OFF_ON, Now),
+        row("Stick Dead Zone", "How far a stick moves before it counts; 33% is retail's 42 of 127, round here (not retail).", PadDeadZone, &[(15, "15%"), (20, "20%"), (25, "25%"), (33, "33%"), (40, "40%"), (50, "50%")], Now),
     ];
     const MAPS: &[SRow] = &[
         row("Map Overlay", "Ctrl / Alt + O shows the zone map over the screen, as the map add-ons do.", MapOverlay, OFF_ON, Now),
@@ -495,6 +506,8 @@ impl SettingsUi {
             Val::ModernScale => self.s.modern_scale,
             Val::ModernOpacity => self.s.modern_opacity,
             Val::ResetPlaces => self.s.reset_places as u32,
+            Val::Gamepad => self.s.gamepad as u32,
+            Val::PadDeadZone => self.s.gamepad_dead,
             Val::MapOverlay => self.s.map_overlay as u32,
             Val::MapOpacity => self.s.map_opacity,
             Val::SynthAmount => self.s.synth_amount as u32,
@@ -533,6 +546,8 @@ impl SettingsUi {
             Val::ModernScale => self.s.modern_scale = x,
             Val::ModernOpacity => self.s.modern_opacity = x,
             Val::ResetPlaces => self.s.reset_places = x != 0,
+            Val::Gamepad => self.s.gamepad = x != 0,
+            Val::PadDeadZone => self.s.gamepad_dead = x,
             Val::MapOverlay => self.s.map_overlay = x != 0,
             Val::SynthAmount => self.s.synth_amount = x != 0,
             Val::StampAll => self.s.stamp_all_lines = x != 0,
@@ -729,6 +744,12 @@ impl SettingsUi {
     /// page.
     pub fn key(&mut self, key: egui::Key) -> bool {
         self.key_mod(key, false)
+    }
+
+    /// Shift+Tab (the pad's LB): the previous tab.
+    pub fn tab_back(&mut self) {
+        self.sounds.clear();
+        self.turn(-1);
     }
 
     pub fn key_mod(&mut self, key: egui::Key, page_mod: bool) -> bool {

@@ -136,6 +136,8 @@ fn scroll(cursor: &mut usize, top: &mut usize, to: usize, rows: usize) {
 
 pub fn key(w: &mut World, key: egui::Key, page_mod: bool) {
     use egui::Key as K;
+    // Modern: Tab (the pad's RB / LB) turns the two pages as their tabs.
+    let key = if key == K::Tab && w.modern && w.jp_ui.as_ref().is_some_and(|u| u.page.is_some()) { K::ArrowRight } else { key };
     let Some(t) = w.jp_tables.clone() else { return };
     let Some(u) = w.jp_ui.as_ref() else { return };
     let jobs = t.jobs.len();

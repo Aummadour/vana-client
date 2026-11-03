@@ -4219,9 +4219,10 @@ needs FixVt.java after analysis (3,478 vtable-only methods, 17,877 functions in 
   bits 49 / 50, hold bits 9 / 10. conf11s 0x10379ef8..: window-mask bits 12 / 13. Font Colors 0x10379b50..: 13
   rows in category 0, new config ids 0xcb / 0xcc. k1assign 0x1037a128 (labels only), k2assign 0x1037a218: 29 rows,
   row 28 = key function 0xb4, config 0x86, default DIK 0x10. fxfilter labels from 153; yes/no text 0x8f.
-- Misc. 4 (FUN_1019bdd0): children 4 / 5 / 6 set 0xce = 1 / 2 / 0, 1 and 2 kept only while FUN_101bced0() > 0
-  (inferred: a gamepad count). configwi row 13 and lobycwin child 13 start the external gamepad config tool
-  (FUN_101bcb60): not done.
+- Misc. 4 (FUN_1019bdd0): children 4 / 5 / 6 set 0xce = 1 / 2 / 0, 1 and 2 kept only while FUN_101bced0() > 0:
+  the chat word filter's lists loaded (FUN_101bd820: prohibited.txt / allowed.txt), not a gamepad count (corrected
+  2026-11-03). configwi row 13 and lobycwin child 13 start the external gamepad config tool (FUN_101bcb60, see
+  "Gamepad"): not done; ours sets the pad in Settings and config.json.
 - Title music: SEQUENCE 0x10351718 adds (34, 7740, 108); FUN_102455a0 adds (bit 0, entry 6); TITLE_MODE 0x1033cc48
   8 entries. FUN_100377a0: newest = pick 5, random = timeGetTime % 6. lobycwin child 12 = track 7.
 - Chat: /assistj /aj /assiste /ae (list 0x1037ade8), 0x0B5 kinds 0x22 / 0x23 (FUN_10078be0 / FUN_10078d80; the name
@@ -20463,3 +20464,163 @@ Lessons from other games' mod layers (BG3 Script Extender, WoW, Skyrim, Factorio
   49,413 paths of the 30261006_0 manifest is refused.
 - Not taken from the same batch: pinning game code files (.exe / .dll) against a list hashed from the patch server by
   a scheduled job: the client never runs them, and a missing list broke the first-start install.
+
+## Gamepad (2026-11-03)
+
+From the 30261006_0 decompile; ours in client/gamepad.rs (gilrs for the device), input.rs, target.rs, mod.rs.
+
+- Registry (HKLM ...\SquareEnix\FinalFantasyXI, read once by FUN_10002840; the pad manager DAT_10455c20):
+  padmode000 (FUN_10005490: six flags, [0] 0x10455c34 pad on, [1] force feedback, [2] axis codes 7 / 8 (sliders),
+  [3] 9 / 10 (POV as axes), [4] background input, [5] XInput through xinputdll.dll), padsin000 (FUN_10005130),
+  padexsin000 (FUN_10005320), padguid000 (the device). The DLL holds no default padsin: with none the maps stay
+  empty and the pad does nothing; FFXiPadConfig.exe (FUN_101bcb60 -> FUN_101bccb0: Tools{,US,EU}\FFXiPadConfig.exe
+  -game, unless a "FINAL FANTASY XI GAMEPAD Config" window is up) writes them. Ours: config gamepad (Settings > Client
+  > Gamepad, on by default), gamepad_padsin / gamepad_padexsin in the registry's format (empty: FFXiPadConfig's
+  XInput layout, "8,9,13,12,10,0,1,3,2,15,-1,-1,14,-33,-33,32,32,-36,-36,35,35,6,7,5,4,11,-1,-1,-1,-1,-1,-1").
+- padsin: up to 32 numbers (strtok " ,"), position p to slot by 0x1034f930 (8 9 14 13 10 3 1 0 2 16 25 26 15 23 24 22
+  21 19 20 18 17 6 7 5 4 12 31 32 33 34 35 36). A value under 32 is a button: XInput's virtual numbers (table
+  0x10329810: 0 B, 1 X, 2 Y, 3 A, 4 / 5 / 6 / 7 d-pad right / left / up / down, 8 LB, 9 LT, 10 L3, 11 RB, 12 RT, 13 R3,
+  14 Start, 15 Back), whose pad bit is 1 << slot. 32 and up is an axis on slots 17..24 (sticks) or 4..7 (the d-pad):
+  code |v| - 31, 1 lX, 2 lY, 3 lZ, 4 lRx, 5 lRy, 6 lRz, 7 / 8 sliders, 9 / 10 the POV; negative inverts. With slot 31
+  mapped: DAT_10455c3c = slot 17 on the movement X axis (slot 21), DAT_10455c3b = slot 4 on it; else the stick mode
+  DAT_10455c3e = 0. padexsin is parsed the same into the alternate button map (0x10456048) and sets the two flags
+  too; its axes are never used.
+- Slots by position (role, key functions): 0 slot 8 LB (0x12, 0x15, 0x1c autorun, 0x1f, 0x99), 1 slot 9 LT (0x16,
+  0x21, 0x86, 0x89, 0x9b, 0xa8, 0xaf, 0xb0..0xb3, 0xb5, 0xb6), 2 slot 14 R3 (0x10, 0x7d, 0x98, 0x9b, 0xa7), 3 slot
+  13 RT (0x17, 0x20, 0x85, 0x8a, 0x9a, 0x9b, 0xa8, 0xaf, 0xb0..0xb3, 0xb5, 0xb6), 4 slot 10 L3 (0x30 lock on, 0x44
+  /heal, 0x7e, 0x99, 0x9b, 0xa6), 5 slot 3 B (0x0f, 0x90, 0x92, 0x94, 0x95, 0x9c), 6 slot 1 X (0x18, 0x19, 0x25,
+  0x35, 0x8d), 7 slot 0 A (0x0d, 0x0e, 0x8f, 0x91, 0x93), 8 slot 2 Y (0x11, 0x22, 0x78), 9 slot 16 Back (0x26, 0x2f,
+  0x56), 10 slot 25 (held: the movement stick is the d-pad), 11 slot 26 (held: it is the camera), 12 slot 15 Start
+  (0x13, 0x14), 13 / 14 slots 23 / 24 move forward / back, 15 / 16 slots 22 / 21 move left / right, 17 / 18 slots 19 /
+  20 camera up / down, 19 / 20 slots 18 / 17 camera left / right, 21..24 slots 6 / 7 / 5 / 4 d-pad up / down / left
+  / right (0x00..0x03, 0x27..0x2e, 0x31..0x34, 0xb0..0xb3, 0xb5, 0xb6), 25 slot 12 RB (0x1a, 0x1e, 0x24, 0x98), 26
+  slot 31 (a press steps the stick mode), 27 / 28 slots 32 / 33 (0xb7 / 0xb8), 29 slot 34 (held: the alternate map),
+  30 / 31 slots 35 / 36 (0xb9 / 0xba). The second word (+0x224) holds slots 32..63.
+- FUN_10005a40 each frame: the pad word +0x220 held, +0x228 pressed, +0x230 released, +0x238 repeat; stick bytes
+  +0x250 / +0x251 camera X / Y, +0x252 / +0x253 movement X / Y (0x80 + value). XInput branch (ours follows it):
+  - buttons through the map (the alternate one, for every button but slot 34's own, while slot 34 is held);
+  - thumbs as v x 127 >> 15; axis codes through jump table 0x100077fc from padsin's axis map only (code 3 writes zero,
+    6 and up are skipped); then a button on a stick slot sets ±127 over the axis;
+  - DAT_10455c3b zeroes the d-pad axis values, DAT_10455c3c the camera's;
+  - slot 25 held: the d-pad values = the movement stick and the real d-pad bits (slots 4..7) dropped; else slot 26 or
+    mode 2: the camera = the movement stick; else mode 1: the d-pad = it; the movement stick is then zero;
+  - each stick axis under 42 is zeroed on its own; no rescale and no clamp (the 0x25cd rescale and the clamp to 127
+    are the DirectInput branch's, asm 0x10006753);
+  - the d-pad from its axis values at ±64 (>= 64 right / down, <= -64 left / up);
+  - repeat: +0x248 adds FUN_10014cf0's ticks; past +0x94 (16) the held bits repeat and it drops by DAT_10329990
+    (2): the press, then 18 ticks and every 4 at retail's 2-tick frame (as the keys, "Input layer").
+  - slot 31's press: the mode steps 1, 2, 0, skipping 1 without DAT_10455c3b and 2 without DAT_10455c3c.
+- Ours: the dead zone is round (config gamepad_deadzone, 0.33 = 42 / 127; Settings > Client > Stick Dead Zone): a
+  stick's two axes are zeroed together while its push is under it, where retail's per-axis zeroing snaps a stick
+  within ~19 degrees of an axis onto it (the character turned in jumps). Window arrows from the d-pad repeat on the
+  same 2-tick counter.
+- Windows (FUN_101ab820, while one has the focus): key functions become window events (FUN_1015dd00): d-pad 0x2b /
+  0x2c / 0x2d / 0x2e -> 2 / 1 / 3 / 4, 0x93 A pressed / repeat / released -> 5 / 0x1d / 0x20, 0x94 B -> 6 (0x1e /
+  0x1f held-released), 0x18 X -> 7, 0x11 Y -> 8, 0x1e RB -> 0x11, 0x1f LB -> 0x15, 0x14 Start -> 0x12, 0x86 LT -> 0x0a,
+  0x85 RT -> 0x0b, 0x22 -> 0x0c, 0x24 -> 0x0e, 0x25 -> 0x0f, 0x26 -> 0x10, 0x2f -> 0x13. The generic list
+  (FUN_10118260) takes cursor, confirm and cancel; the rest go to the window's OnKey (vtable +0x18), and only the
+  text-input windows read the others (the software keyboard keypad / keypadus FUN_101af190: RB 0x11 Enter, LB 0x15
+  Backspace; msgline, comment, fep, keyselec / keypad2 / keypad3). Ours: our windows read egui keys, so confirm /
+  cancel / main menu (slots 0 / 3 / 1) also send Enter / Escape / Num-, and the d-pad the arrows with a window or a
+  palette up; LT / RT (0xa8) ride on the arrows as Ctrl (page), both as Alt (0xb5 / 0xb6, the bag switch).
+- Ours: with a window up the pad's LB / RB send Shift+Tab / Tab (and leave the pad word, so LB's 0x1c autorun does
+  not fire), and the modern tabbed windows turn their tabs with them (storage, journal, settings, job points, equip
+  sets, the concierge's filters; World::key_shift is the dispatched key's Shift). Classic windows have no tabs.
+- RB 0x24: outside an event (FUN_1015dce0) it opens the chat line (the chat object DAT_10662d40's vtable 0); with the
+  UI hidden the screenshot state machine (DAT_10663178 state 0) takes it as Print Screen's 0x55 (FUN_101d0ab0).
+  0xb7 / 0xb8 / 0xb9 / 0xba (slots 32 / 33 / 35 / 36, unbound by default): the shut-down prompt, F8's nearest
+  target, /jump, /map. L3: 0x44 /heal (/sitchair, /sit on those objects), 0x30 lock on, 0x7e on the map (eases it
+  back to where we stood when it opened: map::MapWin::home).
+- Field d-pad (table 0x10371ee0 by FUN_101585f0 -> FUN_101587b0: the first entry whose test passes, one a frame, in
+  a target prompt or with no window holding the field): 0xb0, 0xb1, 0xb3, 0xb2 (the ground cursor), 0x91, 0x27 /
+  0x28 (up / down), 0x2a / 0x29 (left / right), ... FUN_101587f0: locked on (+0x5c & 3) with no prompt (+0x59) or
+  party cursor (+0xc4), every command but 1 and 5 does nothing. A command's actor, when not 0, is picked
+  (FUN_10157b40). The target object's +0x60 (include) is 0xffffffff and +0x64 (exclude) 0 with no prompt.
+  - Up / down (FUN_10158b60): needs +0x60 & 4 and a pick. FUN_10203920 steps DAT_106643dc through the 18 slots to
+    the next occupied one, wrapping; every pick of a party member sets it to that slot (FUN_10203520), and a pick
+    outside the party sets it to 0 and steps nothing. Without +0x60 & 8 only our six count (FUN_10203500). Without
+    0x200, landing on us steps once more (us again: nothing); with 0x200, nothing becomes us. The slot it lands on is
+    not checked against +0x64 (FUN_10082fa0 only reads the id).
+  - Left / right (FUN_10158c40): with a pick, the next actor that way in Tab's screen order (FUN_10083d00 /
+    FUN_10083b40 with +0x60 / +0x64), never wrapping; none that way, or no pick: us with +0x60 & 0x200 (always in the
+    field), else nothing.
+- Macro palettes (FUN_101a2e80; the gate FUN_101a33e0: field, no event, no prompt (+0x59) or party cursor (+0xc4),
+  alive, and no window with the focus but playermo / mp_pmode / a palette): LT 0x89 / RT 0x8a pressed opens mcr1pall
+  / mcr2pall, or closes it when it is the one up (the other trigger swaps); held with none up, it opens at the next
+  whole second of the clock (+0x14). A trigger's palette stays up after the release (+0x18) until toggled, run or
+  cancelled; Ctrl / Alt (0x76 / 0x77) open theirs at the next second and close it on release unless it is a pad one.
+  Ours: World::pad_palette / pad_hold; a closed gate closes the palettes *(inf: the windows that close it do)*.
+- Camera (FUN_1001ee60): axes 6 / 7 (keys and stick alike) invert by 0x8b / 0x8c; free or locked, axis 6 turns
+  through FUN_1001ebb0 with the same sign (locked: scaled by 6 / |eye - look|). Ours: target::step_camera's rotation
+  runs opposite to camera::orbit's, so the locked call negates axis 6 (fixed 2026-11-03: locked on, the keys and the
+  stick turned the camera the other way from free). The stick takes the camera rows' sense; our Camera Keys
+  (Mouse/Cam.) only the keys'.
+- Own facing (FUN_100a6240): retail keeps the heading as a float (-atan2 of the step, or the stick turned by the
+  camera yaw) and rounds it only for the position packet. Ours draws from the float (World::my_face) while the byte
+  is still ours; from the byte (1.4 degree steps) a stick's slow turn stepped.
+- The ground-position cursor (Geo- spells): field +0x58 is set only by FUN_1022b850(spell) as the spell record's
+  +0x44 bit 5 (dat::actions::Spell::flags 0x20); the magic list (FUN_1022c7a0) and /magic's prompt (0x1007b7a8) call
+  it; the party-list cursor (FUN_10202d80) zeroes it. The cursor (field +0x10 / +0x14 / +0x18, live while +0x22 is
+  set; World::ground_cursor) starts at the pick on its first move. 0xb0 / 0xb1 / 0xb2 / 0xb3 (LT or RT + d-pad up /
+  down / right / left; Ctrl or Alt + the arrows) move it on the press and repeats: FUN_10159a20 dir (up +z, right +x)
+  x config 0xc4 (1..100, default 10) x the frame's whole ticks (at least 1) x 0.01, turned by atan2(look - eye)
+  (FUN_10159b10). Its height (FUN_10177770 -> FUN_10181210) is the highest collision face from 2 above (0.5 in zone
+  0x95) to 17 below; no hit keeps it. With Ctrl / Alt held FUN_10159ba0 moves it every frame by the movement stick,
+  else the camera stick. A new pick resets it (FUN_10159660), cancel ends it; /magic (0x1007b710) sends c2s 0x01A
+  category 3 with the cursor less the target's position (FUN_10159cc0) as f32 x / y / z at +0x10..+0x1b. The pick's
+  arrow (FUN_10159d40) stands over it, 0.5 up. Ours: a press moves 2 ticks' worth (retail's frame), the stick its
+  frame's ticks; only the controller's sticks drive it (the arrows go through 0xb0..0xb3 once). FUN_100ca730 also
+  places an actor's companion model (+0x1e5) at the cursor: not found what makes it, not drawn.
+- Ours, modern: while the UI is hidden (0x56) the modern layer is not drawn either (retail's hide draws no window).
+- Not seen live: the ground cursor (needs GEO), the stick modes and slots 25 / 26 / 34 (unbound by default), Windows.
+
+## Software keyboard (2026-11-03)
+
+From the 30261006_0 decompile; ours in client/swkbd.rs (classic) and modern/keyboard.rs.
+
+- English is one window, "menu    keypadus" (menu DAT 39542; Japanese "menu    keypad  "), 334 x 88, anchored to the
+  bottom, caps from "menu    key1topu" (Japanese key1top), hand "menu    yubi" (the window's kind-6 ref). Handler
+  DAT_10662dac, vtable 0x10337940: open hook FUN_101aedc0, close FUN_101af0f0, draw FUN_101af440, OnKey FUN_101af190,
+  press FUN_101af860, messages FUN_101af500. Registry flags 0x10002 (Escape does not close it; the cursor to child 1
+  at open), layer 7.
+- Children 8..82: 75 character keys, 16 x 16, child 8 + 15 r + c at (25 + 16 c, 5 + 16 r); their own sprites are not
+  drawn (+0x3c = 0): FUN_101af440 draws the page's cap at the child + (1, 1), tint 0x80805020 on the cursor key,
+  0x40402810 for a European cap (FUN_101aec30: sprites 0x15a..0x173, 0x177..0x18d, 0x1ae..0x1b0, 0x114, 0x132,
+  0x133), else 0x80808080. Special keys, drawn as the window's children: 6 Backspace, 0x53 Config, 7 Tab, 0x55 SHIFT,
+  0x56 SPACE, 0x57 Enter. Children 1..5 and 0x54 (Japanese) are state 0x10 in English.
+- Pages (table 0x1037c258, 13 records of 7 dwords: characters, cap sprites, kind 1 bytes / 2 Shift-JIS pairs, child
+  4's cap, single-byte flag, page after SHIFT [5], after X [6]). English uses 6..12: the page at open by the field's
+  class (FUN_101af580): 0 letters 9, 1 digits 10, 3 alphanumeric 6, 4 printable 8, 2 / 5 (the chat line) 11. Page
+  11: digits, a..z, `. , ' " & @ # ( ) [ ] ! ?`; page 12: A..Z, `+ - * / = $ \ % : ; ^ ~ _ | { } < >`; 11 and 12 swap,
+  7 and 8 swap, 6 / 9 / 10 name themselves (SHIFT buzzes SE 0004, X does nothing). Pages 11 / 12's pairs become bytes
+  through FUN_101b4450 (tables 0x1037c4a0 from 0x20, 0x1037c668 from 0xa0); a 0x85 lead (the European caps) types
+  nothing. Ours copies pages 6..12 into swkbd.rs; window fields other than the chat line are taken as class 5 *(their
+  classes are not mapped)*.
+- Opening: only key function 0x24 (the pad's RB): FUN_101579c0, outside a narration hold or the hidden UI, calls the
+  text engine's vtable 0 FUN_101b13f0: nothing unless config 0xc9 (Misc. 4 Software Keyboard: 0 Off, 1 Full, 2
+  Compact, disabled in English and acting as Full) is on (the lobby skips the check), nothing while it is up; with no
+  field open it opens the chat line too (vt+0x28(4, 0, 5, 0x78, ...)). So with 0xc9 off RB does nothing in the field
+  (fixed 2026-11-03: ours opened the chat line).
+- Placement at each open (FUN_101aedc0, absolute, not moved again): below "menu    macro" (+2) or above
+  "menu    comment" (-90) when the chat line is closed, else above log window 1 (y = min(log.y1 - 32, log.y0) - 90), else
+  above the chat line (inline.y0 - 122), else (32, 200). The cursor starts on child 8, the page by the class (the
+  SHIFT state never survives a reopen).
+- Keys (FUN_101ab820's window events, generic handler FUN_10118260, then OnKey; English): d-pad 0x2b / 0x2c / 0x2d /
+  0x2e (repeat; one a frame: Up, Down, Left, Right) move by the layout links [2] Up, [3] Down, [4] Right, [5] Left
+  (Up / Down wrap; the row ends lead to the special keys), SE 0001; A 0x93 presses the key, SE 0002; B 0x94 Escape,
+  SE 0003; LT 0x86 / RT 0x85 caret left / right; Y 0x22 Enter; X 0x25 page [6]; RB 0x1e Space; Start 0x14 Tab; Back
+  0x2f close; LB 0x1f Backspace. The keyboard types through the text engine (vt+4 = FUN_101b1800: kind 5 a byte,
+  kind 3 DIK Esc / Backspace / Tab / Enter / Left / Right, kind 8 close), so every field the engine serves takes it.
+  Config (0x53, FUN_101afc40): in the field with no event, SE 0002, the field closes and configwi opens.
+- Closing: Back (the chat line closes with its text kept *(inf)*; a window field only loses the keyboard), the field
+  closing (Enter's submit, Escape on it), Config, any physical key (WM_KEYDOWN -> FUN_101b29f0: the keyboard alone,
+  the key still goes to the field), a zone change (message 8; with the chat line it comes back after the zone,
+  message 4).
+- Ours: what it types goes into the next frame's input as the egui events a field reads (Text, Key); while it is up
+  the pad's buttons stay key functions (no egui keys for the field) and the frame's presses are consumed (Input::
+  consume, FUN_101202a0: a focused window takes them; Back's slot also carries 0x56, the UI hide). Classic: drawn at
+  a whole multiple of its size (about a third of the UI's width) so it reads on a large screen; the hand at the
+  cursor child + the header's (14, 14) *(inf: the hand path was not traced for this window)*. Modern: a kit panel of
+  48-point keys (the same pages, cursor and pad buttons; the European keys muted), centred over the chat window when it
+  opens; the mouse hovers and clicks keys in both.
+- Not built: the Japanese keyboards (keypad, keypad2 / keypad3 / keyselec, edit mode), the lobby's (state 0x40) path.

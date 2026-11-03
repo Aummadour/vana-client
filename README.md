@@ -42,6 +42,7 @@ Playable on a local LSB server. Working today:
 - Effects: spells, abilities, weapon skills and skillchains, damage numbers, footsteps, level up and the other
   milestone effects
 - The retail key set: numpad movement, autorun, first person, F-key targeting, macros and palettes
+- Gamepads (see [Gamepad](#gamepad))
 - The HUD, chat log and chat line (chat modes, auto-translate, text commands), targeting, combat, and the magic,
   ability and mount menus
 - The main menu: Status (merit points, job points, currencies, Unity), Equipment and equipment sets, Items and
@@ -62,7 +63,6 @@ Playable on a local LSB server. Working today:
 Not done yet:
 
 - Some event script operations (the mini-games on 0xb3 among them)
-- Gamepad support
 - macOS builds
 
 ## Requirements
@@ -143,6 +143,46 @@ changed from the in-game Config menus. The fields you may need to set by hand:
 | `frame_limit` | `300` | Frame limit in fps, `0` for unlimited |
 | `gpu` | empty | Graphics adapter by name; empty picks the high-performance one |
 | `audio_device` | empty | Output device; empty uses the system default |
+| `gamepad`, `gamepad_padsin` ... | | See [Gamepad](#gamepad) |
+
+### Gamepad
+
+Controllers work through the game's own pad path: the buttons set the pad bits the game's key functions test, and
+the sticks fill its stick bytes. Settings > Client turns the pad on or off and sets the sticks' dead zone. The button
+settings use the format of the registry value `padsin000` that FFXiPadConfig.exe writes, so a setting can be copied
+over as is; the default is FFXiPadConfig's XInput layout:
+
+| Button | Does |
+|---|---|
+| A / Cross | Confirm, the action menu |
+| B / Circle | Cancel |
+| X / Square | Main menu |
+| Y / Triangle | Active window |
+| D-pad | In a menu: the cursor. In the field and in a target prompt: up / down the party and alliance members, left / right the actors on screen (no actor that way: yourself) |
+| Left stick / right stick | Move / camera (the camera's invert rows in Mouse/Cam. apply to the stick) |
+| LB / L1 | Autorun; in a window with tabs (modern), the previous tab |
+| RB / R1 | The software keyboard (with Config > Misc. 4 > Software Keyboard on); with the windows hidden, a screenshot; in a window with tabs (modern), the next tab |
+| LT / L2, RT / R2 | In the field: open or close the Ctrl / Alt macro palette (the other trigger swaps; held, it opens on its own); in it the d-pad picks the macro and the set, A runs it, B closes. In a window: held, the d-pad pages lists; both held, left / right switch the item bag. In a Geo- spell's target prompt: held, the d-pad moves the spot it lands on |
+| L3 | Rest, or lock on with a target; on the map, back to where you were when it opened |
+| R3 | First / third person |
+| Back / Select | Hide or show the windows |
+| Start | Log out |
+
+Typing on the pad: turn on Config > Misc. 4 > Software Keyboard, then RB brings up the game's software keyboard over
+the text field (or opens the chat line with it). The d-pad moves its cursor, A types the key, B is Escape, LB
+Backspace, RB a space, X switches to capitals and symbols, Y is Enter, LT / RT move the caret, Start is Tab and Back
+closes it. Any key on a real keyboard closes it too. The modern UI draws it as one of its own panels.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `gamepad` | `true` | Read a game controller (Settings > Client > Gamepad) |
+| `gamepad_deadzone` | `0.33` | Stick travel ignored around the centre, measured round so turning the stick does not snap to its axes (Settings > Client > Stick Dead Zone) |
+| `gamepad_background` | `false` | Read the pad while the window is in the background |
+| `gamepad_padsin` | empty (FFXiPadConfig's XInput default) | Button settings in `padsin000` format: 32 numbers, one per function, each an XInput button number (0 B, 1 X, 2 Y, 3 A, 4 / 5 / 6 / 7 d-pad right / left / up / down, 8 LB, 9 LT, 10 L3, 11 RB, 12 RT, 13 R3, 14 Start, 15 Back), an axis 32 + n (1 left X, 2 left Y, 4 right X, 5 right Y; negative inverts) or -1. The positions are listed in MODLOG.md, "Gamepad" |
+| `gamepad_padexsin` | empty | `padexsin000`, the buttons used while the "alternate map" button is held |
+
+Building on Linux needs libudev's headers (`libudev-dev`, `systemd-devel`); the binary needs `libudev.so.1`, which
+every systemd distro and the Steam Runtime have.
 
 
 ### Server certificates

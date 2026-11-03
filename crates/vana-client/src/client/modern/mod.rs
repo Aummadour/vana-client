@@ -24,6 +24,7 @@ mod hud;
 mod inspect;
 mod items;
 mod journal;
+mod keyboard;
 mod kit;
 mod lobby;
 mod lists;
@@ -293,6 +294,7 @@ impl Modern {
         charlnk::draw(&mut p, w);
         mogdoor(&mut p, w);
         event_input(&mut p, w);
+        keyboard::draw(&mut p, w);
         let this = std::mem::take(&mut p.this);
         *self.rects.borrow_mut() = this;
         // The chat settings act at once (the world reads it as lines print).

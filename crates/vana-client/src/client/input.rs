@@ -28,7 +28,8 @@ pub mod mode {
     pub const HELD: i32 = 4;
 }
 
-/// Pad bit each key function's callback 0 tests (PTR_FUN_10361e28; MODLOG "Input layer"), i.e. the compact keys.
+/// Pad bit each key function's callback 0 tests (PTR_FUN_10361e28; MODLOG "Input layer"): the compact keys' and a
+/// controller's (client/gamepad.rs) slots.
 const PAD: &[(u8, u64)] = &[
     (0x00, 0x40), (0x27, 0x40), (0x2b, 0x40), (0x31, 0x40),
     (0x01, 0x80), (0x28, 0x80), (0x2c, 0x80), (0x32, 0x80),
@@ -50,6 +51,8 @@ const PAD: &[(u8, u64)] = &[
     (0x4f, 0x800_0000), (0xa4, 0x800_0000),
     (0x50, 0x1000_0000), (0xa5, 0x1000_0000),
     (0x55, 0x4000_0000),
+    // The second word (+0x224, slots 32 / 33 / 35 / 36): pad only (MODLOG "Gamepad").
+    (0xb7, 1 << 32), (0xb8, 1 << 33), (0xb9, 1 << 35), (0xba, 1 << 36),
 ];
 
 /// A compact keyboard record (0x103623c8, 0x10 bytes): key, modifier rule, state mask, pad bits.
@@ -113,6 +116,13 @@ pub struct Input {
     consumed: bool,
     /// NumLock, from the last numpad digit's logical key (winit reports no toggle state).
     numlock: bool,
+    /// A keyboard key went down this frame (before the chat line takes Enter / Esc).
+    pressed_any: bool,
+    /// A game controller's sticks (client/gamepad.rs, not retail): left X / Y, right X / Y in -1 ..= 1, right and
+    /// down positive, as the axes.
+    stick: [f32; 4],
+    /// A game controller's pad word (client/gamepad.rs: retail's FUN_10005a40 bits), ORed with the compact keys'.
+    device: u64,
 }
 
 impl Default for Input {
@@ -138,6 +148,9 @@ impl Default for Input {
             window: false,
             consumed: false,
             numlock: true,
+            pressed_any: false,
+            stick: [0.0; 4],
+            device: 0,
         }
     }
 }
@@ -248,6 +261,31 @@ impl Input {
         }
     }
 
+    /// The controller's pad word for the next frames (client/gamepad.rs).
+    pub fn set_pad(&mut self, bits: u64) {
+        self.device = bits;
+    }
+
+    /// The controller's sticks for the next frames (client/gamepad.rs).
+    pub fn set_stick(&mut self, stick: [f32; 4]) {
+        self.stick = stick;
+    }
+
+    /// A keyboard key went down this frame.
+    pub fn key_pressed_any(&self) -> bool {
+        self.pressed_any
+    }
+
+    /// The controller's sticks alone: movement X / Y, camera X / Y.
+    pub fn device_stick(&self) -> [f32; 4] {
+        if self.typing { [0.0; 4] } else { self.stick }
+    }
+
+    /// A window had the keys last frame (arrows go to it, not to the camera).
+    pub fn window_active(&self) -> bool {
+        self.window
+    }
+
     /// Drops every key (focus lost: the window gets no releases).
     pub fn clear(&mut self) {
         self.down = [false; 256];
@@ -286,6 +324,7 @@ impl Input {
                 self.counters[k] = 0.0;
             }
         }
+        self.pressed_any = self.keys.iter().any(|&s| s & PRESS != 0);
         // The chat line takes Enter / Esc before any key function sees them.
         if f.typing {
             for k in [0x1c, 0x9c, 0x01] {
@@ -299,7 +338,9 @@ impl Input {
 
     fn pad_frame(&mut self, f: &Frame, frames: u32) {
         let prev = self.pad.held;
-        let held = if matches!(f.keyboard, 1 | 2) && !f.typing && !f.assigning { self.compact_bits(f.window) } else { 0 };
+        let keys = if matches!(f.keyboard, 1 | 2) && !f.typing && !f.assigning { self.compact_bits(f.window) } else { 0 };
+        // FUN_10005a40: the device's bits and the compact keys' share the word, its edges and its repeat.
+        let held = keys | self.device;
         let mut edge = held & !prev;
         let mut repeat = edge;
         // Up or down drops left / right from the edges.
@@ -363,6 +404,17 @@ impl Input {
         }
         let key = |p: u8, n: u8| self.held(p) as i32 as f32 - self.held(n) as i32 as f32;
         let stick = |p: u64, n: u64| -> f32 { if self.pad.held & p != 0 { 127.0 / 128.0 } else if self.pad.held & n != 0 { -1.0 } else { 0.0 } };
+        // A controller's stick bytes (FUN_10005a40 +0x250..+0x253, client/gamepad.rs) count as the compact stick of
+        // the same axis, the larger one winning; not while typing. A window does not stop them: the sticks never drive
+        // windows (the d-pad does). The camera's 6 / 7 leave them out: the camera reads them with its own sense
+        // (device_stick).
+        let pad_stick = match id {
+            _ if self.typing => 0.0,
+            4 | 0x79 | 0x9d => self.stick[0],
+            5 | 0x7a | 0x9e => self.stick[1],
+            0x7c => self.stick[3],
+            _ => 0.0,
+        };
         let arrows = !self.typing && (!self.window || self.shift());
         let (keys, pad) = match id {
             4 => (if self.typing && self.numlock { 0.0 } else { key(0x4d, 0x4b) }, stick(0x20_0000, 0x40_0000)),
@@ -378,6 +430,7 @@ impl Input {
             6 => (if arrows { key(0xcd, 0xcb) } else { 0.0 }, stick(0x2_0000, 0x4_0000)),
             _ => (if arrows { key(0xd0, 0xc8) } else { 0.0 }, stick(0x10_0000, 0x8_0000)),
         };
+        let pad = if pad_stick.abs() > pad.abs() { pad_stick } else { pad };
         if keys.abs() >= pad.abs() { keys } else { pad }
     }
 
@@ -472,7 +525,23 @@ impl Input {
     /// The pad callback's test (FUN_1011da00 and kin): +0x238 repeat, +0x228 edge, +0x220 held. Modes 2 / 3 keep
     /// only this bit's edge, as retail does.
     fn pad_test(&mut self, id: usize, mode: i32) -> bool {
-        let Some(&(_, bit)) = PAD.iter().find(|p| p.0 as usize == id) else { return false };
+        // 0xb0..0xb3 (the ground-position cursor): LT or RT held (slot 9 / 13) and the d-pad's up / down / right /
+        // left (slots 6 / 7 / 4 / 5) in the mode asked.
+        let combo = match id {
+            0xb0 => Some(0x40),
+            0xb1 => Some(0x80),
+            0xb2 => Some(0x10),
+            0xb3 => Some(0x20),
+            _ => None,
+        };
+        let bit = match combo {
+            Some(_) if self.pad.held & 0x2200 == 0 => return false,
+            Some(b) => b,
+            None => match PAD.iter().find(|p| p.0 as usize == id) {
+                Some(&(_, b)) => b,
+                None => return false,
+            },
+        };
         let p = &mut self.pad;
         match mode {
             mode::REPEAT => p.repeat & bit != 0,
@@ -685,6 +754,23 @@ mod tests {
         assert_eq!(i.compact[6], Compact { key: 0x23, rule: 0, states: 4, bits: 0x400 });
         assert_eq!((i.k1.len(), i.k1[4].as_slice()), (28, &[11u8, 15, 19, 23][..]));
         assert_eq!((i.k2.len(), i.k2[0].as_slice()), (K2_ROWS, &[0x3bu16][..]));
+    }
+
+    /// 0xb0..0xb3 want LT or RT held with the d-pad (slots 9 / 13 and 6 / 7 / 4 / 5).
+    #[test]
+    fn pad_ground_cursor_combos() {
+        let mut i = Input::default();
+        i.set_pad(0x10);
+        i.begin_frame(frame());
+        assert!(!i.pad_test(0xb2, mode::PRESS));
+        i.set_pad(0);
+        i.begin_frame(frame());
+        i.set_pad(0x200 | 0x10);
+        i.begin_frame(frame());
+        assert!(i.pad_test(0xb2, mode::PRESS) && i.pad_test(0xb2, mode::REPEAT) && !i.pad_test(0xb3, mode::HELD));
+        i.set_pad(0x2000 | 0x40);
+        i.begin_frame(frame());
+        assert!(i.pad_test(0xb0, mode::HELD) && !i.pad_test(0xb1, mode::HELD));
     }
 
     #[test]
