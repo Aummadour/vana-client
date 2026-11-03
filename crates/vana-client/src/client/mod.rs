@@ -10405,7 +10405,13 @@ impl App {
         // Mouse/Cam.: 0x8b / 0x8c invert the camera axes, 0x8d / 0x8e in first person.
         let first = world.camst.first;
         let (i6, i7) = [(0x8b, 0x8c), (0x8d, 0x8e)][first as usize];
-        let (i6, i7) = (if world.game.get(i6) == 1 { -1.0 } else { 1.0 }, if world.game.get(i7) == 1 { -1.0 } else { 1.0 });
+        // Ours (Settings > Client): the keys' own sense, else the Config rows'.
+        let sense = |id: u16, ours: u32| match ours {
+            1 => 1.0,
+            2 => -1.0,
+            _ => if world.game.get(id) == 1 { -1.0 } else { 1.0 },
+        };
+        let (i6, i7) = (sense(i6, self.cfg.cam_keys_x), sense(i7, self.cfg.cam_keys_y));
         let still = face_cam || in_event;
         let mut cam_in = camera::Inputs {
             v6: if still { 0.0 } else { cx * i6 },

@@ -44,6 +44,8 @@ pub struct Settings {
     pub monitor: String,
     pub gpu: String,
     pub cursor_size: u32,
+    pub cam_keys_x: u32,
+    pub cam_keys_y: u32,
     pub modern_ui: bool,
     pub modern_scale: u32,
     pub modern_opacity: u32,
@@ -89,6 +91,8 @@ impl Settings {
             monitor: c.monitor.clone(),
             gpu: c.gpu.clone(),
             cursor_size: c.cursor_size,
+            cam_keys_x: c.cam_keys_x,
+            cam_keys_y: c.cam_keys_y,
             modern_ui: c.modern_ui,
             modern_scale: c.modern_scale,
             modern_opacity: pct(c.modern_opacity),
@@ -127,6 +131,7 @@ impl Settings {
         c.minimap_size = self.minimap_size;
         c.retail_aspect = self.retail_aspect;
         c.cursor_size = self.cursor_size;
+        (c.cam_keys_x, c.cam_keys_y) = (self.cam_keys_x, self.cam_keys_y);
         c.modern_ui = self.modern_ui;
         c.modern_scale = self.modern_scale;
         c.modern_opacity = self.modern_opacity as f32 / 100.0;
@@ -183,6 +188,8 @@ enum Val {
     Effects,
     RetailAspect,
     CursorSize,
+    CamKeysX,
+    CamKeysY,
     /// The monitor for full screen, from the list the app passes in.
     Monitor,
     /// The graphics adapter ("Default" then the app's list).
@@ -246,6 +253,7 @@ pub struct ModRow {
 }
 
 const OFF_ON: &[(u32, &str)] = &[(1, "ON"), (0, "OFF")];
+const CAM_KEYS: &[(u32, &str)] = &[(0, "Config"), (1, "Normal"), (2, "Inverted")];
 const MODERN_SCALES: &[(u32, &str)] = &[(50, "50%"), (55, "55%"), (60, "60%"), (65, "65%"), (70, "70%"), (75, "75%"), (80, "80%"), (85, "85%"), (90, "90%"), (95, "95%"), (100, "100%"), (105, "105%"), (110, "110%"), (115, "115%"), (120, "120%"), (125, "125%"), (130, "130%"), (135, "135%"), (140, "140%"), (145, "145%"), (150, "150%")];
 
 const fn row(label: &'static str, help: &'static str, val: Val, choices: &'static [(u32, &'static str)], when: When) -> SRow {
@@ -307,6 +315,8 @@ fn rows(kind: Kind, tab: usize, in_game: bool, modern: bool) -> &'static [SRow] 
         row("Frame Limit", "Frames drawn a second; game time stays at 60 ticks.", FrameLimit, &[], Now),
         row("Anisotropic Filtering", "Anisotropic texture filtering.", Aniso, &[(1, "Off"), (2, "2x"), (4, "4x"), (8, "8x"), (16, "16x")], NextZone),
         row("Party TP", "Show TP in the party window (retail config 0xae, off there).", PartyTp, OFF_ON, Now),
+        row("Camera Keys Left / Right", "The camera keys' left / right: as the Config window's Mouse/Cam. rows (they set the mouse too), or normal or inverted for the keys alone (not retail).", CamKeysX, CAM_KEYS, Now),
+        row("Camera Keys Up / Down", "The camera keys' up / down: as the Config window's Mouse/Cam. rows (they set the mouse too), or normal or inverted for the keys alone (not retail).", CamKeysY, CAM_KEYS, Now),
         row("Interface", "Classic: the game's own windows. Modern: the new interface's windows where it has them (not retail).", ModernUi, &[(0, "Classic"), (1, "Modern")], Now),
         row("Interface Size", "The modern interface's size (not retail).", ModernScale, MODERN_SCALES, Now),
         row("Panel Opacity", "How opaque the modern interface's window backgrounds are (not retail).", ModernOpacity, &[], Now),
@@ -519,6 +529,8 @@ impl SettingsUi {
             Val::Effects => self.s.effects,
             Val::RetailAspect => self.s.retail_aspect as u32,
             Val::CursorSize => self.s.cursor_size,
+            Val::CamKeysX => self.s.cam_keys_x,
+            Val::CamKeysY => self.s.cam_keys_y,
             Val::Mod(i) => self.mod_page().and_then(|p| p.rows.get(i)).map_or(0, |r| r.at as u32),
         }
     }
@@ -554,6 +566,8 @@ impl SettingsUi {
             Val::MinimapSize => self.s.minimap_size = x,
             Val::RetailAspect => self.s.retail_aspect = x != 0,
             Val::CursorSize => self.s.cursor_size = x,
+            Val::CamKeysX => self.s.cam_keys_x = x,
+            Val::CamKeysY => self.s.cam_keys_y = x,
             Val::Mod(i) => {
                 let Some(k) = self.tab.checked_sub(EXTRA_TABS.len()) else { return };
                 if let Some(p) = self.mod_pages.get_mut(k)

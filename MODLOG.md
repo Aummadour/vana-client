@@ -1930,6 +1930,10 @@ From the research notes:
   Y the other way (2026-11-02), so ours now follows that *(inf: our reading of the Z rotation's sense or of the mode-5
   axis in first person is off somewhere)*. Screen-edge panning (FUN_10120fc0, 0x8f = 0) feeds the same
   axes while a window is up or outside the field.
+- Ours (user, 2026-11-02; not retail): Settings > Client "Camera Keys Left / Right" and "Up / Down" (config.json
+  cam_keys_x / cam_keys_y): Config (the Mouse/Cam. rows, keys and mouse alike, as retail), Normal or Inverted for the
+  camera keys alone, in both views; the mouse keeps the Mouse/Cam. rows. Retail's Key Assignment cannot bind the arrow
+  keys (FUN_101a7c20's table holds only character keys; arrows, Enter and the modifiers are passed over in silence).
 
 ### Free camera (FUN_1001e030 free branch; client/camera.rs; traced by a sub-agent from all.c 22024..22887)
 - State: eye (camera +0x44) and look (+0x50) only; +0x48 is the eye's y. One state serves the free, locked and first
