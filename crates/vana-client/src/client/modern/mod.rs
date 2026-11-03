@@ -1043,7 +1043,8 @@ impl Modern {
         }
         egui::Area::new(Id::new("modern tip")).order(Order::Tooltip).fixed_pos(at + vec2(16.0, 20.0)).constrain(true).interactable(false).show(ctx, |ui| {
             let bg = ui.painter().add(Shape::Noop);
-            let inner = egui::Frame::NONE.inner_margin(egui::Margin::symmetric(10, 7)).show(ui, |ui| {
+            // Room inside the frame's border art all the way round.
+            let inner = egui::Frame::NONE.inner_margin(egui::Margin::symmetric(16, 12)).show(ui, |ui| {
                 ui.set_max_width(300.0);
                 ui.spacing_mut().item_spacing.y = 3.0;
                 if !title.is_empty() {
