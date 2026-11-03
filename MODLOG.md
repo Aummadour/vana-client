@@ -20678,3 +20678,8 @@ From the 30261006_0 decompile; ours in client/swkbd.rs (classic) and modern/keyb
   1.35 about the screen's centre for its text, with the lobby buttons and a rounded progress bar. The OK pages no
   longer draw a blank second button. Seen live through a local mock release (VANA_RELEASE_API, FFXI_UPDATE_CHECK=1):
   the pick page and the failed-download page.
+- Correction (same day): the talk test above made the Mog House door (the client's own actor, 0x1000000) open the
+  action menu, since FUN_10158db0 (30261006_0; FUN_101524e0 in 2019) skips 0x1000000 before FUN_1007bf30. The door
+  object FUN_101d2cc0 makes (DAT_106631d4) answers by another route, not traced (FUN_101d6000 has no direct caller:
+  a method). Ours: target::talks_to lets the door through in the Mog House to event::talk, which opens mogdoor or
+  the exit prompt, as before *(route inferred)*. Seen live: Lnxtest, Tab twice, Enter: "Heading outside, kupo?".

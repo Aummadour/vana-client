@@ -671,8 +671,12 @@ pub fn mouse_candidate(w: &World, hidden: &std::collections::HashSet<u32>, id: u
 
 /// FUN_101524e0's talk test: an NPC id (high byte 1), not our pet, not a trust (+0x12c bit 22: 0x00E @0x28 bit 0),
 /// charmed only when talkable (+0x12c bit 30), not allied with players (FUN_1008ca40: allegiance 1, LSB's trusts).
-/// Monsters take the menu *(inferred)*.
+/// Monsters take the menu *(inferred)*. The Mog House door (0x1000000, which the test itself skips) answers by a route
+/// not traced: ours sends it to event::talk, which opens its exit menu.
 pub fn talks_to(w: &World, t: u32) -> bool {
+    if t == super::myroom::DOOR_ID && w.myroom.is_some() {
+        return true;
+    }
     let Some(e) = w.entities.get(&t) else { return false };
     let m = &e.marks;
     t >> 24 == 1 && t != 0x0100_0000 && !e.mob && !m.trust && !(w.my_pet != 0 && e.index == w.my_pet) && (!m.charm || m.npc_pet) && !allied(w, t, e)
