@@ -922,7 +922,7 @@ fn zone_in(cfg: &config::Config, m: &net::lobby::MapLogin, account: &str, stay: 
     use std::collections::BTreeMap;
     use std::time::Instant;
 
-    let codec = net::map::compress::Codec::from_ffximain(&std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?)?;
+    let codec = net::map::compress::Codec::from_ffximain(&std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?)?;
     let addr = std::net::SocketAddr::from((m.map.0, m.map.1));
     let mut map = MapSession::connect(addr, &m.key, codec)?;
     // The zone server learns of us a moment after the lobby replies, so retry like the client does.
@@ -1046,7 +1046,7 @@ fn login(cfg: &config::Config, creds: &Credentials) -> Result<net::lobby::Lobby>
     };
     println!("Logged in: account {account_id}");
     let session = net::lobby::Session::Lsb { account_id, hash: session_hash };
-    let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).unwrap_or_default();
+    let dll = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())).unwrap_or_default();
     let lobby = net::lobby::Lobby::connect(&cfg.server, cfg.view_port, cfg.data_port, session, &dll, &cfg.client_version, 5, dat::installed(&cfg.ffxi_dir()), Default::default())?;
     println!("Lobby: expansions 0x{:08X}, features 0x{:08X}", lobby.expansions, lobby.features);
     Ok(lobby)
@@ -1273,7 +1273,7 @@ fn main() -> Result<()> {
             use glam::Vec3;
             let cfg = config::Config::load();
             let index = dat::DatIndex::open(&cfg.ffxi_dir())?;
-            let keys = dat::zone::Keys::from_ffximain(&std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?)?;
+            let keys = dat::zone::Keys::from_ffximain(&std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?)?;
             let file = index.read(dat::zone::file_id(zone))?;
             let mut scene = dat::zone::load_scene(&keys, &file)?;
             // Config 0017 (FUN_10171360 / FUN_101720a0): the bump maps, never in zone 182.
@@ -1492,7 +1492,7 @@ fn main() -> Result<()> {
         Cmd::MmbDump { zone, name } => {
             let cfg = config::Config::load();
             let index = dat::DatIndex::open(&cfg.ffxi_dir())?;
-            let keys = dat::zone::Keys::from_ffximain(&std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?)?;
+            let keys = dat::zone::Keys::from_ffximain(&std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?)?;
             // From 1000 a file id itself (an effect file's stand-ins).
             let file = index.read(if zone >= 1000 { zone } else { dat::zone::file_id(zone) })?;
             for c in dat::chunks(&file)?.into_iter().filter(|c| c.kind == 0x2E) {
@@ -1538,7 +1538,7 @@ fn main() -> Result<()> {
             use glam::{Mat4, Vec3};
             let cfg = config::Config::load();
             let index = dat::DatIndex::open(&cfg.ffxi_dir())?;
-            let keys = dat::zone::Keys::from_ffximain(&std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?)?;
+            let keys = dat::zone::Keys::from_ffximain(&std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?)?;
             let scene = dat::zone::load_scene(&keys, &index.read(dat::zone::file_id(zone))?)?;
             let textures: std::collections::HashMap<&str, &dat::zone::Texture> = scene.textures.iter().map(|t| (t.name.as_str(), t)).collect();
             for p in &scene.placements {
@@ -1592,7 +1592,7 @@ fn main() -> Result<()> {
         Cmd::ZoneInfo { zone } => {
             let cfg = config::Config::load();
             let index = dat::DatIndex::open(&cfg.ffxi_dir())?;
-            let keys = dat::zone::Keys::from_ffximain(&std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?)?;
+            let keys = dat::zone::Keys::from_ffximain(&std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?)?;
             let scene = dat::zone::load_scene(&keys, &index.read(dat::zone::file_id(zone))?)?;
             let names: std::collections::HashSet<&str> = scene.meshes.iter().map(|m| m.name.as_str()).collect();
             let tex: std::collections::HashSet<&str> = scene.textures.iter().map(|t| t.name.as_str()).collect();
@@ -1711,7 +1711,7 @@ fn main() -> Result<()> {
         Cmd::MsgDump { group, ids } => {
             let cfg = config::Config::load();
             let index = dat::DatIndex::open(&cfg.ffxi_dir())?;
-            let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?;
+            let dll = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?;
             let file = dat::msg::group_file(&dll, 1, group).ok_or_else(|| anyhow::anyhow!("no file for group {group:#x}"))?;
             let m = dat::msg::Messages::load(&index, file)?;
             println!("group {group:#x}: file {file}");
@@ -1724,7 +1724,7 @@ fn main() -> Result<()> {
         Cmd::DmsgDump { slot, ids } => {
             let cfg = config::Config::load();
             let index = dat::DatIndex::open(&cfg.ffxi_dir())?;
-            let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?;
+            let dll = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?;
             // A value past the slot range is a file id (0x86 grammar blocks read file 0xd8b2 directly).
             let file = if slot >= 0x1000 { slot as u32 } else { dat::msg::current_slot_file(&dll, 1, slot as usize).ok_or_else(|| anyhow::anyhow!("no file for slot {slot:#x}"))? };
             // Message tables in the event text format (FUN_10095430's slots) print their readable text.
@@ -1782,7 +1782,7 @@ fn main() -> Result<()> {
             }
             if let Some(l) = lobby {
                 let (host, port) = l.rsplit_once(':').ok_or_else(|| anyhow::anyhow!("--lobby HOST:PORT"))?;
-                let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).unwrap_or_default();
+                let dll = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())).unwrap_or_default();
                 let mut lobby = net::lobby::Lobby::connect(host, port.parse()?, 0, session, &dll, &cfg.client_version, 5, dat::installed(&cfg.ffxi_dir()), Default::default())?;
                 lobby.pol = Some(pol);
                 for c in lobby.characters()?.iter().filter(|c| !c.is_empty_slot()) {
@@ -1999,7 +1999,7 @@ fn text_shot(text: &[String], font: &str, lang: &str, color: &str, bg: &str, alp
     let bg = hex4(&format!("{bg}00"))?;
     let cfg = config::Config::load();
     let index = dat::DatIndex::open(&cfg.ffxi_dir())?;
-    let font = Font::load(&index, &std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?, lang, quality)?;
+    let font = Font::load(&index, &std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?, lang, quality)?;
     println!("atlas {}x{} ({} px cells), {} gaiji shapes, {} shape textures", font.atlas.width, font.atlas.height, font.cell_px, font.gaiji.len(), font.textures.len());
     let mut quads = Vec::new();
     let (pad, mut w, mut h) = (8, 0, 0);
@@ -2025,7 +2025,7 @@ fn text_shot(text: &[String], font: &str, lang: &str, color: &str, bg: &str, alp
 fn load_zone_scene(zone: u32) -> Result<dat::zone::ZoneScene> {
     let cfg = config::Config::load();
     let index = dat::DatIndex::open(&cfg.ffxi_dir())?;
-    let keys = dat::zone::Keys::from_ffximain(&std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?)?;
+    let keys = dat::zone::Keys::from_ffximain(&std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?)?;
     dat::zone::load_scene(&keys, &index.read(dat::zone::file_id(zone))?)
 }
 
@@ -2106,7 +2106,7 @@ fn zone_path(zone: u32, from: &str, to: &str, open_doors: bool, closed: Option<&
     anyhow::ensure!(f.len() == 3 && t.len() == 2, "want --from x,y,z --to x,z");
     let cfg = config::Config::load();
     let index = dat::DatIndex::open(&cfg.ffxi_dir())?;
-    let keys = dat::zone::Keys::from_ffximain(&std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?)?;
+    let keys = dat::zone::Keys::from_ffximain(&std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?)?;
     let ground = client::ground::Ground::build(&dat::zone::load_scene(&keys, &index.read(dat::zone::file_id(zone))?)?);
     if open_doors {
         let keep: Vec<(f32, f32)> = closed.unwrap_or("").split(';').filter(|s| !s.is_empty()).map(|s| nums(s).map(|v| (v[0], v[1]))).collect::<Result<_>>()?;
@@ -2265,7 +2265,7 @@ fn fx_soak(out: &std::path::Path, cycles: u32, ticks: u32, settle: u32, only: Op
     use std::fmt::Write as _;
     let cfg = config::Config::load();
     let index = std::sync::Arc::new(dat::DatIndex::open(&cfg.ffxi_dir())?);
-    let keys = dat::zone::Keys::from_ffximain(&std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?)?;
+    let keys = dat::zone::Keys::from_ffximain(&std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?)?;
     let mut fx = fx::Effects::new();
     fx.set_keys(std::sync::Arc::new(keys));
     fx.set_index(index.clone());
@@ -2360,7 +2360,7 @@ fn fx_sweep(out: &std::path::Path, kinds: &str, ticks: u32, mob_models: Option<&
     use std::fmt::Write as _;
     let cfg = config::Config::load();
     let index = std::sync::Arc::new(dat::DatIndex::open(&cfg.ffxi_dir())?);
-    let keys = dat::zone::Keys::from_ffximain(&std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?)?;
+    let keys = dat::zone::Keys::from_ffximain(&std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?)?;
     let models: BTreeMap<u32, String> = mob_models
         .map(std::fs::read_to_string)
         .transpose()?
@@ -2634,7 +2634,7 @@ fn movie_shot(frames: &[u32], out: &std::path::Path, size: Option<&str>) -> Resu
 fn battle_dump(ids: &[u32]) -> Result<()> {
     let cfg = config::Config::load();
     let index = dat::DatIndex::open(&cfg.ffxi_dir())?;
-    let bt = dat::battle::BattleText::load(&index, &std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?)?;
+    let bt = dat::battle::BattleText::load(&index, &std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?)?;
     let who = |n: &str, pc| Some(dat::battle::Who { name: n.into(), pc, ..Default::default() });
     let ctx = dat::battle::Ctx { actor: who("Actor", true), target: who("Wild Rabbit", false), me: "Actor".into(), work: [11, 12, 13, 14, 15], ..Default::default() };
     let all: Vec<u32> = if ids.is_empty() { (0..2000).collect() } else { ids.to_vec() };
@@ -2661,7 +2661,7 @@ fn fx_shot(zone: u32, out: &std::path::Path, eye: &[f32], caster: &[f32], victim
     let cfg = config::Config::load();
     render::SHINE_WRAP.store(cfg.tool("0040") == 0, std::sync::atomic::Ordering::Relaxed);
     let index = std::sync::Arc::new(dat::DatIndex::open(&cfg.ffxi_dir())?);
-    let keys = dat::zone::Keys::from_ffximain(&std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?)?;
+    let keys = dat::zone::Keys::from_ffximain(&std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?)?;
     let file = index.read(dat::zone::file_id(zone))?;
     let scene = dat::zone::load_scene(&keys, &file)?;
     let lighting = dat::weather::ZoneWeather::parse(&file).ok().and_then(|w| w.at("suny", hour * 60.0)).map(|e| dat::weather::Lighting::from_env(&e, hour * 60.0));

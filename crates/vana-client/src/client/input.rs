@@ -732,7 +732,7 @@ mod tests {
     use super::*;
 
     fn real() -> Option<Input> {
-        let dll = std::fs::read(crate::config::Config::load().ffxi_dir().join("FFXiMain.dll")).ok()?;
+        let dll = std::fs::read(crate::dat::ffximain(&crate::config::Config::load().ffxi_dir())).ok()?;
         let mut i = Input::default();
         i.load(&dll);
         Some(i)

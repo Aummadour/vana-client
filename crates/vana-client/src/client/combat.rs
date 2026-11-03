@@ -1960,7 +1960,7 @@ mod tests {
     #[test]
     fn knockback_levels() {
         let cfg = crate::config::Config::load();
-        let Ok(dll) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())) else { return };
         let t = crate::dat::tables::knockback(&dll).unwrap();
         for dt in [1.0f32, 0.2] {
             for (level, total, dist, recover) in [(1, 47.0, 1.41, 5.0), (7, 123.0, 10.61, 45.0)] {
@@ -1994,7 +1994,7 @@ mod tests {
     fn load() -> Option<BattleText> {
         let cfg = crate::config::Config::load();
         let index = crate::dat::DatIndex::open(&cfg.ffxi_dir()).ok()?;
-        let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).ok()?;
+        let dll = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())).ok()?;
         Some(BattleText::load(&index, &dll).unwrap())
     }
 

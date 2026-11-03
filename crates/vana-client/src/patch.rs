@@ -414,11 +414,26 @@ pub fn decide(e: &Entry, local: Option<Sig>) -> (Action, u64) {
     if bytes < cur.direct.1 { (Action::Deltas(i + 1), bytes) } else { whole }
 }
 
-/// Executables and libraries. The client reads its tables out of the current FFXiMain.dll, so they are patched too
-/// unless asked not to.
+/// Executables and libraries: never written into the game folder (retail, Windower and Ashita run them; the Viewer
+/// updates them).
 pub fn is_code(path: &str) -> bool {
     let p = path.to_ascii_lowercase();
     p.ends_with(".dll") || p.ends_with(".exe")
+}
+
+/// The one code file the client needs: it reads its tables out of the current FFXiMain.dll (as data, never run).
+fn is_ffximain(path: &str) -> bool {
+    path.eq_ignore_ascii_case("FFXiMain.dll")
+}
+
+/// The file a manifest entry is checked against (and a delta built on): FFXiMain.dll is the one the client reads.
+fn source(root: &Path, p: &str) -> Result<PathBuf> {
+    if is_ffximain(p) { Ok(crate::dat::ffximain(root)) } else { local(root, p) }
+}
+
+/// Where an entry is written: FFXiMain.dll to the client's copy in the data dir, the rest under `root`.
+fn target(root: &Path, p: &str) -> Result<PathBuf> {
+    if is_ffximain(p) { Ok(crate::dat::own_ffximain()) } else { writable(root, p) }
 }
 
 pub struct Plan {
@@ -456,13 +471,14 @@ pub fn plan_against(root: &Path, server: ServerVersion) -> Result<Plan> {
     plan_for(root, true, server)
 }
 
-/// Every code file of the stamped manifest matches its current version.
+/// The FFXiMain.dll the client reads matches the stamped manifest's.
 fn code_current(root: &Path) -> bool {
     let Some(entries) = std::fs::read_to_string(root.join(STAMP_FILE)).ok().and_then(|t| parse_manifest(&t).ok()) else { return false };
-    entries.iter().filter(|e| is_code(&e.path)).all(|e| local(root, &e.path).and_then(|p| sig_of_path(&p)).ok().flatten().is_some_and(|l| decide(e, Some(l)).0 == Action::Current))
+    entries.iter().filter(|e| is_ffximain(&e.path)).all(|e| source(root, &e.path).and_then(|p| sig_of_path(&p)).ok().flatten().is_some_and(|l| decide(e, Some(l)).0 == Action::Current))
 }
 
-/// Asks the server for its version and manifest and checks every listed file under `root` (in parallel).
+/// Asks the server for its version and manifest and checks every listed file under `root` (in parallel). Code files
+/// are left as they are; `code` fetches the FFXiMain.dll the client reads.
 pub fn plan(root: &Path, code: bool) -> Result<Plan> {
     plan_for(root, code, Session::connect()?.version()?)
 }
@@ -480,7 +496,7 @@ fn plan_for(root: &Path, code: bool, server: ServerVersion) -> Result<Plan> {
                     loop {
                         let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let Some(e) = entries.get(i) else { return Ok(()) };
-                        let d = decide(e, sig_of_path(&local(root, &e.path)?)?);
+                        let d = decide(e, sig_of_path(&source(root, &e.path)?)?);
                         found.lock().unwrap().push((i, d.0, d.1));
                     }
                 })
@@ -491,8 +507,9 @@ fn plan_for(root: &Path, code: bool, server: ServerVersion) -> Result<Plan> {
     let mut all = found.into_inner().unwrap();
     all.sort_by_key(|x| x.0);
     let current = all.iter().filter(|x| x.1 == Action::Current).count();
-    let skipped_code = all.iter().filter(|x| x.1 != Action::Current && !code && is_code(&entries[x.0].path)).count();
-    let todo = all.into_iter().filter(|x| x.1 != Action::Current && (code || !is_code(&entries[x.0].path))).collect();
+    let wanted = |p: &str| !is_code(p) || (code && is_ffximain(p));
+    let skipped_code = all.iter().filter(|x| x.1 != Action::Current && !wanted(&entries[x.0].path)).count();
+    let todo = all.into_iter().filter(|x| x.1 != Action::Current && wanted(&entries[x.0].path)).collect();
     Ok(Plan { server, manifest, entries, todo, current, skipped_code })
 }
 
@@ -513,7 +530,7 @@ fn produce(s: &mut Session, root: &Path, e: &Entry, a: Action) -> Result<Vec<u8>
         Action::Current => unreachable!(),
         Action::Direct => direct(&s.fetch(&cur.direct.0, cur.direct.1)?).with_context(|| cur.direct.0.clone())?,
         Action::Deltas(from) => {
-            let mut d = std::fs::read(local(root, &e.path)?)?;
+            let mut d = std::fs::read(source(root, &e.path)?)?;
             for v in &e.versions[from..] {
                 let (p, n) = v.delta.as_ref().unwrap();
                 d = olc(&s.fetch(p, *n)?, &d).with_context(|| p.clone())?;
@@ -561,7 +578,7 @@ pub fn apply(root: &Path, plan: &Plan, connections: usize, progress: &(dyn Fn(us
                     let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let Some(&(ei, a, n)) = plan.todo.get(i) else { return };
                     let e = &plan.entries[ei];
-                    match produce(&mut sess, root, e, a).and_then(|d| write_atomic(&writable(root, &e.path)?, &d)) {
+                    match produce(&mut sess, root, e, a).and_then(|d| write_atomic(&target(root, &e.path)?, &d)) {
                         Ok(()) => {
                             let f = files.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                             let b = bytes.fetch_add(n, std::sync::atomic::Ordering::Relaxed) + n;
@@ -625,6 +642,24 @@ mod tests {
         assert!(is_code(&m[1].path));
         let s = Sig::of(b"\xff\x01");
         assert_eq!((s.len, s.sum), (2, 0));
+    }
+
+    /// FFXiMain.dll goes to the client's copy; nothing else leaves the game folder.
+    #[test]
+    fn ffximain_outside_the_game_folder() {
+        let root = Path::new("/games/FINAL FANTASY XI");
+        assert_eq!(target(root, "ffximain.DLL").unwrap(), crate::dat::own_ffximain());
+        assert_eq!(target(root, "ROM/0/0.DAT").unwrap(), root.join("ROM/0/0.DAT"));
+        assert!(is_code("polboot.exe") && !is_ffximain("ToolsUS/polboot.exe") && !is_ffximain("Tools/FFXiMain.dll"));
+    }
+
+    /// A patched install's FFXiMain.dll (the one the client reads) checks against its stamped manifest.
+    #[test]
+    fn installed_ffximain_current() {
+        let root = crate::config::Config::load().ffxi_dir();
+        if root.join(STAMP_FILE).is_file() {
+            assert!(code_current(&root));
+        }
     }
 
     #[test]

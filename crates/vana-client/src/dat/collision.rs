@@ -279,7 +279,7 @@ mod tests {
     fn load(zone: u32) -> Option<Collision> {
         let cfg = crate::config::Config::load();
         let index = crate::dat::DatIndex::open(&cfg.ffxi_dir()).ok()?;
-        let keys = crate::dat::zone::Keys::from_ffximain(&std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).ok()?).ok()?;
+        let keys = crate::dat::zone::Keys::from_ffximain(&std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())).ok()?).ok()?;
         crate::dat::zone::load_scene(&keys, &index.read(crate::dat::zone::file_id(zone)).ok()?).ok()?.collision
     }
 

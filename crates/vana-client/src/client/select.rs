@@ -1091,7 +1091,7 @@ pub fn screen_shot(shot: &ScreenShot, out: &std::path::Path) -> Result<()> {
     use super::game_ui::GameUiData;
     let cfg = crate::config::Config::load();
     let index = Arc::new(DatIndex::open(&cfg.ffxi_dir())?);
-    let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?;
+    let dll = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?;
     let keys = Arc::new(zone::Keys::from_ffximain(&dll)?);
     let mut gu = GameUi::new(GameUiData::load(&index, &dll)?);
     let n = shot.chars.min(SLOTS);

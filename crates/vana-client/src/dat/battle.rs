@@ -787,7 +787,7 @@ mod tests {
     fn load() -> Option<BattleText> {
         let cfg = crate::config::Config::load();
         let index = DatIndex::open(&cfg.ffxi_dir()).ok()?;
-        let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).ok()?;
+        let dll = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())).ok()?;
         Some(BattleText::load(&index, &dll).unwrap())
     }
 

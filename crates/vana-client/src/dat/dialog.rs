@@ -759,7 +759,7 @@ mod tests {
     fn date_builder_codes() {
         let cfg = crate::config::Config::load();
         let Ok(index) = crate::dat::DatIndex::open(&cfg.ffxi_dir()) else { return };
-        let Ok(dll) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())) else { return };
         let Some(file) = super::super::msg::group_file(&dll, 1, 10) else { return };
         let m = std::sync::Arc::new(super::super::msg::Messages::load(&index, file).unwrap());
         let g = m.clone();
