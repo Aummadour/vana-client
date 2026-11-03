@@ -10335,7 +10335,9 @@ impl App {
             world.autorun = false;
         }
         // /follow (FUN_100a6070's users): autorun points at the target each tick; the target gone, dead or without a
-        // model ends it.
+        // model ends it. FUN_100a79a0: touching it (the horizontal gap less both radii, FUN_100aaef0, under 0) the step
+        // is none, and the follow goes on.
+        let mut touching = false;
         if let Some(t) = world.follow {
             match world.entities.get(&t).filter(|e| !matches!(e.motion.status, 2 | 3) && world.actors.contains_key(&t)) {
                 Some(e) if world.autorun => {
@@ -10343,6 +10345,8 @@ impl App {
                     if d.length() > 1e-3 {
                         world.autorun_dir = d.normalize();
                     }
+                    let r = |id: u32| world.actors.get(&id).map_or(0.0, bump::radius);
+                    touching = d.length() - r(world.my_id) - r(t) < 0.0;
                 }
                 _ => world.autorun = false,
             }
@@ -10369,7 +10373,7 @@ impl App {
                     let a = d.x.atan2(d.z) + 2.0 * ax * ticks * 0.017452778;
                     world.autorun_dir = Vec3::new(a.sin(), 0.0, a.cos());
                 }
-                step = world.autorun_dir;
+                step = if touching { Vec3::ZERO } else { world.autorun_dir };
             }
         }
         if !world.autorun {

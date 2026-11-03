@@ -1902,6 +1902,11 @@ From the research notes:
   DAT_10443fe4 +0x2c x _DAT_1031f864, asm ~0x100a5360) and the move follows it; no input and |vector| <= 0.001 ends it,
   so Num7 standing still does nothing. With Q / E turning while on, forward is forced and the turn acts as X input.
   Forced off in statuses 2, 3, 6, 7, 0x21, 0x26..0x2c, 0x2f, 0x30, 0x32..0x35, 0x38..0x53 and events.
+- /follow's stop (FUN_100a79a0, free camera, cur 30261006): the autorun vector is the unit direction to the target;
+  when the horizontal distance less both radii (FUN_100aaef0) is under 0 the step is DAT_10487f8c instead *(inf:
+  zero)*, so you stand just behind the target and the follow stays on. Ours did not stop (ran onto the target) until
+  2026-11-02. Live (Lnxcsfix following the bot Shanri, Mhaura): stopped 0.81 short and stood. Standing exactly on the
+  target there is no direction and the follow ends (retail's |vector| <= 0.001 test).
 - Q / E (0xaa / 0xa9, keyboard type 2, free camera, X input 0, camera axes idle): player yaw += ticks x 0.0174528 x
   1.57075 x (E - Q) (_DAT_10322260 = 1.57075; 94 degrees a second); the camera turns with it (FUN_1001d4c0).
 - Face-camera 0x9c (LShift held, type 2, free): the player faces the camera yaw, so A / D strafe; camera axes and Q / E off.
