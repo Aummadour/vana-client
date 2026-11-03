@@ -6925,7 +6925,7 @@ More in "UI sounds and window animations along the menu chain".
 - Chat line (text engine FUN_101b00b0): Enter 0002, Escape 0003. The full log's Escape 0003.
 - Map menu (map0), Mog House door menu, macro palette: the generic handler's 0001 cursor / 0002 Enter / 0003
   Escape. Ctrl / Alt + H (key 0x3d): 0002 before /heal.
-- Not done: the tell sound "0p40" (not resolved); the `<call>` sounds 0017..0023.
+- Not done: the `<call>` sounds 0017..0023. The tell sound: see "<ncall> / <scall>" below (ours plays 0017).
 
 ## Skillchains: the burst file, the proc message, load holds by count (2026-10-24)
 
@@ -7441,8 +7441,10 @@ From the research notes:
   argument: FUN_10127ab0 for ncall (the "(name)" in the line is us, or stands within 4 units: dx^2 + dz^2 < 16), 0 for
   scall, 1 for call. That byte (+0x3c) only sets a blink (DAT_10455c20 +0xdbc, +0xdb4 += 0x3c) while DAT_10351710 is on
   (FUN_100381d0) *(inf: a window flash)*; the sound plays for all three. Ours plays all three (2026-10-26).
-- Tell (mode 0x0c) with config 0x47: SeSep "0p40" (0x30703430 byte-swapped), in no resident DAT (0, 27, 52743),
-  so retail finds nothing either *(inf)*; not played.
+- Tell (mode 0x0c, a received one) with config 0x47 (Chat Filters' Tell "+icon" states, on by default): FUN_10127990
+  names SeSep "0p40" (0x30703430, byte-swapped as DAT_1036eba0's names: "7100" there is 0017). FUN_100380f0 looks it
+  up among the loaded type-0x3d resources (FUN_10072290) and no DAT of the 30261006_0 install holds one (every file
+  scanned, 2026-11-03), so retail plays nothing. Ours (2026-11-03): the <call> sound, 0017.
 
 ## Engaged menu: Check through the prompt, Conflict rows, Call for help block (2026-10-24)
 

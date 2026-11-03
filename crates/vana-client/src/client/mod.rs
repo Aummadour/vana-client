@@ -1262,9 +1262,12 @@ fn chat_line(kind: u8, attr: u8, data: u16, from: &str, text: &str, zone: &str) 
 /// A chat line in its log mode's colour (the config colour before the message tables load), auto-translate blocks
 /// expanded with their brackets (FUN_10127c00 with param 5).
 /// FUN_10127990: a party line (modes 5 / 0x0d) with a call tag outside quotes plays its sound (the first tag that
-/// matches; FUN_100380f0 plays one at a time). The tell sound (mode 0x0c, config 0x47) names SeSep "0p40", which no
-/// resident file holds: not played.
-fn call_sound(bt: &crate::dat::battle::BattleText, line: &str, mode: u8) -> Option<u32> {
+/// matches; FUN_100380f0 plays one at a time). A received tell (mode 0x0c) with config 0x47 names SeSep "0p40", which
+/// no game file holds; ours plays the <call> sound (0017) for it.
+fn call_sound(bt: &crate::dat::battle::BattleText, line: &str, mode: u8, tell_sound: bool) -> Option<u32> {
+    if mode == 0x0c {
+        return tell_sound.then_some(17);
+    }
     if !matches!(mode, 5 | 0x0d) {
         return None;
     }
@@ -1329,7 +1332,8 @@ fn expand_phrases(world: &World, line: &str) -> String {
 
 /// A chat line in its mode, `gm` from s2c 0x017's Attr bit 0, `who` its record's name.
 fn push_chat_line(world: &mut World, line: String, mode: u8, kind: u8, gm: bool, who: Option<(String, u8)>) {
-    if let Some(n) = world.battle.as_ref().and_then(|bt| call_sound(bt, &line, mode)) {
+    let tell_sound = world.game.get(0x47) != 0;
+    if let Some(n) = world.battle.as_ref().and_then(|bt| call_sound(bt, &line, mode, tell_sound)) {
         world.sounds.push(n);
     }
     let (colour, line, indent) = match world.battle.clone() {
