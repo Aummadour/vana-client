@@ -668,7 +668,7 @@ pub fn topbar_shot(out: &std::path::Path, fade: &str, menu: Option<u16>, menu_sw
         if f.get(5) == Some(&"markers") {
             m.shot_markers();
         }
-        m.draw(&mut gu, sw, sh);
+        m.draw(&mut gu, sw, sh, false);
         let [help, title] = gu.focus_text("menu    map0", m.cursor);
         (bars.help[1], bars.title[1]) = (help.unwrap_or_default(), title.unwrap_or_default());
         match place {

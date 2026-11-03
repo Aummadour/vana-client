@@ -528,6 +528,8 @@ fn default_place(id: &str) -> Place {
         "chatctrl" => on("combat"),
         // The comment editor sits on the log as retail's (flag 0x1000).
         "comment" => on("combat"),
+        // The map's menu at the top right, as retail's map0.
+        "map0" => at(-0.004, 0.1),
         _ => at(0.3, 0.3),
     }
 }

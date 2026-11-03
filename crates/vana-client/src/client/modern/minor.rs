@@ -28,6 +28,25 @@ pub fn draw(p: &mut Panels, w: &mut World) {
     garden_windows(p, w);
     pup_menu(p, w);
     fish_gauge(p, w);
+    map_menu(p, w);
+}
+
+/// The map's menu (map0: Markers, Wide Scan, Change Map) as a column; Wide Scan dim until a scan is possible.
+fn map_menu(p: &mut Panels, w: &mut World) {
+    use super::super::map;
+    let Some(gu) = p.gu else { return };
+    let Some((sel, scan)) = w.map.as_ref().filter(|m| m.has_menu()).map(|m| (m.cursor, m.scan_ok())) else { return };
+    let m = p.m;
+    let free = w.confirm.is_none();
+    let title = gu.focus_text("menu    map0", sel)[1].clone().unwrap_or_else(|| "Map".into());
+    let mut got = None;
+    p.panel("map0", Some(Title { icon: None, text: &title, note: None }), social::width(1), |ui| {
+        let col = MenuWin { name: "menu    map0", sel, off: if scan { Vec::new() } else { vec![2] }, labels: Vec::new(), marked: Vec::new(), values: Vec::new() };
+        got = social::column(ui, m, gu, &col, free);
+    });
+    if free {
+        social::act(w, gu, got, |w, k| w.map.as_mut().is_some_and(|m| m.set_cursor(k)), |w, _| map::key(w, egui::Key::Enter));
+    }
 }
 
 /// Plain rows (text, grey), the cursor's lit while focused and kept in view; the row clicked while focused.

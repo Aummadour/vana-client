@@ -2146,13 +2146,7 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
                     region::key(world, *key);
                 }
                 egui::Key::ArrowUp | egui::Key::ArrowDown | egui::Key::ArrowLeft | egui::Key::ArrowRight | egui::Key::Enter | egui::Key::Escape if world.map.is_some() => {
-                    // map0's Escape (FUN_101fa420): the zoom into config 0x8a, then the fade-out.
-                    if let Some(m) = world.map.as_mut()
-                        && !m.key(*key)
-                    {
-                        world.game.set(0x8a, m.zoom_cfg());
-                        m.begin_close();
-                    }
+                    map::key(world, *key);
                 }
                 egui::Key::ArrowUp | egui::Key::ArrowDown | egui::Key::ArrowLeft | egui::Key::ArrowRight | egui::Key::Enter | egui::Key::Escape if world.log_focus == 2 => {
                     buffs::key(gu, world, *key);
@@ -3154,8 +3148,9 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
         region::poll_image(gu, m);
     }
     region::draw(gu, world, sw, sh);
+    let modern = world.modern;
     if let Some(m) = world.map.as_mut() {
-        m.draw(gu, sw, sh);
+        m.draw(gu, sw, sh, modern);
         world.sounds.append(&mut m.sounds);
         let zone = m.zone();
         for out in std::mem::take(&mut m.outs) {

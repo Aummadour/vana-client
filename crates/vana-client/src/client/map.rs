@@ -762,6 +762,20 @@ impl MapWin {
         s.scroll = s.scroll.min(s.cursor);
     }
 
+    /// map0 item 2 (Wide Scan) is enabled.
+    pub fn scan_ok(&self) -> bool {
+        self.scan_ok
+    }
+
+    /// The mouse's cursor move onto map0 row `k` (1..3). True when it moved.
+    pub fn set_cursor(&mut self, k: u16) -> bool {
+        if !self.has_menu() || self.cursor == k || !(1..=3).contains(&k) {
+            return false;
+        }
+        self.cursor = k;
+        true
+    }
+
     /// The focused sub-window and its cursor child, for the bars.
     pub fn focus(&self) -> Option<(&'static str, u16)> {
         if let Some(s) = self.scan.as_ref().filter(|s| !s.hidden) {
@@ -1318,7 +1332,8 @@ impl MapWin {
 
     /// mapframe: the image (0xa0404040; alpha min(0xff - level, 0xa0) while fading) at (base - view) x zoom; at fade
     /// level 0 the player arrow and the grid text under titlewin; then map0.
-    pub fn draw(&mut self, gu: &mut GameUi, sw: f32, sh: f32) {
+    /// `modern`: the modern layer draws map0 (and takes its mouse).
+    pub fn draw(&mut self, gu: &mut GameUi, sw: f32, sh: f32, modern: bool) {
         if let Some(Ok(Some((name, iw, ih, rgba)))) = self.rx.as_ref().map(|r| r.try_recv()) {
             gu.image(&name, iw, ih, rgba);
             self.texture = Some(name);
@@ -1358,7 +1373,7 @@ impl MapWin {
         if let Some((px, py)) = self.tracked.filter(|_| level == 0.0) {
             gu.sprite("menu    keytops3", 105, (px - self.shift.0 - self.view.0) * z + 0.5, (py - self.shift.1 - self.view.1) * z + 0.5, 0x8080_8080);
         }
-        if self.has_menu() {
+        if self.has_menu() && !modern {
             let hide: &[u16] = if self.scan_ok { &[] } else { &[2] };
             if let Some(win) = gu.lobby_window_off("menu    map0", sw, sh, (0.0, 0.0), Some(self.cursor), true, hide)
                 && !self.scan_ok
@@ -1970,6 +1985,17 @@ pub(super) fn apply(w: &mut World, regions: &[Region], c: Cmd, sw: f32, sh: f32)
                 m.view_to(x, y, zf, speed, flags);
             }
         }
+    }
+}
+
+/// A key for the map's windows: MapWin::key, and on its false (Escape, a pick) the zoom into config 0x8a and the
+/// fade-out (FUN_101fa420).
+pub fn key(w: &mut World, key: egui::Key) {
+    if let Some(m) = w.map.as_mut()
+        && !m.key(key)
+    {
+        w.game.set(0x8a, m.zoom_cfg());
+        m.begin_close();
     }
 }
 
