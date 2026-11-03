@@ -20334,3 +20334,45 @@ Lessons from other games' mod layers (BG3 Script Extender, WoW, Skyrim, Factorio
 - Live: a committed 日本語 (script step `ime:`) in both UIs, sent with /echo and printed in the game font and the modern
   one. A real composition (preedit and candidate window from a Japanese input method) not tried.
 
+## DAT parsers: malformed files are errors (ours, 2026-11-02)
+
+- A corrupt DAT (from the install or a mod pack) could panic or abort the client; found by fuzzing. Now errors in
+  event::parse (a block count past the size table reserved up to 77 GB), zone::parse_mmb (offset table read past the
+  end), zone::parse_mzb (short header, records past the end), zone::light_list (read before its length check),
+  zone::parse_rid (a bad count looped up to u32::MAX times), character::parse_skeleton (short chunk),
+  title::parse_ops (ops too short for their argument come out as Other), ui::parse_sprite_lib (sprite count cut),
+  sched::loops (an offset below 0x10 wrapped) and the counts that sized allocations in autotrans, dialog and names
+  (d_msg). zone::decode_mzb and zone::decode_mmb need their 8-byte header.
+- title::Title::parse: a camera path (kind 0x06: 0x20 header bytes, then 0x30 per key) whose key count runs past its
+  chunk is skipped with a warning; the file's other paths and schedulers still load. Every 0x06 chunk of the
+  30261006_0 install (1,393 files, 82,563 chunks) is exactly 0x20 + 0x30 * keys long. A path with no keys (title
+  flyover, eventdump, the title dump) is skipped instead of sampled.
+- Files that parsed before parse the same. dat/fuzz.rs runs about 50 parsers on 4000 random and chunk-shaped
+  inputs each (plus each chunk's payload) and fails if any panics or aborts; new parsers go on its list.
+
+## Message formatter: loops stop (ours, 2026-11-02)
+
+- FUN_10153310 (30261006_0) follows the jump codes 0x84..=0x8a to `p + 4 + (signed byte)` with no check, so a string
+  whose jump goes back to or before itself (`A FA 40 84 FB`) loops for ever there too; only the caller's output
+  buffer bounds what it writes.
+- msgfmt::format (ours): where the formatter goes next depends only on the position, the compare flags and the
+  choice end (`ints` and `strs` never change), so after each backward jump it records that state and stops at the
+  first repeat, returning the output so far. A string that ends never repeats a state, so strings format as before.
+
+## Map session: unreadable datagrams (2026-11-02)
+
+- FUN_100f76b0 (2019 build) reads each datagram through FUN_100dad80: 0 is an MD5 mismatch (FUN_100f7a40(2), slot 0),
+  below 0 a size or decompress failure (FUN_100f7a40(3), slot 1). Either way the datagram is dropped and the session
+  goes on. Only a datagram that reads counts its bytes (FUN_100f9b90 in the > 0 branch), as net/map/session.rs now
+  does for the Network window.
+- Ours: the first 40 drops per session are logged, and 50 unreadable datagrams in a row end the session with the
+  reason. LSB resends a datagram we have not acked (map_networking.cpp), so a single drop is recovered.
+
+## Server replies: size limits (ours, 2026-11-02)
+
+- Lobby (net/lobby.rs): a reply shorter than its packet needs is an error, not a panic: 0x05 needs 0x28 bytes, 0x0B
+  0x48, 0x03 0x20, a refusal 0x24 (code at 32..36), 0x20 / 0x23 at least 32 (LSB view_session.cpp,
+  data_session.cpp). Replies are at most 0xB68 bytes.
+- xi_connect (net/auth.rs): the JSON reply is read up to 64 KiB.
+- xi_profile (net/profile.rs): an answer is at most 0x400000 + 0x1000 bytes (LSB's ReadFile fileSizeLimit 0x400000
+  plus its checksum; the mailbox is capped at kMailboxLimit 100 messages of 0x108 bytes); an IRC line at most 64 KiB.

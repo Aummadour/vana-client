@@ -165,7 +165,7 @@ impl Screen {
             .entry(id)
             .or_insert_with(|| {
                 let bytes = index.read(id).map_err(|e| log::warn!("event scheduler file {id}: {e:#}")).ok()?;
-                let title = Title::parse(&bytes).ok();
+                let title = Title::parse(&bytes).map_err(|e| log::warn!("event scheduler file {id}: {e:#}")).ok();
                 Some(Arc::new(SchedFile { bytes, title }))
             })
             .clone()

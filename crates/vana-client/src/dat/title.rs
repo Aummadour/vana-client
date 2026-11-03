@@ -79,20 +79,22 @@ pub fn parse_ops(pay: &[u8]) -> Vec<Op> {
         }
         let b = &pay[p..p + 4 * len];
         let (wait, ticks) = if len >= 2 { (u16_at(b, 4), u16_at(b, 6)) } else { (0, 0) };
-        out.push(match op {
-            0x7b => Op::Zone(u32_at(b, 8)),
-            0x7c => Op::Weather { tag: tag(&b[8..12]), ticks },
-            0x7d => Op::Time(u32_at(b, 8)),
-            0x7e => Op::Env(tag(&b[8..12])),
-            0x04 => Op::Camera { path: tag(&b[8..12]), wait, ticks },
-            0x0f => Op::Fade { rgba: b[8..12].try_into().unwrap(), wait, ticks },
-            0x10 => Op::Crossfade { wait, ticks },
-            0x3b => Op::Call(tag(&b[8..12])),
-            0x73 => Op::Spawn(tag(&b[8..12])),
-            0x3d => Op::Random { expansion: None },
-            0xaf => Op::Random { expansion: Some(u32_at(b, 8)) },
-            0x3e => Op::EndRandom,
-            other => Op::Other(other),
+        // The argument word @8; an op too short to hold it is kept as Other.
+        let arg: Option<[u8; 4]> = b.get(8..12).map(|a| a.try_into().unwrap());
+        out.push(match (op, arg) {
+            (0x7b, Some(a)) => Op::Zone(u32::from_le_bytes(a)),
+            (0x7c, Some(a)) => Op::Weather { tag: tag(&a), ticks },
+            (0x7d, Some(a)) => Op::Time(u32::from_le_bytes(a)),
+            (0x7e, Some(a)) => Op::Env(tag(&a)),
+            (0x04, Some(a)) => Op::Camera { path: tag(&a), wait, ticks },
+            (0x0f, Some(a)) => Op::Fade { rgba: a, wait, ticks },
+            (0x10, _) => Op::Crossfade { wait, ticks },
+            (0x3b, Some(a)) => Op::Call(tag(&a)),
+            (0x73, Some(a)) => Op::Spawn(tag(&a)),
+            (0x3d, _) => Op::Random { expansion: None },
+            (0xaf, Some(a)) => Op::Random { expansion: Some(u32::from_le_bytes(a)) },
+            (0x3e, _) => Op::EndRandom,
+            (other, _) => Op::Other(other),
         });
         p += 4 * len;
         if op == 0 {
@@ -115,6 +117,12 @@ impl Title {
             match c.kind {
                 0x07 => schedulers.push((c.name(), parse_ops(c.data))),
                 0x06 => {
+                    // 0x20 header bytes, then 0x30 per key; a path whose keys overrun the chunk is skipped.
+                    let nkeys = c.data.get(0x10).map_or(0, |&k| k as usize);
+                    if c.data.len() < 0x20 + 0x30 * nkeys {
+                        log::warn!("camera path {}: {nkeys} keys overrun the chunk; skipped", c.name());
+                        continue;
+                    }
                     let attach = u32_at(c.data, 0);
                     let flags = u32_at(c.data, 0x10);
                     let ease = u32_at(c.data, 0x14);
@@ -309,6 +317,29 @@ mod tests {
         let slow = keyed.iter().find(|p| p.ease == u32::from_le_bytes(*b"y110")).expect("a y110 path");
         let u = path_u(slow, 0.3);
         assert!(u < 0.1, "u {u}");
+    }
+
+    /// A camera path whose keys overrun its chunk is skipped; the next path still loads.
+    #[test]
+    fn bad_camera_path_is_skipped() {
+        let chunk = |name: &[u8; 4], body: &[u8]| {
+            let size = (16 + body.len()).div_ceil(16) * 16;
+            let mut c = name.to_vec();
+            c.extend_from_slice(&(((size / 16) as u32) << 7 | 0x06).to_le_bytes());
+            c.extend_from_slice(&[0; 8]);
+            c.extend_from_slice(body);
+            c.resize(size, 0);
+            c
+        };
+        let mut bad = vec![0u8; 0x20];
+        bad[0x10] = 3;
+        let mut good = vec![0u8; 0x50];
+        good[0x10] = 1;
+        let mut file = chunk(b"bad\0", &bad);
+        file.extend(chunk(b"good", &good));
+        let t = Title::parse(&file).unwrap();
+        assert_eq!(t.paths.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["good"]);
+        assert_eq!(t.paths[0].keys.len(), 1);
     }
 
     /// A one-key bit-19 path lerps from the current camera; without the bit it holds its key.
