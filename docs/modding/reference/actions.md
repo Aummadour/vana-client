@@ -1411,7 +1411,7 @@ A row the main menu shows dimmed does nothing, as picking it there does: Party w
 actions.macro(row, n) -> nil
 ```
 
-Runs a macro of the current set, as its Ctrl or Alt key does; a macro already running is replaced.
+Runs a macro of the current set, as its Ctrl or Alt key does; a macro already running is replaced. Its lines for the mods run as this mod's lines, not the player's, so its `/lua grant`, `revoke`, `run`, `set` and `watch` are refused.
 
 **Parameters**
 
@@ -1488,7 +1488,7 @@ Changes one line or the title of a macro in the current set, and saves the set t
 
 **Needs** the `actions` permission (while handling the player's input) or `automation`.
 
-**Errors** `a macro line is 1..6, or "title"`; `a macro row is "ctrl" or "alt"`; `a macro is 1..10`.
+**Errors** `a macro line is 1..6, or "title"`; `a macro row is "ctrl" or "alt"`; `a macro is 1..10`; `actions.macro_edit: a /lua line is the player's to write` for a line that runs `/lua` (the player runs macros, so the line would run as theirs).
 
 **Example**
 

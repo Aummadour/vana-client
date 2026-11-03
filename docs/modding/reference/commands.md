@@ -106,5 +106,7 @@ end)
 ```
 
 The line is queued and runs after the mod phase. A line for a mod (`//name`, `/lua`, or a mod's `/name`) runs in the
-next mod phase. Any other line goes to the game's command handling just as if typed: it passes every mod's typed-line
+next mod phase, as the mod's line and not the player's (leading spaces are trimmed first): `/lua grant`, `revoke`,
+`run`, `set` and `watch` are refused there, as they are from a mod's bind, a macro a mod started, or a chat line a mod
+submitted with `input.press("enter")`. Any other line goes to the game's command handling just as if typed: it passes every mod's typed-line
 filters (see [filters.typed](filters.md#filterstyped)), and refusals print in the log as they would for the player.

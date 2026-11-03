@@ -190,7 +190,7 @@ pub(super) fn load_png(src: &super::vm::Source, mod_id: &str, path: &str) -> mlu
         return Err(mlua::Error::runtime(format!("{path:?}: outside the mod's folder")));
     }
     let bytes = match src {
-        super::vm::Source::Dir(d) => std::fs::read(d.join(path)).map_err(|e| mlua::Error::runtime(format!("{path}: {e}")))?,
+        super::vm::Source::Dir(d) => super::vm::inside(d, path).and_then(std::fs::read).map_err(|e| mlua::Error::runtime(format!("{path}: {e}")))?,
         super::vm::Source::Bundled(_) => return Err(mlua::Error::runtime("bundled mods carry no image files")),
     };
     let img = decode_png(&bytes).map_err(|e| mlua::Error::runtime(format!("{path}: {e} (a PNG)")))?;
@@ -240,7 +240,7 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
                 return Err(mlua::Error::runtime(format!("{path:?}: outside the mod's folder")));
             }
             let bytes = match &src2 {
-                super::vm::Source::Dir(d) => std::fs::read(d.join(&path)).map_err(|e| mlua::Error::runtime(format!("{path}: {e}")))?,
+                super::vm::Source::Dir(d) => super::vm::inside(d, &path).and_then(std::fs::read).map_err(|e| mlua::Error::runtime(format!("{path}: {e}")))?,
                 super::vm::Source::Bundled(_) => return Err(mlua::Error::runtime("bundled mods carry no image files")),
             };
             let (w, h, rgba) = decode_png(&bytes).map_err(|e| mlua::Error::runtime(format!("{path}: {e} (a PNG)")))?;

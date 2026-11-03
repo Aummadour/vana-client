@@ -76,8 +76,9 @@ the mod's top folder, whichever file calls `require`. Each name is loaded once; 
 
 **Returns** `any`: what the file returned, or `true` when it returned nothing. The file gets `name` as its `...`.
 
-**Errors** "require "<name>": outside the mod's folder" for a name with `..` or starting with `/`; "module "<name>" not
-found in the mod's folder" when neither file exists; the file's syntax errors, and any error its code raises. A module
+**Errors** "require "<name>": outside the mod's folder" for a name with `..`, `\` or `:`, or starting with `/` or `.`;
+"<file>: "<path>": a link, which could lead outside the mod's folder" when a folder or file on the way is a symbolic
+link (or a Windows junction); "module "<name>" not found in the mod's folder" when neither file exists; the file's syntax errors, and any error its code raises. A module
 that failed is not remembered, so the next `require` tries again.
 
 **Example**
@@ -179,6 +180,8 @@ the frame).
 **Returns** nothing: test the condition again afterwards to tell whether it passed or the time ran out.
 
 **Errors** When `test` is not a function, the mod gets the error "wait_until needs a function" and the handler ends.
+When `test` raises an error, or runs past its 20 ms budget ("ran past its time budget"), the mod gets that error and
+the handler ends.
 
 **Example**
 
@@ -192,8 +195,7 @@ commands.register("waitmp", function()
 end)
 ```
 
-`test` runs every frame, so keep it short. It cannot sleep, and if it raises an error the wait simply ends, without
-the error being shown.
+`test` runs every frame inside the game's frame, so keep it short; its time counts as the mod's. It cannot sleep.
 
 ## `clock`
 
@@ -248,4 +250,8 @@ The `fs` functions take paths relative to the mod's data folder; they do not nee
   the other options do nothing.
 - Each mod has its own Lua state with up to 64 MB of memory.
 - One call into the mod that runs past 100 ms is stopped with the error "ran past its time budget"; a mod that keeps
-  raising errors (20 within a minute) is suspended until it is reloaded.
+  raising errors (20 within a minute) is suspended until it is reloaded. `string.find`, `match`, `gmatch` and `gsub`
+  count their matching against the same budget (the client's own matcher, with Lua 5.4's results and error messages),
+  so a pattern that backtracks for too long is stopped the same way.
+- `setmetatable` refuses a metatable with a `__gc` field ("setmetatable: __gc finalizers are not allowed (they would
+  run outside the time budget)"): Lua runs finalizers where no budget can stop them.

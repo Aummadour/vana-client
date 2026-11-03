@@ -12,7 +12,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 /// Memory a mod may hold.
-const MEMORY: usize = 64 << 20;
+pub(super) const MEMORY: usize = 64 << 20;
 /// A single call past this is stopped; repeated, the mod is suspended.
 const HARD_CAP: Duration = Duration::from_millis(100);
 /// A call past this is reported once (BG3SE's client default).
@@ -21,12 +21,20 @@ const SOFT_CAP: Duration = Duration::from_millis(2);
 const ERROR_LIMIT: usize = 20;
 const ERROR_WINDOW: Duration = Duration::from_secs(60);
 
-/// The prelude: sleeping yields our token, so the scheduler can tell its own yields from a mod's.
+/// The prelude: sleeping yields our token, so the scheduler can tell its own yields from a mod's. A `__gc`
+/// finalizer runs with hooks off (lgc.c GCTM), out of the budget's reach, so setmetatable refuses one.
 const PRELUDE: &str = r#"
 local token = ...
 function sleep(seconds) return coroutine.yield(token, "sleep", seconds or 0) end
 function sleep_frames(n) return coroutine.yield(token, "frames", n or 1) end
 function wait_until(test, timeout) return coroutine.yield(token, "until", test, timeout) end
+local setmt, rawget, type, error = setmetatable, rawget, type, error
+function setmetatable(t, mt)
+  if type(mt) == "table" and rawget(mt, "__gc") ~= nil then
+    error("setmetatable: __gc finalizers are not allowed (they would run outside the time budget)", 2)
+  end
+  return setmt(t, mt)
+end
 "#;
 
 /// Where a mod's files come from: its folder, or the binary (a bundled mod, assets/mods).
@@ -36,10 +44,28 @@ pub(super) enum Source {
     Bundled(&'static [(&'static str, &'static str)]),
 }
 
+/// A file under the mod's folder `d`: a relative path, and no link below `d` (one could lead outside it).
+pub(super) fn inside(d: &std::path::Path, rel: &str) -> std::io::Result<PathBuf> {
+    let refuse = |why: &str| std::io::Error::new(std::io::ErrorKind::PermissionDenied, format!("{rel:?}: {why}"));
+    let mut p = d.to_path_buf();
+    for part in rel.split(['/', '\\']) {
+        match part {
+            "" | "." => continue,
+            ".." => return Err(refuse("outside the mod's folder")),
+            s if s.contains(':') => return Err(refuse("not a relative path")),
+            s => p.push(s),
+        }
+        if std::fs::symlink_metadata(&p).is_ok_and(|m| m.file_type().is_symlink()) {
+            return Err(refuse("a link, which could lead outside the mod's folder"));
+        }
+    }
+    Ok(p)
+}
+
 impl Source {
     pub fn read(&self, rel: &str) -> std::io::Result<String> {
         match self {
-            Source::Dir(d) => std::fs::read_to_string(d.join(rel)),
+            Source::Dir(d) => std::fs::read_to_string(inside(d, rel)?),
             Source::Bundled(files) => files.iter().find(|f| f.0 == rel).map(|f| f.1.to_string()).ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound)),
         }
     }
@@ -47,14 +73,14 @@ impl Source {
     /// A file's bytes, text or not (fs.read).
     pub fn read_bytes(&self, rel: &str) -> std::io::Result<Vec<u8>> {
         match self {
-            Source::Dir(d) => std::fs::read(d.join(rel)),
+            Source::Dir(d) => std::fs::read(inside(d, rel)?),
             Source::Bundled(files) => files.iter().find(|f| f.0 == rel).map(|f| f.1.as_bytes().to_vec()).ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound)),
         }
     }
 
     pub fn exists(&self, rel: &str) -> bool {
         match self {
-            Source::Dir(d) => d.join(rel).is_file(),
+            Source::Dir(d) => inside(d, rel).is_ok_and(|p| p.is_file()),
             Source::Bundled(files) => files.iter().any(|f| f.0 == rel),
         }
     }
@@ -226,6 +252,8 @@ impl Vm {
         g.raw_set("load", text_only)?;
         let string: mlua::Table = g.get("string")?;
         string.raw_set("dump", Value::Nil)?;
+        // Patterns run in C, out of reach of the budget hook: ours count their steps against the deadline.
+        super::pattern::install(&lua, &string)?;
         let gc = lua.create_function(|lua, opt: Option<String>| match opt.as_deref().unwrap_or("collect") {
             "count" => Ok(lua.used_memory() as f64 / 1024.0),
             _ => Ok(0.0),
@@ -394,6 +422,7 @@ impl Vm {
         let sleepers = std::mem::take(&mut self.st.borrow_mut().sleepers);
         let mut keep = Vec::new();
         let mut due = Vec::new();
+        let mut ended = Vec::new();
         for mut s in sleepers {
             if s.born == frame {
                 keep.push(s);
@@ -406,14 +435,36 @@ impl Vm {
                     *n == 0
                 }
                 Wake::Until(test, limit) => {
-                    let f: Option<Function> = self.lua.registry_value(test).ok();
-                    let passed = f.map(|f| f.call::<bool>(()).unwrap_or(true)).unwrap_or(true);
-                    passed || limit.is_some_and(|l| now >= l)
+                    // The test runs on the game thread: under the filter budget, counted as the mod's time.
+                    let passed = match self.lua.registry_value::<Function>(test) {
+                        Ok(f) => {
+                            let prev = self.st.borrow_mut().deadline.replace(Instant::now() + FILTER_CAP);
+                            let t0 = Instant::now();
+                            let r = f.call::<bool>(());
+                            let mut st = self.st.borrow_mut();
+                            st.deadline = prev;
+                            st.stats.frame += t0.elapsed();
+                            r
+                        }
+                        Err(_) => Ok(true),
+                    };
+                    match passed {
+                        Ok(p) => p || limit.is_some_and(|l| now >= l),
+                        // A test that fails (its budget included) ends the handler.
+                        Err(e) => {
+                            self.error(&e);
+                            ended.push(s);
+                            continue;
+                        }
+                    }
                 }
             };
             if ready { due.push(s) } else { keep.push(s) }
         }
         self.st.borrow_mut().sleepers.extend(keep);
+        for s in ended {
+            let _ = self.lua.remove_registry_value(s.thread);
+        }
         for s in due {
             if let Ok(t) = self.lua.registry_value::<Thread>(&s.thread) {
                 self.st.borrow_mut().input = s.input;

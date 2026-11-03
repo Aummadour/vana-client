@@ -265,7 +265,7 @@ commands.register("confirm", function()
 end)
 ```
 
-The press is queued and given to the game and its windows after this frame's mod phase. It goes to them directly: no mod's key filters or binds see it. The game reads no Windows key, so a combination with Win raises an error.
+The press is queued and given to the game and its windows after this frame's mod phase. It goes to them directly: no mod's key filters or binds see it. The game reads no Windows key, so a combination with Win raises an error. A chat line submitted by a pressed Enter runs as the mod's line, not the player's (see [commands.run](commands.md#commandsrun)).
 
 ## `input.send`
 

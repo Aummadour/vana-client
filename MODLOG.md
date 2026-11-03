@@ -20376,3 +20376,40 @@ Lessons from other games' mod layers (BG3 Script Extender, WoW, Skyrim, Factorio
 - xi_connect (net/auth.rs): the JSON reply is read up to 64 KiB.
 - xi_profile (net/profile.rs): an answer is at most 0x400000 + 0x1000 bytes (LSB's ReadFile fileSizeLimit 0x400000
   plus its checksum; the mailbox is capped at kMailboxLimit 100 messages of 0x108 bytes); an IRC line at most 64 KiB.
+
+## Lua mods: the /lua gate, budgets and paths (ours, 2026-11-02)
+
+- /lua grant, revoke, run, set and watch run only from the player's own line (the chat line, a macro the player ran).
+  A mod's line reached textcmd::run untrimmed, so `commands.run(" /lua grant <own id> exec")` or a bind line with a
+  leading space passed as the player's. lua::run_line trims a mod's line first and queues a line for the mods with
+  its source (Op::Run, bind lines, a macro started by actions.macro: Macros::start_for_mod, a chat line submitted by
+  an Enter a mod pressed: Host::synth_enter). actions.macro_edit refuses a /lua line (lua::lua_line: any leading
+  slashes, any case), since the player runs macros. A bind's text is trimmed as stored.
+- wait_until: the test runs on the game thread each frame, under FILTER_CAP (20 ms), with the deadline it found
+  restored after and its time added to the mod's frame time. A test that errors or runs past the budget ends the
+  handler with that error (it was resumed as passed, the error dropped).
+- The mod's own files (vm::inside, for require, fs.read's fallback, fs.exists, fs.list, audio.play, hud images and
+  chat.icon): a relative path, no `..` or `:` part, and no symbolic link (or junction) below the mod's folder; the
+  folder itself may be a link. require refuses a name with `..`, `\` or `:`, or starting with `/` or `.` (a leading
+  dot made `/tmp/evil`). The mod-data side (runtime::no_links) checks from mod-data down; mod-data may be a link.
+- `__gc`: lgc.c GCTM runs a finalizer with `L->allowhook = 0`, out of the budget hook's reach, so a finalizer that
+  loops hangs the client when the object is collected or the mod unloads. The prelude's setmetatable refuses a
+  metatable with a raw `__gc` field (lua_setmetatable marks an object for finalization only when the field is there
+  at that call).
+- mods.call refuses a suspended mod ("mods.call: X is suspended"). An injected whole packet goes through `fit` (padded
+  to a word, its size field set).
+
+## Lua mods: string patterns keep to the time budget (ours, 2026-11-02)
+
+- C's lstrlib matcher runs no VM instructions, so the count hook (every 10,000 instructions) never fires while it
+  backtracks: `string.find(string.rep('a', 40000), '^.-.-b')` takes about 3.6 s (n squared), unanchored much longer;
+  C's plain find (lmemfind) is quadratic too.
+- client/lua/pattern.rs is a port of lstrlib.c 5.4's find / match / gmatch / gsub, function by function, checked
+  against the vendored lstrlib in tests (fixed cases and 4000 random patterns). Every 4096 units of work (a match
+  step, a pattern byte of a set, an output push, 256 bytes of a back-reference compare or of output) it checks the
+  mod's deadline: past it the call fails with "ran past its time budget". A plain find is a linear search (memmem).
+- The four are C closures (`raise`) over their Rust halves: a failure comes back as values and is raised there as
+  lstrlib raises it, so the error is a string, luaL_where's position at the caller's line (kept under a tail call,
+  as for any C function), argument errors through luaL_argerror (the name as called, a method's self). An error of a
+  replacement function passes on as its message (mlua's traceback cut off); a non-string error value becomes its text
+  (C keeps the value). gsub's output is held to what is left of the mod's 64 MB.

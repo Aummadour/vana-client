@@ -16,7 +16,9 @@ fs.write("config.json", json.encode(cfg))   -- always saved in the data folder
 
 Paths are relative and use `/` (a `\` works too). A leading `/` and `.` parts are ignored, so `"/a/./b.txt"` is
 `"a/b.txt"`. A path with a `..` part raises "outside the mod's folder", and one with a `:` in a part raises "not a
-relative path". Errors from the system come as "<path>: <reason>".
+relative path". A path through a symbolic link (or a Windows junction), in the data folder or in the mod's own files,
+raises "a link, which could lead outside the mod's folder"; the data folder itself may be one. Errors from the system
+come as "<path>: <reason>".
 
 ## Functions
 

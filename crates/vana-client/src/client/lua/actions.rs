@@ -237,7 +237,7 @@ pub(super) fn apply(w: &mut World, gu: Option<&GameUi>, a: Action) {
         }
         Action::Macro(n) => {
             if let Some(m) = w.macros.as_mut() {
-                m.start(n);
+                m.start_for_mod(n);
             }
         }
         Action::MacroSet(book, set) => {
@@ -549,6 +549,10 @@ pub(super) fn install(lua: &Lua, g: &Table) -> mlua::Result<()> {
                 Value::String(s) if s.to_str()?.as_ref() as &str == "title" => None,
                 _ => return Err(mlua::Error::runtime("a macro line is 1..6, or \"title\"")),
             };
+            // The player runs macros: a /lua line there would run as theirs.
+            if line.is_some() && super::lua_line(&text) {
+                return Err(mlua::Error::runtime("actions.macro_edit: a /lua line is the player's to write"));
+            }
             queue(lua, Action::MacroEdit { n: slot(&row, n)?, line, text })
         })?,
     )?;

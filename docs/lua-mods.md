@@ -10,11 +10,11 @@ The add-on surveys behind it are in MODLOG "Lua mods: the add-on surveys".
 Built (client/lua/, modern/modwin.rs), each checked live:
 - **Runtime:**
   - a VM per mod (Lua 5.4, mlua 0.12): 38 to 64 KB each, measured on F12
-  - restricted libraries, text-only `load`, a 64 MB memory limit
-  - a 100 ms budget per call (a runaway loop is stopped)
+  - restricted libraries, text-only `load`, a 64 MB memory limit, no `__gc` finalizers (they run with hooks off)
+  - a 100 ms budget per call (a runaway loop is stopped; string patterns count their steps against it too)
   - coroutine handlers (`sleep`, `sleep_frames`, `wait_until`)
   - errors reported once with file:line; 20 in a minute suspend the mod
-  - `require` from the mod's folder
+  - `require` from the mod's folder (no links out of it)
   - `/lua list | load | unload | reload | run | set | settings | grant | revoke`; `/lua reload` alone reloads every
     mod, and a mod that failed to load is loaded; `/lua watch <mod>` reloads a mod whenever its files are saved (kept
     in mod-data/watch.json), so a mod is written without restarting the game
@@ -156,7 +156,9 @@ Built (client/lua/, modern/modwin.rs), each checked live:
 - **Packets** (`packets.read` / `packets.write`):
   - `packets.on_in` / `on_out` (one id or all) see each packet before the client reads it or after it built it, as
     a chain: original and current bytes, blocked, injected; a handler returns new bytes, `false` to block, or nothing
-  - `inject_in` (decoded as if the server sent it) and `inject_out`, both through the hooks; `build`; `last`
+  - `inject_in` (decoded as if the server sent it) and `inject_out`, both through the hooks; `build`; `last`. A
+    packet's size field is set from its bytes (injected or returned by a hook); one over 508 bytes (the 7-bit field
+    of 4-byte words) is refused
   - checked live: counts by id, an injected tell, a say rewritten into a GM command the server answered, across zones
 - **Actions** (`actions`: only while handling the player's input, a typed command or a window event; `automation`:
   any time; a coroutine keeps how it began across sleeps; `commands.run` of a game command is an action too):
@@ -190,8 +192,9 @@ Built (client/lua/, modern/modwin.rs), each checked live:
     (mod-data/<id>/files), reads falling back to the mod's own files; `shared/...` with `files.shared`; no `..`
   - `json.encode` / `decode`
   - `mods.list` (with each mod's time a frame, memory and errors), `mods.installed` (every mod on disk and bundled:
-    enabled, loaded), `mods.provide` / `mods.call` (a function in another mod's VM, values copied), `mods.emit` (an
-    event to every other mod); `/lua hide` / `show` hides every mod's HUD, windows and world drawing at once
+    enabled, loaded), `mods.provide` / `mods.call` (a function in another mod's VM, values copied; not a suspended
+    mod's), `mods.emit` (an event to every other mod); `/lua hide` / `show` hides every mod's HUD, windows and world
+    drawing at once
   - `text.from_shift_jis` / `to_shift_jis` / `plain` (auto-translate phrases as words); `client.copy`
   - `chat.icon(png)`: an inline image as a character in chat text, drawn in both UIs' logs (the classic UI's game-font
     text keeps the colour in force across it); checked live in both UIs
@@ -408,7 +411,9 @@ never cancels other mods' handlers; only filter hooks can block.
 - **Mod commands:** `commands.register("name", fn)` for `//name` and `/name`, with aliases, and an unhandled-command
   hook.
 - **Running commands:** `commands.run("a; wait 1; b")` takes the same path as typed text: game commands, our native
-  commands, and other mods' commands.
+  commands, and other mods' commands. `/lua grant`, `revoke`, `run`, `set` and `watch` are the player's only: from
+  `commands.run`, a mod's bind, a macro a mod started or a chat line a mod submitted with a pressed Enter they're
+  refused, leading spaces included; `actions.macro_edit` refuses a `/lua` line.
 - **Binds:** `binds.set(key with modifiers, command, {down/up, chat-open})` and `unset`. Binds also appear in our key
   assignment.
 - **Scripts and macros:** script files and `/exec`; macros (read books, pages and lines, run them, set the book / set).

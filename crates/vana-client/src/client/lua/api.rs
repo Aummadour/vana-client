@@ -186,7 +186,8 @@ pub(super) fn install(lua: &Lua, vm: &super::vm::Vm, storage: (serde_json::Value
             {
                 return Ok(v);
             }
-            if name.contains("..") || name.starts_with('/') {
+            // No way out of the folder: no "..", no root or leading dot, no drive or backslash path.
+            if name.contains("..") || name.starts_with(['/', '.']) || name.contains(['\\', ':']) {
                 return Err(mlua::Error::runtime(format!("require {name:?}: outside the mod's folder")));
             }
             let rel = name.replace('.', "/");
@@ -1632,7 +1633,7 @@ pub(super) fn need_action(lua: &Lua) -> mlua::Result<()> {
     }
 }
 
-/// A packet to inject: a whole sub-packet (header included), or (id, body).
+/// A packet to inject: a whole sub-packet (header included, its size field set to fit), or (id, body).
 fn packet_bytes(a: Value, b: Option<mlua::LuaString>) -> mlua::Result<Vec<u8>> {
     match (a, b) {
         (Value::Integer(id), Some(body)) => build_packet(id, &body.as_bytes()),

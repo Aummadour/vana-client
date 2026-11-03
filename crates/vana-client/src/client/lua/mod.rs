@@ -16,6 +16,7 @@ mod hud;
 pub(super) mod input;
 mod manifest;
 mod native;
+mod pattern;
 pub(super) mod render;
 mod runtime;
 mod sock;
@@ -207,14 +208,6 @@ fn release_options(w: &mut World) {
     }
 }
 
-/// Who ran a line for the mods: the player (the chat line, a macro), a mod's key bind, or a mod (commands.run).
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum From {
-    Player,
-    Bind,
-    Mod,
-}
-
 /// The mods of this session.
 #[derive(Default)]
 pub struct Host {
@@ -245,6 +238,8 @@ pub struct Host {
     fired: Vec<(String, String, bool)>,
     /// Keys the mods pressed, for the app to hand the game this frame.
     pub(in crate::client) synth: Vec<input::Synth>,
+    /// A mod pressed Enter this frame: a chat line it submits is the mod's, not the player's.
+    pub(in crate::client) synth_enter: bool,
     /// Every loaded mod, for mods.list / call / emit.
     dir: runtime::Shared,
     /// Sounds the mods asked for, for the app's mixer.
@@ -517,6 +512,7 @@ impl Host {
         first == "lua" || self.vms.iter().any(|v| v.suspended.is_none() && v.st.borrow().commands.iter().any(|(n, _)| *n == first))
     }
 
+    /// A line the player typed (the chat line or a macro): the only source that may run /lua.
     pub fn type_line(&mut self, line: &str) {
         self.typed.push((line.to_string(), From::Player));
     }
@@ -974,8 +970,6 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
         bind_lines = input::run_binds(&mut host, w, &mut out);
         // Lines typed for mods.
         for (line, from) in std::mem::take(&mut host.typed) {
-            // A bind is the player's key: its mod commands act as the player's input.
-            let input = from != From::Mod;
             let body = line.trim_start_matches('/');
             let mut words = body.split_whitespace();
             let name = words.next().unwrap_or("").to_ascii_lowercase();
@@ -990,6 +984,7 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
                 }
                 continue;
             }
+            let input = from != From::Mod;
             let owner = host.vms.iter().find(|v| v.suspended.is_none() && v.st.borrow().commands.iter().any(|(n, _)| *n == name));
             match owner {
                 Some(vm) => lend(vm, w, |vm| {
@@ -1136,7 +1131,7 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
         apply(w, gu, op);
     }
     for line in bind_lines {
-        super::textcmd::run(w, &line, super::textcmd::Mode::Typed);
+        run_line(w, &line, super::textcmd::Mode::Typed, From::Bind);
     }
     // Injected packets go through the hooks now, not with the next batch (which may be seconds away).
     if w.lua.vms.iter().any(|v| !v.st.borrow().inject_in.is_empty()) {
@@ -1146,6 +1141,35 @@ pub(super) fn frame(w: &mut World, gu: Option<&super::game_ui::GameUi>) {
     if w.lua.vms.iter().any(|v| !v.st.borrow().inject_out.is_empty()) {
         let out = packets_out(w, Vec::new());
         let _ = w.net.commands.send(super::net::NetCommand::SendBatch(0, out));
+    }
+}
+
+/// Where a line for the mods came from.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum From {
+    /// Typed by the player (the chat line, a macro).
+    Player,
+    /// A mod's key bind the player pressed: the mod's command runs as the player's input, but /lua grant, revoke,
+    /// run, set and watch do not.
+    Bind,
+    /// A mod's own line (commands.run, actions): runs as the mod's own, not the player's input.
+    Mod,
+}
+
+/// A /lua line, as the host reads one (any number of leading slashes, any case).
+pub(super) fn lua_line(line: &str) -> bool {
+    let line = line.trim();
+    line.starts_with('/') && line.trim_start_matches('/').split_whitespace().next().is_some_and(|w| w.eq_ignore_ascii_case("lua"))
+}
+
+/// A line from a mod or a mod's bind, run as typed. Lines for the mods are queued here with their source, so that
+/// textcmd::run never takes them as the player's (it trims the line the same way, so the check matches).
+pub(super) fn run_line(w: &mut World, line: &str, mode: super::textcmd::Mode, from: From) {
+    let line = line.trim();
+    if line.starts_with('/') && w.lua.takes(line) {
+        w.lua.typed.push((line.to_string(), from));
+    } else {
+        super::textcmd::run(w, line, mode);
     }
 }
 
@@ -1266,9 +1290,7 @@ fn apply(w: &mut World, gu: Option<&super::game_ui::GameUi>, op: Op) {
             }
             (None, None, text) => w.chat.push(text),
         },
-        // A mod's line for a mod runs as the mod's own, not the player's input.
-        Op::Run(line) if line.starts_with('/') && w.lua.takes(&line) => w.lua.typed.push((line, From::Mod)),
-        Op::Run(line) => super::textcmd::run(w, &line, super::textcmd::Mode::Typed),
+        Op::Run(line) => run_line(w, &line, super::textcmd::Mode::Typed, From::Mod),
         Op::Act(a) => actions::apply(w, gu, a),
         Op::Key(k) => w.lua.synth.push(k),
         Op::Copy(text) => w.copied = Some(text),
@@ -1436,6 +1458,114 @@ fn install_stubs(root: PathBuf) {
 mod tests {
     use super::*;
     use mlua::{Table, Value};
+
+    /// A wait_until test that never returns runs out of its budget instead of freezing the frame.
+    #[test]
+    fn wait_until_test_has_a_budget() {
+        let vm = Vm::new(manifest::Manifest::default(), PathBuf::from("."), vm::Source::Dir(PathBuf::from("."))).unwrap();
+        api::install(&vm.lua, &vm, (serde_json::Value::Null, serde_json::Value::Null)).unwrap();
+        let f: mlua::Function = vm.lua.load("return function() wait_until(function() while true do end end) end").eval().unwrap();
+        vm.resume(vm.lua.create_thread(f).unwrap(), ());
+        assert_eq!(vm.st.borrow().sleepers.len(), 1);
+        // A wait resumes in a later frame, never the one it began in.
+        vm.st.borrow_mut().frame_no += 1;
+        let t0 = std::time::Instant::now();
+        vm.wake();
+        assert!(t0.elapsed() < std::time::Duration::from_secs(2), "the test ran {:?}", t0.elapsed());
+        assert!(vm.st.borrow().sleepers.is_empty());
+        assert_eq!(vm.st.borrow().errors.len(), 1);
+    }
+
+    /// A suspended mod's provided functions don't run for other mods either.
+    #[test]
+    fn mods_call_skips_a_suspended_mod() {
+        let dir: runtime::Shared = Default::default();
+        let new = |id: &str| {
+            let m = manifest::Manifest { id: id.into(), ..Default::default() };
+            let vm = Vm::new(m, PathBuf::from("."), vm::Source::Dir(PathBuf::from("."))).unwrap();
+            vm.lua.set_app_data(dir.clone());
+            api::install(&vm.lua, &vm, (serde_json::Value::Null, serde_json::Value::Null)).unwrap();
+            dir.borrow_mut().mods.push(runtime::Entry { id: id.into(), name: id.into(), version: String::new(), lua: vm.lua.weak(), st: vm.st.clone() });
+            vm
+        };
+        let (caller, provider) = (new("caller"), new("provider"));
+        provider.lua.load("mods.provide('twice', function(n) return n * 2 end)").exec().unwrap();
+        assert_eq!(caller.lua.load("return mods.call('provider', 'twice', 21)").eval::<i64>().unwrap(), 42);
+        provider.st.borrow_mut().suspended = true;
+        let e = caller.lua.load("return mods.call('provider', 'twice', 21)").eval::<i64>().unwrap_err();
+        assert!(e.to_string().contains("suspended"), "{e}");
+    }
+
+    /// A `__gc` finalizer would run with the budget hook off: setmetatable refuses one.
+    #[test]
+    fn setmetatable_refuses_gc() {
+        let vm = Vm::new(manifest::Manifest::default(), PathBuf::from("."), vm::Source::Dir(PathBuf::from("."))).unwrap();
+        let e = vm.lua.load("setmetatable({}, {__gc = function() while true do end end})").exec().unwrap_err();
+        assert!(e.to_string().contains("__gc"), "{e}");
+        vm.lua.load("assert(getmetatable(setmetatable({}, {__index = {}})))").exec().unwrap();
+    }
+
+    /// require and the mod's own files stay in its folder: no leading dot, no link below the folder.
+    #[cfg(unix)]
+    #[test]
+    fn mod_files_stay_in_the_folder() {
+        let base = std::env::temp_dir().join(format!("vana-lua-own-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (dir, out) = (base.join("mod"), base.join("out"));
+        std::fs::create_dir_all(dir.join("lib")).unwrap();
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::write(dir.join("lib/ok.lua"), "return 1").unwrap();
+        std::fs::write(out.join("evil.lua"), "return 2").unwrap();
+        std::os::unix::fs::symlink(&out, dir.join("linked")).unwrap();
+        let vm = Vm::new(manifest::Manifest::default(), dir.clone(), vm::Source::Dir(dir.clone())).unwrap();
+        api::install(&vm.lua, &vm, (serde_json::Value::Null, serde_json::Value::Null)).unwrap();
+        assert_eq!(vm.lua.load("return require('lib.ok')").eval::<i64>().unwrap(), 1);
+        for code in ["require('.tmp.evil')", "require('linked.evil')", "require('lib\\..\\x')"] {
+            assert!(vm.lua.load(code).exec().is_err(), "{code} was allowed");
+        }
+        assert!(vm.src.read_bytes("linked/evil.lua").is_err());
+        assert!(vm.src.read_bytes("lib/../../out/evil.lua").is_err());
+        assert!(!vm.src.exists("linked/evil.lua"));
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A /lua line as the host reads one, whatever its spaces, slashes or case.
+    #[test]
+    fn lua_lines() {
+        for l in ["/lua grant x exec", " /lua grant", "//LUA run x", "\t/Lua"] {
+            assert!(lua_line(l), "{l:?}");
+        }
+        for l in ["/luax", "/echo /lua", "lua grant", ""] {
+            assert!(!lua_line(l), "{l:?}");
+        }
+    }
+
+    /// Injected and hook-built packets carry a size field that matches their bytes, and none overflows it.
+    #[test]
+    fn packet_sizes_fit_the_header() {
+        // A whole sub-packet with a wrong size field gets the right one; the data is padded to a word.
+        let p = fit(vec![0x15, 0x02, 0, 0, 1, 2, 3]);
+        assert_eq!(p.len(), 8);
+        assert_eq!(u16::from_le_bytes([p[0], p[1]]), 0x015 | (2 << 9));
+        assert_eq!(fit(vec![0; 508]).len(), 508);
+        let vm = Vm::new(manifest::Manifest::default(), PathBuf::from("."), vm::Source::Dir(PathBuf::from("."))).unwrap();
+        api::install(&vm.lua, &vm, (serde_json::Value::Null, serde_json::Value::Null)).unwrap();
+        vm.st.borrow_mut().granted.push("packets.write".into());
+        vm.lua.load("assert(#packets.build(0x15, string.rep('x', 504)) == 508)").exec().unwrap();
+        for code in [
+            "packets.build(0x15, string.rep('x', 505))",
+            "packets.build(0x200, '')",
+            "packets.inject_out(0x15, string.rep('x', 505))",
+            "packets.inject_in(string.rep('x', 512))",
+            "packets.inject_in('abc')",
+        ] {
+            assert!(vm.lua.load(code).exec().is_err(), "{code} was accepted");
+        }
+        vm.lua.load("packets.inject_in(string.char(0x15, 0x02, 0, 0, 1))").exec().unwrap();
+        let st = vm.st.borrow();
+        assert_eq!(st.inject_in, vec![vec![0x15, 0x04, 0, 0, 1, 0, 0, 0]]);
+        assert!(st.inject_out.is_empty());
+    }
 
     /// Every documented function is bound, and every function in a documented namespace is documented.
     #[test]

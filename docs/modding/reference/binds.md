@@ -24,7 +24,7 @@ end)
 binds.set(key, action, options?)
 ```
 
-Binds `key` (with exactly the modifiers given) to `action`. When the key fires, a line runs as if the player had typed it, or a function is called.
+Binds `key` (with exactly the modifiers given) to `action`. When the key fires, a line runs as if the player had typed it, or a function is called. A bind's `/lua grant`, `revoke`, `run`, `set` and `watch` are refused: those are the player's to type.
 
 **Parameters**
 

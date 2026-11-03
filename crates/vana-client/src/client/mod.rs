@@ -2079,7 +2079,11 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
                     (world.chat_caret, world.chat_anchor) = (None, None);
                     world.line_hist.record(&text);
                     let text = fep::outgoing(world, text);
-                    textcmd::run(world, &text, textcmd::Mode::Typed);
+                    if world.lua.synth_enter {
+                        lua::run_line(world, &text, textcmd::Mode::Typed, lua::From::Mod);
+                    } else {
+                        textcmd::run(world, &text, textcmd::Mode::Typed);
+                    }
                 }
                 egui::Key::Escape if world.typing => {
                     world.typing = false;
@@ -10752,8 +10756,14 @@ impl App {
         // when the gate allows (field, UI shown, no event, alive, no window), Ctrl / Alt + digit runs a macro and
         // Shift + Ctrl / Alt + digit picks a set. The palettes are not drawn yet.
         let sub_up = target::sub_up(world);
+        let by_mod = world.macros.as_ref().is_some_and(|m| m.by_mod());
         if let Some(line) = world.macros.as_mut().filter(|_| !sub_up).and_then(|m| m.step(dt * 60.0)) {
-            textcmd::run(world, &crate::dat::font::decode_sjis(&line), textcmd::Mode::Macro);
+            let line = crate::dat::font::decode_sjis(&line);
+            if by_mod {
+                lua::run_line(world, &line, textcmd::Mode::Macro, lua::From::Mod);
+            } else {
+                textcmd::run(world, &line, textcmd::Mode::Macro);
+            }
         }
         // FUN_101a33e0: no window has the focus, or the one that has it is the action menu (playermo / mp_pmode) or a
         // palette; the action menu stays up while engaged.
@@ -12876,6 +12886,9 @@ impl App {
         // egui-winit passes the texture limit in its first input only; lost, egui assumes 2048 and the modern atlases
         // (status_0@2x is 2184 wide) fail its debug check.
         raw.max_texture_side = Some(gfx.gpu.device.limits().max_texture_dimension_2d as usize);
+        if let Phase::World(w) = &mut self.phase {
+            w.lua.synth_enter = self.synth_events.iter().any(|e| matches!(e, egui::Event::Key { key: egui::Key::Enter, pressed: true, .. }));
+        }
         raw.events.append(&mut self.synth_events);
         let phase = self.phase_name();
         let mut script_shot = None;

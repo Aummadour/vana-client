@@ -4383,6 +4383,7 @@ dependencies = [
  "libc",
  "log",
  "md-5",
+ "memchr",
  "mlua",
  "msi",
  "png",

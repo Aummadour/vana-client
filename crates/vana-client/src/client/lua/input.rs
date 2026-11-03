@@ -442,6 +442,7 @@ pub(super) fn run_binds(host: &mut super::Host, w: &World, out: &mut Vec<(String
     }
     let mut game = Vec::new();
     for line in lines {
+        let line = line.trim().to_string();
         if line.starts_with('/') && host.takes(&line) {
             host.typed.push((line, super::From::Bind));
         } else {

@@ -116,6 +116,8 @@ struct Running {
     m: Macro,
     line: usize,
     wait: Option<(Instant, Duration)>,
+    /// Started by a mod (actions.macro): its lines for the mods are the mod's, not the player's.
+    by_mod: bool,
 }
 
 /// A list order file: bits[n / 8], u16 order[n], u32 count (mix.dat n 0x400, aix.dat n 0xb00). Retail keeps it in
@@ -479,7 +481,20 @@ impl Macros {
 
     /// FUN_101a1c60: runs macro `n` from its first line, replacing a running one.
     pub fn start(&mut self, n: usize) {
-        self.run = self.recs.get(n).map(|m| Running { m: m.clone(), line: 0, wait: None });
+        self.run = self.recs.get(n).map(|m| Running { m: m.clone(), line: 0, wait: None, by_mod: false });
+    }
+
+    /// As start, for a mod (actions.macro).
+    pub fn start_for_mod(&mut self, n: usize) {
+        self.start(n);
+        if let Some(r) = &mut self.run {
+            r.by_mod = true;
+        }
+    }
+
+    /// The running macro was started by a mod.
+    pub fn by_mod(&self) -> bool {
+        self.run.as_ref().is_some_and(|r| r.by_mod)
     }
 
     pub fn stop(&mut self) {

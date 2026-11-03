@@ -35,7 +35,7 @@ pub(super) fn install(lua: &Lua, g: &Table, vm: &super::vm::Vm) -> mlua::Result<
                 return Err(mlua::Error::runtime(format!("{path:?}: outside the mod's folder")));
             }
             let bytes: Vec<u8> = match &src {
-                super::vm::Source::Dir(d) => std::fs::read(d.join(&path)).map_err(|e| mlua::Error::runtime(format!("{path}: {e}")))?,
+                super::vm::Source::Dir(d) => super::vm::inside(d, &path).and_then(std::fs::read).map_err(|e| mlua::Error::runtime(format!("{path}: {e}")))?,
                 super::vm::Source::Bundled(_) => return Err(mlua::Error::runtime("bundled mods carry no sound files")),
             };
             crate::audio::format::Header::parse(&bytes).map_err(|e| mlua::Error::runtime(format!("{path}: {e} (16-bit PCM WAV, mono or stereo)")))?;
