@@ -1133,7 +1133,7 @@ fn widescan_panel(p: &mut Panels, w: &mut World) {
         .cloned()
         .collect();
     // The filter (ours): the kinds shown, and every word typed somewhere in the name.
-    let kinds = *p.scan_kinds;
+    let kinds = *p.scan_kinds | 1;
     let words: Vec<String> = w.scan_find.to_lowercase().split_whitespace().map(str::to_string).collect();
     let rows: Vec<_> = rows
         .into_iter()
@@ -1142,7 +1142,7 @@ fn widescan_panel(p: &mut Panels, w: &mut World) {
             kinds & kind_bit(e.kind) != 0 && words.iter().all(|wd| lower.contains(wd.as_str()))
         })
         .collect();
-    let filtered = area.is_some() || kinds != 7 || !words.is_empty();
+    let filtered = area.is_some() || kinds & 6 != 6 || !words.is_empty();
     let (find, typing) = (w.scan_find.clone(), w.scan_typing);
     let (mut flip, mut field_click, mut clear) = (0u8, false, false);
     let tracked = w.scan.track.index;
@@ -1171,7 +1171,8 @@ fn widescan_panel(p: &mut Panels, w: &mut World) {
         ui.add_space(4.0);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
-            for (bit, label) in [(1u8, "Players"), (2, "NPCs"), (4, "Monsters")] {
+            // No players chip: LSB's Wide Scan lists only NPCs and monsters (CZoneEntities::WideScan).
+            for (bit, label) in [(2u8, "NPCs"), (4, "Monsters")] {
                 let on = kinds & bit != 0;
                 if kit::chip(ui, m, label, kit::Btn { lit: on, ..Default::default() }, Some(kind_colour(bit))).clicked() {
                     flip ^= bit;

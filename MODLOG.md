@@ -16210,7 +16210,10 @@ From the research notes:
 - /map (FUN_1007d2c0) and the Map row (FUN_101f7810(0)) have no Mog House check: there they open ZoneNo's map, the
   city's, and LSB answers Wide Scan with the zone's entities. The minimap and the Wide Scan list show the city in the
   Mog House as retail would.
-- The Wide Scan flyout's filter (ours): kind toggles (config modern_scan_kinds) and a name field.
+- The Wide Scan flyout's filter (ours): kind toggles (config modern_scan_kinds) and a name field. No players toggle
+  (2026-11-03): LSB's CZoneEntities::WideScan (zone_entities.cpp) walks only the zone's NPC and mob lists, so no
+  player (nor pet or trust) is ever listed, and its 0x0F4 leaves the name empty; a player row a server sends still
+  shows.
 - The receive Delivery Box shows the look-only inventory list (equipped items grey) beside post1 / post2
   (FUN_1014ce80); seen live in modern with the moogle panel stepped right of it.
 - Rest ticks (ours, user 2026-10-27; client/resttick.rs): LSB's /heal (c2s 0x0E8) adds the Healing effect with a 10 s
