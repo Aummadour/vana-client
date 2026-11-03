@@ -119,7 +119,7 @@ mod tests {
     fn port_sandoria_step() {
         let cfg = crate::config::Config::load();
         let Ok(index) = crate::dat::DatIndex::open(&cfg.ffxi_dir()) else { return };
-        let Ok(dll) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())) else { return };
         let info = |id| crate::dat::character::load_file(&index.read(id).unwrap()).unwrap().info.unwrap();
         assert_eq!(info(8136)[..3], [0xff, 1, 1]);
         assert_eq!(info(1300)[..3], [0, 9, 0]);

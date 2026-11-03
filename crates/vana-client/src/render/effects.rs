@@ -1449,7 +1449,7 @@ mod tests {
     fn gpu_morph_crossfade() {
         let cfg = crate::config::Config::load();
         let Ok(index) = crate::dat::DatIndex::open(&cfg.ffxi_dir()) else { return };
-        let Ok(dll) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())) else { return };
         let Ok(gpu) = Gpu::headless() else { return };
         let at = glam::Vec3::new(734.682, -4.18383, -703.631);
         for (d, want) in [(5.0, 0.0), (12.5, 0.5), (18.0, 1.0)] {
@@ -1487,7 +1487,7 @@ mod tests {
     fn gpu_update_matches_cpu() {
         let cfg = crate::config::Config::load();
         let Ok(index) = crate::dat::DatIndex::open(&cfg.ffxi_dir()) else { return };
-        let Ok(dll) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())) else { return };
         let Ok(gpu) = Gpu::headless() else { return };
         let mut fx = Effects::new();
         fx.set_keys(Arc::new(crate::dat::zone::Keys::from_ffximain(&dll).unwrap()));
@@ -1559,7 +1559,7 @@ mod tests {
     fn gpu_fish_sway() {
         let cfg = crate::config::Config::load();
         let Ok(index) = crate::dat::DatIndex::open(&cfg.ffxi_dir()) else { return };
-        let Ok(dll) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())) else { return };
         let Ok(gpu) = Gpu::headless() else { return };
         let mut fx = Effects::new();
         fx.set_keys(Arc::new(crate::dat::zone::Keys::from_ffximain(&dll).unwrap()));

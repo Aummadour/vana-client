@@ -4235,7 +4235,8 @@ needs FixVt.java after analysis (3,478 vtable-only methods, 17,877 functions in 
 - Unchanged: motion, effect, audio (atrac3, mixer), dancer, inventory, map, HUD, weather, title buttons and logos,
   message group -> slot table (0x10371da8), name vtables, language tables.
 - The updater now patches code files too; the start-up check also compares code files against the stamped
-  manifest, so installs patched data-only get the current FFXiMain.
+  manifest, so installs patched data-only get the current FFXiMain. (Changed 2026-11-03: only FFXiMain.dll, kept in
+  the data dir; see "Updates: signed releases, pre-release order, manifest paths".)
 
 ## Event ops 0x34 / 0x35: another area during an event (2026-10-22)
 
@@ -20472,6 +20473,13 @@ Lessons from other games' mod layers (BG3 Script Extender, WoW, Skyrim, Factorio
   49,413 paths of the 30261006_0 manifest is refused.
 - Not taken from the same batch: pinning game code files (.exe / .dll) against a list hashed from the patch server by
   a scheduled job: the client never runs them, and a missing list broke the first-start install.
+- (2026-11-03) Code files are never written into the game folder: retail, Windower and Ashita run them from there,
+  and the manifest and files come over plain TCP with MD5s only (corruption, not tampering). The client reads one of
+  them, FFXiMain.dll, as data (dat/tables.rs: each table found by content and checked by its MD5). The updater keeps
+  the current one in the data dir (dat::own_ffximain) and the client reads that copy, else the game folder's
+  (dat::ffximain); the start-up check compares only that file with the stamped manifest. The other 18 code files of
+  the 30261006_0 manifest (polboot.exe, FFXi.dll, FFXiResource.dll, the Config and PadConfig tools, xinputdll.dll,
+  ImeUiDll*.dll) are the Viewer's.
 
 ## Gamepad (2026-11-03)
 

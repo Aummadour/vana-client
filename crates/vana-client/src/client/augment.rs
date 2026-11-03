@@ -996,7 +996,7 @@ mod tests {
     fn env() -> Option<Env> {
         let cfg = crate::config::Config::load();
         let index = crate::dat::DatIndex::open(&cfg.ffxi_dir()).ok()?;
-        let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).ok()?;
+        let dll = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())).ok()?;
         let msgs = |f: Option<u32>| f.and_then(|f| Messages::load(&index, f).ok());
         Some(Env {
             tables: AugTables::find(&dll)?,

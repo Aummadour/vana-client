@@ -2922,7 +2922,7 @@ mod tests {
     fn coded_unity_text() {
         let cfg = crate::config::Config::load();
         let Ok(index) = crate::dat::DatIndex::open(&cfg.ffxi_dir()) else { return };
-        let Ok(dll) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())) else { return };
         let index = Arc::new(index);
         let bt = Arc::new(crate::dat::battle::BattleText::load(&index, &dll).unwrap());
         let names = Arc::new(crate::dat::names::Names::load(&index, crate::dat::items::Lang::En).unwrap());
@@ -2940,7 +2940,7 @@ mod tests {
     fn region_ops() {
         let cfg = crate::config::Config::load();
         let Ok(index) = crate::dat::DatIndex::open(&cfg.ffxi_dir()) else { return };
-        let Ok(keys) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).map_err(anyhow::Error::from).and_then(|d| crate::dat::zone::Keys::from_ffximain(&d)) else { return };
+        let Ok(keys) = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())).map_err(anyhow::Error::from).and_then(|d| crate::dat::zone::Keys::from_ffximain(&d)) else { return };
         let scene = crate::dat::zone::load_scene(&keys, &index.read(crate::dat::zone::file_id(245)).unwrap()).unwrap();
         for t in [*b"e6t0", *b"e6t1"] {
             let r = scene.regions.iter().find(|r| r.tag() == u32::from_le_bytes(t)).expect("region");

@@ -63,7 +63,7 @@ mod tests {
     fn haste_and_ko() {
         let cfg = crate::config::Config::load();
         let Ok(index) = crate::dat::DatIndex::open(&cfg.ffxi_dir()) else { return };
-        let Ok(dll) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())) else { return };
         let files = [0x3a, 0x3b].map(|s| crate::dat::msg::current_slot_file(&dll, 1, s));
         assert_eq!(files, [Some(87), Some(39557)]);
         let big = index.read(87).unwrap();

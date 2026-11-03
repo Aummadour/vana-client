@@ -821,7 +821,7 @@ mod tests {
     fn escha_gate_variants() {
         let cfg = crate::config::Config::load();
         let Ok(index) = crate::dat::DatIndex::open(&cfg.ffxi_dir()) else { return };
-        let Ok(dll) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())) else { return };
         let (Ok(keys), Ok(file)) = (Keys::from_ffximain(&dll), index.read(file_id(733))) else { return };
         let z = load_scene(&keys, &file).unwrap();
         let v = z.variant_groups();

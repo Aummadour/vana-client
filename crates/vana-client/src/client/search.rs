@@ -986,7 +986,7 @@ mod tests {
     use crate::net::search::{AREA, JOB, LEVEL, LS1, MLEVEL, NAME, RACE, STATUS, condition};
 
     fn words() -> Option<SearchWords> {
-        let dll = std::fs::read(crate::config::Config::load().ffxi_dir().join("FFXiMain.dll")).ok()?;
+        let dll = std::fs::read(crate::dat::ffximain(&crate::config::Config::load().ffxi_dir())).ok()?;
         crate::dat::tables::search_words(&dll).ok()
     }
 

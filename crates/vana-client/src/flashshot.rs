@@ -9,7 +9,7 @@ use glam::{Mat4, Vec3};
 pub fn run(zone: u32, hour: f32, pos: [f32; 3], out_dir: &std::path::Path) -> Result<()> {
     let cfg = config::Config::load();
     let index = dat::DatIndex::open(&cfg.ffxi_dir())?;
-    let keys = dat::zone::Keys::from_ffximain(&std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?)?;
+    let keys = dat::zone::Keys::from_ffximain(&std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?)?;
     let file = index.read(crate::dat::zone::file_id(zone))?;
     let scene = dat::zone::load_scene(&keys, &file)?;
     let weather = dat::weather::ZoneWeather::parse(&file)?;

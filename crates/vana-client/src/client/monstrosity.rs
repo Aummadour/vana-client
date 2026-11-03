@@ -71,7 +71,7 @@ pub fn is_move(w: &World, id: u16) -> bool {
 fn dll_tables() -> &'static (Vec<String>, Vec<u8>) {
     static T: OnceLock<(Vec<String>, Vec<u8>)> = OnceLock::new();
     T.get_or_init(|| {
-        let dll = std::fs::read(crate::config::Config::load().ffxi_dir().join("FFXiMain.dll")).unwrap_or_default();
+        let dll = std::fs::read(crate::dat::ffximain(&crate::config::Config::load().ffxi_dir())).unwrap_or_default();
         let prefixes = crate::dat::tables::mon_prefixes(&dll).map_err(|e| log::warn!("{e:#}")).unwrap_or_default();
         (prefixes, crate::dat::tables::mon_types(&dll).unwrap_or_default())
     })

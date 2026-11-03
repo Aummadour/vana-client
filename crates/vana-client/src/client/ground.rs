@@ -1069,7 +1069,7 @@ mod tests {
     fn la_theine_covered() {
         let cfg = crate::config::Config::load();
         let Ok(index) = crate::dat::DatIndex::open(&cfg.ffxi_dir()) else { return };
-        let Ok(dll) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())) else { return };
         let keys = crate::dat::zone::Keys::from_ffximain(&dll).unwrap();
         let g = Ground::build(&crate::dat::zone::load_scene(&keys, &index.read(202).unwrap()).unwrap());
         assert!(g.covered(Vec3::new(-175.5, 31.0, -509.0)));
@@ -1231,7 +1231,7 @@ mod tests {
     fn zone(id: u32) -> Option<Ground> {
         let cfg = crate::config::Config::load();
         let index = crate::dat::DatIndex::open(&cfg.ffxi_dir()).ok()?;
-        let keys = crate::dat::zone::Keys::from_ffximain(&std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).ok()?).ok()?;
+        let keys = crate::dat::zone::Keys::from_ffximain(&std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())).ok()?).ok()?;
         Some(Ground::build(&crate::dat::zone::load_scene(&keys, &index.read(crate::dat::zone::file_id(id)).ok()?).ok()?))
     }
 
@@ -1251,7 +1251,7 @@ mod tests {
     fn collision_of() {
         let cfg = crate::config::Config::load();
         let index = crate::dat::DatIndex::open(&cfg.ffxi_dir()).unwrap();
-        let keys = crate::dat::zone::Keys::from_ffximain(&std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).unwrap()).unwrap();
+        let keys = crate::dat::zone::Keys::from_ffximain(&std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())).unwrap()).unwrap();
         for id in [194u32, 116] {
             let s = crate::dat::zone::load_scene(&keys, &index.read(crate::dat::zone::file_id(id)).unwrap()).unwrap();
             let c = s.collision.as_ref();
@@ -1277,7 +1277,7 @@ mod tests {
     fn all_zones_collide() {
         let cfg = crate::config::Config::load();
         let index = crate::dat::DatIndex::open(&cfg.ffxi_dir()).unwrap();
-        let keys = crate::dat::zone::Keys::from_ffximain(&std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).unwrap()).unwrap();
+        let keys = crate::dat::zone::Keys::from_ffximain(&std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())).unwrap()).unwrap();
         let mut bad = Vec::new();
         for id in 0..300u32 {
             let Ok(file) = index.read(crate::dat::zone::file_id(id)) else { continue };

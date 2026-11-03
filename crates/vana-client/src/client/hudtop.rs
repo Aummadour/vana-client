@@ -523,7 +523,7 @@ pub fn topbar_shot(out: &std::path::Path, fade: &str, menu: Option<u16>, menu_sw
     use crate::render::screens::HudState;
     let cfg = crate::config::Config::load();
     let index = crate::dat::DatIndex::open(&cfg.ffxi_dir())?;
-    let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?;
+    let dll = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?;
     let mut gu = GameUi::new(super::game_ui::GameUiData::load(&index, &dll)?);
     // One frame: windows drawn open, without their zoom.
     gu.open_ticks = 0.0;

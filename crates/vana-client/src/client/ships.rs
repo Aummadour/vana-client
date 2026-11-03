@@ -291,7 +291,7 @@ mod tests {
     fn files() {
         let cfg = crate::config::Config::load();
         let Ok(index) = DatIndex::open(&cfg.ffxi_dir()) else { return };
-        let Ok(dll) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())) else { return };
         let Ok(keys) = Keys::from_ffximain(&dll) else { return };
         for id in 0..22u32 {
             let file = model_file(id, 0x12).unwrap();

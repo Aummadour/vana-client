@@ -7524,7 +7524,7 @@ impl App {
     fn game_data(&mut self) -> Result<(Arc<DatIndex>, Arc<zone::Keys>)> {
         if self.index.is_none() {
             self.index = Some(Arc::new(DatIndex::open(&self.cfg.ffxi_dir())?));
-            let dll = std::fs::read(self.cfg.ffxi_dir().join("FFXiMain.dll"))?;
+            let dll = std::fs::read(crate::dat::ffximain(&self.cfg.ffxi_dir()))?;
             self.keys_table = Some(Arc::new(zone::Keys::from_ffximain(&dll)?));
             self.knock_table = crate::dat::tables::knockback(&dll).ok();
             self.search_words = crate::dat::tables::search_words(&dll).map_err(|e| log::warn!("{e:#}")).ok().map(Arc::new);
@@ -7575,7 +7575,7 @@ impl App {
                     otp: (!otp.is_empty()).then_some(otp),
                 };
                 let (session, pol) = crate::net::pol::sign_in(&creds)?;
-                let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).unwrap_or_default();
+                let dll = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())).unwrap_or_default();
                 let mut lobby = Lobby::connect(crate::net::pol::LOBBY_HOST, crate::net::pol::LOBBY_PORT, 0, session, &dll, &cfg.client_version, 5, crate::dat::installed(&cfg.ffxi_dir()), replies)?;
                 lobby.pol = Some(pol);
                 let chars = lobby.characters()?;
@@ -7620,7 +7620,7 @@ impl App {
                     anyhow::bail!("unexpected reply from the login server");
                 };
                 let session = crate::net::lobby::Session::Lsb { account_id, hash: session_hash };
-                let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")).unwrap_or_default();
+                let dll = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())).unwrap_or_default();
                 // Region 5: not the Japanese client (FUN_1023e610).
                 let mut lobby = Lobby::connect(&cfg.server, cfg.view_port, cfg.data_port, session, &dll, &cfg.client_version, 5, crate::dat::installed(&cfg.ffxi_dir()), replies)?;
                 let chars = lobby.characters()?;
@@ -7792,7 +7792,7 @@ impl App {
                 }
             }
             Task::Selected(Ok(login)) => {
-                match crate::net::map::compress::Codec::from_ffximain(&std::fs::read(self.cfg.ffxi_dir().join("FFXiMain.dll")).unwrap_or_default()) {
+                match crate::net::map::compress::Codec::from_ffximain(&std::fs::read(crate::dat::ffximain(&self.cfg.ffxi_dir())).unwrap_or_default()) {
                     Ok(codec) => {
                         let net = net::spawn(login.clone(), self.cfg.username.clone(), codec);
                         self.status = format!("Connecting to {}:{}...", login.map.0, login.map.1);
@@ -8326,7 +8326,7 @@ impl App {
                             if let Phase::World(w) = &mut self.phase {
                                 w.index = Some(index.clone());
                             }
-                            let dll = self.cfg.ffxi_dir().join("FFXiMain.dll");
+                            let dll = crate::dat::ffximain(&self.cfg.ffxi_dir());
                             let tx = self.tasks_tx.clone();
                             let idx = index.clone();
                             std::thread::spawn(move || {
@@ -12738,7 +12738,7 @@ impl App {
                 return;
             }
         };
-        let dll = self.cfg.ffxi_dir().join("FFXiMain.dll");
+        let dll = crate::dat::ffximain(&self.cfg.ffxi_dir());
         let tx = self.tasks_tx.clone();
         // Config-tool 0036 (FUN_10119400): the font texture.
         let quality = match self.cfg.tool("0036") {
@@ -15140,7 +15140,7 @@ mod page_tests {
 pub fn map_grid(zone: u32, points: &[[f32; 3]]) -> Result<()> {
     let cfg = Config::load();
     let index = crate::dat::DatIndex::open(&cfg.ffxi_dir())?;
-    let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?;
+    let dll = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?;
     let keys = crate::dat::zone::Keys::from_ffximain(&dll)?;
     let g = ground::Ground::build(&crate::dat::zone::load_scene(&keys, &index.read(crate::dat::zone::file_id(zone))?)?);
     let regions = map::regions(&dll);
@@ -15162,7 +15162,7 @@ pub fn map_grid(zone: u32, points: &[[f32; 3]]) -> Result<()> {
 pub fn map_borders(zone: u32, a: u8, b: u8) -> Result<()> {
     let cfg = Config::load();
     let index = crate::dat::DatIndex::open(&cfg.ffxi_dir())?;
-    let dll = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll"))?;
+    let dll = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir()))?;
     let keys = crate::dat::zone::Keys::from_ffximain(&dll)?;
     let g = ground::Ground::build(&crate::dat::zone::load_scene(&keys, &index.read(crate::dat::zone::file_id(zone))?)?);
     let regions = map::regions(&dll);

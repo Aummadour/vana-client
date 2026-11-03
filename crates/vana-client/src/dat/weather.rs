@@ -526,7 +526,7 @@ mod tests {
         let ev01 = &w.areas[&u32::from_le_bytes(*b"ev01")];
         assert!(close(ev01.at("fine", 720.0).unwrap().area_light(), Vec3::new(0.9843, 0.9529, 0.8588)));
         assert!(close(ev01.at("fine", 0.0).unwrap().area_light(), Vec3::new(0.9020, 0.8706, 0.7765)));
-        let Ok(dll) = std::fs::read(cfg.ffxi_dir().join("FFXiMain.dll")) else { return };
+        let Ok(dll) = std::fs::read(crate::dat::ffximain(&cfg.ffxi_dir())) else { return };
         let keys = crate::dat::zone::Keys::from_ffximain(&dll).unwrap();
         let scene = crate::dat::zone::load_scene(&keys, &index.read(332).unwrap()).unwrap();
         let objs = &scene.collision.unwrap().objects;
