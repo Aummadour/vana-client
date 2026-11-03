@@ -20439,6 +20439,9 @@ Lessons from other games' mod layers (BG3 Script Extender, WoW, Skyrim, Factorio
 - known_servers.json ("host:port" to {"trust": "authority"} or {"trust": "key", "sha256", "fixed"}) is in the data
   folder, or beside an FFXI_CONFIG copy. One that doesn't read is renamed .bad and the pins learned again; a pin that
   can't be written is logged and the login goes on. Saved through a synced temp file named for the process.
+- A pin is recorded under a lock against the store as it is then: if it changed since the connection began (another
+  login thread, or `trust-server` meanwhile), the certificate is judged by the new pin, so a fixed pin made meanwhile
+  is never overwritten by a connection that started before it.
 - (2026-11-03) A pin that can't be written is kept for the rest of the run, by store and server (tls::session_pins),
   so the auth, profile and later connections are checked against it, and the player gets one red log line in game
   naming the file and the error (tls::take_notice). trust-server drops the run's pins for the host too. Seen live with

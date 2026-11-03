@@ -14,7 +14,7 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-/// Pins learned this run, by store and server: they still hold when the store can't be written.
+/// Pins this run could not save, by store and server: they stand in for the store's until it takes them.
 fn session_pins() -> &'static Mutex<BTreeMap<(PathBuf, String), Pin>> {
     static PINS: OnceLock<Mutex<BTreeMap<(PathBuf, String), Pin>>> = OnceLock::new();
     PINS.get_or_init(Default::default)
@@ -111,6 +111,14 @@ pub fn fingerprint(bytes: &[u8]) -> Fingerprint {
 struct Seen {
     key: Fingerprint,
     authority: bool,
+}
+
+/// Whether `pin` names this very certificate: its key (fixed or not), or an authority's signature.
+fn names(pin: &Pin, seen: Seen) -> bool {
+    match pin {
+        Pin::Authority => seen.authority,
+        Pin::Key { sha256, .. } => parse_fingerprint(sha256).is_ok_and(|k| k == seen.key),
+    }
 }
 
 /// Whether a certificate passes its server's pin.
@@ -285,34 +293,51 @@ pub fn connect_pinned(store: &Path, host: &str, port: u16) -> Result<TlsStream> 
         }
     }
     if let Some(got) = *seen.lock().unwrap()
-        && let Some(now) = learned(pin.as_ref(), got)
+        && learned(pin.as_ref(), got).is_some()
     {
-        record_pin(store, &key, now, pin.is_some())?;
+        record_pin(store, &key, pin.as_ref(), got)?;
     }
     Ok(StreamOwned::new(conn, tcp))
 }
 
-/// Keeps `want` for `key` after a handshake. The auth and profile connections run on their own threads: re-read under
-/// a lock, and refuse a first certificate that differs from a pin made meanwhile. A pin that can't be written is
+/// Keeps what `seen` teaches about `key` after a handshake that passed `was` (the pin read when it began). The auth
+/// and profile connections run on their own threads, and trust-server can run meanwhile: the store (or this run's
+/// pin) is re-read under a lock and, if its pin changed since `was`, the certificate is judged by the new pin instead
+/// (a later fixed pin is never overwritten by a connection that started before it). A pin that can't be written is
 /// kept for this run and the player told once; the next run learns it again.
-fn record_pin(store: &Path, key: &str, want: Pin, replace: bool) -> Result<()> {
+fn record_pin(store: &Path, key: &str, was: Option<&Pin>, seen: Seen) -> Result<()> {
     static PINNING: Mutex<()> = Mutex::new(());
     let _held = PINNING.lock().unwrap_or_else(|e| e.into_inner());
     let mut known = KnownServers::load(store);
-    match known.0.get(key).cloned().or_else(|| session_pin(store, key)).as_ref() {
-        Some(have) if *have == want => return Ok(()),
-        Some(have) if !replace => bail!(
-            "{key} sent two different certificates while it was being pinned (kept {}, refused {}). Someone may be \
-             intercepting the connection.",
-            describe(have),
-            describe(&want)
-        ),
-        _ => {}
+    let held = known.0.get(key).cloned().or_else(|| session_pin(store, key));
+    let now = held.as_ref();
+    if now != was {
+        let sent = if seen.authority { Pin::Authority } else { Pin::Key { sha256: hex::encode(seen.key), fixed: false } };
+        let have = now.map_or_else(|| "none".into(), describe);
+        match was {
+            // A first connection keeps a pin made meanwhile (another login, trust-server) that names this certificate.
+            None if now.is_some_and(|p| names(p, seen)) => return Ok(()),
+            None => bail!(
+                "{key} sent two different certificates while it was being pinned (kept {have}, refused {}). Someone \
+                 may be intercepting the connection.",
+                describe(&sent)
+            ),
+            Some(_) if !accepts(now, seen) => bail!(
+                "{key}'s pin changed while connecting (now {have}), and this connection was sent {}. Log in again.",
+                describe(&sent)
+            ),
+            Some(_) => {}
+        }
     }
+    let Some(want) = learned(now, seen) else { return Ok(()) };
     log::info!("tls: {key} pinned: {want:?}");
-    session_pins().lock().unwrap_or_else(|e| e.into_inner()).insert((store.to_path_buf(), key.to_string()), want.clone());
-    known.0.insert(key.to_string(), want);
+    known.0.insert(key.to_string(), want.clone());
+    let mut session = session_pins().lock().unwrap_or_else(|e| e.into_inner());
+    let at = (store.to_path_buf(), key.to_string());
+    // Only a pin the store can't take is held here: a saved one is the store's (trust-server from another process
+    // forgets it there).
     if let Err(e) = known.save(store) {
+        session.insert(at, want);
         log::warn!("tls: {key}'s pin not saved: {e:#}");
         let mut n = NOTICE.lock().unwrap_or_else(|e| e.into_inner());
         if !n.0 {
@@ -321,6 +346,8 @@ fn record_pin(store: &Path, key: &str, want: Pin, replace: bool) -> Result<()> {
                 store.display()
             )));
         }
+    } else {
+        session.remove(&at);
     }
     Ok(())
 }
@@ -503,13 +530,14 @@ mod tests {
         assert!(!k.0.contains_key("h:2"));
         // A first connection that finds a pin made meanwhile keeps it, and refuses a different certificate.
         let g = fingerprint(b"other cert");
-        record_pin(&store, "new:1", learned_key(f), false).unwrap();
-        record_pin(&store, "new:1", learned_key(f), false).unwrap();
-        assert!(record_pin(&store, "new:1", learned_key(g), false).is_err());
-        assert!(record_pin(&store, "new:1", Pin::Authority, false).is_err());
+        let self_signed = |k| Seen { key: k, authority: false };
+        record_pin(&store, "new:1", None, self_signed(f)).unwrap();
+        record_pin(&store, "new:1", None, self_signed(f)).unwrap();
+        assert!(record_pin(&store, "new:1", None, self_signed(g)).is_err());
+        assert!(record_pin(&store, "new:1", None, Seen { key: g, authority: true }).is_err());
         assert_eq!(KnownServers::load(&store).0.get("new:1"), Some(&learned_key(f)));
         // An authority-signed certificate replaces a learned key.
-        record_pin(&store, "new:1", Pin::Authority, true).unwrap();
+        record_pin(&store, "new:1", Some(&learned_key(f)), Seen { key: g, authority: true }).unwrap();
         assert_eq!(KnownServers::load(&store).0.get("new:1"), Some(&Pin::Authority));
         // A file that doesn't read is set aside, not an error.
         std::fs::write(&store, "{ not json").unwrap();
@@ -542,6 +570,55 @@ mod tests {
         assert!(accepts(Some(&Pin::Authority), signed(b)));
         assert!(!accepts(Some(&Pin::Authority), self_signed(a)));
         assert_eq!(learned(Some(&Pin::Authority), signed(a)), None);
+    }
+
+    /// A pin that changes between a connection's start and its record_pin is judged afresh, never overwritten.
+    #[test]
+    fn pin_changed_while_connecting() {
+        let dir = std::env::temp_dir().join(format!("vana-tls-race-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = dir.join("known_servers.json");
+        let k = "example.org:54231";
+        let (a, b, c) = (fingerprint(b"a"), fingerprint(b"b"), fingerprint(b"c"));
+        let learned_a = Pin::Key { sha256: hex::encode(a), fixed: false };
+        let fixed_b = Pin::Key { sha256: hex::encode(b), fixed: true };
+        let set = |p: Option<&Pin>| {
+            let mut known = KnownServers::default();
+            if let Some(p) = p {
+                known.0.insert(k.into(), p.clone());
+            }
+            known.save(&store).unwrap();
+        };
+        let get = || KnownServers::load(&store).0.get(k).cloned();
+        // Started on a learned key; trust-server --fingerprint fixed another meanwhile. An authority-signed
+        // certificate with a third key no longer replaces it: refused, and the fixed pin stays.
+        set(Some(&fixed_b));
+        let e = format!("{:#}", record_pin(&store, k, Some(&learned_a), Seen { key: c, authority: true }).unwrap_err());
+        assert!(e.contains("pin changed while connecting"), "{e}");
+        assert_eq!(get(), Some(fixed_b.clone()));
+        // ...but the fixed key itself, authority-signed, passes and leaves it as it is.
+        record_pin(&store, k, Some(&learned_a), Seen { key: b, authority: true }).unwrap();
+        assert_eq!(get(), Some(fixed_b));
+        // Unchanged: the authority-signed certificate replaces the learned key as before.
+        set(Some(&learned_a));
+        record_pin(&store, k, Some(&learned_a), Seen { key: c, authority: true }).unwrap();
+        assert_eq!(get(), Some(Pin::Authority));
+        // First use on two threads: the same key is kept once, another key is refused.
+        set(Some(&learned_a));
+        record_pin(&store, k, None, Seen { key: a, authority: false }).unwrap();
+        assert_eq!(get(), Some(learned_a.clone()));
+        let e = format!("{:#}", record_pin(&store, k, None, Seen { key: b, authority: false }).unwrap_err());
+        assert!(e.contains("two different certificates"), "{e}");
+        // First use while trust-server fixed this very key: kept as it is, no alarm.
+        let fixed_a = Pin::Key { sha256: hex::encode(a), fixed: true };
+        set(Some(&fixed_a));
+        record_pin(&store, k, None, Seen { key: a, authority: false }).unwrap();
+        assert_eq!(get(), Some(fixed_a));
+        // Nothing stored yet: first use pins it.
+        set(None);
+        record_pin(&store, k, None, Seen { key: a, authority: false }).unwrap();
+        assert_eq!(get(), Some(learned_a));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Pinning against real servers: openssl s_server with two LSB-style self-signed v1 certificates
@@ -617,13 +694,15 @@ mod tests {
         // A file where the store's folder should be: every save fails.
         std::fs::write(dir.join("not-a-dir"), b"").unwrap();
         let store = dir.join("not-a-dir/known_servers.json");
-        let (a, b) = (Pin::Key { sha256: "aa".repeat(32), fixed: false }, Pin::Key { sha256: "bb".repeat(32), fixed: false });
-        record_pin(&store, "lsb:54231", a.clone(), false).unwrap();
+        let a = Pin::Key { sha256: "aa".repeat(32), fixed: false };
+        let (seen_a, seen_b) = (Seen { key: [0xaa; 32], authority: false }, Seen { key: [0xbb; 32], authority: false });
+        record_pin(&store, "lsb:54231", None, seen_a).unwrap();
         assert_eq!(session_pin(&store, "lsb:54231"), Some(a.clone()));
         assert!(take_notice().is_some_and(|n| n.contains("could not be saved")));
         assert!(take_notice().is_none());
-        assert!(record_pin(&store, "lsb:54231", b, false).is_err());
-        record_pin(&store, "lsb:54231", a, false).unwrap();
+        // Another first connection is judged against this run's pin, as against a stored one.
+        assert!(record_pin(&store, "lsb:54231", None, seen_b).is_err());
+        record_pin(&store, "lsb:54231", None, seen_a).unwrap();
         assert!(take_notice().is_none());
         trust(&store, "lsb", None, None).ok();
         assert_eq!(session_pin(&store, "lsb:54231"), None);
