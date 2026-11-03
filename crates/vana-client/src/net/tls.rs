@@ -113,6 +113,14 @@ struct Seen {
     authority: bool,
 }
 
+/// Whether `pin` names this very certificate: its key (fixed or not), or an authority's signature.
+fn names(pin: &Pin, seen: Seen) -> bool {
+    match pin {
+        Pin::Authority => seen.authority,
+        Pin::Key { sha256, .. } => parse_fingerprint(sha256).is_ok_and(|k| k == seen.key),
+    }
+}
+
 /// Whether a certificate passes its server's pin.
 fn accepts(pin: Option<&Pin>, seen: Seen) -> bool {
     match pin {
@@ -307,8 +315,8 @@ fn record_pin(store: &Path, key: &str, was: Option<&Pin>, seen: Seen) -> Result<
         let sent = if seen.authority { Pin::Authority } else { Pin::Key { sha256: hex::encode(seen.key), fixed: false } };
         let have = now.map_or_else(|| "none".into(), describe);
         match was {
-            // A first connection keeps only the same pin another made meanwhile.
-            None if now == Some(&sent) => return Ok(()),
+            // A first connection keeps a pin made meanwhile (another login, trust-server) that names this certificate.
+            None if now.is_some_and(|p| names(p, seen)) => return Ok(()),
             None => bail!(
                 "{key} sent two different certificates while it was being pinned (kept {have}, refused {}). Someone \
                  may be intercepting the connection.",
@@ -601,6 +609,11 @@ mod tests {
         assert_eq!(get(), Some(learned_a.clone()));
         let e = format!("{:#}", record_pin(&store, k, None, Seen { key: b, authority: false }).unwrap_err());
         assert!(e.contains("two different certificates"), "{e}");
+        // First use while trust-server fixed this very key: kept as it is, no alarm.
+        let fixed_a = Pin::Key { sha256: hex::encode(a), fixed: true };
+        set(Some(&fixed_a));
+        record_pin(&store, k, None, Seen { key: a, authority: false }).unwrap();
+        assert_eq!(get(), Some(fixed_a));
         // Nothing stored yet: first use pins it.
         set(None);
         record_pin(&store, k, None, Seen { key: a, authority: false }).unwrap();
