@@ -20392,6 +20392,10 @@ Lessons from other games' mod layers (BG3 Script Extender, WoW, Skyrim, Factorio
   its source (Op::Run, bind lines, a macro started by actions.macro: Macros::start_for_mod, a chat line submitted by
   an Enter a mod pressed: Host::synth_enter). actions.macro_edit refuses a /lua line (lua::lua_line: any leading
   slashes, any case), since the player runs macros. A bind's text is trimmed as stored.
+- (2026-11-03) /lua load, unload, reload, hide and show from a mod's line need the mods permission (Windower and
+  Ashita add-ons load each other): commands.run raises the permission error and Op::Run carries whether the mod holds
+  it (From::Mod / Bind { mods }); a bind line needs it too. A macro a mod started and a chat line it submitted name no
+  one mod and never may. The player's own lines are unaffected.
 - wait_until: the test runs on the game thread each frame, under FILTER_CAP (20 ms), with the deadline it found
   restored after and its time added to the mod's frame time. A test that errors or runs past the budget ends the
   handler with that error (it was resumed as passed, the error dropped).

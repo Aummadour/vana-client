@@ -328,6 +328,7 @@ permissions = ["actions", "net"]
 | `clipboard` | Reading the clipboard (putting text on it needs nothing). |
 | `process` | Which CPU cores the client runs on, and its priority. |
 | `devices` | USB devices (G-keys, Stream Decks...) by their raw reports. |
+| `mods` | Loading, unloading, reloading, hiding and showing other mods: `/lua load`, `unload`, `reload`, `hide` and `show` from `commands.run` or a key bind. |
 
 **`actions` or `automation`?** A mod that helps the player act, like a button that casts a spell or a command that
 equips a set, needs `actions`. A mod that acts by itself, like casting when HP drops or following someone, needs

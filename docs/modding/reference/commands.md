@@ -87,7 +87,8 @@ mod's command (`//name`), or plain text, which is said in the current chat mode.
 
 **Needs** a line that does not start with `//` is a game action: it needs the `actions` permission while handling the
 player's input (a command they typed, a window or HUD click), or the `automation` permission any time. A line starting
-with `//` needs no permission.
+with `//` needs no permission, except `/lua load`, `unload`, `reload`, `hide` and `show` (with any number of slashes),
+which control the other mods and need the `mods` permission.
 
 **Errors**
 
@@ -95,6 +96,8 @@ with `//` needs no permission.
   the mod has neither.
 - "a game action outside the player's input needs the automation permission" when the mod has `actions` but the call
   comes from an event handler, a timer or another place that is not the player's input.
+- "this needs the mods permission: list it in mod.toml, then /lua grant <mod> mods" for `/lua load`, `unload`,
+  `reload`, `hide` or `show` without it.
 
 **Example**
 
@@ -108,5 +111,6 @@ end)
 The line is queued and runs after the mod phase. A line for a mod (`//name`, `/lua`, or a mod's `/name`) runs in the
 next mod phase, as the mod's line and not the player's (leading spaces are trimmed first): `/lua grant`, `revoke`,
 `run`, `set` and `watch` are refused there, as they are from a mod's bind, a macro a mod started, or a chat line a mod
-submitted with `input.press("enter")`. Any other line goes to the game's command handling just as if typed: it passes every mod's typed-line
+submitted with `input.press("enter")`. `/lua load`, `unload`, `reload`, `hide` and `show` run only for a mod with the
+`mods` permission (from `commands.run` or its bind), and never from a macro a mod started or a chat line it submitted. Any other line goes to the game's command handling just as if typed: it passes every mod's typed-line
 filters (see [filters.typed](filters.md#filterstyped)), and refusals print in the log as they would for the player.
