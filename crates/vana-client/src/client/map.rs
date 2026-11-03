@@ -413,19 +413,23 @@ impl MapWin {
 
     /// FUN_101fad70(d): the set by d, wrapping, past sets with nothing to show (0 needs the map, 2 any member, 3 an
     /// alliance member; 1 always).
-    fn step_set(&mut self, d: i32) {
-        let has = |m: &Self, s: u8| match s {
-            0 => m.owned && m.need != Need::Nothing,
-            2 => !m.party.is_empty(),
-            3 => m.party.iter().any(|p| p.2),
+    /// Marker set `s` can be shown (FUN_101fad70 skips the others).
+    fn set_shown(&self, s: u8) -> bool {
+        match s {
+            0 => self.owned && self.need != Need::Nothing,
+            2 => !self.party.is_empty(),
+            3 => self.party.iter().any(|p| p.2),
             _ => true,
-        };
+        }
+    }
+
+    fn step_set(&mut self, d: i32) {
         let step = if d < 0 { 3 } else { 1 };
         if d != 0 {
             self.set = (self.set + step) % 4;
         }
         for _ in 0..4 {
-            if has(self, self.set) {
+            if self.set_shown(self.set) {
                 break;
             }
             self.set = (self.set + step) % 4;
@@ -1332,7 +1336,7 @@ impl MapWin {
 
     /// mapframe: the image (0xa0404040; alpha min(0xff - level, 0xa0) while fading) at (base - view) x zoom; at fade
     /// level 0 the player arrow and the grid text under titlewin; then map0.
-    /// `modern`: the modern layer draws map0 (and takes its mouse).
+    /// `modern`: the modern layer draws map0, Markers and Change Map's list (and takes their mouse).
     pub fn draw(&mut self, gu: &mut GameUi, sw: f32, sh: f32, modern: bool) {
         if let Some(Ok(Some((name, iw, ih, rgba)))) = self.rx.as_ref().map(|r| r.try_recv()) {
             gu.image(&name, iw, ih, rgba);
@@ -1387,8 +1391,8 @@ impl MapWin {
             }
         }
         self.draw_scan(gu, sw, sh);
-        self.draw_list(gu, sw, sh);
-        if let Some(l) = &self.maplist {
+        self.draw_list(gu, sw, sh, modern);
+        if let Some(l) = self.maplist.as_ref().filter(|_| !modern) {
             l.draw(gu, sw, sh);
         }
     }
@@ -1556,37 +1560,53 @@ impl MapWin {
         self.rx.is_none()
     }
 
+    /// mapv3's row `i` of the shown set: its icon (keytops3) and name (the one being typed, with the caret).
+    fn marker_row(&self, l: &List, i: usize) -> (Option<usize>, String) {
+        let (s, slot) = (self.set as usize, self.slot(self.set as usize, i));
+        let party = self.party.iter().filter(|p| !p.2).count();
+        let icon = match s {
+            0 | 1 => Some(ROW_ICON[2 * s + slot.is_some() as usize]),
+            2 => slot.map(|_| ROW_ICON[if i < party { 5 } else { 7 }]),
+            _ => slot.map(|_| ROW_ICON[7]),
+        };
+        let name = match l.rename.as_ref().filter(|r| r.0 == i) {
+            Some((_, t)) => format!("{t}|"),
+            None => slot.and_then(|s| s.1).unwrap_or_default().to_string(),
+        };
+        (icon, name)
+    }
+
+    /// The Markers window as the modern layer draws it (none while mapv3 is shut).
+    pub fn markers_look(&self) -> Option<MarkersLook> {
+        let l = self.list.as_ref()?;
+        let rows = (0..10).map(|i| self.marker_row(l, i)).collect();
+        let keys = l.v2.is_none() && l.placing.is_none() && l.rename.is_none();
+        let sets = [0, 1, 2, 3].map(|s| self.set_shown(s));
+        let v2 = l.v2.map(|(row, c)| (row, c, self.marks.sets[0][row].valid));
+        Some(MarkersLook { set: self.set as usize, sets, rows, cursor: keys.then(|| l.cursor as usize - 1), v2, placing: l.placing.is_some() })
+    }
+
     /// mapv3 (FUN_101fbec0): per row the icon at (16, 5 + 16 i) and the name at (0x1f, 7 + 16 i) (font 0x44 taken as
-    /// fontshp *(inf)*); mapv2 beside the
-    /// row (its place is inferred); the placing cursor (keytops3 151).
-    fn draw_list(&self, gu: &mut GameUi, sw: f32, sh: f32) {
+    /// fontshp *(inf)*); mapv2 beside the row (its place is inferred); the placing cursor (keytops3 151). `modern`: the
+    /// modern layer draws the windows, the placing cursor stays here.
+    fn draw_list(&self, gu: &mut GameUi, sw: f32, sh: f32, modern: bool) {
         let Some(l) = &self.list else { return };
         if let Some((_, (cx, cy))) = l.placing {
             gu.sprite("menu    keytops3", 151, cx, cy, 0x8080_8080);
         }
+        if modern {
+            return;
+        }
         let sel = if l.v2.is_some() || l.placing.is_some() { 0 } else { l.cursor };
         let Some((x, y)) = gu.menu_sel("menu    mapv3", sw, sh, sel) else { return };
-        let s = self.set as usize;
-        let party = self.party.iter().filter(|p| !p.2).count();
         for i in 0..10 {
-            let (ry, slot) = (y + 16.0 * i as f32, self.slot(s, i));
-            let icon = match s {
-                0 | 1 => Some(ROW_ICON[2 * s + slot.is_some() as usize]),
-                2 => slot.map(|_| ROW_ICON[if i < party { 5 } else { 7 }]),
-                _ => slot.map(|_| ROW_ICON[7]),
-            };
+            let ry = y + 16.0 * i as f32;
+            let (icon, name) = self.marker_row(l, i);
             if let Some(k) = icon {
                 gu.sprite("menu    keytops3", k, x + 16.0, ry + 5.0, 0x8080_8080);
             }
-            match l.rename.as_ref().filter(|r| r.0 == i) {
-                Some((_, t)) => {
-                    gu.shape_text(&format!("{t}|"), x + 31.0, ry + 7.0, 0x8080_8080, false);
-                }
-                None => {
-                    if let Some((_, Some(name), _)) = slot {
-                        gu.shape_text(name, x + 31.0, ry + 7.0, 0x8080_8080, false);
-                    }
-                }
+            if !name.is_empty() {
+                gu.shape_text(&name, x + 31.0, ry + 7.0, 0x8080_8080, false);
             }
         }
         if let Some((row, c)) = l.v2 {
@@ -1986,6 +2006,81 @@ pub(super) fn apply(w: &mut World, regions: &[Region], c: Cmd, sw: f32, sh: f32)
             }
         }
     }
+}
+
+/// The Markers window for the modern layer: the shown set (0 yours, 1 event, 2 party, 3 alliance) and which can show,
+/// the rows (icon, name), the rows' cursor while they have the keys, mapv2 (its row, cursor 1..3, the row's marker
+/// placed) and whether a marker is being placed.
+pub struct MarkersLook {
+    pub set: usize,
+    pub sets: [bool; 4],
+    pub rows: Vec<(Option<usize>, String)>,
+    pub cursor: Option<usize>,
+    pub v2: Option<(usize, u16, bool)>,
+    pub placing: bool,
+}
+
+/// The marker sets' icons (keytops3), for the modern set strip.
+pub const SET_ICONS: [usize; 4] = SET_SPRITE;
+
+/// A click on Markers row `k` (0-based): mapv2 on another row closes first, then the row takes Enter. Nothing while a
+/// marker is placed or named.
+pub fn marker_click(w: &mut World, k: usize) {
+    let Some(l) = w.map.as_ref().and_then(|m| m.list.as_ref()) else { return };
+    if l.placing.is_some() || l.rename.is_some() || k >= 10 || l.v2.is_some_and(|v| v.0 == k) {
+        return;
+    }
+    if l.v2.is_some() {
+        key(w, egui::Key::Escape);
+    }
+    if let Some(l) = w.map.as_mut().and_then(|m| m.list.as_mut()) {
+        l.cursor = k as u16 + 1;
+    }
+    key(w, egui::Key::Enter);
+}
+
+/// A click on mapv2's row `c` (1..3): the cursor there, then Enter.
+pub fn marker_menu_click(w: &mut World, c: u16) {
+    let Some(v) = w.map.as_mut().and_then(|m| m.list.as_mut()).and_then(|l| l.v2.as_mut()) else { return };
+    if (1..=3).contains(&c) {
+        v.1 = c;
+        key(w, egui::Key::Enter);
+    }
+}
+
+/// Change Map's list for the modern layer: per row its name and its value ("[n]" maps, "(area)"), and the cursor.
+pub struct MapListLook {
+    pub rows: Vec<(String, String)>,
+    pub cursor: usize,
+}
+
+impl MapWin {
+    pub fn maplist_look(&self) -> Option<MapListLook> {
+        let l = self.maplist.as_ref()?;
+        let rows = l.rows.iter().map(|r| (r.a.clone(), if r.number { format!("[{}]", r.b) } else { format!("({})", r.b) })).collect();
+        Some(MapListLook { rows, cursor: l.cursor })
+    }
+}
+
+/// A click on Change Map's row `k`: the cursor there, then Enter.
+pub fn maplist_click(w: &mut World, k: usize) {
+    let Some(l) = w.map.as_mut().and_then(|m| m.maplist.as_mut()).filter(|l| k < l.rows.len()) else { return };
+    l.cursor = k;
+    l.scroll = l.scroll.min(k).max((k + 1).saturating_sub(ROWS));
+    key(w, egui::Key::Enter);
+}
+
+/// A click on the set strip: that set shown, as Left / Right would show it.
+pub fn marker_set_click(w: &mut World, s: usize) {
+    let Some(m) = w.map.as_mut() else { return };
+    let busy = m.list.as_ref().is_none_or(|l| l.v2.is_some() || l.placing.is_some() || l.rename.is_some());
+    if busy || s > 3 || m.set as usize == s || !m.set_shown(s as u8) {
+        return;
+    }
+    m.want_party();
+    (m.set, m.label_only) = (s as u8, None);
+    m.want_party();
+    m.sounds.push(crate::audio::Ui::Cursor as u32);
 }
 
 /// A key for the map's windows: MapWin::key, and on its false (Escape, a pick) the zoom into config 0x8a and the
