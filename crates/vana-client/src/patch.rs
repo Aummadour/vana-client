@@ -431,9 +431,40 @@ fn source(root: &Path, p: &str) -> Result<PathBuf> {
     if is_ffximain(p) { Ok(crate::dat::ffximain(root)) } else { local(root, p) }
 }
 
-/// Where an entry is written: FFXiMain.dll to the client's copy in the data dir, the rest under `root`.
+/// Where an entry is written under `root`: FFXiMain.dll to the client's copy (dat::OWN_FFXIMAIN), the rest at its path.
 fn target(root: &Path, p: &str) -> Result<PathBuf> {
-    if is_ffximain(p) { Ok(crate::dat::own_ffximain()) } else { writable(root, p) }
+    writable(root, if is_ffximain(p) { crate::dat::OWN_FFXIMAIN } else { p })
+}
+
+/// Until 2026-11-04 the updater kept one FFXiMain.dll in the data dir for every install. At start it moves beside
+/// `root` when it is the one `root`'s stamped manifest wants; otherwise it stays, unread, for the folder it belongs to.
+pub fn adopt_old_ffximain(root: &Path) {
+    let old = crate::config::data_dir().join("FFXiMain.dll");
+    match adopt(&old, root) {
+        Ok(true) => log::info!("updater: {} moved to {}", old.display(), crate::dat::own_ffximain(root).display()),
+        Ok(false) => {}
+        Err(e) => log::warn!("updater: {}: {e:#}", old.display()),
+    }
+}
+
+fn adopt(old: &Path, root: &Path) -> Result<bool> {
+    let Ok(meta) = std::fs::metadata(old) else { return Ok(false) };
+    if crate::dat::own_ffximain(root).is_file() {
+        return Ok(false);
+    }
+    let Ok(text) = std::fs::read_to_string(root.join(STAMP_FILE)) else { return Ok(false) };
+    let entries = parse_manifest(&text)?;
+    let Some(want) = entries.iter().find(|e| is_ffximain(&e.path)).and_then(|e| e.versions.last()).map(|v| v.sig) else { return Ok(false) };
+    if meta.len() != want.len {
+        return Ok(false);
+    }
+    let data = std::fs::read(old)?;
+    if Sig::of(&data) != want {
+        return Ok(false);
+    }
+    write_atomic(&target(root, "FFXiMain.dll")?, &data)?;
+    std::fs::remove_file(old)?;
+    Ok(true)
 }
 
 pub struct Plan {
@@ -644,13 +675,37 @@ mod tests {
         assert_eq!((s.len, s.sum), (2, 0));
     }
 
-    /// FFXiMain.dll goes to the client's copy; nothing else leaves the game folder.
+    /// FFXiMain.dll goes to that install's copy, never over the game folder's own.
     #[test]
-    fn ffximain_outside_the_game_folder() {
+    fn ffximain_to_the_install_copy() {
         let root = Path::new("/games/FINAL FANTASY XI");
-        assert_eq!(target(root, "ffximain.DLL").unwrap(), crate::dat::own_ffximain());
+        assert_eq!(target(root, "ffximain.DLL").unwrap(), root.join("vana-client/FFXiMain.dll"));
+        assert_eq!(target(root, "ffximain.DLL").unwrap(), crate::dat::own_ffximain(root));
         assert_eq!(target(root, "ROM/0/0.DAT").unwrap(), root.join("ROM/0/0.DAT"));
         assert!(is_code("polboot.exe") && !is_ffximain("ToolsUS/polboot.exe") && !is_ffximain("Tools/FFXiMain.dll"));
+    }
+
+    /// The old data-dir copy moves to the install whose stamped manifest wants it, and only there.
+    #[test]
+    fn old_copy_adopted_by_its_install() {
+        let base = std::env::temp_dir().join(format!("vana-patch-adopt-{}", std::process::id()));
+        let (a, b, old) = (base.join("a"), base.join("b"), base.join("data/FFXiMain.dll"));
+        let dll = b"MZ the current one".to_vec();
+        let s = Sig::of(&dll);
+        let stamp = |sig: Sig| format!("file FFXiMain.dll {{\n1_0 {} {} {} 1_0/Direct/FFXiMain.dll.slc 9\n}}\nend\n", sig.len, sig.sum, sig.md5);
+        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::write(&old, &dll).unwrap();
+        std::fs::write(a.join(STAMP_FILE), stamp(Sig::of(b"MZ another"))).unwrap();
+        std::fs::write(b.join(STAMP_FILE), stamp(s)).unwrap();
+        // Another install, and one with no stamp: left alone.
+        assert!(!adopt(&old, &a).unwrap() && !adopt(&old, &base.join("none")).unwrap() && old.is_file());
+        assert!(adopt(&old, &b).unwrap());
+        assert_eq!(std::fs::read(crate::dat::ffximain(&b)).unwrap(), dll);
+        assert_eq!(crate::dat::ffximain(&a), a.join("FFXiMain.dll"));
+        assert!(!old.exists() && !adopt(&old, &b).unwrap());
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     /// A patched install's FFXiMain.dll (the one the client reads) checks against its stamped manifest.
