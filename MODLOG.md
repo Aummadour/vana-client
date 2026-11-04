@@ -18305,6 +18305,10 @@ From the research notes:
   strongest first), the cursor on the one suggested. Seen live on Lnxcsfix as BLM 75 / WHM 37, unengaged, a Wild
   Rabbit targeted on Watersday: Dia, Bio, Water ("weak to water": water and thunder tie at -3, the day breaks it),
   Protect, whose submenu listed Protect II, Protect, Protectra II, Protectra.
+- (2026-11-04, user: "BLM shouldn't be getting suggestions for white magic, just like WHM shouldn't be getting
+  suggestions for black magic") A white-magic main (WHM, PLD) is offered no black magic (spell record +2 kind 2)
+  from its support job, a black-magic main (BLM, DRK) no white (kind 1); every other main keeps both (RDM, SCH, and
+  WAR / GEO / BLU with WHM keep their Cure). So the BLM 75 / WHM 37 above now gets Bio and Water, not Dia or Protect.
 
 ## Extras: Clock and Trust Speech (ours, 2026-10-29)
 
