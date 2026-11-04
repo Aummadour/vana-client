@@ -2273,7 +2273,7 @@ fn sync(live: &mut Live, w: &mut World, ticks: f32, dt: f32) {
         let flat = Vec3::new(step.x, 0.0, step.z).length();
         // A step is drawn across the next tick from where the body is drawn now; a placement's place and tilt at
         // once (its rotation still eases below, so it eases from the drawn one).
-        let placed = snap || flat > 2.0 * ticks;
+        let placed = snap || step.length() > 2.0 * ticks;
         let now = pose.drawn(pose.since);
         pose.from = if placed { (p, now.yaw, b.tilt) } else { (now.pos, now.yaw, now.tilt) };
         pose.since = 0.0;
@@ -2536,6 +2536,12 @@ pub fn position_ack(w: &mut World, mode: u8) {
 /// Where the running event draws us (the VM bodies are a draw override; our own position stays).
 pub fn own_pose(w: &World) -> Option<Vec3> {
     pose(w, w.my_id).map(|p| p.pos)
+}
+
+/// Where the running event's VM has us this tick, not eased between steps: what the zone-line and sub-area triggers
+/// test (retail tests the model's place, which its whole-tick frames never ease).
+pub fn own_step(w: &World) -> Option<Vec3> {
+    w.event.as_ref()?.st.poses.get(&w.my_id).map(|p| p.pos)
 }
 
 pub fn active(w: &World) -> bool {

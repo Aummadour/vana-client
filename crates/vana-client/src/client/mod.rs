@@ -8985,7 +8985,7 @@ impl App {
             return;
         }
         // Our actor's model position (vtable +0x1bc, +0x404): an event that moves us there moves the trigger point too.
-        match w.sub.next(event::own_pose(w).unwrap_or(w.pos).to_array()) {
+        match w.sub.next(event::own_step(w).unwrap_or(w.pos).to_array()) {
             Some(subarea::Step::Unload) => {
                 log::info!("sub-area {:?} unloads", w.sub.current);
                 if let Some(r) = w.renderer.as_mut() {
@@ -11163,7 +11163,7 @@ impl App {
         // one). Wait for its answer before asking again.
         let settled = world.in_scene() && !world.unsettled;
         if settled && !world.dead() && world.zone_touch.is_none() && world.zoning_since.is_none_or(|t| t.elapsed().as_secs_f32() > 5.0) {
-            let (at, drawn) = (world.pos.to_array(), event::own_pose(world).unwrap_or(world.pos).to_array());
+            let (at, drawn) = (world.pos.to_array(), event::own_step(world).unwrap_or(world.pos).to_array());
             world.zone_touch = world.zone_lines.iter().find(|r| r.touches(at, drawn)).cloned();
         }
         if !in_event && let Some(line) = world.zone_touch.take() {

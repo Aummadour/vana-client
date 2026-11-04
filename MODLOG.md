@@ -20816,6 +20816,9 @@ From the 30261006_0 decompile; ours in client/swkbd.rs (classic) and modern/keyb
   0x05B / 0x065 snap, or a jump of over 2 a tick) puts the place and tilt down at once. A frame of a tick or more
   (60 fps and below) draws the stepped pose, as before.
 - The VM, its host (`drawn_at`), our own place (`keep_pose`) and the event's end still use the stepped pose.
+- The zone-line touch and the sub-area triggers take ours stepped too (`event::own_step`, 2026-11-04): with the eased
+  pose (`own_pose`, which the drawing and the camera keep) they could fire a tick late. A placement is a jump of over 2
+  a tick in 3D, so one up or down a floor is put down at once as well (it was measured across the ground only).
 
 ## Event ops: the cutscene clock, sub-area wait and wind gusts (2026-11-02)
 
