@@ -1153,7 +1153,10 @@ fn widescan_panel(p: &mut Panels, w: &mut World) {
     let mut show_all = false;
     let mut cancel = false;
     let mut scan = false;
-    let toggle = edge_window(p, "widescan", 290.0, true, folded, "Wide Scan", |ui, side, fixed| {
+    // Extras' Monster IDs: monsters' server ids between the name and the level, in a wider window.
+    let ids = w.mob_ids;
+    let id_of: std::collections::HashMap<u16, u32> = if ids { rows.iter().filter(|(e, _)| e.kind == 2).map(|(e, _)| (e.index, super::super::widescan::mob_id(w, e.index))).collect() } else { Default::default() };
+    let toggle = edge_window(p, "widescan", if ids { 360.0 } else { 290.0 }, true, folded, "Wide Scan", |ui, side, fixed| {
         let count = if filtered { format!("Wide Scan ({} of {all})", rows.len()) } else { format!("Wide Scan ({})", rows.len()) };
         let hresp = flyout_header(ui, m, &count, side);
         ui.add_space(4.0);
@@ -1220,10 +1223,16 @@ fn widescan_panel(p: &mut Panels, w: &mut World) {
                     ui.painter().rect_filled(r, 4.0, m.theme.color("focus").gamma_multiply(if on { 0.35 } else { 0.15 }));
                 }
                 let col = kind_colour(kind_bit(e.kind));
-                ui.painter().text(pos2(r.min.x + 4.0, r.center().y), Align2::LEFT_CENTER, name, FontId::proportional(m.theme.small), col);
                 let d = (e.dx as f32).hypot(e.dz as f32);
                 let info = if e.level > 0 { format!("Lv{} {d:.0}", e.level) } else { format!("{d:.0}") };
-                ui.painter().text(pos2(r.max.x - 26.0, r.center().y), Align2::RIGHT_CENTER, info, FontId::monospace(m.theme.small - 1.0), m.theme.color("muted"));
+                let ir = ui.painter().text(pos2(r.max.x - 26.0, r.center().y), Align2::RIGHT_CENTER, info, FontId::monospace(m.theme.small - 1.0), m.theme.color("muted"));
+                let mut name_end = ir.min.x - 6.0;
+                if let Some(id) = id_of.get(&e.index) {
+                    let idr = ui.painter().text(pos2(ir.min.x - 10.0, r.center().y), Align2::RIGHT_CENTER, id.to_string(), FontId::monospace(m.theme.small - 1.0), m.theme.color("muted"));
+                    name_end = idr.min.x - 6.0;
+                }
+                let clip = Rect::from_min_max(r.min, pos2(name_end, r.max.y));
+                ui.painter().with_clip_rect(clip).text(pos2(r.min.x + 4.0, r.center().y), Align2::LEFT_CENTER, name, FontId::proportional(m.theme.small), col);
                 arrow(ui.painter(), pos2(r.max.x - 12.0, r.center().y), (-(e.dz as f32)).atan2(e.dx as f32), 6.0, m);
                 if picked == Some(e.index) {
                     ui.painter().rect_stroke(r, 4.0, Stroke::new(1.5, m.theme.color("gold")), egui::StrokeKind::Inside);

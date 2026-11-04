@@ -129,6 +129,8 @@ pub struct TargetView {
     pub cast: Option<(String, Option<f32>)>,
     /// Extra: how far it is, centre to centre.
     pub distance: Option<f32>,
+    /// Extra: a monster's server id.
+    pub id: Option<u32>,
 }
 
 /// The target's cast or readied skill: a spell's name and how far by its base cast time (gone 2 s after it should
@@ -428,6 +430,9 @@ pub fn target_panel(p: &mut Panels, v: &TargetView) {
     let title = Title { icon: Some(v.ring), text: &v.name, note: dist.as_deref() };
     let r = p.framed("target", None, 340.0, frame, |ui| {
         super::title_row_in(ui, m, &title, v.colour.unwrap_or(m.theme.color("gold")));
+        if let Some(id) = v.id {
+            ui.label(egui::RichText::new(format!("ID {id}  (0x{id:X})")).size(m.theme.small).color(m.theme.color("muted")));
+        }
         ui.add_space(6.0);
         if let Some((pct, f)) = v.hp {
             gauge_row(ui, m, "HP", "hp", f, &format!("{pct}%"));
@@ -862,5 +867,5 @@ fn target_view(w: &World, gu: Option<&super::super::game_ui::GameUi>) -> Option<
         "indicators/target_neutral"
     };
     let colour = gu.map(|gu| super::chat::colour(super::super::name_colour(id, e, w, |i| gu.ncol(i)).to_le_bytes()));
-    Some(TargetView { name, ring, locked: w.locked, hp: (!e.no_gauge).then_some((e.hpp, w.target_gauge.1 as f32 / 100.0)), colour, cast: target_cast(w, id), distance: w.target_distance.then(|| e.pos.distance(w.pos)) })
+    Some(TargetView { name, ring, locked: w.locked, hp: (!e.no_gauge).then_some((e.hpp, w.target_gauge.1 as f32 / 100.0)), colour, cast: target_cast(w, id), distance: w.target_distance.then(|| e.pos.distance(w.pos)), id: (w.mob_ids && e.mob).then_some(id) })
 }

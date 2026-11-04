@@ -147,6 +147,8 @@ pub struct Config {
     /// classic one (the modern one shows it anyway).
     pub target_distance: bool,
     pub target_hpp: bool,
+    /// Extra: a monster's server id in the target window and the Wide Scan lists.
+    pub mob_ids: bool,
     /// Not retail (Settings' Lamp Lights): real point lights at the zones' lamps in place of their baked lamplight
     /// (client/lamps.rs).
     pub lamp_lights: bool,
@@ -361,6 +363,7 @@ impl Default for Config {
             stamp_all_lines: false,
             target_distance: false,
             target_hpp: false,
+            mob_ids: false,
             earth_clock: false,
             lamp_lights: true,
             hide_trust_speech: false,
