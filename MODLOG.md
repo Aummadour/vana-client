@@ -20749,13 +20749,3 @@ From the 30261006_0 decompile; ours in client/swkbd.rs (classic) and modern/keyb
   (standing: 0.44 s); before, only when autorun was switched off. A mount took 0.53 s running and 0.82 s standing
   (the next 400 ms datagram and the server's update); the first mount of a session waits for the chocobo's model
   (retail's state 0xe hides only a mount's rider, cVar7, so a chocobo's rider shows without the bird meanwhile).
-
-## Extras: Monster IDs (2026-11-03)
-
-- Ours, not retail: config `mob_ids` (Extras, off by default) shows a monster's server id in the target window (modern:
-  a muted "ID n (0xN)" line under the name; classic: over the window's top right) and in both Wide Scan lists (the
-  modern flyout between the name and the level, 360 points wide while on; the map's scanlist at the row's right).
-  Wide Scan entries carry only an index: the id is the entity's when it is in range, else 0x1000000 | zone << 12 |
-  index (widescan::mob_id), as LSB's and retail's zone NPC / monster ids run.
-- Seen live (Lnxcsfix, West Ronfaure, both UIs): Ding Bats 17186841 (0x1064019) alike in the target window, the
-  flyout and the map's list.

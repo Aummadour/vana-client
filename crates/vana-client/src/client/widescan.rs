@@ -118,9 +118,3 @@ mod tests {
         assert!(s.tracking().is_none());
     }
 }
-
-/// A monster's server id from its zone index: the entity's own when it is in range, else 0x1000000 | zone << 12 |
-/// index, as the zone's NPC and monster ids run.
-pub(super) fn mob_id(w: &super::World, index: u16) -> u32 {
-    w.entities.iter().find(|(_, e)| e.index == index && e.mob).map(|(id, _)| *id).unwrap_or_else(|| 0x0100_0000 | (w.zone.unwrap_or(0) as u32) << 12 | index as u32)
-}

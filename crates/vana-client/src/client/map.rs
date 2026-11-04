@@ -759,7 +759,7 @@ impl MapWin {
                 };
                 let (px, py) = self.region.px(self.origin.0 as f32 + e.dx as f32, self.origin.1 as f32 + e.dz as f32);
                 let inside = s.filter.is_none_or(|((cx, cy), r2)| (px - cx).pow(2) + (py - cy).pow(2) < r2);
-                (!name.is_empty() && inside).then_some(ScanRow { index: e.index, px: (px as f32, py as f32), sprite, name, trackable: e.kind != 0, id: (w.mob_ids && e.kind == 2).then(|| super::widescan::mob_id(w, e.index)) })
+                (!name.is_empty() && inside).then_some(ScanRow { index: e.index, px: (px as f32, py as f32), sprite, name, trackable: e.kind != 0 })
             })
             .collect();
         s.cursor = s.cursor.min(s.rows.len().saturating_sub(1));
@@ -1658,8 +1658,6 @@ pub struct ScanList {
 #[derive(Clone, Debug)]
 struct ScanRow {
     index: u16,
-    /// Extras' Monster IDs: a monster's server id.
-    id: Option<u32>,
     px: (f32, f32),
     sprite: usize,
     name: String,
@@ -2071,7 +2069,7 @@ impl MapWin {
 /// Wide Scan's list for the modern layer: per row its keytops3 icon and name, the cursor, and mapscan's cursor with
 /// Track's state (off for a player) while it is open.
 pub struct ScanLook {
-    pub rows: Vec<(usize, String, Option<u32>)>,
+    pub rows: Vec<(usize, String)>,
     pub cursor: usize,
     pub mapscan: Option<(u16, bool)>,
 }
@@ -2079,7 +2077,7 @@ pub struct ScanLook {
 impl MapWin {
     pub fn scan_look(&self) -> Option<ScanLook> {
         let s = self.scan.as_ref().filter(|s| !s.hidden && s.narrow.is_none())?;
-        let rows = s.rows.iter().map(|r| (r.sprite, r.name.clone(), r.id)).collect();
+        let rows = s.rows.iter().map(|r| (r.sprite, r.name.clone())).collect();
         let track = s.rows.get(s.cursor).is_some_and(|r| r.trackable);
         Some(ScanLook { rows, cursor: s.cursor, mapscan: s.mapscan.map(|c| (c, track)) })
     }

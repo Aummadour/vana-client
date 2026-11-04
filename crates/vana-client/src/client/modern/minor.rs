@@ -130,17 +130,13 @@ fn map_scan(p: &mut Panels, w: &mut World) {
     let follow = m.moved("map scan", v.cursor);
     let title = gu.focus_text("menu    scanlist", 1)[1].clone().unwrap_or_else(|| "Wide Scan".into());
     let mut click = None;
-    let width = if v.rows.iter().any(|r| r.2.is_some()) { W + 70.0 } else { W };
-    p.panel("scanlist", Some(Title { icon: None, text: &title, note: None }), width, |ui| {
+    p.panel("scanlist", Some(Title { icon: None, text: &title, note: None }), W, |ui| {
         let out = super::kit::list(ui, m, "map scan", v.rows.len(), Some(v.cursor), free && v.mapscan.is_none(), follow, ROW, TALL, |_| false, |ui, row| {
-            let (icon, name, id) = &v.rows[row.index];
+            let (icon, name) = &v.rows[row.index];
             if let Some(t) = m.sprite_icon(ui.ctx(), gu, "menu    keytops3", *icon) {
                 ui.painter().image(t, egui::Rect::from_min_size(row.rect.min + vec2(8.0, (ROW - 16.0) / 2.0), vec2(16.0, 16.0)), full, Color32::WHITE);
             }
             ui.painter().text(row.rect.left_center() + vec2(32.0, 0.0), Align2::LEFT_CENTER, name, FontId::proportional(m.theme.small), super::kit::ink(m, row));
-            if let Some(id) = id {
-                ui.painter().text(row.rect.right_center() - vec2(10.0, 0.0), Align2::RIGHT_CENTER, id.to_string(), FontId::monospace(m.theme.small - 1.0), m.theme.color("muted"));
-            }
         });
         click = out.clicked;
     });

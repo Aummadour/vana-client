@@ -3809,13 +3809,6 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
                     let tid = world.target.unwrap_or(0);
                     let tint = name_colour(tid, e, world, |i| gu.ncol(i));
                     gu.wrapped_name(monstrosity::name(e), max, t.x, t.y, tint, true, e.no_gauge);
-                    // Extras' Monster IDs: the server id over the window's top right.
-                    if world.mob_ids
-                        && e.mob
-                        && let Some(r) = rect
-                    {
-                        gu.shape_text(&format!("{tid} (0x{tid:X})"), r[0] + r[2] - 6.0, r[1] - 15.0, 0x8080_8080, true);
-                    }
                     // Extras: the distance left of the HP gauge, the HP percent at the window's right, on the gauge's row.
                     if !e.no_gauge {
                         if world.target_distance {
@@ -6133,8 +6126,6 @@ struct World {
     /// Config `target_distance` / `target_hpp` / `auto_advance` (extras).
     target_distance: bool,
     target_hpp: bool,
-    /// Config `mob_ids` (extras): monsters' server ids in the target window and the Wide Scan lists.
-    mob_ids: bool,
     auto_advance: u32,
     /// The lamps' lights (client/lamps.rs, Settings' Lamp Lights).
     lamps: lamps::Lamps,
@@ -7127,7 +7118,6 @@ impl App {
             w.synth_amount = self.cfg.synth_amount;
             w.stamp_all_lines = self.cfg.stamp_all_lines;
             (w.target_distance, w.target_hpp, w.auto_advance) = (self.cfg.target_distance, self.cfg.target_hpp, self.cfg.auto_advance);
-            w.mob_ids = self.cfg.mob_ids;
             (w.earth_clock, w.hide_trust_speech, w.hide_ready_lines) = (self.cfg.earth_clock, self.cfg.hide_trust_speech, self.cfg.hide_ready_lines);
             (w.short_battle, w.name_colours) = (self.cfg.short_battle, self.cfg.battle_name_colours);
             w.extra_timers = self.cfg.timers;
@@ -7968,7 +7958,6 @@ impl App {
                             skillchain: Default::default(),
                             target_distance: self.cfg.target_distance,
                             target_hpp: self.cfg.target_hpp,
-                            mob_ids: self.cfg.mob_ids,
                             auto_advance: self.cfg.auto_advance,
                             earth_clock: self.cfg.earth_clock,
                             lamps: Default::default(),
