@@ -21885,6 +21885,9 @@ the monster's name. It is now kept in the data dir for every run, a folder per s
 "127.0.0.1-54002") and a file per character (`config::regime_path`): it mirrors what that server keeps, so both kinds
 of run agree and a same-named character on another server has its own. With no file there yet, a zone-in reads the
 newest by-name file of an earlier build that parses (a kept `null`, a cancel, counts as read).
+- A run with `FFXI_CONFIG` keeps its regime folder beside that copy again (2026-11-04), as chat history and the known
+  servers do: test runs must never write the player's files. Within each kind of run it is still per server and
+  character.
 
 ## rem4line: which rows lose their mark (2026-11-03)
 
