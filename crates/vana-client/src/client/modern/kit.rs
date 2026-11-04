@@ -307,6 +307,21 @@ pub fn line<R>(ui: &mut Ui, m: &Modern, label: &str, focus: bool, follow: bool, 
     (inner.inner, r)
 }
 
+/// `s` as it fits `w` in `font`: whole, or cut at the end with an ellipsis.
+pub fn elide(ui: &Ui, s: &str, font: &FontId, w: f32) -> String {
+    let width = |t: String| ui.fonts_mut(|f| f.layout_no_wrap(t, font.clone(), Color32::WHITE).size().x);
+    if width(s.to_string()) <= w {
+        return s.to_string();
+    }
+    let chars: Vec<char> = s.chars().collect();
+    let (mut lo, mut hi) = (0, chars.len());
+    while lo < hi {
+        let mid = (lo + hi).div_ceil(2);
+        if width(format!("{}…", chars[..mid].iter().collect::<String>().trim_end())) <= w { lo = mid } else { hi = mid - 1 }
+    }
+    format!("{}…", chars[..lo].iter().collect::<String>().trim_end())
+}
+
 /// A value's options as buttons, wrapping, the one held lit (`off` a bit each); the option clicked.
 pub fn choice(ui: &mut Ui, m: &Modern, labels: &[String], at: usize, off: u64) -> Option<usize> {
     let mut out = None;

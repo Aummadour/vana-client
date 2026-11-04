@@ -20730,15 +20730,18 @@ From the 30261006_0 decompile; ours in client/swkbd.rs (classic) and modern/keyb
 - Microphone: cpal input (any rate, linear to 48 kHz), the gain, then voice activity (opens at the threshold, held
   400 ms, the 30 ms before the first loud frame sent too) or push-to-talk (mouse 4 / 5, right Ctrl / Alt / Shift,
   backquote, Caps Lock; raw winit input, never taken from the game).
-- The microphone is open only while someone on our channel is there and it is not muted; it closes 10 s after that
-  ends (2026-11-04). User report: voice on with nobody around dropped a Bluetooth headset from A2DP to HSP/HFP (low
-  quality, a buzz): WirePlumber's bluetooth.autoswitch-to-headset-profile switches when any recording opens. With
-  someone there the switch is unavoidable on the headset's own microphone (another Microphone Device avoids it).
+- The microphone is open while voice chat is on and not muted, and closes 10 s after a mute (2026-11-04). User
+  report: voice on dropped a Bluetooth headset from A2DP to HSP/HFP (low quality, a buzz): WirePlumber's
+  bluetooth.autoswitch-to-headset-profile switches when any recording opens, so it is unavoidable on the headset's own
+  microphone; another Microphone Device avoids it. (Opening it only while someone on the channel was there was tried
+  and dropped: the user wants it open at once.)
   Listing the devices opens nothing (cpal's ALSA enumeration reads hints and ctl info only). Seen with pactl: Firefox
   (Roll20) and KDE's microphone test switch the same headset 1 s after they start recording, back 2 s after.
 - Microphone Device lists the default host's inputs only, less those that are outputs too (PipeWire lists every sink
   as recordable), monitors and the host's own default entry: on the user's PC 4 microphones instead of 40 entries
-  from three hosts. A new device reopens the microphone; the engine (and its session) stays.
+  from three hosts. A new device reopens the microphone; the engine (and its session) stays. Names lose PipeWire's
+  " via USB" and "[Microphone]" parts (unless two would then read the same); the modern Choice row ends a name too
+  long for it with an ellipsis (kit::elide) instead of clipping both ends.
 - Playback: its own cpal output on the game's device (so the game's Sound Off and focus muting don't silence it);
   a jitter buffer per sender (starts at 3 frames or 60 ms, a lost frame is silence or skipped, past 8 frames the oldest
   go); mixed, then linear to the device's rate.

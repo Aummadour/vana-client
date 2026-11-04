@@ -248,22 +248,22 @@ pub struct Status {
     pub unresolved: Vec<String>,
 }
 
-/// The microphone closes this long after the last one who could hear it left (or it was muted).
+/// The microphone closes this long after it was muted.
 const MIC_LINGER: Duration = Duration::from_secs(10);
 
 /// A running voice chat: dropped, it says goodbye and its threads end.
 pub struct Engine {
     shared: Arc<Shared>,
     _out: Option<crate::audio::output::Output>,
-    /// Open only while someone on this channel can hear it: any recording drops a Bluetooth headset to its
-    /// low-quality headset profile (WirePlumber's autoswitch). None closed, Some(Err) failed to open.
+    /// Closed while muted: any recording drops a Bluetooth headset to its low-quality headset profile
+    /// (WirePlumber's autoswitch). None closed, Some(Err) failed to open.
     mic: Option<Result<mic::Mic, String>>,
     /// The device setting the microphone was opened with.
     opened_with: String,
     /// No sound devices (the tests): never opened.
     no_mic: bool,
     stand_mic: Option<std::ffi::OsString>,
-    /// Since when nobody needs the open microphone.
+    /// Since when the open microphone is muted.
     idle: Option<Instant>,
     linger: Duration,
     /// The beacon port this one listens on, when it could take it.
@@ -326,17 +326,15 @@ impl Engine {
         Ok(engine)
     }
 
-    /// Every frame: the microphone opened when someone on this channel can hear it and not muted, closed a while
-    /// after that ends.
+    /// Every frame: the microphone opened while not muted, closed a while after a mute.
     pub fn tick(&mut self) {
         if self.no_mic {
             return;
         }
-        let (muted, chan, input) = {
+        let (want, input) = {
             let c = self.shared.cfg.lock().unwrap();
-            (c.mic_muted, c.channel.clone(), c.input.clone())
+            (!c.mic_muted, c.input.clone())
         };
-        let want = !muted && self.shared.peers.lock().unwrap().values().any(|p| p.channel.eq_ignore_ascii_case(&chan));
         let now = Instant::now();
         // Another device picked: the open one closes, the new one opens now if wanted.
         if self.mic.is_some() && self.opened_with != input {
@@ -356,7 +354,7 @@ impl Engine {
             }
         } else if self.mic.is_some() && now.duration_since(*self.idle.get_or_insert(now)) >= self.linger {
             if matches!(self.mic, Some(Ok(_))) {
-                log::info!("voice: microphone off (no one to hear it)");
+                log::info!("voice: microphone off (muted)");
             }
             (self.mic, self.idle) = (None, None);
             self.shared.level.store((-100f32).to_bits(), Ordering::Relaxed);
@@ -570,23 +568,21 @@ mod tests {
         assert!(wait(|| b.status().peers.is_empty()));
     }
 
-    /// The microphone (a stand-in tone) opens only once someone on this channel can hear it, closes when muted or
-    /// when they leave, and what it sends is heard.
+    /// The microphone (a stand-in tone) opens with the engine, closes when muted, reopens on another device, and
+    /// what it sends is heard.
     #[test]
-    fn mic_opens_only_with_a_listener() {
+    fn mic_opens_unless_muted() {
         let port = 57000 + (std::process::id() % 500) as u16 * 2;
         let cfg = Settings { enabled: true, peers: vec![format!("127.0.0.1:{}", port + 1)], ..Default::default() };
         let mut a = Engine::start_on(&cfg, "Alpha", Some("null"), port, Stand { mic: Some("tone".into()), rec: None }).unwrap();
         a.linger = Duration::ZERO;
-        std::thread::sleep(Duration::from_millis(300));
         a.tick();
-        assert_eq!(a.mic(), Ok(None));
+        assert_eq!(a.mic(), Ok(Some("test tone 440 Hz")));
         let b = Engine::start_on(&Settings { peers: Vec::new(), ..cfg.clone() }, "Beta", None, port + 1, Stand { mic: None, rec: None }).unwrap();
         assert!(wait(|| {
             a.tick();
-            a.mic() == Ok(Some("test tone 440 Hz"))
+            b.status().peers.iter().any(|p| p.name == "Alpha" && p.talking)
         }));
-        assert!(wait(|| b.status().peers.iter().any(|p| p.name == "Alpha" && p.talking)));
         a.apply(&Settings { mic_muted: true, ..cfg.clone() });
         a.tick();
         assert_eq!(a.mic(), Ok(None));
@@ -597,11 +593,6 @@ mod tests {
         a.apply(&Settings { input: "other".into(), ..cfg.clone() });
         a.tick();
         assert!(a.mic().is_ok_and(|m| m.is_some()) && a.opened_with == "other");
-        drop(b);
-        assert!(wait(|| {
-            a.tick();
-            a.mic() == Ok(None)
-        }));
     }
 
     #[test]

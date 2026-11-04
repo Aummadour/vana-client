@@ -70,10 +70,8 @@ impl VoiceChat {
                     1 => "On. 1 other player on this channel.".to_string(),
                     n => format!("On. {n} other players on this channel."),
                 };
-                match e.mic() {
-                    Err(m) => s.push_str(&format!(" No microphone: {m}.")),
-                    Ok(None) if !c.mic_muted => s.push_str(" Your microphone opens when someone joins."),
-                    _ => {}
+                if let Err(m) = e.mic() {
+                    s.push_str(&format!(" No microphone: {m}."));
                 }
                 if let Err(m) = &e.discovery {
                     s.push_str(&format!(" Finding others on port {} failed ({m}): add them by address.", voice::PORT));

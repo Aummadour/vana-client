@@ -264,6 +264,7 @@ fn panel(p: &mut Panels, items: Option<&super::super::items::ItemCache>, pid: &s
                                     hit = Some(-1);
                                 }
                                 let (r, resp) = ui.allocate_exact_size(vec2((ui.available_width() - 42.0).max(40.0), 30.0), Sense::click());
+                                let v = kit::elide(ui, v, &small, r.width() - 8.0);
                                 ui.painter().with_clip_rect(r).text(r.center(), Align2::CENTER_CENTER, v, small.clone(), if here { text_c } else { muted });
                                 if resp.clicked() {
                                     hit = Some(1);

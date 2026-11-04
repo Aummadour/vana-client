@@ -40,7 +40,31 @@ pub fn devices() -> Vec<(String, String)> {
         })
         .collect();
     let mics: Vec<(String, String)> = all.iter().filter(|(id, _, out)| !out && !id.ends_with(".monitor") && !id.ends_with(":input_default")).map(|(id, n, _)| (id.clone(), n.clone())).collect();
-    if mics.is_empty() { all.into_iter().map(|(id, n, _)| (id, n)).collect() } else { mics }
+    let mut list = if mics.is_empty() { all.into_iter().map(|(id, n, _)| (id, n)).collect() } else { mics };
+    // The short names, unless two would read the same.
+    let short: Vec<String> = list.iter().map(|d| tidy(&d.1)).collect();
+    for (k, d) in list.iter_mut().enumerate() {
+        if short.iter().filter(|s| **s == short[k]).count() == 1 && !short[k].is_empty() {
+            d.1 = short[k].clone();
+        }
+    }
+    list
+}
+
+/// PipeWire's "Name [Port] via Bus" as "Name".
+fn tidy(s: &str) -> String {
+    let s = s.rsplit_once(" via ").map_or(s, |(name, _)| name);
+    let mut out = String::new();
+    let mut depth = 0u32;
+    for c in s.chars() {
+        match c {
+            '[' => depth += 1,
+            ']' => depth = depth.saturating_sub(1),
+            c if depth == 0 => out.push(c),
+            _ => {}
+        }
+    }
+    out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Starts the microphone: `src` ("tone", "tone:HZ" or a WAV file) in place of a device; none in a test run's null
@@ -243,6 +267,13 @@ fn run(shared: Arc<Shared>, stop: Arc<AtomicBool>, rx: Receiver<Vec<f32>>, rate:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn device_names_tidied() {
+        assert_eq!(tidy("Anker PowerConf C200 Analog Stereo via USB"), "Anker PowerConf C200 Analog Stereo");
+        assert_eq!(tidy("Ryzen HD Audio Controller Stereo Microphone [Microphone] via PCI"), "Ryzen HD Audio Controller Stereo Microphone");
+        assert_eq!(tidy("WH-1000XM6"), "WH-1000XM6");
+    }
 
     #[test]
     fn resample_keeps_the_rate() {
