@@ -20853,4 +20853,5 @@ checked in the decompile before the change.
   character's session bound to the old one and got no answer ("0x00A ... ignored, session is bound to ..."); the
   current LSB moves the session to the new address, so ours worked there.
 - net/map/session.rs binds as FUN_100dc430 (the buffer sizes not copied). Seen live: our LSB zones from 54090 each
-  time; the other server zoned in and out of the Mog House from 54346 (54090 was held by a second client).
+  time; the other server zoned in and out of the Mog House from 54346 (54090 was held by a second client); a
+  PlayOnline (-net 3) sign-in zoned out of the Mog House and back with it too (user, 2026-11-04).
