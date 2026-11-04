@@ -16,6 +16,10 @@ use std::sync::Arc;
 
 /// Main inventory (LSB LOC_INVENTORY).
 pub const INVENTORY: u8 = 0;
+/// The temporary items (LSB LOC_TEMPITEMS): listed above the inventory in the Items lists.
+pub const TEMP: u8 = 3;
+/// The temporary rows' colour (the inventory and direct sources' +0x20, FUN_101f1bf0 / FUN_101f1c40).
+const TINT_TEMP: u32 = 0x8080_6040;
 /// The recycle bin's container.
 const BIN: u8 = 17;
 /// The inventory list's x beside the bin (the partner source's position kind 1, FUN_101f1fe0).
@@ -128,7 +132,10 @@ impl Inventory {
     pub fn slots_of(&self, container: u8) -> Vec<Slot> {
         self.slots
             .range((container, 0)..=(container, 255))
-            .map(|(&(c, i), &(id, count))| Slot { index: i, id, count, equipped: self.equip.contains(&Some((c, i))), equipped_ex: false })
+            .map(|(&(c, i), &(id, count))| {
+                let equipped = self.equip.contains(&Some((c, i)));
+                Slot { index: i, id, count, equipped, equipped_ex: equipped && self.ext.get(&(c, i)).is_some_and(charged_ready) }
+            })
             .collect()
     }
 
@@ -276,8 +283,8 @@ pub struct Qty {
 /// "menu    sortyn" for Drop (FUN_10222770: Yes / No, default No; iuse stays under it).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Sub {
-    Use { child: u16, index: u8, id: u16 },
-    Drop { index: u8, id: u16, yes: bool },
+    Use { child: u16, c: u8, index: u8, id: u16 },
+    Drop { c: u8, index: u8, id: u16, yes: bool },
 }
 
 pub fn open_items(w: &mut World) {
@@ -301,6 +308,19 @@ pub fn modern_list(w: &World) -> bool {
 /// The list's rows: the occupied inventory slots but gil; for the direct list only those FUN_101f0810 colours
 /// (crystals, maze tabulae, usable non-equipment, equipped charged gear).
 pub(super) fn listed(w: &World, direct: bool) -> Vec<Slot> {
+    listed_at(w, direct).into_iter().map(|(_, s)| s).collect()
+}
+
+/// The list's rows with their containers. FUN_101f1100's rebuild: with container 3 loaded and the source's +0x20 not 0
+/// (both the main list's and the direct list's), the temporary items come first (+0x54 rows, every one, in their
+/// view's order), then the inventory's.
+pub(super) fn listed_at(w: &World, direct: bool) -> Vec<(u8, Slot)> {
+    let temp = w.inv.viewed(TEMP).into_iter().filter(|s| s.index != 0 && s.id != 0).map(|s| (TEMP, s));
+    temp.chain(inventory_rows(w, direct).into_iter().map(|s| (INVENTORY, s))).collect()
+}
+
+/// The inventory's rows alone (the storage view's inventory side has no temporary rows: its sources' +0x20 is 0).
+fn inventory_rows(w: &World, direct: bool) -> Vec<Slot> {
     let info = w.item_info.as_ref();
     w.inv
         .viewed(INVENTORY)
@@ -313,6 +333,11 @@ pub(super) fn listed(w: &World, direct: bool) -> Vec<Slot> {
                 })
         })
         .collect()
+}
+
+/// The temporary rows at the top of the list (they don't count against the inventory's size).
+pub(super) fn temp_rows(shown: &[(u8, Slot)]) -> usize {
+    shown.iter().take_while(|(c, _)| *c == TEMP).count()
 }
 
 pub fn open_equipment(w: &mut World) {
@@ -417,8 +442,8 @@ pub fn key(w: &mut World, key: egui::Key, page: bool, alt: bool) -> bool {
         return w.win.is_some() || key == egui::Key::Escape;
     };
     let direct = matches!(w.win, Some(Win::Items { direct: true, .. }));
-    let rows = listed(w, direct).len();
-    let shown = listed(w, direct);
+    let shown = listed_at(w, direct);
+    let rows = shown.len();
     if matches!(w.win, Some(Win::Items { store: Some(_), .. })) {
         // The modern storage view has its own keys.
         if !super::modern::storage_key(w, key) {
@@ -476,9 +501,9 @@ pub fn key(w: &mut World, key: egui::Key, page: bool, alt: bool) -> bool {
             use crate::audio::Ui;
             let step = matches!(key, egui::Key::ArrowUp | egui::Key::ArrowDown) || w.modern && matches!(key, egui::Key::ArrowLeft | egui::Key::ArrowRight);
             match sub.unwrap() {
-                Sub::Use { child, index, id } => match key {
+                Sub::Use { child, c, index, id } => match key {
                     _ if step => {
-                        *sub = Some(Sub::Use { child: 3 - child, index, id });
+                        *sub = Some(Sub::Use { child: 3 - child, c, index, id });
                         w.sounds.push(Ui::Cursor as u32);
                     }
                     egui::Key::Escape => {
@@ -486,12 +511,12 @@ pub fn key(w: &mut World, key: egui::Key, page: bool, alt: bool) -> bool {
                         w.sounds.push(Ui::Cancel as u32);
                     }
                     egui::Key::Enter => {
-                        let ok = iuse_states(w, index, id)[child as usize - 1];
+                        let ok = iuse_states(w, c, index, id)[child as usize - 1];
                         if !ok {
                             w.sounds.push(Ui::Error as u32);
                         } else if child == 2 {
                             if let Some(Win::Items { sub, .. }) = &mut w.win {
-                                *sub = Some(Sub::Drop { index, id, yes: false });
+                                *sub = Some(Sub::Drop { c, index, id, yes: false });
                             }
                             w.sounds.push(Ui::Select as u32);
                         } else {
@@ -499,22 +524,22 @@ pub fn key(w: &mut World, key: egui::Key, page: bool, alt: bool) -> bool {
                                 *sub = None;
                             }
                             w.sounds.push(Ui::Select as u32);
-                            use_entry(w, index, id);
+                            use_entry(w, c, index, id);
                         }
                     }
                     _ => {}
                 },
-                Sub::Drop { index, id, yes } => match key {
+                Sub::Drop { c, index, id, yes } => match key {
                     _ if step => {
-                        *sub = Some(Sub::Drop { index, id, yes: !yes });
+                        *sub = Some(Sub::Drop { c, index, id, yes: !yes });
                         w.sounds.push(Ui::Cursor as u32);
                     }
                     egui::Key::Enter | egui::Key::Escape => {
                         let yes = yes && key == egui::Key::Enter;
-                        *sub = Some(Sub::Use { child: 2, index, id });
+                        *sub = Some(Sub::Use { child: 2, c, index, id });
                         w.sounds.push(if yes { Ui::Select } else { Ui::Cancel } as u32);
                         if yes {
-                            drop_entry(w, index, id);
+                            drop_entry(w, c, index, id);
                         }
                     }
                     _ => {}
@@ -585,11 +610,13 @@ pub fn key(w: &mut World, key: egui::Key, page: bool, alt: bool) -> bool {
                 egui::Key::Enter => {
                     let at = *scroll + *cursor;
                     match (held, shown.get(at)) {
-                        (None, Some(s)) => {
+                        // Ours: Manual Sort moves inventory slots; a temporary row can't be picked or taken.
+                        (_, Some((TEMP, _))) => w.sounds.push(Ui::Error as u32),
+                        (None, Some((_, s))) => {
                             *manual = Some(Some(s.index));
                             w.sounds.push(Ui::Select as u32);
                         }
-                        (Some(from), Some(to)) => {
+                        (Some(from), Some((_, to))) => {
                             let to = to.clone();
                             *manual = Some(None);
                             w.sounds.push(Ui::Select as u32);
@@ -623,17 +650,17 @@ pub fn key(w: &mut World, key: egui::Key, page: bool, alt: bool) -> bool {
             }
             // FUN_101f0a10: the direct list uses at once, SE 0002.
             egui::Key::Enter if *direct => {
-                if let Some(s) = shown.get(*scroll + *cursor).cloned() {
+                if let Some((c, s)) = shown.get(*scroll + *cursor).cloned() {
                     w.sounds.push(crate::audio::Ui::Select as u32);
-                    use_entry(w, s.index, s.id);
+                    use_entry(w, c, s.index, s.id);
                 }
             }
             // FUN_101f2bb0: iuse for the row (not for lock 0x19), SE 0002.
             egui::Key::Enter => {
-                if let Some(s) = shown.get(*scroll + *cursor)
-                    && w.inv.locks.get(&(INVENTORY, s.index)).copied().unwrap_or(0) != 0x19
+                if let Some((c, s)) = shown.get(*scroll + *cursor)
+                    && w.inv.locks.get(&(*c, s.index)).copied().unwrap_or(0) != 0x19
                 {
-                    *sub = Some(Sub::Use { child: 1, index: s.index, id: s.id });
+                    *sub = Some(Sub::Use { child: 1, c: *c, index: s.index, id: s.id });
                     w.sounds.push(crate::audio::Ui::Select as u32);
                 }
             }
@@ -714,7 +741,10 @@ pub fn info_source(w: &World) -> Option<(u16, Option<[u8; 24]>, u8, u8, bool, u8
         // FUN_101dca80: the bin side shows its cursor row; mode 1 (130, 240) clears itemctrl.
         Win::Items { store: Some(b), .. } if b.on_bank || b.read_only => (store_rows(w, b.bank).get(b.scroll + b.cursor)?.clone(), b.bank, if b.qty.is_some() { 1 } else { 0 }),
         Win::Items { store: Some(b), scroll, cursor, .. } => (store_rows(w, b.side).get(scroll + cursor)?.clone(), b.side, if b.qty.is_some() { 1 } else { 0 }),
-        Win::Items { scroll, cursor, direct, .. } => (listed(w, *direct).get(scroll + cursor)?.clone(), INVENTORY, 0),
+        Win::Items { scroll, cursor, direct, .. } => {
+            let (c, s) = listed_at(w, *direct).get(scroll + cursor)?.clone();
+            (s, c, 0)
+        }
         Win::Equip(_) => return super::equipwin::info_source(w),
     };
     Some((slot.id, w.inv.ext.get(&(container, slot.index)).copied(), container, slot.index, slot.equipped, mode))
@@ -730,6 +760,12 @@ pub(in crate::client) fn native_list(w: &World) -> Option<(u8, Vec<Slot>, usize,
     }
 }
 
+/// FUN_100febe0 (MODLOG's FUN_100fbc70; the item id is not read): the extdata is the charged-item layout (byte 0 == 1,
+/// use times at +4 / +8) and byte 3 bit 0x40 is set (ready to use; Windower's "usable").
+pub(super) fn charged_ready(e: &[u8; 24]) -> bool {
+    e[0] == 1 && e[3] & 0x40 != 0
+}
+
 /// The item's target prompt is up (SubThen::Item).
 pub(super) fn item_prompt(w: &World) -> bool {
     matches!(w.prompt.as_ref().map(|p| &p.then), Some(super::target::SubThen::Item { .. }))
@@ -737,12 +773,24 @@ pub(super) fn item_prompt(w: &World) -> bool {
 
 /// The list's rows in their colours; FUN_101f0810: the direct list's, yellow for usable items, equipped charged gear
 /// blue when ready (extdata kind 1, u16 @2 bit 0x4000), else grey.
-pub(super) fn list_rows(w: &World, info: &ItemCache, shown: &[Slot], direct: bool) -> Vec<crate::inventory::Row> {
-    let mut rows = build_rows(shown, info, false);
+/// The temporary rows (FUN_101f1100's first +0x54) take the source's +0x20 colour and show no quantity.
+pub(super) fn list_rows(w: &World, info: &ItemCache, shown: &[(u8, Slot)], direct: bool) -> Vec<crate::inventory::Row> {
+    let slots: Vec<Slot> = shown.iter().map(|(_, s)| s.clone()).collect();
+    let mut rows = build_rows(&slots, info, false);
+    // FUN_101f06e0 rule 4: the equipped linkshell / linkshell 2 from this slot of this bag is green, after the
+    // equipped rules and before the yellow / white ones.
+    for (r, (c, s)) in rows.iter_mut().zip(shown) {
+        if matches!(r.tint, crate::inventory::TINT_FLAGGED | crate::inventory::TINT_WHITE) && linkshell_row(w, *c, s.index) {
+            r.tint = crate::inventory::TINT_EQUIPPED;
+        }
+    }
+    for (r, _) in rows.iter_mut().zip(shown).filter(|(_, (c, _))| *c == TEMP) {
+        (r.tint, r.count) = (TINT_TEMP, None);
+    }
     if direct {
-        for (r, s) in rows.iter_mut().zip(shown) {
+        for (r, s) in rows.iter_mut().zip(&slots).skip(temp_rows(shown)) {
             let gear = info.item(s.id).is_some_and(|it| matches!(it.item_type, 4 | 5));
-            let ready = w.inv.ext.get(&(INVENTORY, s.index)).is_some_and(|e| e[0] == 1 && u16::from_le_bytes([e[2], e[3]]) & 0x4000 != 0);
+            let ready = w.inv.ext.get(&(INVENTORY, s.index)).is_some_and(charged_ready);
             r.tint = match (gear, ready) {
                 (false, _) => crate::inventory::TINT_FLAGGED,
                 (true, true) => 0x8040_7090,
@@ -756,25 +804,25 @@ pub(super) fn list_rows(w: &World, info: &ItemCache, shown: &[Slot], direct: boo
 /// FUN_101f2de0 / FUN_101f2ec0: [Use, Drop] enabled. Use: crystals and maze tabulae, non-equipment with record flag
 /// 0x400, equipped charged gear whose extdata (kind 1) has u16 @2 bit 0x4000; never as a monster (main job 0x17).
 /// Drop: the slot's lock byte is 0.
-pub(super) fn iuse_states(w: &World, index: u8, id: u16) -> [bool; 2] {
+pub(super) fn iuse_states(w: &World, c: u8, index: u8, id: u16) -> [bool; 2] {
     let Some(it) = w.item_info.as_ref().and_then(|c| c.item(id)) else { return [false, false] };
-    let ext = w.inv.ext.get(&(INVENTORY, index));
-    let equipped = w.inv.equip.contains(&Some((INVENTORY, index)));
+    let ext = w.inv.ext.get(&(c, index));
+    let equipped = w.inv.equip.contains(&Some((c, index)));
     let usable = matches!(it.item_type, 8 | 0x16 | 0x17)
         || (!matches!(it.item_type, 4 | 5) && it.flags & 0x400 != 0)
         || (matches!(it.item_type, 4 | 5) && it.max_charges != 0 && equipped && ext.is_some_and(|e| e[0] == 1 && u16::from_le_bytes([e[2], e[3]]) & 0x4000 != 0));
     // FUN_101f2de0 / FUN_101f2ec0: Use is off in Monstrosity.
     let monster = super::monstrosity::active(w);
-    [usable && !monster, w.inv.locks.get(&(INVENTORY, index)).copied().unwrap_or(0) == 0 && id != 0xffff]
+    [usable && !monster, w.inv.locks.get(&(c, index)).copied().unwrap_or(0) == 0 && id != 0xffff]
 }
 
 /// iuse and sortyn: the frame, children, caption; disabled children with their dim (kind 4) sprite.
 fn draw_iuse(gu: &mut GameUi, w: &World, s: Sub, sw: f32, sh: f32) -> Vec<[f32; 4]> {
-    let (child, index, id, ask) = match s {
-        Sub::Use { child, index, id } => (Some(child), index, id, None),
-        Sub::Drop { index, id, yes } => (None, index, id, Some(yes)),
+    let (child, c, index, id, ask) = match s {
+        Sub::Use { child, c, index, id } => (Some(child), c, index, id, None),
+        Sub::Drop { c, index, id, yes } => (None, c, index, id, Some(yes)),
     };
-    let on = iuse_states(w, index, id);
+    let on = iuse_states(w, c, index, id);
     let off: Vec<u16> = (1..=2).filter(|&c| !on[c as usize - 1]).collect();
     let mut rects = Vec::new();
     if let Some(win) = gu.lobby_window_off("menu    iuse", sw, sh, (0.0, 0.0), child, child.is_some(), &off) {
@@ -793,11 +841,11 @@ fn draw_iuse(gu: &mut GameUi, w: &World, s: Sub, sw: f32, sh: f32) -> Vec<[f32; 
 /// FUN_101f2ec0: iuse closes when the list cursor no longer rests on the slot it opened for.
 pub fn check_iuse(w: &mut World) {
     let Some(Win::Items { scroll, cursor, sub: Some(s), direct, .. }) = &w.win else { return };
-    let (index, id) = match *s {
-        Sub::Use { index, id, .. } | Sub::Drop { index, id, .. } => (index, id),
+    let (c, index, id) = match *s {
+        Sub::Use { c, index, id, .. } | Sub::Drop { c, index, id, .. } => (c, index, id),
     };
-    let here = listed(w, *direct).get(scroll + cursor).cloned();
-    if here.is_none_or(|s| s.index != index || s.id != id)
+    let here = listed_at(w, *direct).get(scroll + cursor).cloned();
+    if here.is_none_or(|(hc, s)| hc != c || s.index != index || s.id != id)
         && let Some(Win::Items { sub, .. }) = &mut w.win
     {
         *sub = None;
@@ -807,7 +855,7 @@ pub fn check_iuse(w: &mut World) {
 /// iuse Use (FUN_101f33a0 case 1): tabulae open the maze editor, crystals the synthesis; anything else passes the
 /// status gate 0x7f, or, for an item with record flag 0x0008 in the Mog Garden, gate 0x77 quietly (the Mog House bit
 /// left out), and opens the target prompt with the item's targets (0x7f with no record), title "Items", help 0xe 4.
-fn use_entry(w: &mut World, index: u8, id: u16) {
+fn use_entry(w: &mut World, c: u8, index: u8, id: u16) {
     let it = w.item_info.as_ref().and_then(|c| c.item(id));
     match it.as_ref().map(|i| i.item_type) {
         // A Maze Tabula (FUN_101fcf60): the editor, M tabulae (0x16) to edit, R ones (0x17) to view; iuse closes.
@@ -823,7 +871,7 @@ fn use_entry(w: &mut World, index: u8, id: u16) {
             let garden = it.as_ref().is_some_and(|i| i.flags & 0x0008 != 0) && gate_line(w, 0x80).is_some() && gate_line(w, 0x77).is_none();
             if garden || status_gate(w, 0x7f) {
                 let targets = it.map_or(0x7f, |i| i.targets as u32);
-                super::target::open_sub(w, targets, super::target::SubThen::Item { container: INVENTORY, index }, None, String::new(), 4);
+                super::target::open_sub(w, targets, super::target::SubThen::Item { container: c, index }, None, String::new(), 4);
             }
         }
     }
@@ -832,10 +880,10 @@ fn use_entry(w: &mut World, index: u8, id: u16) {
 /// Ours: while iuse or the drop question is up, the cursor stays on its item as the list changes under it (a new item,
 /// the kept-sorted sort); the question closes when the item is gone from its slot.
 pub(super) fn follow_held(w: &mut World) {
-    let Some(Win::Items { sub: Some(Sub::Use { index, id, .. } | Sub::Drop { index, id, .. }), store: None, direct, .. }) = &w.win else { return };
-    let (index, id, direct) = (*index, *id, *direct);
-    let rows = listed(w, direct);
-    let at = rows.iter().position(|s| s.index == index).filter(|_| w.inv.item(INVENTORY, index) == Some(id));
+    let Some(Win::Items { sub: Some(Sub::Use { c, index, id, .. } | Sub::Drop { c, index, id, .. }), store: None, direct, .. }) = &w.win else { return };
+    let (c, index, id, direct) = (*c, *index, *id, *direct);
+    let rows = listed_at(w, direct);
+    let at = rows.iter().position(|(rc, s)| *rc == c && s.index == index).filter(|_| w.inv.item(c, index) == Some(id));
     let Some(Win::Items { sub, scroll, cursor, .. }) = &mut w.win else { return };
     match at {
         Some(at) => {
@@ -865,6 +913,44 @@ pub(super) fn auto_sort_tick(w: &mut World, dt: f32) {
         log::info!("items: container {c} kept sorted, sorting");
         auto_sort_c(w, c);
     }
+}
+
+/// FUN_100eb8d0: the empty slots in 1..size.
+pub(super) fn free_slots(w: &World, c: u8) -> u32 {
+    let size = (w.inv.sizes[c as usize] as usize).saturating_sub(1);
+    let used = w.inv.slots_of(c).iter().filter(|x| x.index != 0 && (x.index as usize) <= size).count();
+    size.saturating_sub(used) as u32
+}
+
+/// LSB drops a 0x03A within 1 s of the last one and logs the player out at the 4th dropped (LIGHTLUGGAGE_BLOCK), so
+/// Auto-sort's sends wait out the second (ours: retail sends at once).
+const SORT_GAP: f32 = 1.0;
+
+/// FUN_1021c4c0 (each frame in the field, FUN_1015fa00): the inventory's free slots (FUN_100eb8d0) against the last
+/// count; with Auto-sort on (config 0x9a != 0: FUN_101978e0 sets the inventory record's +5) a fall (an item took a new
+/// slot) sorts the inventory (FUN_1021c7c0: the view by config 0xca, c2s 0x03A {0}, which merges the stacks) unless
+/// Manual Sort's split held it (+6); any change clears the hold. Other containers' records never get +5.
+pub(super) fn retail_auto_sort(w: &mut World, dt: f32) {
+    w.sort_wait = (w.sort_wait + dt).min(SORT_GAP * 2.0);
+    let Some(last) = w.inv_free else { return };
+    let now = free_slots(w, INVENTORY);
+    if now == last {
+        return;
+    }
+    if w.game.get(0x9a) != 0 {
+        if now < last && !w.sort_hold {
+            if w.sort_wait >= SORT_GAP {
+                log::info!("items: Auto-sort, {last} -> {now} free");
+                auto_sort(w);
+            } else {
+                let wait = SORT_GAP - w.sort_wait;
+                let due = if w.sort_due.0 == 0 { wait } else { w.sort_due.1.max(wait) };
+                w.sort_due = (w.sort_due.0 | 1 << INVENTORY, due);
+            }
+        }
+        w.sort_hold = false;
+    }
+    w.inv_free = Some(now);
 }
 
 /// Auto keeps the container sorted (ours), Manual stops it.
@@ -902,6 +988,9 @@ pub(super) fn auto_sort_c(w: &mut World, c: u8) {
     let gil = w.inv.order.get(&c).is_some_and(|o| o.contains(&0));
     let order: Vec<u8> = gil.then_some(0).into_iter().chain(v.iter().map(|s| s.index)).collect();
     w.inv.order.insert(c, order);
+    if c == INVENTORY {
+        w.sort_wait = 0.0;
+    }
     let _ = w.net.commands.send(NetCommand::Packet { id: 0x03A, body: (c as u32).to_le_bytes().to_vec() });
 }
 
@@ -925,6 +1014,10 @@ fn manual_move_c(w: &mut World, c: u8, from: u8, to: &Slot) {
     if to.index == from {
         if count > 1 && stack > 1 {
             mv(w, 1, from, 0x52);
+            // FUN_101f0b30 / FUN_101dbed0 (inventory only): the split's new slot doesn't trigger Auto-sort.
+            if c == INVENTORY {
+                w.sort_hold = true;
+            }
         }
         return;
     }
@@ -988,20 +1081,20 @@ pub fn use_slot(w: &mut World, container: u8, index: u8, target: u32) {
 }
 
 /// LAB_101f30c0: Ex / Rare (flags 0xc000), augmented or the Linkshell ask once more (comyn); others go at once.
-fn drop_entry(w: &mut World, index: u8, id: u16) {
+fn drop_entry(w: &mut World, c: u8, index: u8, id: u16) {
     let Some(it) = w.item_info.as_ref().and_then(|c| c.item(id)) else { return };
-    let aug = w.inv.ext.get(&(INVENTORY, index)).is_some_and(|e| matches!(e[0], 2 | 3));
+    let aug = w.inv.ext.get(&(c, index)).is_some_and(|e| matches!(e[0], 2 | 3));
     if it.flags & 0xc000 != 0 || aug || id == 0x201 {
-        w.confirm = Some((super::Confirm::Drop { index, id, stage: 0 }, false));
+        w.confirm = Some((super::Confirm::Drop { c, index, id, stage: 0 }, false));
     } else {
-        drop_now(w, index, id);
+        drop_now(w, c, index, id);
     }
 }
 
 /// FUN_101f2ff0: c2s 0x028 {count = the whole stack, container, index}; iuse closes. Ours sends nothing when the slot
 /// no longer holds item `id` (a stack merged or moved while the prompt was up).
-pub fn drop_now(w: &mut World, index: u8, id: u16) {
-    let Some(&(_, count)) = w.inv.slots.get(&(INVENTORY, index)).filter(|_| w.inv.item(INVENTORY, index) == Some(id)) else {
+pub fn drop_now(w: &mut World, c: u8, index: u8, id: u16) {
+    let Some(&(_, count)) = w.inv.slots.get(&(c, index)).filter(|_| w.inv.item(c, index) == Some(id)) else {
         log::info!("items: drop of {id:#x} at {index} cancelled, the slot changed");
         if let Some(Win::Items { sub, .. }) = &mut w.win {
             *sub = None;
@@ -1011,7 +1104,7 @@ pub fn drop_now(w: &mut World, index: u8, id: u16) {
     };
     let mut b = vec![0u8; 8];
     b[0..4].copy_from_slice(&count.to_le_bytes());
-    (b[4], b[5]) = (INVENTORY, index);
+    (b[4], b[5]) = (c, index);
     let _ = w.net.commands.send(NetCommand::Packet { id: 0x028, body: b });
     if let Some(Win::Items { sub, .. }) = &mut w.win {
         *sub = None;
@@ -1027,11 +1120,11 @@ pub fn draw(gu: &mut GameUi, w: &World, sw: f32, sh: f32) -> Vec<[f32; 4]> {
         Win::Items { .. } if item_prompt(w) => {}
         Win::Items { scroll, cursor, store: Some(b), .. } => rects.extend(draw_storage(gu, w, info, *scroll, *cursor, b, sw, sh, frame)),
         Win::Items { scroll, cursor, sub, direct, sort, manual, .. } => {
-            let shown = listed(w, *direct);
+            let shown = listed_at(w, *direct);
             let rows = list_rows(w, info, &shown, *direct);
             let list = ItemList { rows, scroll: *scroll, cursor: *cursor };
             if !*direct && sub.is_none() && sort.is_none() {
-                draw_count(gu, shown.len(), w.inv.sizes[INVENTORY as usize], sw, sh);
+                draw_count(gu, shown.len() - temp_rows(&shown), w.inv.sizes[INVENTORY as usize], sw, sh);
             }
             upload_icons(gu, info, list.visible().iter().map(|r| r.id));
             let open = gu.gate_layout("menu    inventor", sw, sh, None);
@@ -1106,7 +1199,7 @@ fn wardrobe(c: u8) -> bool {
 /// A container's rows in view order (the inventory as the item list shows it).
 pub(super) fn store_rows(w: &World, c: u8) -> Vec<Slot> {
     if c == INVENTORY {
-        return listed(w, false);
+        return inventory_rows(w, false);
     }
     w.inv.viewed(c).into_iter().filter(|s| s.index != 0 && s.id != 0).collect()
 }
@@ -1145,8 +1238,8 @@ pub fn open_bin(w: &mut World, from_menu: bool) -> bool {
     true
 }
 
-/// FUN_101daf70(c, need_satchel, nomad): Satchel, Sack, Case, the wardrobes. Gate 0x44 (the costume bit and the job
-/// change cooldown are not tracked); a missing Satchel (ItemNum < 30) fails silently. At the moogle in our own Mog
+/// FUN_101daf70(c, need_satchel, nomad): Satchel, Sack, Case, the wardrobes. Gate 0x44 (the job
+/// change cooldown is not tracked); a missing Satchel (ItemNum < 30) fails silently. At the moogle in our own Mog
 /// House of a residential zone (with the moogle's line 0x2e), or by a nomad moogle in a MogZoneFlag zone; else the
 /// Safe / Storage / Locker rows stay grey. Opens anywhere.
 pub fn open_daf70(w: &mut World, c: u8, need_satchel: bool, nomad: bool) -> bool {
@@ -1200,8 +1293,13 @@ pub fn open_dae10(w: &mut World, c: u8, nomad: bool) -> bool {
     true
 }
 
+/// FUN_100e9730 for n = 1 / 2: the row (bag `c`, slot `index`) holds the equipped linkshell or linkshell 2
+/// (s2c 0x0E0 @5 slot / @6 bag, FUN_100ea780).
+pub(super) fn linkshell_row(w: &World, c: u8, index: u8) -> bool {
+    (1..=2).any(|n| super::chatctrl::ls_on(w, n) && w.linkshells[n] == (index, c))
+}
+
 /// FUN_101db220 for a row of the bank side (`bank_side`) or the inventory side; the first rule that applies wins.
-/// Not done: the equipped linkshell (7, s2c 0x0E0).
 pub(super) fn tint(w: &World, info: &ItemCache, st: &Storage, bank_side: bool, s: &Slot) -> u32 {
     use crate::inventory::{TINT_DIM, TINT_WHITE};
     let (own, dest) = if bank_side { (st.bank, st.side) } else { (st.side, st.bank) };
@@ -1237,9 +1335,12 @@ pub(super) fn tint(w: &World, info: &ItemCache, st: &Storage, bank_side: bool, s
         return TINT_DIM;
     }
     let equipped = (own == INVENTORY || wardrobe(own)) && w.inv.equip.contains(&Some((own, s.index)));
+    // Rule 7 (asm 0x101db46a..0x101db4e6): from bags 0 / 5 / 6 / 7, not into a wardrobe, the equipped linkshell or
+    // linkshell 2 is grey (the item lists draw it green; here it may not move).
+    let shell = matches!(own, 0 | 5 | 6 | 7) && !wardrobe(dest) && linkshell_row(w, own, s.index);
     let gear = it.as_ref().is_some_and(|it| it.level != 0 && it.races != 0);
     let moogle_only = |c: u8| matches!(c, 1 | 2 | 4 | 9);
-    if equipped || (wardrobe(dest) && !gear) || (dest == 2 && furniture) || (!st.at_moogle && (moogle_only(own) || moogle_only(dest))) {
+    if equipped || shell || (wardrobe(dest) && !gear) || (dest == 2 && furniture) || (!st.at_moogle && (moogle_only(own) || moogle_only(dest))) {
         return TINT_DIM;
     }
     if st.qty.is_some_and(|q| q.index == s.index && q.from == own) {
@@ -1314,7 +1415,8 @@ fn store_key(w: &mut World, info: &ItemCache, key: egui::Key, page: bool, alt: b
         }
         b.qty = Some(q);
         match key {
-            K::ArrowUp | K::ArrowDown | K::ArrowRight | K::ArrowLeft => w.sounds.push(Ui::Cursor as u32),
+            // FUN_1013a6c0 / FUN_10140bc0 play nothing on the arrows or at a limit (only OK 0002 / cancel 0003).
+            K::ArrowUp | K::ArrowDown | K::ArrowRight | K::ArrowLeft => {}
             K::Enter => {
                 send_move(w, q.from, q.to, q.index, q.value);
                 b.qty = None;
@@ -1746,7 +1848,7 @@ fn draw_storage(gu: &mut GameUi, w: &World, info: &ItemCache, scroll: usize, cur
 
 /// FUN_101cb590: "items/size" at titlewin's right edge while an item list is focused: "/" at (x1 - 0x16, y0 + 8), the
 /// count right-aligned at (x1 - 0x13, y0 + 4), the size right-aligned at (x1 - 1, y1 - 0x10), all 0x80808080.
-/// Retail takes temporary items and a few table counts off (FUN_101f2740 tail, not traced); ours counts the rows.
+/// The count leaves the temporary rows out (FUN_101f1100's +0x52 less +0x54).
 fn draw_count(gu: &mut GameUi, n: usize, size: u8, sw: f32, sh: f32) {
     let Some([x0, y0, w, h]) = gu.window_rect("menu    titlewin", sw, sh) else { return };
     let (x1, y1) = (x0 + w, y0 + h);
@@ -1808,4 +1910,20 @@ pub(super) fn persona(w: &World) -> Persona {
         base: st.base,
         bonus: st.adj,
     })
+}
+
+#[cfg(test)]
+mod charged_tests {
+    /// Blue names: a charged item's extdata (kind 1) with byte 3 bit 0x40; anything else stays green.
+    #[test]
+    fn charged_ready_reads_kind_and_bit() {
+        let mut e = [0u8; 24];
+        assert!(!super::charged_ready(&e));
+        e[0] = 1;
+        assert!(!super::charged_ready(&e));
+        e[3] = 0x40;
+        assert!(super::charged_ready(&e));
+        e[0] = 2;
+        assert!(!super::charged_ready(&e));
+    }
 }

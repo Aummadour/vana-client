@@ -330,7 +330,12 @@ impl Effects {
 
     /// A status scheduler on the actor with its motions left to the client (FUN_1008c6c0's `dead`).
     pub fn on_scheduler_quiet(&mut self, actor: u32, name: u32) {
-        self.pending.push(Pending { file: None, actor: Some(actor), name, a1: Who::Actor(actor), a2: Who::Actor(actor), action: None, speed: 1.0, end_cast: None, age: 0.0, skill: None, skill_caster: None, wait_motion: None, num: None, quiet: true, own: false, seq: None, event: false });
+        self.on_scheduler_quiet_on(actor, actor, name);
+    }
+
+    /// on_scheduler_quiet with a second actor (the scheduler's target, actor2).
+    pub fn on_scheduler_quiet_on(&mut self, actor: u32, target: u32, name: u32) {
+        self.pending.push(Pending { file: None, actor: Some(actor), name, a1: Who::Actor(actor), a2: Who::Actor(target), action: None, speed: 1.0, end_cast: None, age: 0.0, skill: None, skill_caster: None, wait_motion: None, num: None, quiet: true, own: false, seq: None, event: false });
     }
 
     /// FUN_10083650: a scheduler `name` waiting or running on the actor (as actor1).
@@ -707,6 +712,32 @@ impl Effects {
             }
             self.pins.push((owner, a, b, k, off, left));
         }
+        // FUN_100609f0: a light ramp steps by the frame; its end or its scheduler's death writes the target (FUN_10060960).
+        for mut r in std::mem::take(&mut self.light_ramps) {
+            r.left -= f.dt;
+            let done = r.left <= 0.0 || !live.contains(&r.owner);
+            if r.light.is_none() {
+                // The instance it was started on is gone: nothing to ramp.
+                if !self.insts.get(r.inst).is_some_and(|x| x.as_ref().is_some_and(|x| x.src == r.src)) {
+                    continue;
+                }
+                r.light = self.ramp_light(r.inst, r.k);
+            }
+            let Some((e, serial, from)) = r.light else {
+                self.light_ramps.push(r);
+                continue;
+            };
+            let Some(c) = self.elems.get_mut(e as usize).and_then(|c| c.as_mut()).filter(|c| c.serial == serial) else { continue };
+            let v = if done || r.total <= 0.0 { r.to } else { from + (r.to - from) * (1.0 - r.left / r.total) };
+            if let Some(s) = c.light_scale.as_mut() {
+                s[r.k] = v;
+            }
+            let word = if r.k == 0 { super::elem::w::L_ISCALE } else { super::elem::w::L_RSCALE };
+            self.writes.push(super::Write::Words(e, word, vec![v.to_bits()]));
+            if !done {
+                self.light_ramps.push(r);
+            }
+        }
         // FUN_1005f820: a drive ends below 0; its scheduler's death deletes it early, frozen (0xa0: on its target).
         for mut d in std::mem::take(&mut self.color_drives) {
             d.left -= f.dt;
@@ -749,6 +780,14 @@ impl Effects {
             }
             self.owned_motions = keep;
         }
+    }
+
+    /// Ops 0x6f / 0x70: the static generator's live point light (gen+0xb0) as (element, serial, multiplier `k`).
+    fn ramp_light(&self, i: usize, k: usize) -> Option<(u32, u32, f32)> {
+        self.insts.get(i)?.as_ref()?.live.iter().find_map(|&e| {
+            let c = self.elems.get(e as usize)?.as_ref()?;
+            Some((e, c.serial, c.light_scale?[k]))
+        })
     }
 
     /// A task's ops while its countdown allows, each adding its wait x speed.
@@ -1289,6 +1328,23 @@ impl Effects {
                 }
                 Flow::Next
             }
+            // Asm 0x10059da7: the static generator 4cc @8's live CMoPointLightProgElem ramps its intensity (0x6f, +0x1a4)
+            // or range (0x70, +0x1a8) multiplier linearly to f32 @0x10 over dur x speed (FUN_10060990). A new ramp on the
+            // same word replaces the running one (ours: retail would run both).
+            0x6f | 0x70 => {
+                let Some(g) = scope(self, kind::GENERATOR) else { return Flow::Next };
+                if !self.is_static(g) {
+                    return Flow::Next;
+                }
+                let Some(inst) = self.template_inst(g) else { return Flow::Next };
+                let k = (op.code - 0x6f) as usize;
+                let total = op.dur.max(0) as f32 * t.speed;
+                self.light_ramps.retain(|r| !(r.src == g && r.k == k));
+                let to = f32::from_bits(op.u32_at(0x10));
+                let light = self.ramp_light(inst, k);
+                self.light_ramps.push(super::LightRamp { owner: t.uid, src: g, inst, light, k, to, total, left: total });
+                Flow::Next
+            }
             // FUN_100aad40: actor1 moves itself along its facing for u16 @6 ticks at f32 @8 / 60 units a tick (a dismounted
             // animal running off).
             0x6e => {
@@ -1480,6 +1536,21 @@ impl Effects {
             0xab => {
                 if let Some(id) = self.doll_of(t.a1).id() {
                     self.base_resets.push((id, op.u32_at(8) & 1 != 0));
+                }
+                Flow::Next
+            }
+            // 0x1005b14c -> FUN_1005f450: actor1's head-look off for dur x speed ticks (or until it moves); no wait.
+            0x89 => {
+                if let Some(id) = self.doll_of(t.a1).id() {
+                    self.look_holds.push((id, (op.dur as f32 * t.speed).trunc()));
+                }
+                Flow::Next
+            }
+            // 0x1005c81d -> 0x10062180 (batch 12 item 80): actor1's name plate lifted by f32 @8 (actor +0x8c0) for
+            // dur x speed ticks, then back to 0; no wait.
+            0xb4 => {
+                if let Some(id) = self.doll_of(t.a1).id() {
+                    self.plate_lifts.push((id, f32::from_bits(op.u32_at(8)), (op.dur as f32 * t.speed).trunc()));
                 }
                 Flow::Next
             }
@@ -1764,6 +1835,8 @@ impl Effects {
                     // 0x3a: actor1's sub-animation (vtable +0xa4, +0x8a5 & 3), with or without an action (FUN_10061950).
                     3 => match op.u32_at(12) {
                         0x3a => t.a1.id().map_or(0, |id| actors.sub_anim(id) & 3) as f64,
+                        // 0x3b: actor1's off-hand flag (FUN_10062900 at 0x1006297f, through vt+0x254).
+                        0x3b => t.a1.id().is_some_and(|id| actors.off_hand(id)) as u8 as f64,
                         k => t.action.as_ref().map_or(0, |a| a.borrow().var(k, t.a1.id())) as f64,
                     },
                     _ => 0.0,

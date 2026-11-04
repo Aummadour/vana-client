@@ -137,6 +137,12 @@ impl Gpu {
         if std::env::var_os("FFXI_NO_CULL").is_some() {
             wanted.remove(wgpu::Features::INDIRECT_FIRST_INSTANCE);
         }
+        // Not BC on GL: wgpu's GL backend drops a compressed copy from a buffer whose rows are padded (it passes the
+        // padded size to glCompressedTexSubImage2D), so the GPU-made mips of BC textures (render/mipgen.rs) would
+        // stay black. GL takes the RGBA path instead.
+        if info.backend == wgpu::Backend::Gl {
+            wanted.remove(wgpu::Features::TEXTURE_COMPRESSION_BC);
+        }
         let required_features = adapter.features() & wanted;
         log::info!("device features {required_features:?}");
         // The effects update pass binds 9 storage buffers (the default limit is 8; desktop GPUs allow far more).
@@ -343,6 +349,8 @@ pub struct ZoneRenderer {
     pub lights: wgpu::Buffer,
     pub light_keys: Vec<u32>,
     scenery: [[wgpu::RenderPipeline; 3]; 4],
+    /// Modes 2 / 3 (the blended classes) for furniture: depth writes on, no bias (batch 7 item 23).
+    scenery_furn: [[wgpu::RenderPipeline; 3]; 2],
     scenery_bump: [wgpu::RenderPipeline; 3],
     /// The scenery as lines by cull, where the device draws lines (a mod's wireframe switch).
     scenery_wire: Option<[wgpu::RenderPipeline; 3]>,
@@ -407,6 +415,14 @@ pub struct ZoneRenderer {
     refract_group: wgpu::BindGroup,
     /// The refraction pass's scene copy (DAT_10456e6c: scene size, one per frame per refracting actor).
     refract_copy: Option<(wgpu::Texture, wgpu::BindGroup)>,
+    skin_solid_pipeline: wgpu::RenderPipeline,
+    faded_pipeline: wgpu::RenderPipeline,
+    /// The faded actors' fade alpha per slot (refr.a.z), and the offscreen target (FUN_1001d240's helper target, scene
+    /// size) set by prepare_faded; without one render blends faded actors triangle by triangle.
+    faded_buf: wgpu::Buffer,
+    faded_group: wgpu::BindGroup,
+    faded_rt: Option<(wgpu::Texture, wgpu::TextureView, wgpu::BindGroup)>,
+    color_format: wgpu::TextureFormat,
     /// Shine images by (effect file, IMG node).
     shine_tex: HashMap<(u32, usize), wgpu::BindGroup>,
     pose_layout: wgpu::BindGroupLayout,
@@ -648,8 +664,13 @@ pub struct ActorGpu {
     pub lights: [u8; 4],
     /// The area 4cc it stands in (vtable +0x188, the floor's +0xb0): its environment lights it (0 = the zone's).
     pub area: u32,
+    /// Cloth particles this frame (client/cloth.rs), two vec4s each in model space: position (w 1 = set) and normal
+    /// (w 1 = set), in the order SkinMesh numbers them. Missing ones draw skinned.
+    pub cloth: Vec<[f32; 4]>,
     /// The last mip job of its textures; drawn once the GPU has it.
     mips: u64,
+    /// Where pose_actor last placed it (world), for the faded actors' back-to-front order.
+    origin: Vec3,
 }
 
 /// Bind-pose corners with up to two weighted influences, skinned in vs_skinned.
@@ -665,7 +686,15 @@ struct SkinVertex {
     uv: [f32; 2],
     /// The material's light factor and cloth flag (0 / 1).
     mat: [f32; 2],
+    /// A cloth particle's position vec4 in the pose region (0 none; the normal follows); bit 31: a free particle,
+    /// placed by the simulation rather than the skin.
+    cloth: u32,
 }
+
+/// Cloth particles a pose region holds after the bones (two vec4s each).
+pub const MAX_CLOTH: usize = 1024;
+/// SkinVertex.cloth's free-particle bit.
+const CLOTH_FREE: u32 = 1 << 31;
 
 /// A draw group that is no `wepN` mesh.
 const NO_WEP: u8 = 0xff;
@@ -705,6 +734,8 @@ pub struct SkinMesh {
     /// Texture, vertices, and N of a `wepN` part (NO_WEP otherwise).
     groups: Vec<(String, std::ops::Range<u32>, u8)>,
     bones: usize,
+    /// Cloth particles numbered (SkinVertex.cloth).
+    cloth: usize,
 }
 
 impl SkinMesh {
@@ -713,7 +744,15 @@ impl SkinMesh {
         let slot_of = |b: usize| if b < bones { b as u32 } else { bones as u32 };
         let mut verts: Vec<SkinVertex> = Vec::new();
         let mut groups = Vec::new();
+        // Cloth particles in part order, after the bones and the identity slot.
+        let mut particles = 0usize;
         for part in &ch.parts {
+            let sim = part.sim.as_ref().filter(|s| particles + s.particles() <= MAX_CLOTH);
+            let base = particles;
+            particles += sim.map_or(0, |s| s.particles());
+            let cloth_of = |v: u16| {
+                sim.map_or(0, |s| (POSE_HEAD + POSE_PER_BONE * (bones + 1) + 2 * (base + v as usize)) as u32 | if s.pinned(v as usize) { 0 } else { CLOTH_FREE })
+            };
             let n = part.name.trim_end_matches(['\0', ' ']);
             let wep = n.strip_prefix("wep").and_then(|d| d.parse::<u8>().ok()).filter(|d| *d < 16).unwrap_or(NO_WEP);
             for g in &part.groups {
@@ -733,6 +772,7 @@ impl SkinMesh {
                             w: [i0.weight, w1],
                             uv: c.uv,
                             mat: [g.light, part.cloth as u32 as f32],
+                            cloth: cloth_of(c.vertex),
                         });
                     }
                 }
@@ -742,7 +782,7 @@ impl SkinMesh {
         if verts.is_empty() {
             verts.push(SkinVertex::zeroed());
         }
-        SkinMesh { verts, groups, bones }
+        SkinMesh { verts, groups, bones, cloth: particles }
     }
 }
 
@@ -789,6 +829,8 @@ struct Skinned {
     /// The shine pass's group 3 over these vertices (read as storage for the wrap), made at the first shine.
     shine: std::sync::Arc<std::sync::OnceLock<wgpu::BindGroup>>,
     bones: usize,
+    /// Cloth particles after the bones.
+    cloth: usize,
     /// Dynamic offset of this frame's pose region, and the pose frame it was written in.
     offset: u32,
     frame: u64,
@@ -797,10 +839,10 @@ struct Skinned {
 /// Bones a pose region holds; influences on later bones read the identity slot after them.
 const MAX_BONES: usize = 255;
 /// Pose region in vec4s: model matrix columns, (alpha, flash ambient, flash fog, 0), then (quat, translation, scale)
-/// per bone.
+/// per bone, the identity slot, then two per cloth particle (position, normal).
 const POSE_HEAD: usize = 6;
 pub const POSE_PER_BONE: usize = 3;
-const POSE_BINDING: u64 = ((POSE_HEAD + POSE_PER_BONE * (MAX_BONES + 1)) * 16) as u64;
+const POSE_BINDING: u64 = ((POSE_HEAD + POSE_PER_BONE * (MAX_BONES + 1) + 2 * MAX_CLOTH) * 16) as u64;
 
 /// Strip to list, dropping the degenerate triangles that join strips.
 fn strip_to_list(strip: &[u16]) -> Vec<u16> {
@@ -823,6 +865,7 @@ pub struct ZonePipes {
     pose_layout: wgpu::BindGroupLayout,
     /// Scenery by Draw::mode (opaque, cut out, blend, blend + cut out) and cull (none, back, front).
     scenery: [[wgpu::RenderPipeline; 3]; 4],
+    scenery_furn: [[wgpu::RenderPipeline; 3]; 2],
     scenery_bump: [wgpu::RenderPipeline; 3],
     scenery_wire: Option<[wgpu::RenderPipeline; 3]>,
     actor_pipeline: wgpu::RenderPipeline,
@@ -832,6 +875,11 @@ pub struct ZonePipes {
     shine_wrap_layout: wgpu::BindGroupLayout,
     shine_pipeline: wgpu::RenderPipeline,
     refract_pipeline: wgpu::RenderPipeline,
+    /// A faded actor drawn opaque into the offscreen target, and that target blended over the scene (render_faded).
+    skin_solid_pipeline: wgpu::RenderPipeline,
+    faded_pipeline: wgpu::RenderPipeline,
+    /// The colour target format the pipelines draw to.
+    color_format: wgpu::TextureFormat,
     line_pipeline: wgpu::RenderPipeline,
     world_pipelines: [wgpu::RenderPipeline; 2],
     /// The shadow silhouette pass (render/shadow.rs): its group 3 layout and pipeline.
@@ -965,7 +1013,7 @@ impl ZonePipes {
         let skin_buffers = [Some(wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<SkinVertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32x3, 4 => Uint32x2, 5 => Float32x2, 6 => Float32x2, 7 => Float32x2],
+            attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32x3, 4 => Uint32x2, 5 => Float32x2, 6 => Float32x2, 7 => Float32x2, 8 => Uint32],
         })];
         let skin_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("skinned actors"),
@@ -992,17 +1040,19 @@ impl ZonePipes {
         // Scenery: front faces clockwise as D3D's; normal placements cull CCW (back), mirrored ones CW (front).
         // Bit-31 models: SRCALPHA / INVSRCALPHA, depth tested (LESSEQUAL) but not written, ZBIAS 8 *(inf: as a constant
         // depth bias of -8)*.
-        let make_scenery = |fragment: &str, blend: bool, cull: Option<wgpu::Face>, wire: bool| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        // `furn`: furniture's own pass (FUN_101844c0) sets neither ZWRITEENABLE nor ZBIAS, so its blended meshes keep
+        // the actor pass's depth writes and bias 0 (batch 7 item 23).
+        let make_scenery_z = |fragment: &str, blend: bool, cull: Option<wgpu::Face>, wire: bool, furn: bool| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some(fragment),
             layout: Some(&layout),
             vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_main"), compilation_options: Default::default(), buffers: &vertex_layouts },
             primitive: wgpu::PrimitiveState { front_face: wgpu::FrontFace::Cw, cull_mode: cull, polygon_mode: if wire { wgpu::PolygonMode::Line } else { wgpu::PolygonMode::Fill }, ..Default::default() },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: DEPTH_FORMAT,
-                depth_write_enabled: Some(!blend),
-                depth_compare: Some(if blend { wgpu::CompareFunction::LessEqual } else { wgpu::CompareFunction::Less }),
+                depth_write_enabled: Some(!blend || furn),
+                depth_compare: Some(if blend && !furn { wgpu::CompareFunction::LessEqual } else { wgpu::CompareFunction::Less }),
                 stencil: Default::default(),
-                bias: if blend { wgpu::DepthBiasState { constant: -8, slope_scale: 0.0, clamp: 0.0 } } else { Default::default() },
+                bias: if blend && !furn { wgpu::DepthBiasState { constant: -8, slope_scale: 0.0, clamp: 0.0 } } else { Default::default() },
             }),
             multisample: Default::default(),
             fragment: Some(wgpu::FragmentState {
@@ -1015,7 +1065,10 @@ impl ZonePipes {
             cache: None,
         });
         let culls = [None, Some(wgpu::Face::Back), Some(wgpu::Face::Front)];
+        let make_scenery = |f: &str, b: bool, c: Option<wgpu::Face>, w: bool| make_scenery_z(f, b, c, w, false);
         let scenery = [("fs_opaque", false), ("fs_alpha_test", false), ("fs_blend", true), ("fs_blend_test", true)].map(|(f, b)| culls.map(|c| make_scenery(f, b, c, false)));
+        // The same two blended classes for furniture, with depth writes on.
+        let scenery_furn = [("fs_blend", true), ("fs_blend_test", true)].map(|(f, b)| culls.map(|c| make_scenery_z(f, b, c, false, true)));
         let scenery_wire = device.features().contains(wgpu::Features::POLYGON_MODE_LINE).then(|| culls.map(|c| make_scenery("fs_opaque", false, c, true)));
         // Config 0017's type-3 meshes (FUN_10175ac0 case 3): the colour texture, then the normal map at group 2.
         let bump_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("zone bumped"), bind_group_layouts: &[Some(&globals_layout), Some(&texture_layout), Some(&texture_layout)], immediate_size: 0 });
@@ -1176,6 +1229,56 @@ impl ZonePipes {
             multiview_mask: None,
             cache: None,
         });
+        // A faded actor's offscreen pass (FUN_1002b6e0): ZWRITE on, ALPHABLEND off, alpha test only.
+        let skin_solid_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("faded actor offscreen"),
+            layout: Some(&skin_layout),
+            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_skinned"), compilation_options: Default::default(), buffers: &skin_buffers },
+            primitive: wgpu::PrimitiveState { cull_mode: None, ..Default::default() },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_actor_solid"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState { format: color_format, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        // FUN_1001d3b0: the offscreen target as one viewport quad, SRCALPHA / INVSRCALPHA, ZENABLE and ZWRITE off.
+        let faded_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("faded actor composite"),
+            layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("faded actor composite"),
+                bind_group_layouts: &[Some(&globals_layout), Some(&texture_layout), Some(&pose_layout), Some(&shine_layout)],
+                immediate_size: 0,
+            })),
+            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_faded"), compilation_options: Default::default(), buffers: &[] },
+            primitive: Default::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Always),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_faded"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState { format: color_format, blend: Some(wgpu::BlendState::ALPHA_BLENDING), write_mask: wgpu::ColorWrites::ALL })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         // Layout mode's overlay: line lists over everything (ZENABLE off), alpha blended.
         let lines = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("lines"), source: wgpu::ShaderSource::Wgsl(include_str!("lines.wgsl").into()) });
         let line_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -1236,7 +1339,7 @@ impl ZonePipes {
         let cull_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("cull"), bind_group_layouts: &[Some(&globals_layout), None, None, Some(&cull_layout)], immediate_size: 0 });
         let make_cull = |entry: &str| device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some(entry), layout: Some(&cull_pl), module: &shader, entry_point: Some(entry), compilation_options: Default::default(), cache: None });
         let cull = [make_cull("cs_cull_vis"), make_cull("cs_cull_compact")];
-        Self { globals_layout, texture_layout, pose_layout, scenery, scenery_bump, scenery_wire, actor_pipeline, sky_pipeline, skin_pipeline, shine_layout, shine_wrap_layout, shine_pipeline, refract_pipeline, line_pipeline, world_pipelines, sil_layout, sil_pipeline, cull_layout, cull }
+        Self { globals_layout, texture_layout, pose_layout, scenery, scenery_furn, scenery_bump, scenery_wire, actor_pipeline, sky_pipeline, skin_pipeline, shine_layout, shine_wrap_layout, shine_pipeline, refract_pipeline, skin_solid_pipeline, faded_pipeline, color_format, line_pipeline, world_pipelines, sil_layout, sil_pipeline, cull_layout, cull }
     }
 }
 
@@ -1649,6 +1752,12 @@ impl ZoneRenderer {
             layout: &p.shine_layout,
             entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: &refract_buf, offset: 0, size: wgpu::BufferSize::new(32) }) }],
         });
+        let faded_buf = device.create_buffer(&wgpu::BufferDescriptor { label: Some("faded actors"), size: SHINE_SLOTS as u64 * SHINE_STRIDE, usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
+        let faded_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("faded actors"),
+            layout: &p.shine_layout,
+            entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding { buffer: &faded_buf, offset: 0, size: wgpu::BufferSize::new(32) }) }],
+        });
         let [v, i, m] = geo.parts().map(|b| b.len() as u64);
         let buffer = |label, size: u64, usage| device.create_buffer(&wgpu::BufferDescriptor { label: Some(label), size: size.max(4), usage: usage | wgpu::BufferUsages::COPY_DST, mapped_at_creation: false });
         // The culling reads the instances as storage.
@@ -1676,6 +1785,7 @@ impl ZoneRenderer {
             bump_mode: true,
             scenery_bump: p.scenery_bump,
             scenery: p.scenery,
+            scenery_furn: p.scenery_furn,
             scenery_wire: p.scenery_wire,
             wireframe: false,
             actor_pipeline: p.actor_pipeline,
@@ -1722,6 +1832,12 @@ impl ZoneRenderer {
             refract_buf,
             refract_group,
             refract_copy: None,
+            skin_solid_pipeline: p.skin_solid_pipeline,
+            faded_pipeline: p.faded_pipeline,
+            faded_buf,
+            faded_group,
+            faded_rt: None,
+            color_format: p.color_format,
             shine_tex: HashMap::new(),
             pose_layout: p.pose_layout,
             poses: Vec::new(),
@@ -2321,7 +2437,7 @@ impl ZoneRenderer {
         let mesh = ch.skin.clone().unwrap_or_else(|| std::sync::Arc::new(SkinMesh::build(ch)));
         a.draws = mesh.groups.iter().map(|(tex, r, wep)| (a.slot.get(tex.as_str()).copied().unwrap_or(0), r.clone(), *wep)).collect();
         let vertices = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("skinned actor"), contents: bytemuck::cast_slice(&mesh.verts), usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE });
-        a.skin = Some(Skinned { vertices, shine: Default::default(), bones: mesh.bones, offset: 0, frame: u64::MAX });
+        a.skin = Some(Skinned { vertices, shine: Default::default(), bones: mesh.bones, cloth: mesh.cloth, offset: 0, frame: u64::MAX });
         a
     }
 
@@ -2351,13 +2467,15 @@ impl ZoneRenderer {
                 hidden_weps: ch.init_hidden_mask(),
                 shine: None,
                 refract: None,
-                skin: Some(Skinned { vertices, shine: Default::default(), bones: mesh.bones, offset: 0, frame: u64::MAX }),
+                skin: Some(Skinned { vertices, shine: Default::default(), bones: mesh.bones, cloth: mesh.cloth, offset: 0, frame: u64::MAX }),
                 alpha: 1.0,
                 tint: [1.0; 3],
                 flash: [0.0, 1.0],
                 lights: [0; 4],
                 area: 0,
+                cloth: Vec::new(),
                 mips: 0,
+                origin: Vec3::ZERO,
             };
             self.builds.push((key, Build { ch: ch.clone(), mesh, actor, registered: false, vert_at: 0, tex: 0, cur: None }));
         }
@@ -2406,6 +2524,7 @@ impl ZoneRenderer {
             Some(s) if actor.area != 0 => (s + 1) as f32,
             _ => 0.0,
         };
+        actor.origin = model.w_axis.truncate();
         let Some(skin) = actor.skin.as_mut() else { return };
         while self.poses.len() % 16 != 0 {
             self.poses.push([0.0; 4]);
@@ -2424,6 +2543,9 @@ impl ZoneRenderer {
         self.poses.push([0.0, 0.0, 0.0, 1.0]);
         self.poses.push([0.0; 4]);
         self.poses.push([1.0, 1.0, 1.0, 0.0]);
+        // Unset particles (w 0) draw skinned.
+        let n = skin.cloth * 2;
+        self.poses.extend(actor.cloth.iter().copied().chain(std::iter::repeat([0.0; 4])).take(n));
     }
 
     /// Asks for an attach point (bone, offset) of an actor posed this frame, relative to its root in world axes,
@@ -2475,7 +2597,7 @@ impl ZoneRenderer {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        ActorGpu { textures, slot, vertices: None, draws: Vec::new(), instance, hidden_weps: 0, shine: None, refract: None, skin: None, alpha: 1.0, tint: [1.0; 3], flash: [0.0, 1.0], lights: [0; 4], area: 0, mips }
+        ActorGpu { textures, slot, vertices: None, draws: Vec::new(), instance, hidden_weps: 0, shine: None, refract: None, skin: None, alpha: 1.0, tint: [1.0; 3], flash: [0.0, 1.0], lights: [0; 4], area: 0, cloth: Vec::new(), mips, origin: Vec3::ZERO }
     }
 
     /// A shine image goes up once (effect file, IMG node).
@@ -2685,7 +2807,9 @@ impl ZoneRenderer {
                 pass.set_vertex_buffer(0, f.vertices.slice(..));
                 pass.set_index_buffer(f.indices.slice(..), wgpu::IndexFormat::Uint16);
                 for d in f.draws.iter().filter(|d| d.mode == mode) {
-                    self.draw_scenery(&mut pass, d, mode, &mut bound, &mut pipe, None);
+                    // FUN_101844c0 leaves depth writes on for the blended meshes (batch 7 item 23), so modes 2 / 3
+                    // take the furniture pipelines; `pipe` is invalidated either way by the different set.
+                    self.draw_scenery_pipes(&mut pass, d, mode, &mut bound, &mut pipe, None, mode >= 2);
                 }
             }
             if self.furniture.iter().any(|f| f.shown) {
@@ -2704,9 +2828,12 @@ impl ZoneRenderer {
                             continue;
                         }
                         pass.set_bind_group(1, &m.textures[d.texture.min(m.textures.len() - 1)], &[]);
-                        if pipe != c {
-                            pass.set_pipeline(self.wire(c).unwrap_or(&self.scenery[mode as usize][c]));
-                            pipe = c;
+                        // A ship's model is drawn through FUN_101844c0 too, so its blended meshes keep depth writes.
+                        let want = if mode >= 2 { 16 + c } else { c };
+                        if pipe != want {
+                            let normal = if mode >= 2 { &self.scenery_furn[mode as usize - 2][c] } else { &self.scenery[mode as usize][c] };
+                            pass.set_pipeline(self.wire(c).unwrap_or(normal));
+                            pipe = want;
                         }
                         pass.draw_indexed(d.first_index..d.first_index + d.index_count, d.base_vertex, range);
                     }
@@ -2718,9 +2845,23 @@ impl ZoneRenderer {
                 pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint16);
             }
         }
+        // Faded actors go through the offscreen target after this pass when prepare_faded made one (FUN_1002b6e0 with
+        // FUN_1001d240): at most SHINE_SLOTS of them, the rest blend triangle by triangle here.
+        let faded: Vec<usize> = match (&self.faded_rt, &self.pose_gpu) {
+            (Some(_), Some(_)) => actors
+                .iter()
+                .enumerate()
+                .filter(|(_, a)| a.mips <= done && a.refract.is_none() && a.alpha < 1.0 && a.skin.as_ref().is_some_and(|s| s.frame == self.pose_frame))
+                .map(|(i, _)| i)
+                .take(SHINE_SLOTS)
+                .collect(),
+            _ => Vec::new(),
+        };
+        let solid = |i: usize| !faded.contains(&i);
+        let mut slot = 0u64;
         if let Some((_, group, _)) = &self.pose_gpu {
             pass.set_pipeline(&self.skin_pipeline);
-            for a in actors.iter().filter(|a| a.mips <= done && a.refract.is_none()) {
+            for (_, a) in actors.iter().enumerate().filter(|(i, a)| a.mips <= done && a.refract.is_none() && solid(*i)) {
                 let Some(skin) = a.skin.as_ref().filter(|s| s.frame == self.pose_frame) else { continue };
                 pass.set_bind_group(2, group, &[skin.offset]);
                 pass.set_vertex_buffer(0, skin.vertices.slice(..));
@@ -2733,8 +2874,7 @@ impl ZoneRenderer {
                 }
             }
             // The shine overlay: every batch of the actor again, its image mapped by the world normal.
-            let mut slot = 0u64;
-            for a in actors.iter().filter(|a| a.mips <= done && a.refract.is_none()) {
+            for (_, a) in actors.iter().enumerate().filter(|(i, a)| a.mips <= done && a.refract.is_none() && solid(*i)) {
                 let (Some(s), Some(skin)) = (a.shine, a.skin.as_ref().filter(|s| s.frame == self.pose_frame)) else { continue };
                 let Some(tex) = self.shine_tex.get(&s.key) else { continue };
                 if slot >= SHINE_SLOTS as u64 {
@@ -2765,6 +2905,96 @@ impl ZoneRenderer {
                 pass.draw(range.clone(), 0..1);
             }
         }
+        drop(pass);
+        let mut list: Vec<&ActorGpu> = faded.iter().map(|&i| actors[i]).collect();
+        list.sort_by(|a, b| b.origin.distance(camera.eye).total_cmp(&a.origin.distance(camera.eye)));
+        self.render_faded(gpu, encoder, color, depth, &list, slot);
+    }
+
+    /// The faded actors, farthest first (retail's translucent list DAT_1047bc94, back to front): each drawn opaque with
+    /// z written into the offscreen target cleared to 0 (FUN_1001d240), its shine too, then that target blended over
+    /// the scene as one viewport quad at the actor's alpha (FUN_1001d3b0), so the model does not show through itself.
+    /// `shine_slot`: the first free slot of the shine buffer.
+    #[allow(clippy::too_many_arguments)]
+    fn render_faded(&self, gpu: &Gpu, encoder: &mut wgpu::CommandEncoder, color: &wgpu::TextureView, depth: &wgpu::TextureView, list: &[&ActorGpu], mut shine_slot: u64) {
+        let (Some((_, rt, rt_group)), Some((_, group, _))) = (&self.faded_rt, &self.pose_gpu) else { return };
+        for (k, a) in list.iter().enumerate() {
+            let Some(skin) = a.skin.as_ref() else { continue };
+            let off = k as u64 * SHINE_STRIDE;
+            gpu.queue.put(&self.faded_buf, off, bytemuck::cast_slice(&[0.0f32, 0.0, a.alpha.clamp(0.0, 1.0), 0.0, 0.0, 0.0, 0.0, 0.0]));
+            let shown = |wep: u8| wep == NO_WEP || a.hidden_weps & (1 << wep) == 0;
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("faded actor offscreen"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: rt, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store } })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment { view: depth, depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store }), stencil_ops: None }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_bind_group(0, &self.globals, &[]);
+                pass.set_bind_group(2, group, &[skin.offset]);
+                pass.set_vertex_buffer(0, skin.vertices.slice(..));
+                pass.set_pipeline(&self.skin_solid_pipeline);
+                for (tex, range, wep) in &a.draws {
+                    if shown(*wep) {
+                        pass.set_bind_group(1, &a.textures[*tex], &[]);
+                        pass.draw(range.clone(), 0..1);
+                    }
+                }
+                if let Some(s) = a.shine
+                    && let Some(tex) = self.shine_tex.get(&s.key)
+                    && shine_slot < SHINE_SLOTS as u64
+                {
+                    gpu.queue.put(&self.shine_buf, shine_slot * SHINE_STRIDE, bytemuck::cast_slice(&[s.u, s.v, shine_wrap(), 0.0, s.tf[0], s.tf[1], s.tf[2], s.tf[3]]));
+                    pass.set_pipeline(&self.shine_pipeline);
+                    pass.set_bind_group(3, self.shine_group(gpu, skin), &[(shine_slot * SHINE_STRIDE) as u32]);
+                    pass.set_bind_group(1, tex, &[]);
+                    for (_, range, wep) in &a.draws {
+                        if shown(*wep) {
+                            pass.draw(range.clone(), 0..1);
+                        }
+                    }
+                    shine_slot += 1;
+                }
+            }
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("faded actor composite"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: color, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store } })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment { view: depth, depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store }), stencil_ops: None }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.faded_pipeline);
+            pass.set_bind_group(0, &self.globals, &[]);
+            pass.set_bind_group(1, rt_group, &[]);
+            pass.set_bind_group(2, group, &[skin.offset]);
+            pass.set_bind_group(3, &self.faded_group, &[off as u32]);
+            pass.draw(0..3, 0..1);
+        }
+    }
+
+    /// The faded actors' offscreen target at the scene target's size (`scene`: the texture render draws into), in the
+    /// pipelines' colour format. Without it render blends a faded actor triangle by triangle.
+    pub fn prepare_faded(&mut self, gpu: &Gpu, scene: &wgpu::Texture) {
+        let format = self.color_format;
+        if self.faded_rt.as_ref().is_some_and(|(t, _, _)| t.size() == scene.size() && t.format() == format) {
+            return;
+        }
+        let t = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("faded actor target"),
+            size: scene.size(),
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let view = t.create_view(&Default::default());
+        let g = view_bind_group(gpu, &self.texture_layout, &self.sampler, &view);
+        self.faded_rt = Some((t, view, g));
     }
 }
 
@@ -2860,6 +3090,13 @@ impl ZoneRenderer {
     /// One model: both-sided models in one draw; otherwise the normal instances culled back, the mirrored front.
     /// `args`: the culled draws' indirect arguments (render/cull.rs), each run's at its slot.
     fn draw_scenery(&self, pass: &mut wgpu::RenderPass, d: &Draw, mode: u8, bound: &mut usize, pipe: &mut usize, culled: Option<(&cull::Cull, &wgpu::Buffer, &[bool])>) {
+        self.draw_scenery_pipes(pass, d, mode, bound, pipe, culled, false)
+    }
+
+    /// `furn`: the furniture pipelines for a blended mode (depth writes on, no bias).
+    #[allow(clippy::too_many_arguments)]
+    fn draw_scenery_pipes(&self, pass: &mut wgpu::RenderPass, d: &Draw, mode: u8, bound: &mut usize, pipe: &mut usize, culled: Option<(&cull::Cull, &wgpu::Buffer, &[bool])>, furn: bool) {
+        let furn = furn && mode >= 2;
         let runs = d.runs();
         let live = |k: usize| !runs[k].1.is_empty() && culled.is_none_or(|(c, _, shown)| shown[c.run_of(d.args[k])]);
         if !live(0) && !live(1) {
@@ -2877,9 +3114,10 @@ impl ZoneRenderer {
             if !live(k) {
                 continue;
             }
-            let want = if bump.is_some() { 8 + c } else { c };
+            let want = if bump.is_some() { 8 + c } else if furn { 16 + c } else { c };
             if *pipe != want {
-                pass.set_pipeline(self.wire(c).unwrap_or(if bump.is_some() { &self.scenery_bump[c] } else { &self.scenery[mode as usize][c] }));
+                let normal = if furn { &self.scenery_furn[mode as usize - 2][c] } else { &self.scenery[mode as usize][c] };
+                pass.set_pipeline(self.wire(c).unwrap_or(if bump.is_some() { &self.scenery_bump[c] } else { normal }));
                 *pipe = want;
             }
             match culled {
@@ -3071,5 +3309,22 @@ mod furniture_tests {
     fn furniture_lights() {
         assert_eq!(super::furniture_lights(&[u32::from_le_bytes(*b"l_01")]), [1, 0, 0, 0]);
         assert_eq!(super::furniture_lights(&[]), [0; 4]);
+    }
+}
+
+#[cfg(test)]
+mod faded_tests {
+    /// The zone pipelines, the faded actors' offscreen and composite passes among them, build and validate (WGSL
+    /// included) for the scene formats in use.
+    #[test]
+    fn zone_pipes_build() {
+        let Ok(gpu) = super::Gpu::headless() else {
+            eprintln!("no GPU: skipped");
+            return;
+        };
+        for f in [wgpu::TextureFormat::Bgra8Unorm, wgpu::TextureFormat::Rgba8UnormSrgb] {
+            let p = gpu.pipes.zone(f);
+            assert_eq!(p.color_format, f);
+        }
     }
 }

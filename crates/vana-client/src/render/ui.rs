@@ -87,6 +87,11 @@ pub struct UiBatch {
 }
 
 impl UiBatch {
+    /// Whether a quad in the batch draws with texture `name`.
+    pub fn uses(&self, name: &str) -> bool {
+        self.runs.iter().any(|r| r.texture.as_deref() == Some(name))
+    }
+
     /// The game font's text is drawn in the TrueType face (the modern skin, or a mod's switch).
     pub fn ttf_text(&self) -> bool {
         self.modern.is_some() || self.ttf
@@ -406,6 +411,31 @@ impl UiBatch {
             return;
         }
         self.runs.push(Run { texture: texture.map(str::to_string), blend, first, count: 6, clip: self.clip });
+    }
+
+    /// Vertices pushed so far: a mark for [`UiBatch::fade_from`].
+    pub fn mark(&self) -> usize {
+        self.vertices.len()
+    }
+
+    /// Fades every quad pushed since `mark` by `a` (a part's alpha its children take, as the macro palette's flip):
+    /// the alpha for the blends that weight by it, the colour for the additive glyphs that do not.
+    pub fn fade_from(&mut self, mark: usize, a: f32) {
+        let a = a.clamp(0.0, 1.0);
+        for r in &self.runs {
+            let (first, end) = (r.first as usize, (r.first + r.count) as usize);
+            if end <= mark {
+                continue;
+            }
+            for v in &mut self.vertices[first.max(mark)..end] {
+                v.color[3] *= a;
+                if r.blend == Blend::Glyph {
+                    for c in &mut v.color[..3] {
+                        *c *= a;
+                    }
+                }
+            }
+        }
     }
 
     /// Quads pushed from now on are hidden where the scene is nearer than `depth` (NDC z); None = no test.
@@ -827,6 +857,11 @@ impl UiRenderer {
     pub fn replace_image(&mut self, gpu: &Gpu, name: &str, width: u32, height: u32, rgba: &[u8]) {
         let bg = Self::bind(gpu, &self.texture_layout, &self.sampler, width, height, rgba);
         self.textures.insert(name.to_string(), bg);
+    }
+
+    /// Frees the image under `name`.
+    pub fn drop_image(&mut self, name: &str) {
+        self.textures.remove(name);
     }
 
     /// Uploads one RGBA8 image under `name` unless one is already there.

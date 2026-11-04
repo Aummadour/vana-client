@@ -103,10 +103,19 @@ pub(super) fn cell_title(gu: &mut GameUi, title: &str, r: [f32; 4], pad: f32) {
     }
 }
 
-/// The play and edit palettes sit 0x82 further right while gaugewin or cnttime is up (FUN_101a3840: DAT_105781ec /
-/// DAT_10578184, not the cast bar).
-pub(super) fn palette_dx(w: &World) -> f32 {
-    if w.gauge.is_some() || w.objective.counting() { 130.0 } else { 0.0 }
+/// Where the play and edit palettes sit (FUN_101a3840 and the other palette placers, mode DAT_106218ee): Misc. 2
+/// config 0x9e 0 moves them 0x82 further right while gaugewin or cnttime is up (DAT_105781ec / DAT_10578184, not the
+/// cast bar), 1 keeps them there. FUN_1019b6d0 stores -1 (never moved) when the UI is under 640 wide and the long
+/// palette is off.
+pub(super) fn palette_dx(w: &World, sw: f32) -> f32 {
+    let up = w.gauge.is_some() || w.objective.counting();
+    if palette_moved(w.game.get(0x9d), w.game.get_i(0x9e), sw, up) { 130.0 } else { 0.0 }
+}
+
+fn palette_moved(cfg9d: u32, cfg9e: i32, sw: f32, up: bool) -> bool {
+    let long = cfg9d == 0 && sw >= 1024.0;
+    let mode = if sw < 640.0 && !long { -1 } else { cfg9e };
+    mode == 1 || (mode == 0 && up)
 }
 
 /// Social child 6 (FUN_1014e7b0 case 6): mcrmenu over the social page (which the walk suspends), SE 0002.
@@ -114,8 +123,38 @@ pub fn open(w: &mut World) {
     if w.macros.is_none() {
         return;
     }
-    w.macroedit = Some(MacroEdit { menu_sel: 1, book: None, sets: None });
+    w.macroedit = Some(MacroEdit { menu_sel: w.cursor_recall(MENU), book: None, sets: None });
     w.sounds.push(Ui::Select as u32);
+}
+
+/// E (DAT_106627a8) as the palettes have it now, for [`World::macro_palette`] to keep once they close.
+pub(super) fn palette(w: &World) -> Option<(u8, [u16; 2])> {
+    let e = w.macroedit.as_ref()?.book.as_ref()?.edit.as_ref()?;
+    Some((e.focus, e.cols))
+}
+
+/// FUN_10118830 on every hide or close: each open macro window's cursor child, so the next open restores it. The
+/// palettes are not in it, because their cursor is always column + 1 (E, [`World::macro_palette`]).
+pub(super) fn kept(w: &World) -> Vec<(&'static str, u16)> {
+    let Some(m) = &w.macroedit else { return Vec::new() };
+    let mut v = vec![(MENU, m.menu_sel)];
+    let Some(b) = &m.book else { return v };
+    v.push((SELEC, b.sel));
+    v.extend(b.opt.map(|o| (SELOP, o)));
+    if let Some(e) = &b.edit {
+        v.extend(e.bopt.map(|o| (BEDIT, o)));
+        if let Some(d) = &e.editor {
+            v.push((MACRO, d.sel));
+            v.extend(d.lopt.map(|o| (LEDIT, o)));
+        }
+    }
+    v
+}
+
+/// [`kept`] into the cursor memory now, before a key or Num+ closes one of the op menus (SELOP, BEDIT, LEDIT).
+fn remember(w: &mut World) {
+    let k = kept(w);
+    w.cursor_mem.extend(k);
 }
 
 fn book_of(w: &World, sel: u16) -> usize {
@@ -271,6 +310,9 @@ fn macro_of(e: &Edit) -> usize {
 
 pub fn key(w: &mut World, gu: &GameUi, key: egui::Key) {
     use egui::Key as K;
+    // FUN_10118830 runs as a window hides, so an op menu an Enter is about to close (the modern page opens and acts
+    // in one frame) keeps its cursor here first.
+    remember(w);
     let Some(me) = w.macroedit.as_ref() else { return };
     if me.sets.is_some() {
         super::esmenu::key(w, gu, key);
@@ -294,9 +336,12 @@ pub fn key(w: &mut World, gu: &GameUi, key: egui::Key) {
             K::Enter if menu_sel == 2 && super::monstrosity::active(w) => w.sounds.push(Ui::Error as u32),
             K::Enter => {
                 w.sounds.push(Ui::Select as u32);
+                // FUN_10118870: no macro window has registry flag 0x10000, so each opens on the cursor it last had
+                // (child 1 the first time this session).
+                let recall = w.cursor_recall(SELEC);
                 if menu_sel == 1 {
                     if let Some(m) = w.macroedit.as_mut() {
-                        m.book = Some(Book { sel: 1, rename: None, caret: 0, opt: None, edit: None });
+                        m.book = Some(Book { sel: recall, rename: None, caret: 0, opt: None, edit: None });
                     }
                 } else {
                     super::esmenu::open(w);
@@ -343,8 +388,11 @@ pub fn key(w: &mut World, gu: &GameUi, key: egui::Key) {
                             let set = m.set;
                             m.switch(book, set);
                         }
+                        // E (DAT_106627a8) is a global: the focused palette and both columns outlive the windows, and
+                        // mcr1edit / mcr2edit put their cursor on column + 1 on every open and focus gain.
+                        let (focus, cols) = w.macro_palette;
                         let b = w.macroedit.as_mut().and_then(|m| m.book.as_mut()).unwrap();
-                        b.edit = Some(Edit { focus: 1, cols: [0, 0], bopt: None, hold: 0.0, editor: None, tabs: false });
+                        b.edit = Some(Edit { focus, cols, bopt: None, hold: 0.0, editor: None, tabs: false });
                     }
                     2 => {
                         let name = w.macros.as_ref().map_or(Vec::new(), |m| m.raw_book_title(book).to_vec());
@@ -390,7 +438,8 @@ pub fn key(w: &mut World, gu: &GameUi, key: egui::Key) {
             w.sounds.push(Ui::Cursor as u32);
         }
         K::Enter => {
-            w.macroedit.as_mut().and_then(|m| m.book.as_mut()).unwrap().opt = Some(1);
+            let o = w.cursor_recall(SELOP);
+            w.macroedit.as_mut().and_then(|m| m.book.as_mut()).unwrap().opt = Some(o);
             w.sounds.push(Ui::Select as u32);
         }
         K::Escape => {
@@ -411,14 +460,16 @@ pub fn num_plus(w: &mut World) {
         super::esedit::num_plus(w);
         return;
     }
+    remember(w);
+    let (ledit, bedit) = (w.cursor_recall(LEDIT), w.cursor_recall(BEDIT));
     let Some(e) = edit_mut(w) else { return };
     match e.editor.as_mut() {
         Some(d) if d.editing.is_some() => return,
         Some(d) if d.lopt.is_some() => d.lopt = None,
-        Some(d) if (4..=9).contains(&d.sel) => d.lopt = Some(1),
+        Some(d) if (4..=9).contains(&d.sel) => d.lopt = Some(ledit),
         Some(_) => return,
         None if e.bopt.is_some() => e.bopt = None,
-        None => e.bopt = Some(1),
+        None => e.bopt = Some(bedit),
     }
     w.sounds.push(SE_FOCUS);
 }
@@ -546,8 +597,9 @@ fn palette_key(w: &mut World, gu: &GameUi, key: egui::Key) {
             let i = macro_of(e);
             w.sounds.push(Ui::Select as u32);
             let fields = load_fields(w, i);
+            let sel = w.cursor_recall(MACRO);
             if let Some(e) = edit_mut(w) {
-                e.editor = Some(Editor { i, sel: 4, fields, editing: None, caret: 0, lopt: None });
+                e.editor = Some(Editor { i, sel, fields, editing: None, caret: 0, lopt: None });
             }
         }
         // FUN_101a4590: back to the book list.
@@ -848,6 +900,7 @@ pub(super) fn set_opt(w: &mut World, o: u16) -> bool {
 
 /// The modern page's set strip given the cursor (or taken it).
 pub(super) fn set_tabs(w: &mut World, on: bool) {
+    remember(w);
     if let Some(e) = edit_mut(w).filter(|e| e.editor.is_none()) {
         e.tabs = on;
         if on {
@@ -954,7 +1007,7 @@ pub fn draw(gu: &mut GameUi, w: &World, sw: f32, sh: f32) -> Vec<[f32; 4]> {
     }
     // The palettes, the focused one drawn last, Alt 42 lower; mcrbedit beside them.
     let long = w.game.get(0x9d) == 0 && sw >= 1024.0;
-    let dx = palette_dx(w);
+    let dx = palette_dx(w, sw);
     let order = if e.focus == 1 { [2u8, 1] } else { [1, 2] };
     for p in order {
         let name = format!("menu    mcr{p}{}", if long { "edlo" } else { "edit" });
@@ -1079,6 +1132,12 @@ pub fn pointer(w: &mut World, gu: &GameUi, _sw: f32, _sh: f32, p: (f32, f32), mo
                 }
             }),
             None => {
+                // The editor's twin of the same hover (0x101a62f4): the pointer over mcrledit is Num+.
+                if super::winhits::over(w, LEDIT, p) && (moved || clicked) && (4..=9).contains(&d.sel) {
+                    gu.hover.set(true);
+                    num_plus(w);
+                    return;
+                }
                 let sel = d.sel;
                 generic(w, gu, MACRO, sel, 1..=9, p, moved, clicked, right, |w, id| {
                     if let Some(d) = edit_mut(w).and_then(|e| e.editor.as_mut()) {
@@ -1094,6 +1153,13 @@ pub fn pointer(w: &mut World, gu: &GameUi, _sw: f32, _sh: f32, p: (f32, f32), mo
         }),
         (None, None) => {
             let (focus, cols) = (e.focus, e.cols);
+            // FUN_101a47e0: while the mouse drives the menus, the pointer over mcrbedit is the palette sending itself
+            // message 8, i.e. Num+.
+            if super::winhits::over(w, BEDIT, p) && (moved || clicked) {
+                gu.hover.set(true);
+                num_plus(w);
+                return;
+            }
             let other = 3 - focus;
             if let (Some(id), _) = child_under(w, &format!("palette{other}"), p, 1..=10)
                 && (moved || clicked)
@@ -1124,5 +1190,15 @@ mod tests {
     fn glyphs() {
         assert_eq!([b'1', b'9', b'0', b'a', b'z', b'A', b'Z'].map(alpha_index), [Some(0), Some(8), Some(9), Some(10), Some(35), Some(36), Some(61)]);
         assert_eq!(alpha_index(b' '), None);
+    }
+
+    #[test]
+    fn misc2_palette_position() {
+        // 0: moved only while the gauge or the countdown is up; 1: always moved.
+        assert!(!palette_moved(1, 0, 800.0, false));
+        assert!(palette_moved(1, 0, 800.0, true));
+        assert!(palette_moved(1, 1, 800.0, false));
+        // Under 640 wide without the long palette: never moved.
+        assert!(!palette_moved(1, 1, 600.0, true));
     }
 }

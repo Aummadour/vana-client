@@ -30,6 +30,9 @@ pub struct List {
     pub top: usize,
     /// The cursor's row.
     pub cursor: usize,
+    /// The paged-list base's remembered direction (+0x60): 0 none, 1 Down, 2 Up. Held moves do not wrap at the edge
+    /// it remembers.
+    pub dir: u8,
 }
 
 /// FUN_1022da40: children 2..5 and 7 need Zilart, Promathia, Aht Urhgan, Altana, Adoulin (bits 1..4, 0xb).
@@ -54,7 +57,7 @@ pub fn open_menu(w: &mut World) {
 
 /// FUN_1022dbd0 + miss00's open (FUN_1022dcf0): the list on `log`, or waiting while the store is incomplete.
 pub(super) fn open_list(w: &mut World, log: usize) {
-    let mut l = List { log, state: 0, rows: Vec::new(), top: 0, cursor: 1 };
+    let mut l = List { log, state: 0, rows: Vec::new(), top: 0, cursor: 1, dir: 0 };
     build(w, &mut l);
     if let Some(m) = w.missions.as_mut() {
         m.list = Some(l);
@@ -121,17 +124,40 @@ pub fn busy(w: &World) -> bool {
 }
 
 /// Down / Up with wrap, then a header row is passed over (FUN_1022e760: "Completed:" repeats the move, "Current:"
-/// too on a fresh press). Not done: the held-key stop.
-fn step(l: &mut List, down: bool) -> bool {
+/// too on a fresh press).
+///
+/// A header landed on by a *held* key is different (0x1022e9f4): the move is taken back by one row downwards and the
+/// base's remembered direction (+0x60) is set to 2 (Up), which stops the next held move from wrapping at the top edge
+/// (FUN_10222150's 0x10222300; +0x60 == 1 is the mirror at the bottom). So a held Up that reaches the "Current:"
+/// header sits on the row under it, while a fresh press from there skips the header and wraps to the last row.
+/// *(inf: the edge test is read as "no wrap", retail's "one page instead of the count")*
+fn step(l: &mut List, down: bool, repeat: bool) -> bool {
     let n = l.rows.len();
     if n == 0 {
         return false;
     }
     let before = l.cursor;
-    for _ in 0..n {
+    let head = |l: &List, k: usize| matches!(l.rows[k], Row::CurHead | Row::DoneHead);
+    // At an edge a held move in the direction it already remembers does not wrap.
+    let edge = repeat && if down { l.cursor + 1 == n && l.dir == 1 } else { l.cursor == 0 && l.dir == 2 };
+    if !edge {
         l.cursor = if down { (l.cursor + 1) % n } else { (l.cursor + n - 1) % n };
-        if !matches!(l.rows[l.cursor], Row::CurHead | Row::DoneHead) {
-            break;
+        // FUN_10222150: 1 is Down, 2 Up (the held-header bounce calls it with 1, Down).
+        l.dir = if down { 1 } else { 2 };
+        if head(l, l.cursor) {
+            if repeat {
+                // Back off the header, downwards whichever way we came, and remember Up.
+                (l.cursor, l.dir) = ((l.cursor + 1) % n, 2);
+            } else {
+                while head(l, l.cursor) {
+                    let next = if down { (l.cursor + 1) % n } else { (l.cursor + n - 1) % n };
+                    if next == before {
+                        break;
+                    }
+                    l.cursor = next;
+                }
+                l.dir = 0;
+            }
         }
     }
     show(l);
@@ -149,6 +175,10 @@ fn show(l: &mut List) {
 
 /// A scroll bar or wheel message (FUN_10222150 0x16..0x1b; no header skip there).
 pub(super) fn bar(w: &mut World, m: super::scrollbar::Msg) -> bool {
+    // A disabled list (the pointer was on a page arrow, last frame's hover) takes no bar or wheel message either.
+    if w.list_arrow_hover {
+        return false;
+    }
     let Some(l) = w.missions.as_mut().and_then(|m| m.list.as_mut()).filter(|l| l.state == 1) else { return false };
     let n = l.rows.len();
     let mut row = l.cursor.saturating_sub(l.top);
@@ -204,6 +234,10 @@ pub fn key(w: &mut World, gu: &GameUi, key: egui::Key, page: bool) {
 }
 
 fn list_key(w: &mut World, l: &mut List, key: egui::Key, page: bool) {
+    // The list ignores every message while it is disabled by an arrow hover (list +0x5c bit 1).
+    if w.list_arrow_hover {
+        return;
+    }
     match (l.state, key) {
         (0, egui::Key::Escape) | (1, egui::Key::Escape) => {
             w.sounds.push(Ui::Cancel as u32);
@@ -213,7 +247,7 @@ fn list_key(w: &mut World, l: &mut List, key: egui::Key, page: bool) {
             }
         }
         (1, egui::Key::ArrowUp | egui::Key::ArrowDown) => {
-            if step(l, key == egui::Key::ArrowDown) {
+            if step(l, key == egui::Key::ArrowDown, w.key_repeat) {
                 w.sounds.push(Ui::Cursor as u32);
             }
         }
@@ -225,7 +259,7 @@ fn list_key(w: &mut World, l: &mut List, key: egui::Key, page: bool) {
                 l.cursor = l.top + row;
                 // FUN_1022e710: a header landed on moves to the next row; SE 0001 only when the cursor ends elsewhere.
                 if matches!(l.rows.get(l.cursor), Some(Row::CurHead | Row::DoneHead)) {
-                    step(l, true);
+                    step(l, true, false);
                 }
                 if l.cursor != was {
                     w.sounds.push(Ui::Cursor as u32);
@@ -253,7 +287,7 @@ fn list_key(w: &mut World, l: &mut List, key: egui::Key, page: bool) {
 
 /// Mouse on the list: hover moves the cursor to a row (headers passed over), a click on the cursor row is Enter, a
 /// click on the arrows (children 9 / 10) Left / Right; on missionm the generic hover and click.
-pub fn pointer(w: &mut World, gu: &GameUi, sw: f32, sh: f32, p: (f32, f32), moved: bool, clicked: bool) {
+pub fn pointer(w: &mut World, gu: &GameUi, sw: f32, sh: f32, p: (f32, f32), moved: bool, clicked: bool, page: bool) {
     let Some(m) = w.missions.clone() else { return };
     let inside = |x: f32, y: f32, e: &crate::dat::ui::MenuElement| {
         let (ex, ey) = (x + e.x as f32, y + e.y as f32);
@@ -262,9 +296,19 @@ pub fn pointer(w: &mut World, gu: &GameUi, sw: f32, sh: f32, p: (f32, f32), move
     if let Some(l) = &m.list {
         let (Some((x, y)), Some(lay)) = (gu.window_xy(LIST, sw, sh), gu.layout(LIST)) else { return };
         let Some(e) = lay.elements.iter().skip(1).find(|e| inside(x, y, e)) else { return };
+        // FUN_10221cd0: over the page arrows the list is disabled, so no hand and no list keys; a click on them is
+        // Left / Right through the 0xa8 test, which with Ctrl / Alt held is a page on the disabled list, i.e. nothing.
+        if matches!(e.id, 9 | 10) && l.state == 1 {
+            // The click's Left / Right goes to the window (the log switch), not the list, so it is sent before the
+            // hover disables the list.
+            if clicked && !page {
+                key(w, gu, if e.id == 9 { egui::Key::ArrowLeft } else { egui::Key::ArrowRight }, false);
+            }
+            w.list_arrow_hover = true;
+            return;
+        }
         gu.hover.set(true);
         match e.id {
-            9 | 10 if clicked && l.state == 1 => key(w, gu, if e.id == 9 { egui::Key::ArrowLeft } else { egui::Key::ArrowRight }, false),
             c @ 1..=8 if l.state == 1 => {
                 let row = l.top + c as usize - 1;
                 if row >= l.rows.len() || matches!(l.rows[row], Row::CurHead | Row::DoneHead) {
@@ -393,4 +437,43 @@ pub fn draw(gu: &mut GameUi, w: &World, sw: f32, sh: f32) -> Vec<[f32; 4]> {
         }
     }
     rects
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn list(cursor: usize) -> List {
+        // "Current:", one mission, "Completed:", two done.
+        let rows = vec![Row::CurHead, Row::Current(0), Row::DoneHead, Row::Done(1), Row::Done(2)];
+        List { log: 0, state: 1, rows, top: 0, cursor, dir: 0 }
+    }
+
+    /// FUN_1022e760: a fresh Up off row 1 skips the "Current:" header and wraps to the last row; held, it stops on
+    /// row 1 instead and stays there.
+    #[test]
+    fn header_stops_a_held_key() {
+        let mut l = list(1);
+        assert!(step(&mut l, false, false));
+        assert_eq!(l.cursor, 4);
+
+        let mut l = list(1);
+        assert!(!step(&mut l, false, true));
+        assert_eq!((l.cursor, l.dir), (1, 2));
+        assert!(!step(&mut l, false, true));
+        assert_eq!(l.cursor, 1);
+
+        // A held Down over the "Completed:" header still lands on the row under it.
+        let mut l = list(1);
+        assert!(step(&mut l, true, true));
+        assert_eq!(l.cursor, 3);
+
+        // At the bottom edge a held Down does not wrap once Down is remembered; a fresh press does.
+        let mut l = list(4);
+        l.dir = 1;
+        assert!(!step(&mut l, true, true));
+        assert_eq!(l.cursor, 4);
+        assert!(step(&mut l, true, false));
+        assert_eq!(l.cursor, 1);
+    }
 }

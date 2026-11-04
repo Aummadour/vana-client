@@ -239,6 +239,7 @@ struct SkinIn {
     @location(5) w: vec2<f32>,
     @location(6) uv: vec2<f32>,
     @location(7) mat: vec2<f32>,
+    @location(8) cloth: u32,
 };
 
 fn qrot(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
@@ -256,8 +257,20 @@ fn vs_skinned(v: SkinIn) -> VertexOut {
 fn skin(v: SkinIn) -> VertexOut {
     let a = 6u + 3u * v.bones.x;
     let b = 6u + 3u * v.bones.y;
-    let p = qrot(pose[a], pose[a + 2u].xyz * v.p0) + pose[a + 1u].xyz * v.w.x + qrot(pose[b], pose[b + 2u].xyz * v.p1) + pose[b + 1u].xyz * v.w.y;
-    let n = qrot(pose[a], v.n0) + qrot(pose[b], v.n1);
+    var p = qrot(pose[a], pose[a + 2u].xyz * v.p0) + pose[a + 1u].xyz * v.w.x + qrot(pose[b], pose[b + 2u].xyz * v.p1) + pose[b + 1u].xyz * v.w.y;
+    var n = qrot(pose[a], v.n0) + qrot(pose[b], v.n1);
+    // A cloth particle (client/cloth.rs): the simulation's normal, and its position when free (w 1 = set).
+    let c = v.cloth & 0x7fffffffu;
+    if (c != 0u) {
+        let cp = pose[c];
+        let cn = pose[c + 1u];
+        if ((v.cloth & 0x80000000u) != 0u && cp.w == 1.0) {
+            p = cp.xyz;
+        }
+        if (cn.w == 1.0) {
+            n = cn.xyz;
+        }
+    }
     let len = length(n);
     let nn = select(vec3<f32>(0.0), n / len, len > 1e-12);
     let model = mat4x4<f32>(pose[0], pose[1], pose[2], pose[3]);
@@ -302,11 +315,11 @@ struct ShineU {
 };
 @group(3) @binding(0) var<uniform> shine: ShineU;
 
-// The skinned vertices as words (SkinVertex, 20 a vertex: n0 at 3, n1 at 9, bones at 12), for the wrap.
+// The skinned vertices as words (SkinVertex, 21 a vertex: n0 at 3, n1 at 9, bones at 12), for the wrap.
 @group(3) @binding(1) var<storage, read> shine_verts: array<u32>;
 
 fn shine_coords(i: u32) -> vec2<f32> {
-    let o = 20u * i;
+    let o = 21u * i;
     let w = &shine_verts;
     let n0 = vec3<f32>(bitcast<f32>((*w)[o + 3u]), bitcast<f32>((*w)[o + 4u]), bitcast<f32>((*w)[o + 5u]));
     let n1 = vec3<f32>(bitcast<f32>((*w)[o + 9u]), bitcast<f32>((*w)[o + 10u]), bitcast<f32>((*w)[o + 11u]));
@@ -404,6 +417,10 @@ fn fs_opaque(in: VertexOut) -> @location(0) vec4<f32> {
 // Characters carry no baked lighting: shade by the normal. Placeholder until the D3D8 light setup is known.
 @fragment
 fn fs_actor(in: VertexOut) -> @location(0) vec4<f32> {
+    return actor_colour(in);
+}
+
+fn actor_colour(in: VertexOut) -> vec4<f32> {
     let texel = textureSample(tex, samp, in.uv);
     if (texel.a < 0.3) {
         discard;
@@ -416,6 +433,34 @@ fn fs_actor(in: VertexOut) -> @location(0) vec4<f32> {
     let diffuse = max(dot(normalize(in.normal), normalize(-u.light.xyz)), 0.0);
     let lit = texel.rgb * (u.light.w + (1.0 - u.light.w) * diffuse) * in.tint;
     return vec4<f32>(shade(in, vec4<f32>(lit, 1.0)).rgb, alpha);
+}
+
+// A faded actor's offscreen pass (FUN_1002b6e0 with FUN_1001d240 on): drawn opaque, alpha test only (ALPHAREF 0x45,
+// TFACTOR alpha fixed 0x80), into a target cleared to 0; render_faded then blends it as one quad.
+@fragment
+fn fs_actor_solid(in: VertexOut) -> @location(0) vec4<f32> {
+    let c = actor_colour(in);
+    return vec4<f32>(c.rgb, 1.0);
+}
+
+struct FadedOut {
+    @builtin(position) clip: vec4<f32>,
+};
+
+@vertex
+fn vs_faded(@builtin(vertex_index) i: u32) -> FadedOut {
+    let p = vec2<f32>(f32((i << 1u) & 2u), f32(i & 2u)) * 2.0 - 1.0;
+    var out: FadedOut;
+    out.clip = vec4<f32>(p, 0.0, 1.0);
+    return out;
+}
+
+// FUN_1001d3b0: the offscreen target over the viewport, point sampled, colour MODULATE2X(TEX, 0x80 grey) = the
+// texel, alpha MODULATE2X(fade alpha, TEX alpha); SRCALPHA / INVSRCALPHA, z off. refr.a.z = the fade alpha (1 = 0x80).
+@fragment
+fn fs_faded(in: FadedOut) -> @location(0) vec4<f32> {
+    let c = textureLoad(tex, vec2<i32>(in.clip.xy), 0);
+    return vec4<f32>(c.rgb, clamp(c.a * refr.a.z, 0.0, 1.0));
 }
 
 // Placements named '_': D3DRS_ALPHAFUNC GREATER, ALPHAREF 0x60 on alpha = tex.a x vertex.a x 4 (MODULATE4X; ours with

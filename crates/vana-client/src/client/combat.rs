@@ -1384,6 +1384,8 @@ pub(super) fn start_attack(w: &mut World, actor: u32, _target: Option<u32>, reco
     let plan = sched::plan(actmotion::scheduler(&a.extra, &ch, name)?, &["dada", "dcnt"]);
     let m = plan.motions.first()?;
     a.last_attack = name.to_string();
+    // FUN_100d6850 (0x100d68e5): every swing sets the off-hand flag, 1 only for a dual-wield model's `b...` scheduler.
+    a.off_hand = name.starts_with('b') && ch.pc.is_some_and(|p| p.dual.is_some());
     let len = if m.ticks > 0 { m.ticks as f32 } else { motion_ticks(a, &ch, &m.name, 1.0) };
     let rate = actmotion::op_rate(actmotion::find(&a.extra, &ch, &m.name).first().copied(), len);
     play(a, &m.name, len, rate);
@@ -1434,7 +1436,11 @@ pub(super) fn die(actor: &mut Actor, sdep: bool) {
 }
 
 /// 0x038: a scheduler by name on an actor ("kesu", LSB FadeOut before a despawn: its op 0x29 fades to alpha 0).
-pub(super) fn on_scheduler(w: &mut World, actor: u32, name: [u8; 4]) {
+/// LAB_1009dee0 drops it when either actor has +0x124 bit 29 (event op 0x5f sub 1).
+pub(super) fn on_scheduler(w: &mut World, actor: u32, target: u32, name: [u8; 4]) {
+    if super::event::no_038(w, actor) || super::event::no_038(w, target) {
+        return;
+    }
     w.effects.on_scheduler(actor, actor, u32::from_le_bytes(name));
 }
 

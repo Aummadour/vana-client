@@ -51,6 +51,8 @@ pub enum Effect {
     /// `mode`: a 1f code's (msg+4); `sounds`: the 0d / 0e SeSep ids played as the text was built.
     /// `motions`: the `17 n` names the moogle plays.
     Message { op: u8, speaker: Option<u32>, id: u32, text: String, prompt: bool, wait: Option<u32>, place: [Option<i16>; 2], mode: Option<u8>, sounds: Vec<u32>, motions: Vec<&'static str> },
+    /// A message's `13 n`: the K.O. offer state (2 raise, 3 tractor) as s2c 0x0F9 sets it.
+    Offer(u8),
     /// Choice menu (op 0x24); answer with [`Runtime::choose`].
     Choice { id: u32, question: String, options: Vec<(u32, String)>, cursor: usize },
     /// Scheduler start (0x45 and family): file id (base + n), tag, actor, target, param.
@@ -60,6 +62,9 @@ pub enum Effect {
     /// FUN_10082be0 (flag = 0). Cutscenes run with 0 and set 1 before they end. Sub 3 seeds it at `offset` in the
     /// player's frame (x forward, y down) instead of FUN_10021680's (-4, -2, 0).
     Camera { flag: bool, offset: Option<[f32; 3]> },
+    /// 0x46 sub 1 also hides "menu    buff" (FUN_10221c30: not drawn, items disabled, no cursor); only the event end
+    /// (FUN_100ae960) shows it again, not sub 0.
+    HideBuffs,
     /// Op 0x71: open "menu    passinpu" (kind: title and allowed characters; max bytes, at most 16); answer with
     /// [`Runtime::input_done`].
     Input { kind: i32, max: usize },
@@ -130,12 +135,32 @@ pub trait Host {
         Some([0; 3])
     }
     /// Op 0xbf (FUN_100bbd80): a value of the race store (s2c 0x069); 0 until it is complete or out of range.
+    /// Op 0xc2 (FUN_100bbf80): None, sub 1 (FUN_100e9850): bit i for each roster record but ours whose member is in
+    /// their Mog House; Some(n), sub 2 (FUN_100e98b0): the id of the member at display slot n (1..19) if so, else 0.
+    fn mog_house(&self, _slot: Option<u8>) -> u32 {
+        0
+    }
+    /// Op 0x5c 0xb0 (FUN_10246710(0, -1)): 1 while the music stream plays, 0 when it does not, -1 without a stream
+    /// player (no audio).
+    fn music_state(&self) -> i32 {
+        -1
+    }
     fn race_value(&self, _sub: u8, _a: i32, _b: i32) -> u32 {
         0
     }
     /// Op 0xcc 0x11: None while arealist's event pick is up (+0x6d), then its pick (+0x6e: a zone, -1 cancelled).
     fn area_pick(&mut self) -> Option<i32> {
         Some(-1)
+    }
+    /// Op 0xb3 1 / 5 (FUN_100a34d0 / FUN_100a34e0): None while the Fishing Ranking request has no result (5: or no
+    /// command); else its result (i8), the entry count (i16), and our entry's contest rank, main job (0 unless the
+    /// ranking's value is 1..4, 6 or 7), dataset_b, share, score and submit time. A headless run fails at once.
+    fn ranking(&self, _full: bool) -> Option<[i32; 8]> {
+        Some([-1, 0, 0, 0, 0, 0, 0, 0])
+    }
+    /// Op 0xb3 9: the ranking window ("menu    ranking") is open.
+    fn ranking_open(&self) -> bool {
+        false
     }
     /// Start position (x, height, z) and direction of a bound actor.
     fn place(&self, _actor: u32) -> ([f32; 3], f32) {
@@ -162,6 +187,15 @@ pub trait Host {
     fn server_id(&self, actor: u32) -> u32 {
         actor
     }
+    /// Values 0x7f0b / 0x7f8b and the `7f 90` / `7f 91` picks: an actor's gender bit (+0x124 bit 25, 1 male; 0 until
+    /// the server sends one, FUN_1008a350).
+    fn male(&self, _actor: u32) -> bool {
+        false
+    }
+    /// An actor's yaw (+0x18, radians; 0 east, increasing toward south), for text code `1d`.
+    fn yaw(&self, _actor: u32) -> Option<f32> {
+        None
+    }
     /// A game config value by id (op 0xda reads 0x43, the aspect).
     fn game_config(&self, _id: u16) -> u32 {
         0
@@ -180,6 +214,10 @@ pub trait Host {
         true
     }
     fn rand(&mut self) -> u32 {
+        0
+    }
+    /// FUN_101039e0: the game clock, Earth seconds since the Vana'diel epoch (s2c 0x00A's time plus the time since).
+    fn game_time(&self) -> u32 {
         0
     }
     /// The client language (DAT_10456a28 + 8): 0 Japanese, 1 English, 2 / 3 the European ones.
@@ -341,7 +379,7 @@ pub struct Runtime {
     submap_wait: bool,
     submap: u32,
     /// Race and server id per VM actor (values 0x7f07 / 0x7f0a), from the host each tick.
-    actor_info: std::collections::HashMap<u32, (u8, u32)>,
+    actor_info: std::collections::HashMap<u32, (u8, u32, bool)>,
     /// Op 0x5f subs 5 / 6: XiActorTimerTasks by (actor, motion 4cc), ticks left (FUN_10083780, counted down by
     /// FUN_10083850); sub 7 waits while one lives (FUN_100838c0).
     timers: std::collections::HashMap<(u32, u32), f32>,
@@ -678,7 +716,7 @@ impl Runtime {
             *t >= 0.0
         });
         for a in self.vms.iter().map(|v| v.actor).chain([PLAYER]).collect::<Vec<_>>() {
-            self.actor_info.insert(a, (host.race(a), host.server_id(a)));
+            self.actor_info.insert(a, (host.race(a), host.server_id(a), host.male(a)));
         }
         for v in 0..self.vms.len() {
             if !self.vms[v].paused {
@@ -808,6 +846,9 @@ impl Runtime {
             // FUN_100af4c0: the race byte (+0xef) and the server id (+0x78).
             0x7f07 => self.actor_info.get(&self.vms[v].actor).map_or(0, |i| i.0 as u32),
             0x7f0a => self.actor_info.get(&self.vms[v].actor).map_or(self.vms[v].actor, |i| i.1),
+            // FUN_100af4c0 (0x100af6b6 / 0x100af75f): the event owner's / player's gender bit, 1 male.
+            0x7f0b => self.actor_info.get(&self.vms[v].actor).map_or(0, |i| i.2 as u32),
+            0x7f8b => self.actor_info.get(&PLAYER).map_or(0, |i| i.2 as u32),
             0x7f87 => self.actor_info.get(&PLAYER).map_or(0, |i| i.0 as u32),
             0x7f80..0x7f84 => {
                 let p = self.player_body().map(|b| (b.pos, b.dir)).unwrap_or(([0.0; 3], 0.0));
@@ -981,6 +1022,10 @@ impl Runtime {
             g: self.mem.g.map(|v| v as i32),
             strings: self.start.strings.clone(),
             female: host.female(),
+            // FUN_100c2e20's actors 1 / 2: the speaker (none: the player).
+            actors: speaker.map(|s| [!host.male(s); 2]),
+            facing: host.yaw(speaker.unwrap_or(PLAYER)),
+            actor2_me: speaker.is_none_or(|s| s == PLAYER),
             names: self.names.clone(),
             slots: self.mem.names,
             ..host.text_ctx()
@@ -1004,6 +1049,9 @@ impl Runtime {
             self.last_speaker = about;
         }
         let (text, prompt, e) = self.text(id, self.last_speaker, host);
+        if let Some(o) = e.as_ref().and_then(|e| e.offer) {
+            host.effect(Effect::Offer(o));
+        }
         let (wait, place, mode, sounds, motions) = e.map_or((None, [None; 2], None, Vec::new(), Vec::new()), |e| (e.wait, e.place, e.mode, e.sounds, e.motions));
         let name = speaker.map(|s| host.name(s));
         let text = match name {
@@ -1530,6 +1578,9 @@ impl Runtime {
                     Some(0) | Some(1) => {
                         self.camera = sub == Some(0);
                         host.effect(Effect::Camera { flag: self.camera, offset: None });
+                        if sub == Some(1) {
+                            host.effect(Effect::HideBuffs);
+                        }
                     }
                     // FUN_100b6440 sub 3: as sub 0 from (val@2, val@4, val@6) x 0.001, read the first time a run
                     // gets here (4 sites: "check your character's appearance", (4, -1.2, 0): in front).
@@ -1641,7 +1692,8 @@ impl Runtime {
             }
             0x6a => {
                 let (level, ticks) = (self.val(v, 1) as f32 * POS, self.val(v, 3) as f32);
-                host.effect(Effect::Volume { mask: self.val(v, 5), level, ticks });
+                // Mask 0x10 (the call sounds' level) is 0x69's alone: a fade ignores it, even at 0 ticks.
+                host.effect(Effect::Volume { mask: self.val(v, 5) & !0x10, level, ticks });
                 self.adv(v, 7);
             }
             0x6c => {
@@ -1833,6 +1885,12 @@ impl Runtime {
             }
             // FUN_100babe0: Vana'diel time val@1 (earth seconds; hour 0x90, day 0xd80) as year + 886, month + 1,
             // day + 1, weekday, hour, minute and moon step.
+            // FUN_100b90e0: var@1 = the game clock (FUN_101039e0).
+            0x83 => {
+                let t = host.game_time();
+                self.set_at(v, 1, 0, t);
+                self.adv(v, 3);
+            }
             0xaa => {
                 let t = self.val(v, 1) as u32;
                 let parts = [t / 0x12fc00 + 0x376, t % 0x12fc00 / 0x19500 + 1, t % 0x19500 / 0xd80 + 1, t % 0x6c00 / 0xd80, t % 0xd80 / 0x90, t % 0x90 * 60 / 0x90, t / 0x5e80 % 12];
@@ -1960,6 +2018,14 @@ impl Runtime {
                         }
                         self.start.strings[slot] = text;
                     }
+                    // FUN_100b0a00 2 (0x100b0b94): the target window's event mode, the 16-byte string var@2 (byte 15
+                    // = 0) as its name and val@4 as its gauge.
+                    2 => {
+                        let b = self.str_at(v, 2);
+                        let name = crate::dat::font::decode_sjis(&b[..b.iter().position(|&c| c == 0).unwrap_or(15)]);
+                        let n = self.val(v, 4);
+                        host.effect(Effect::Op { op: opc, sub, actor, args: vec![Arg::Name(name), Arg::Int(n)] });
+                    }
                     9 | 0xc => {
                         let n = host.bar_left(s == 0xc);
                         self.set_at(v, 2, 0, n as u32);
@@ -2075,6 +2141,28 @@ impl Runtime {
                 self.set_at(v, if two { 8 } else { 6 }, 0, value);
                 self.adv(v, len);
             }
+            // FUN_100b6e30 0xb0: set@2 = the music stream's state; 4 bytes, no frame end.
+            0x5c if sub == Some(0xb0) => {
+                let m = host.music_state();
+                self.set_at(v, 2, 0, m as u32);
+                self.adv(v, len);
+            }
+            // FUN_100bbf80: sub 1 set@2 = the Mog House mask, sub 2 set@4 = slot val@2's id (as a byte); other subs
+            // only advance 2. No frame end.
+            0xc2 => {
+                match sub {
+                    Some(1) => {
+                        let m = host.mog_house(None);
+                        self.set_at(v, 2, 0, m);
+                    }
+                    Some(2) => {
+                        let id = host.mog_house(Some(self.val(v, 2) as u8));
+                        self.set_at(v, 4, 0, id);
+                    }
+                    _ => {}
+                }
+                self.adv(v, len);
+            }
             // FUN_100bc000: name slot val@1 = the 16 bytes of str@3 and val@5. Retail never advances past a slot outside
             // 0..7; ours waits there a frame at a time.
             0xc3 => {
@@ -2085,6 +2173,34 @@ impl Runtime {
                 }
                 self.mem.names[k as usize] = (self.str_at(v, 3), self.val(v, 5) as u32);
                 self.adv(v, len);
+            }
+            // FUN_100bbaf0 (Fishing Ranking): 0 / 3 / 4 / 6 / 7 start request 1 / 10 / 11 / 12 / 13 with val@2, 2 opens
+            // the window, 8 closes it (effects); 1 / 5 wait for the result then set@2.. its values; 9 set@2 = the
+            // window is open. Every sub ends the frame.
+            0xb3 => {
+                match sub {
+                    Some(s @ (1 | 5)) => {
+                        if let Some(r) = host.ranking(s == 5) {
+                            let n = if s == 5 { 8 } else { 6 };
+                            for (k, &x) in r.iter().take(n).enumerate() {
+                                self.set_at(v, 2 + 2 * k, 0, x as u32);
+                            }
+                            self.adv(v, len);
+                        }
+                    }
+                    Some(9) => {
+                        let open = host.ranking_open();
+                        self.set_at(v, 2, 0, open as u32);
+                        self.adv(v, len);
+                    }
+                    Some(0 | 2 | 3 | 4 | 6 | 7 | 8) => {
+                        let a = self.args(v, op, sub);
+                        host.effect(Effect::Op { op: opc, sub, actor, args: a });
+                        self.adv(v, len);
+                    }
+                    _ => self.adv(v, len),
+                }
+                self.yield_(v);
             }
             // FUN_100b9d90 0x11: wait while arealist picks, then set@2 = the pick (FUN_100af310(2, +0x6e)).
             0xcc if sub == Some(0x11) => match host.area_pick() {
@@ -2192,7 +2308,7 @@ impl Runtime {
                     }
                     self.adv(v, len);
                     // Retail ends the frame after these (+0x25a = 1 in every sub).
-                    if matches!(opc, 0xb6 | 0xb5 | 0xc1 | 0x7e | 0x71 | 0xa7 | 0xb3) {
+                    if matches!(opc, 0xb6 | 0xb5 | 0xc1 | 0x7e | 0x71 | 0xa7) {
                         self.yield_(v);
                     }
                 }
@@ -2314,6 +2430,10 @@ fn atoi(b: &[u8]) -> i32 {
                 let mut question = String::new();
                 let mut cursor = 0;
                 if let Some(e) = e {
+                    // The expander's side effects run wherever it expands in retail (FUN_100c1650), choices included.
+                    if let Some(o) = e.offer {
+                        host.effect(Effect::Offer(o));
+                    }
                     let at = e.choice.unwrap_or(e.lines.len());
                     question = e.lines[..at.min(e.lines.len())].iter().map(|l| decode_sjis(l)).collect::<Vec<_>>().join("\n");
                     let (default, mut mask) = (self.val(v, 3 + off) as u32, self.val(v, 5 + off) as u32);
@@ -2615,6 +2735,11 @@ pub struct Scripted {
     pub inputs: std::collections::VecDeque<Vec<u8>>,
     /// The map is not ready (op 0xd4 sub 0 waits).
     pub map_busy: bool,
+    /// The game clock op 0x83 reads (Earth seconds since the Vana'diel epoch).
+    pub time: u32,
+    /// Op 0xb3's request values (None: no result yet) and window.
+    pub ranking: Option<[i32; 8]>,
+    pub ranking_open: bool,
     running: Vec<(Busy, u32)>,
     seed: u32,
     frame: u32,
@@ -2669,6 +2794,9 @@ impl Scripted {
             race: 0,
             inputs: Default::default(),
             map_busy: false,
+            time: 0,
+            ranking: Some([-1, 0, 0, 0, 0, 0, 0, 0]),
+            ranking_open: false,
             running: Vec::new(),
             seed: 1,
             frame: 0,
@@ -2677,8 +2805,24 @@ impl Scripted {
 }
 
 impl Host for Scripted {
+    fn game_time(&self) -> u32 {
+        self.time
+    }
+
+    fn ranking(&self, _full: bool) -> Option<[i32; 8]> {
+        self.ranking
+    }
+
+    fn ranking_open(&self) -> bool {
+        self.ranking_open
+    }
+
     fn race(&self, actor: u32) -> u8 {
         if actor == PLAYER { self.race } else { 0 }
+    }
+
+    fn male(&self, actor: u32) -> bool {
+        actor == PLAYER && matches!(self.race, 1 | 3 | 5 | 8)
     }
 
     fn map_ready(&self) -> bool {
@@ -3021,7 +3165,323 @@ mod tests {
         assert_eq!(end(&host.log), Some(0x4000_0000));
     }
 
+    /// Op 0x83 (FUN_100b90e0): var@1 = the game clock (FUN_101039e0), here read back through the event's end option.
+    #[test]
+    fn game_clock_83() {
+        let code = vec![
+            0x83, 0x10, 0x00, // L16 = clock
+            0x0b, 0x10, 0x00, // L16 += 1
+            0x03, 0x01, 0x10, 0x10, 0x00, // Z1 (the end option) = L16
+            0x21, 0x00,
+        ];
+        let actor = 0x010e_601b;
+        let blocks = vec![event::Block { actor, events: vec![(1, 0)], consts: vec![], code }];
+        let mut host = Scripted::new(&[]);
+        host.time = 1_234_567_890;
+        let start = Start { zone: 230, event: 1, target: actor, ..Default::default() };
+        let mut rt = Runtime::start(blocks, None, start, Memory::default(), &mut host);
+        run_scripted(&mut rt, &mut host, 60).expect("finished");
+        assert_eq!(end(&host.log), Some(1_234_567_891));
+    }
+
     /// Op 0x71 over hand-made code: an "Enter number:" input read with atoi, then a name stored as words.
+    /// Op 0xb3 (FUN_100bbaf0) over hand-made code: sub 0 starts the request (an effect), sub 1 waits for the result
+    /// then sets six values, sub 9 reads the window; here L1 (the entry count) comes back as the end option.
+    #[test]
+    fn fishing_ranking_b3() {
+        let code = vec![
+            0xb3, 0x00, 0x10, 0x00, // request 1 with L16
+            0xb3, 0x01, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x04, 0x00, 0x05, 0x00, // L0..L5 = result..share
+            0xb3, 0x09, 0x06, 0x00, // L6 = window open
+            0x03, 0x01, 0x10, 0x01, 0x00, // Z1 (the end option) = L1
+            0x21, 0x00,
+        ];
+        let actor = 0x010e_601b;
+        let blocks = || vec![event::Block { actor, events: vec![(1, 0)], consts: vec![], code: code.clone() }];
+        let start = || Start { zone: 248, event: 1, target: actor, ..Default::default() };
+        let mut host = Scripted::new(&[]);
+        host.ranking = Some([1, 7, 2, 3, 0, 0, 0, 0]);
+        let mut rt = Runtime::start(blocks(), None, start(), Memory::default(), &mut host);
+        run_scripted(&mut rt, &mut host, 60).expect("finished");
+        assert_eq!(end(&host.log), Some(7));
+        assert!(host.log.iter().any(|e| matches!(e, Effect::Op { op: 0xb3, sub: Some(0), args, .. } if args[..] == [Arg::Int(0)])), "{:?}", host.log);
+
+        // No result yet: sub 1 stays.
+        let mut host = Scripted::new(&[]);
+        host.ranking = None;
+        let mut rt = Runtime::start(blocks(), None, start(), Memory::default(), &mut host);
+        assert!(run_scripted(&mut rt, &mut host, 60).is_none());
+        assert_eq!(end(&host.log), None);
+    }
+
+    /// Ops 0xa8 / 0xb9 (FUN_100b9780 / FUN_100b9820): fixed lengths 6 / 8, but byte 1 selects the form, so the
+    /// host gets the sub and its operands; sub 2 and up do nothing in retail.
+    #[test]
+    fn marker_clear_subs() {
+        let code = vec![
+            0xa8, 0x00, 0x00, 0x80, 0x01, 0x80, // sub 0: zone #0, slot #1
+            0xb9, 0x01, 0x00, 0x80, 0x02, 0x80, 0x01, 0x80, // sub 1: zone #0, key #2, slot #1
+            0xa8, 0x02, 0x00, 0x80, 0x01, 0x80, // sub 2: nothing
+            0x21, 0x00,
+        ];
+        let actor = 0x010e_601b;
+        let blocks = vec![event::Block { actor, events: vec![(1, 0)], consts: vec![230, 5, 3], code }];
+        let mut host = Scripted::new(&[]);
+        let start = Start { zone: 230, event: 1, target: actor, ..Default::default() };
+        let mut rt = Runtime::start(blocks, None, start, Memory::default(), &mut host);
+        run_scripted(&mut rt, &mut host, 60).expect("finished");
+        let ops: Vec<(u8, Option<u8>, Vec<i32>)> = host
+            .log
+            .iter()
+            .filter_map(|e| match e {
+                Effect::Op { op: op @ (0xa8 | 0xb9), sub, args, .. } => Some((*op, *sub, args.iter().map(|a| if let Arg::Int(i) = a { *i } else { -1 }).collect())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ops[..3], [(0xa8, Some(0), vec![230, 5]), (0xb9, Some(1), vec![230, 3, 5]), (0xa8, Some(2), vec![])]);
+    }
+
+    /// Op 0xb4 sub 2 hands the host the 16-byte string var@2 and val@4 (the target window's event mode); sub 3 closes.
+    #[test]
+    fn target_event_mode_b4() {
+        let mut code = vec![0xb4, 0x00, 0x10, 0x00];
+        code.extend_from_slice(b"Goblin Fort\0\0\0\0\0");
+        code.extend_from_slice(&[0xb4, 0x02, 0x10, 0x00, 0x00, 0x80, 0xb4, 0x03, 0x21, 0x00]);
+        let actor = 0x010e_601b;
+        let blocks = vec![event::Block { actor, events: vec![(1, 0)], consts: vec![42], code }];
+        let mut host = Scripted::new(&[]);
+        let start = Start { zone: 230, event: 1, target: actor, ..Default::default() };
+        let mut rt = Runtime::start(blocks, None, start, Memory::default(), &mut host);
+        run_scripted(&mut rt, &mut host, 60).expect("finished");
+        let seen: Vec<String> = host.log.iter().filter(|e| matches!(e, Effect::Op { op: 0xb4, .. })).map(|e| format!("{e:?}")).collect();
+        assert_eq!(seen.len(), 2, "{seen:?}");
+        assert!(seen[0].contains("sub: Some(2)") && seen[0].contains("Name(\"Goblin Fort\")") && seen[0].contains("Int(42)"), "{}", seen[0]);
+        assert!(seen[1].contains("sub: Some(3)"), "{}", seen[1]);
+    }
+
+    /// Op 0x46 sub 1 hides the status icons as well as freeing the camera flag; sub 0 doesn't show them again.
+    #[test]
+    fn camera_sub1_hides_buffs() {
+        let code = vec![0x46, 0x01, 0x46, 0x00, 0x21, 0x00];
+        let actor = 0x010e_601b;
+        let blocks = vec![event::Block { actor, events: vec![(1, 0)], consts: vec![], code }];
+        let mut host = Scripted::new(&[]);
+        let start = Start { zone: 230, event: 1, target: actor, ..Default::default() };
+        let mut rt = Runtime::start(blocks, None, start, Memory::default(), &mut host);
+        run_scripted(&mut rt, &mut host, 60).expect("finished");
+        let seen: Vec<String> = host.log.iter().filter(|e| matches!(e, Effect::Camera { .. } | Effect::HideBuffs)).map(|e| format!("{e:?}")).collect();
+        assert_eq!(seen[..3], ["Camera { flag: false, offset: None }", "HideBuffs", "Camera { flag: true, offset: None }"]);
+    }
+
+    /// The cutscene clock ops reach the host in order with their operands: 0xa9 day val@1, 0x98 (no wait headless),
+    /// 0xc9, 0x77 hour / weather, 0x78.
+    #[test]
+    fn cutscene_clock_ops() {
+        let code = vec![
+            0xa9, 0x00, 0x80, // day #0 x 7
+            0x98, //
+            0xc9, //
+            0x77, 0x01, 0x80, 0x02, 0x80, // hour #1, weather #2
+            0x78, //
+            0x21, 0x00,
+        ];
+        let actor = 0x010e_601b;
+        let blocks = vec![event::Block { actor, events: vec![(1, 0)], consts: vec![5, 18, 0xff], code }];
+        let mut host = Scripted::new(&[]);
+        let start = Start { zone: 230, event: 1, target: actor, ..Default::default() };
+        let mut rt = Runtime::start(blocks, None, start, Memory::default(), &mut host);
+        run_scripted(&mut rt, &mut host, 60).expect("finished");
+        let ops: Vec<(u8, Vec<i32>)> = host
+            .log
+            .iter()
+            .filter_map(|e| match e {
+                Effect::Op { op: op @ (0xa9 | 0x98 | 0xc9 | 0x77 | 0x78), args, .. } => {
+                    Some((*op, args.iter().map(|a| if let Arg::Int(i) = a { *i } else { -1 }).collect()))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ops[..5], [(0xa9, vec![5]), (0x98, vec![]), (0xc9, vec![]), (0x77, vec![18, 0xff]), (0x78, vec![])]);
+    }
+
+    /// The actor flag ops reach the host with their operands: 0x95 val@1, 0xa4 u8@1, 0x86 u8@1 and actor@2, 0x84 /
+    /// 0x96 bare (client/event.rs keeps the flags).
+    #[test]
+    fn actor_flag_ops() {
+        let code = vec![
+            0x95, 0x10, 0x00, // MonStat override = L16
+            0xa4, 0x01, // no near fade
+            0x86, 0x01, 0xf0, 0xff, 0xff, 0x7f, // no turn steps for the player
+            0x84, 0x96, 0x21, 0x00,
+        ];
+        let actor = 0x010e_601b;
+        let blocks = vec![event::Block { actor, events: vec![(1, 0)], consts: vec![], code }];
+        let mut host = Scripted::new(&[]);
+        let start = Start { zone: 230, event: 1, target: actor, ..Default::default() };
+        let mut rt = Runtime::start(blocks, None, start, Memory::default(), &mut host);
+        run_scripted(&mut rt, &mut host, 60).expect("finished");
+        let ops: Vec<(u8, Vec<Arg>)> =
+            host.log.iter().filter_map(|e| if let Effect::Op { op, args, .. } = e { Some((*op, args.clone())) } else { None }).collect();
+        assert_eq!(
+            ops[..5],
+            [(0x95, vec![Arg::Int(0)]), (0xa4, vec![Arg::Int(1)]), (0x86, vec![Arg::Int(1), Arg::Actor(PLAYER)]), (0x84, vec![]), (0x96, vec![])],
+            "{ops:?}"
+        );
+    }
+
+    /// Op 0xc2 (Mog House visits): sub 1 stores the host's mask, sub 2 the id at slot val@2, sub 0 only advances.
+    #[test]
+    fn mog_house_party() {
+        struct Mog(Scripted);
+        impl Host for Mog {
+            fn effect(&mut self, e: Effect) {
+                self.0.effect(e)
+            }
+            fn mog_house(&self, slot: Option<u8>) -> u32 {
+                slot.map_or(0b100, |n| if n == 2 { 0x300 } else { 0 })
+            }
+        }
+        let code = vec![
+            0xc2, 0x01, 0x01, 0x11, // M1 = mask
+            0xc2, 0x02, 0x00, 0x80, 0x02, 0x11, // M2 = slot #0's id
+            0xc2, 0x00, // nothing
+            0x21, 0x00,
+        ];
+        let actor = 0x010e_601b;
+        let blocks = vec![event::Block { actor, events: vec![(1, 0)], consts: vec![2], code }];
+        let mut host = Mog(Scripted::new(&[]));
+        let start = Start { zone: 230, event: 1, target: actor, ..Default::default() };
+        let mut rt = Runtime::start(blocks, None, start, Memory::default(), &mut host);
+        for _ in 0..10 {
+            rt.tick(&mut host, 1.0);
+        }
+        assert_eq!((rt.mem.m[1], rt.mem.m[2]), (0b100, 0x300));
+    }
+
+    /// Op 0x5f subs 0 / 1 (FUN_100b72c0): two bytes, to the host with the thread's own actor (its +0x124 bit 29).
+    #[test]
+    fn scheduler_guard_subs() {
+        let code = vec![0x5f, 0x01, 0x5f, 0x00, 0x21, 0x00];
+        let actor = 0x010e_601b;
+        let blocks = vec![event::Block { actor, events: vec![(1, 0)], consts: vec![], code }];
+        let mut host = Scripted::new(&[]);
+        let start = Start { zone: 230, event: 1, target: actor, ..Default::default() };
+        let mut rt = Runtime::start(blocks, None, start, Memory::default(), &mut host);
+        run_scripted(&mut rt, &mut host, 60).expect("finished");
+        let subs: Vec<(Option<u8>, u32)> =
+            host.log.iter().filter_map(|e| if let Effect::Op { op: 0x5f, sub, actor, .. } = e { Some((*sub, *actor)) } else { None }).collect();
+        assert_eq!(subs[..2], [(Some(1), actor), (Some(0), actor)]);
+    }
+
+    /// Op 0xae sub 0 (FUN_100bb620 -> FUN_10094040): six bytes, weather val@2 and blend time val@4 to the host.
+    #[test]
+    fn event_weather_change() {
+        let code = vec![0xae, 0x00, 0x00, 0x80, 0x01, 0x80, 0x21, 0x00];
+        let actor = 0x010e_601b;
+        let blocks = vec![event::Block { actor, events: vec![(1, 0)], consts: vec![6, 120], code }];
+        let mut host = Scripted::new(&[]);
+        let start = Start { zone: 230, event: 1, target: actor, ..Default::default() };
+        let mut rt = Runtime::start(blocks, None, start, Memory::default(), &mut host);
+        run_scripted(&mut rt, &mut host, 60).expect("finished");
+        let ops: Vec<Vec<i32>> = host
+            .log
+            .iter()
+            .filter_map(|e| match e {
+                Effect::Op { op: 0xae, sub: Some(0), args, .. } => Some(args.iter().map(|a| if let Arg::Int(i) = a { *i } else { -1 }).collect()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ops[0], vec![6, 120]);
+    }
+
+    /// Op 0x5f sub 2 names its actor at pc+2 (FUN_100b5510 reads operand 1 after the sub byte), op 0xc1 at pc+1.
+    #[test]
+    fn motion_reset_actor_operand() {
+        let npc = 0x010e_6030u32.to_le_bytes();
+        let mut code = vec![0x5f, 0x02];
+        code.extend_from_slice(&npc);
+        code.push(0xc1);
+        code.extend_from_slice(&npc);
+        code.extend_from_slice(&[0x21, 0x00]);
+        let actor = 0x010e_601b;
+        let blocks = vec![event::Block { actor, events: vec![(1, 0)], consts: vec![], code }];
+        let mut host = Scripted::new(&[]);
+        let start = Start { zone: 230, event: 1, target: actor, ..Default::default() };
+        let mut rt = Runtime::start(blocks, None, start, Memory::default(), &mut host);
+        run_scripted(&mut rt, &mut host, 60).expect("finished");
+        let found: Vec<(u8, Option<u32>)> = host
+            .log
+            .iter()
+            .filter_map(|e| match e {
+                Effect::Op { op: op @ (0x5f | 0xc1), args, .. } => Some((*op, args.iter().find_map(|a| if let Arg::Actor(x) = a { Some(*x) } else { None }))),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(found[..2], [(0x5f, Some(0x010e_6030)), (0xc1, Some(0x010e_6030))]);
+    }
+
+    /// Op 0xab 0x0f / 0x10 / 0x12 / 0x13 (FUN_100bac90): two bytes each, to the host in order.
+    #[test]
+    fn opab_flag_subs() {
+        let code = vec![0xab, 0x0f, 0xab, 0x10, 0xab, 0x12, 0xab, 0x13, 0x21, 0x00];
+        let actor = 0x010e_601b;
+        let blocks = vec![event::Block { actor, events: vec![(1, 0)], consts: vec![], code }];
+        let mut host = Scripted::new(&[]);
+        let start = Start { zone: 243, event: 1, target: actor, ..Default::default() };
+        let mut rt = Runtime::start(blocks, None, start, Memory::default(), &mut host);
+        run_scripted(&mut rt, &mut host, 60).expect("finished");
+        let subs: Vec<Option<u8>> = host.log.iter().filter_map(|e| if let Effect::Op { op: 0xab, sub, .. } = e { Some(*sub) } else { None }).collect();
+        assert_eq!(subs[..4], [Some(0x0f), Some(0x10), Some(0x12), Some(0x13)]);
+    }
+
+    /// Op 0x5c 0xb0 / 0xb1 (FUN_100b6e30), as the ambient music loops of zones 210 / 232 / 236 / 239 use them: 0xb0
+    /// stores the host's music state in four bytes, 0xb1 reaches the host in two.
+    #[test]
+    fn music_state_restart() {
+        struct Music(Scripted);
+        impl Host for Music {
+            fn effect(&mut self, e: Effect) {
+                self.0.effect(e)
+            }
+            fn music_state(&self) -> i32 {
+                0
+            }
+        }
+        let code = vec![
+            0x5c, 0xb0, 0x01, 0x11, // M1 = the state
+            0x5c, 0xb1, // restart
+            0x21, 0x00,
+        ];
+        let actor = 0x010e_601b;
+        let blocks = vec![event::Block { actor, events: vec![(1, 0)], consts: vec![], code }];
+        let mut host = Music(Scripted::new(&[]));
+        let start = Start { zone: 232, event: 1, target: actor, ..Default::default() };
+        let mut mem = Memory::default();
+        mem.m[1] = 7;
+        let mut rt = Runtime::start(blocks, None, start, mem, &mut host);
+        for _ in 0..10 {
+            rt.tick(&mut host, 1.0);
+        }
+        assert_eq!(rt.mem.m[1], 0);
+        assert!(host.0.log.iter().any(|e| matches!(e, Effect::Op { op: 0x5c, sub: Some(0xb1), .. })));
+        assert!(!host.0.log.iter().any(|e| matches!(e, Effect::Op { op: 0x5c, sub: Some(0xb0), .. })));
+    }
+
+    /// Op 0xcc 0x20 (FUN_100b9d90): four bytes, key item val@2 to the host (0 closes the window), no wait.
+    #[test]
+    fn event_key_item_window() {
+        let code = vec![0xcc, 0x20, 0x00, 0x80, 0xcc, 0x20, 0x00, 0x00, 0x21, 0x00];
+        let actor = 0x010e_601b;
+        let blocks = vec![event::Block { actor, events: vec![(1, 0)], consts: vec![2842], code }];
+        let mut host = Scripted::new(&[]);
+        let start = Start { zone: 257, event: 1, target: actor, ..Default::default() };
+        let mut rt = Runtime::start(blocks, None, start, Memory::default(), &mut host);
+        run_scripted(&mut rt, &mut host, 60).expect("finished");
+        let ids: Vec<Vec<Arg>> =
+            host.log.iter().filter_map(|e| if let Effect::Op { op: 0xcc, sub: Some(0x20), args, .. } = e { Some(args.clone()) } else { None }).collect();
+        assert_eq!(ids[..2], [vec![Arg::Int(2842)], vec![Arg::Int(0)]]);
+    }
+
     #[test]
     fn input_window() {
         assert_eq!((Runtime::atoi(b" -42x"), Runtime::atoi(b"+7"), Runtime::atoi(b"")), (-42, 7, 0));

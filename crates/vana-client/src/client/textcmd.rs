@@ -535,8 +535,7 @@ pub(super) fn status_gate(w: &mut World, mask: u8) -> bool {
     }
 }
 
-/// FUN_101cc0d0(mask, 1): the check alone, no line. The costume bit (0x40, entity +0x120 bit 5, line 0xb1) is not
-/// tracked.
+/// FUN_101cc0d0(mask, 1): the check alone, no line. Order 0x10, 0x20, 0x01, 0x02, 0x04, 0x40, 0x08, 0x80.
 pub(super) fn gate_line(w: &World, mask: u8) -> Option<usize> {
     let s = w.my_motion.status;
     let line = if mask & 0x10 != 0 && matches!(s, 0x21 | 7) {
@@ -549,6 +548,9 @@ pub(super) fn gate_line(w: &World, mask: u8) -> Option<usize> {
         0x4d
     } else if mask & 0x04 != 0 && s == 0x2c {
         0x4e
+    } else if mask & 0x40 != 0 && w.costume.on {
+        // FUN_101cc040: in costume (player +0x120 bit 5).
+        0xb1
     } else if mask & 0x08 != 0 && w.room_flag {
         0x44
     } else if mask & 0x80 != 0 && w.myroom.is_some_and(|r| r.map == 0x2d4) {
@@ -1464,6 +1466,12 @@ fn handle(w: &mut World, cid: u16, args: &[String], line: &str, mode: Mode) -> D
             if picked.is_empty() {
                 return Err(());
             }
+            // The invisible test lives in the per-target talk action FUN_1007bf30 (0x1007c028), so it only speaks for a
+            // name that matched: our +0x128 bit 6 prints 7031 0xac and sends nothing.
+            if w.my_plate.invisible {
+                system_line(w, 0xac);
+                return Ok(());
+            }
             for t in picked {
                 act(w, t, 0, 1);
             }
@@ -1844,9 +1852,14 @@ fn chat(w: &mut World, cid: u16, msg: &str) -> Done {
     } else if no_ls {
         system_line(w, 0x25);
     }
-    // The echoes (all.c 90072..90740): our name and the text as typed, in the sender's mode. Not done: the assist
-    // channels' rank icon (s2c 0x01B ranks, MentorFlg).
+    // The echoes (all.c 90072..90740): our name and the text as typed, in the sender's mode.
     let me = w.name.clone();
+    // FUN_10078be0 / FUN_10078d80: the assist echoes lead with the rank icon when our mentor and mastery ranks (s2c
+    // 0x01B @0x65 / @0x66) are both set and MentorFlg is on (s2c 0x0B4 byte 7 bit 1). No other echo has it.
+    let rank = match w.job_info {
+        Some(j) if j.mentor != 0 && j.mastery != 0 && w.conf_sys[3] & 2 != 0 => super::rank_icon(j.mentor, j.mastery),
+        _ => String::new(),
+    };
     let (line, mode) = match cid {
         id::YELL => {
             let zone = w.zone.and_then(|z| w.names.as_ref().and_then(|n| crate::dat::names::NameSource::place(&**n, z as u32))).unwrap_or_default();
@@ -1857,8 +1870,8 @@ fn chat(w: &mut World, cid: u16, msg: &str) -> Done {
         id::LS => (format!("[1]<{me}> {msg}"), 6),
         id::LS2 => (format!("[2]<{me}> {msg}"), 0xd5),
         id::UNITY => (format!("{{{me}}} {msg}"), 0xd3),
-        id::ASSISTJ => (format!("{me}(J) : {msg}"), 0xdb),
-        id::ASSISTE => (format!("{me}(E) : {msg}"), 0xdd),
+        id::ASSISTJ => (format!("{rank}{me}(J) : {msg}"), 0xdb),
+        id::ASSISTE => (format!("{rank}{me}(E) : {msg}"), 0xdd),
         // FUN_10078f20 (/emote): "%s %s", mode 7.
         id::EMOTE_TEXT => (format!("{me} {msg}"), 7),
         _ => (format!("{me} : {msg}"), 1),
@@ -2649,7 +2662,8 @@ fn recruitlist(w: &mut World, args: &[String]) -> Done {
 
 /// FUN_1007d9c0 (/partyrequestcmd, /prcmd): add [target] asks to join that player's party (c2s 0x11C kind 0, group 10
 /// 0x76), remove [target] takes it back (kind 1); someone not here is looked up by name. Refusals 7 0xc4 / 0xc5 (on
-/// our blacklist) / 0xc6 (blacklist not in yet). Not done: the own actor's +0x124 bits 22 / 23 (0xc6).
+/// our blacklist) / 0xc6 (blacklist not in yet; or we are /anon or /away: own actor +0x124 bit 23 / 22, from 0x037
+/// u32 @0x28 bits 5 / 7, asm 0x1007da8b..0x1007dab7; the name-lookup path does not test them).
 fn prcmd(w: &mut World, args: &[String], mode: Mode) -> Done {
     let kind = match args.get(1).map(String::as_str) {
         Some("add") => 0,
@@ -2664,7 +2678,11 @@ fn prcmd(w: &mut World, args: &[String], mode: Mode) -> Done {
         return Ok(());
     };
     let name = if id == w.my_id { w.name.clone() } else { w.entities.get(&id).map(|e| e.name.clone()).unwrap_or_default() };
+    // Anonymous (bit 5) or Away (bit 7): "You were unable to make a request to join." and nothing is sent. Checked
+    // here before the blacklist *(inf: the order between the two tests, and that remove skips it)*.
+    let anon_away = kind == 0 && w.self_flags & (1 << 5 | 1 << 7) != 0;
     match if kind == 0 { super::partyreq::blacklisted(w, &name) } else { 0 } {
+        _ if anon_away => refuse(w, 0xc6),
         1 => refuse(w, 0xc5),
         2 => refuse(w, 0xc6),
         _ if (kind == 0 && id == w.my_id) || id >> 24 == 1 => refuse(w, 0xc4),

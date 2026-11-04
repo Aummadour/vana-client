@@ -37,6 +37,9 @@ pub struct Pending {
     pub files: Vec<u32>,
     pub name: String,
     pub kind: Kind,
+    /// Op 0x2c's actor@5: the scheduler's second actor (vtable +0x298's target), e.g. the home point crystal's
+    /// 'bind' on the player. None: the actor itself.
+    pub target: Option<u32>,
 }
 
 /// Mouth motion of a speaker (FUN_10086710 / FUN_100867a0): the model's face motion (+0x164, default 'mou4',
@@ -52,7 +55,7 @@ pub struct Mouth {
 /// FUN_1008da00: an NPC with MonStat 2 takes its dft or df1 idle at random every 600..1199 ticks (+0x1ba), statuses
 /// 3..5 aside *(+0x120 bits 7 / 13 and +0x170 not modelled; for any other NPC both idles are the same)*.
 pub(super) fn idle_swap(id: u32, e: &mut super::Entity, a: Option<&mut Actor>, ticks: f32) {
-    if e.mon_stat != 2 || id >> 24 == 0 || matches!(e.motion.status, 3..=5) {
+    if e.mon_stat() != 2 || id >> 24 == 0 || matches!(e.motion.status, 3..=5) {
         return;
     }
     e.idle_swap -= ticks;
@@ -154,7 +157,7 @@ pub fn emote(a: &mut Actor, n: u32, param: u16, status: u8, weapon_class: u8) ->
     };
     let (files, name) = crate::dat::motionfile::emote_files(&pc, m);
     log::info!("emote {n}: motion {m}, files {files:?}, {name}");
-    a.pending = Some(Pending { files, name: name.clone(), kind: Kind::Emote });
+    a.pending = Some(Pending { files, name: name.clone(), kind: Kind::Emote, target: None });
     a.emote = Some(name);
     Ok(())
 }
@@ -322,12 +325,23 @@ pub struct Play {
     pub cut: f32,
     /// Scheduler op 0x28: the status motion comes back at this tick.
     pub stance_at: Option<f32>,
+    /// Event op 0xd3: every motion layer ends at this tick (FUN_1001b520(8): state 2, gone when its time runs out).
+    pub end: Option<f32>,
 }
 
 impl Play {
     pub fn new(name: &str, data: &[u8], base: &str) -> Play {
         let p = sched::plan(data, &[]);
-        let mut play = Play { name: name.to_string(), motions: p.motions, length: p.length as f32, ticks: 0.0, base: base.to_string(), cut: -1.0, stance_at: None };
+        let mut play = Play {
+            name: name.to_string(),
+            motions: p.motions,
+            length: p.length as f32,
+            ticks: 0.0,
+            base: base.to_string(),
+            cut: -1.0,
+            stance_at: None,
+            end: None,
+        };
         play.stance_at = p.stance_at.map(|t| t as f32);
         play
     }
@@ -337,6 +351,23 @@ impl Play {
         self.cut = self.ticks;
     }
 
+    /// The scheduler task is deleted now (event op 0x50, model vtable +0x29c -> FUN_10056ef0): no later motion starts,
+    /// and the motion already playing runs on as the model has it (a loop until the status motion changes).
+    pub fn stop(&mut self) {
+        let t = self.ticks;
+        self.motions.retain(|m| m.at as f32 <= t);
+        // busy() runs one tick past the length.
+        self.length = self.length.min(t - 2.0);
+        self.stance_at = self.stance_at.filter(|s| *s <= t);
+    }
+
+    /// Event op 0xd3 (FUN_100ce070): the playing motion layers end in `ticks` (at their weights till then); the
+    /// scheduler task itself is left alone.
+    pub fn end_in(&mut self, ticks: f32) {
+        let at = self.ticks + ticks;
+        self.end = Some(self.end.map_or(at, |e| e.min(at)));
+    }
+
     /// 0x53: the scheduler task still exists.
     pub fn busy(&self) -> bool {
         self.ticks <= self.length + 1.0
@@ -344,6 +375,9 @@ impl Play {
 
     /// The motion playing now and its start tick.
     pub fn current(&self) -> Option<&sched::Motion> {
+        if self.end.is_some_and(|e| self.ticks >= e) {
+            return None;
+        }
         let cut = match self.stance_at {
             Some(s) if s <= self.ticks => self.cut.max(s + 0.5),
             _ => self.cut,
@@ -370,8 +404,13 @@ impl Play {
 /// The rest of a scheduler whose motions this module plays (FUN_10083650 runs the whole thing): its sounds (the
 /// weapon draw / sheathe `sinr` / `sotr`, gesture sounds), generators and holds run in fx with the motions off.
 pub(super) fn fx_too(fx: &mut crate::fx::Effects, id: u32, name: &str) {
+    fx_too_on(fx, id, id, name);
+}
+
+/// fx_too with the scheduler's second actor (caster `id`, target `target`).
+pub(super) fn fx_too_on(fx: &mut crate::fx::Effects, id: u32, target: u32, name: &str) {
     if let Ok(n) = <[u8; 4]>::try_from(name.as_bytes()) {
-        fx.on_scheduler_quiet(id, u32::from_le_bytes(n));
+        fx.on_scheduler_quiet_on(id, target, u32::from_le_bytes(n));
     }
 }
 
@@ -396,7 +435,7 @@ pub(super) fn start(a: &mut Actor, ch: &Character, name: &str, base: &str) -> bo
         None if !find(&a.extra, ch, name).is_empty() => {
             let len = find(&a.extra, ch, name).iter().map(|x| x.frames as f32 / (x.speed * 0.5).max(1e-3)).fold(0.0, f32::max);
             let m = sched::Motion { name: name.to_string(), at: 0, speed: 1.0, ticks: len.ceil() as u16, count: 1, blend: crate::motion::BLEND_TICKS as u16 };
-            Play { name: name.to_string(), motions: vec![m], length: len, ticks: 0.0, base: base.to_string(), cut: -1.0, stance_at: None }
+            Play { name: name.to_string(), motions: vec![m], length: len, ticks: 0.0, base: base.to_string(), cut: -1.0, stance_at: None, end: None }
         }
         None => return false,
     };
@@ -434,7 +473,7 @@ pub(super) fn play_op(w: &mut World, id: u32, m: Option<sched::Motion>) {
                 a.prev = Some((std::mem::take(&mut a.motion), a.ticks, a.once));
                 a.blend = 0.0;
             }
-            a.play = Some(Play { name: m.name.clone(), motions: vec![m], length: len, ticks: 0.0, base, cut: -1.0, stance_at: None });
+            a.play = Some(Play { name: m.name.clone(), motions: vec![m], length: len, ticks: 0.0, base, cut: -1.0, stance_at: None, end: None });
         }
         Some(m) => log::debug!("actor {id:#x}: scheduler motion {} not in its files", m.name),
         None => {
@@ -447,8 +486,13 @@ pub(super) fn play_op(w: &mut World, id: u32, m: Option<sched::Motion>) {
 
 /// The status motion an actor would play now (FUN_100c6b70), for ending looping holds.
 pub(super) fn status_motion(w: &World, id: u32, ch: &Character) -> String {
-    let (status, ratio) = if let Some(p) = super::event::pose(w, id) {
-        (0, p.ratio)
+    status_motion_posed(w, id, ch, super::event::pose(w, id).map(|p| p.ratio))
+}
+
+/// [`status_motion`] with the event pose's ratio given: the event VM runs with the event taken out of `w`.
+fn status_motion_posed(w: &World, id: u32, ch: &Character, posed: Option<f32>) -> String {
+    let (status, ratio) = if let Some(r) = posed {
+        (0, r)
     } else if id == w.my_id {
         (w.my_motion.status, if w.moving { 1.0 } else { 0.0 })
     } else {
@@ -465,12 +509,40 @@ fn status(w: &World, id: u32) -> u8 {
     if id == w.my_id { w.my_motion.status } else { w.entities.get(&id).map_or(0, |e| e.motion.status) }
 }
 
+/// An event motion whose files are all in: they join the actor's files and the motion starts. The event VM calls it
+/// too (start_pending) when op 0x5b / 0x66 finds its files resident, so a second motion on the next VM tick of the
+/// same frame cannot replace a first one still waiting in the single pending slot.
+fn start_ready(w: &mut World, id: u32, index: &Arc<DatIndex>, ch: &Character, base: &str) -> bool {
+    let Some(a) = w.actors.get_mut(&id) else { return false };
+    let Some(p) = a.pending.clone() else { return false };
+    let Some(files) = w.motion_files.all(index, &p.files) else { return false };
+    a.pending = None;
+    add(&mut a.extra, p.kind, files);
+    if p.name.is_empty() {
+        // Files only: the effect system's scheduler plays from them.
+    } else if start(a, ch, &p.name, base) {
+        log::info!("actor {id:#x}: event motion {} (files {:?})", p.name, p.files);
+        fx_too_on(&mut w.effects, id, p.target.unwrap_or(id), &p.name);
+    } else {
+        log::info!("actor {id:#x}: event motion {} not in its files {:?}", p.name, p.files);
+    }
+    true
+}
+
+/// start_ready for the event VM: false while the files are still loading.
+pub(super) fn start_pending(w: &mut World, id: u32, index: &Arc<DatIndex>, posed: Option<f32>) -> bool {
+    let Some(ch) = w.actors.get(&id).and_then(|a| a.character.clone()) else { return false };
+    let base = status_motion_posed(w, id, &ch, posed);
+    start_ready(w, id, index, &ch, &base)
+}
+
 /// Per frame: loads requested files, swaps battle files on engage / disengage (with the "in N" /
 /// "out N" schedulers), and advances schedulers and fades.
 pub(super) fn update(w: &mut World, dt: f32) {
     w.motion_files.poll();
     let Some(index) = w.index.clone() else { return };
     let ticks = dt * 60.0;
+    let rate = w.opts.anim_rate.max(0.25);
     let ids: Vec<u32> = w.actors.keys().copied().collect();
     let mut status_starts: Vec<(u32, u8)> = Vec::new();
     for id in ids {
@@ -510,9 +582,10 @@ pub(super) fn update(w: &mut World, dt: f32) {
         let held = super::ride::fade_held(w, id);
         let mouth_off = w.entities.get(&id).is_some_and(|e| e.mouth_off);
         let a = w.actors.get_mut(&id).unwrap();
-        // FUN_100c63d0: the load fade, 32 ticks once the model is in (a rider's once its animal is).
+        // FUN_100c63d0: the load fade, 32 ticks once the model is in (a rider's once its animal is). Real frame ticks,
+        // not the mods' animation rate (0.25..4), since the bump waits on it (bump::eligible).
         if !held {
-            a.appear = (a.appear + ticks / 32.0).min(1.0);
+            a.appear = (a.appear + ticks / rate / 32.0).min(1.0);
         }
         if ride != a.ride_on {
             if ride.is_empty() {
@@ -539,20 +612,8 @@ pub(super) fn update(w: &mut World, dt: f32) {
             a.skill_want.clear();
             add(&mut a.extra, Kind::Skill, files);
         }
-        if let Some(p) = a.pending.clone()
-            && let Some(files) = w.motion_files.all(&index, &p.files)
-        {
-            a.pending = None;
-            add(&mut a.extra, p.kind, files);
-            if p.name.is_empty() {
-                // Files only: the effect system's scheduler plays from them.
-            } else if start(a, &ch, &p.name, &base) {
-                log::info!("actor {id:#x}: event motion {} (files {:?})", p.name, p.files);
-                fx_too(&mut w.effects, id, &p.name);
-            } else {
-                log::info!("actor {id:#x}: event motion {} not in its files {:?}", p.name, p.files);
-            }
-        }
+        start_ready(w, id, &index, &ch, &base);
+        let a = w.actors.get_mut(&id).unwrap();
         if !want.is_empty() && want != a.battle.on {
             // FUN_100d12d0: "in N" starts once the files are in, for its motions and its holds alike.
             let fx_ready = w.effects.libs_ready(&want);
@@ -726,6 +787,47 @@ impl Fade {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Event op 0x50: a scheduler stopped at tick 30 starts no later motion and is no longer busy; its looping motion
+    /// plays on, a counted one ends on its own.
+    #[test]
+    fn scheduler_stop_keeps_current() {
+        let m = |name: &str, at: u32, count: u8| sched::Motion { name: name.into(), at, speed: 1.0, ticks: 10, count, blend: 0 };
+        let mut p = Play {
+            name: "tk00".into(),
+            motions: vec![m("a", 0, 0), m("b", 60, 1)],
+            length: 120.0,
+            ticks: 30.0,
+            base: "idl".into(),
+            cut: -1.0,
+            stance_at: Some(90.0),
+            end: None,
+        };
+        p.stop();
+        assert!(!p.busy());
+        assert_eq!(p.motions.len(), 1);
+        assert_eq!(p.stance_at, None);
+        p.ticks = 200.0;
+        assert_eq!(p.current().map(|m| m.name.as_str()), Some("a"));
+        assert!(!p.over("idl"));
+        assert!(p.over("run"));
+    }
+
+    /// Event op 0xd3: the looping motion plays 8 more ticks, then none; the scheduler stays busy as it was.
+    #[test]
+    fn motion_end_after_8() {
+        let m = |name: &str, at: u32, count: u8| sched::Motion { name: name.into(), at, speed: 1.0, ticks: 10, count, blend: 0 };
+        let mut p =
+            Play { name: "fm01".into(), motions: vec![m("a", 0, 0)], length: 120.0, ticks: 30.0, base: "idl".into(), cut: -1.0, stance_at: None, end: None };
+        p.end_in(8.0);
+        p.ticks = 37.0;
+        assert_eq!(p.current().map(|m| m.name.as_str()), Some("a"));
+        p.ticks = 38.0;
+        assert!(p.current().is_none());
+        assert!(p.busy());
+        p.ticks = 200.0;
+        assert!(p.over("idl"));
+    }
 
     /// A hit pose of 2 frames (3 keys) at speed 1: in over a tick, full for 2 cycles (8 ticks), out over 24 on its
     /// last key, then gone.

@@ -98,6 +98,7 @@ pub fn emit(reg: &mut Registry, inst: &mut Instance, parent: Option<&Parent>, f:
     let stream = inst.streams[1].clone();
     let op1 = stream.first().filter(|o| o.code == 0x01)?;
     let mut e = Elem::default();
+    e.0[w::ME] = me[0] as u32 | (me[1] as u32) << 1;
     let mut children = Vec::new();
     let res_kind = op1.byte(0x21);
     // FUN_1004e8d0 c:57183: a D3m with 0x1000000 and neither 0x200000 nor 0x100000 is a CMoD3mSpecularElem, whose prep
@@ -112,11 +113,10 @@ pub fn emit(reg: &mut Registry, inst: &mut Instance, parent: Option<&Parent>, f:
         // CMoDist (FUN_10051d90).
         Draw::Dist
     } else if res_kind == 0x22 {
-        // CMoVuDist (FUN_10043110 -> FUN_10063c80): its particles only count the draws, n = N under 20, else half N
-        // for weather generators (gen +0xde bit 0, density 1); N = gen flags & 0x1ff + 1 with op 0x56, else 0.
+        // CMoVuDist (FUN_10043110 -> FUN_10063c80): its particles only count the draws; N = gen flags & 0x1ff + 1
+        // with op 0x56, else 0. The count drawn (the weather density applies) is worked out each draw (Draw::VuDist).
         let n = if stream.iter().any(|o| o.code == 0x56) { (inst.flags & 0x1ff) + 1 } else { 0 };
-        let n = if n < 20 || inst.de & 1 == 0 { n } else { (n as f32 * 0.5) as u32 };
-        if n == 0 { Draw::None } else { Draw::VuDist(n) }
+        if n == 0 { Draw::None } else { Draw::VuDist(n, inst.de & 1 != 0) }
     } else if res_kind == 0x5c && inst.dam.as_ref().is_some_and(|d| !d.glyphs.is_empty()) {
         // DamValueProg (FUN_10041f40): without a task's number the string is empty and nothing draws.
         Draw::DamValue
@@ -213,7 +213,7 @@ pub fn emit(reg: &mut Registry, inst: &mut Instance, parent: Option<&Parent>, f:
         Draw::Dist => dk::DIST,
         Draw::Ring => dk::RING,
         Draw::DistModel(_) => dk::DIST_MODEL,
-        Draw::VuDist(_) => dk::DIST,
+        Draw::VuDist(..) => dk::DIST,
         Draw::DistRing => dk::DIST_RING,
         Draw::GroundProj(_) => dk::GROUND_PROJ,
         Draw::DamValue => {
@@ -402,7 +402,7 @@ pub fn emit(reg: &mut Registry, inst: &mut Instance, parent: Option<&Parent>, f:
             // vtable +0x34 = FUN_10051dc0 on CMoDist: +0x194 = op+8.
             // vtable +0x34: CMoDist / VuDist / DistModel +0x194, DistMorph +0x1c0 (DistRing's +0x1b6 is never read); a
             // no-op on the rest.
-            0x32 if matches!(draw, Draw::Dist | Draw::VuDist(_) | Draw::DistModel(_) | Draw::DistMorph(_)) => e.set(w::DIST_OFF, op.f32(2)),
+            0x32 if matches!(draw, Draw::Dist | Draw::VuDist(..) | Draw::DistModel(_) | Draw::DistMorph(_)) => e.set(w::DIST_OFF, op.f32(2)),
             0x32 => {}
             // On the source actor: local matrix times its ground frame, position = its foot contact (+0x63c).
             0x8e => {
@@ -726,6 +726,9 @@ pub fn emit(reg: &mut Registry, inst: &mut Instance, parent: Option<&Parent>, f:
             0x06 | 0x08 | 0x4e | 0x4f if batched => {}
             // 0x1004fed3: the parent generator's op 0x4e list stands for this stream's (parent_vtx).
             0x94 => {}
+            // 0x1005156d: element +0x160 = word 1 (a 4-character tag such as 'ki03' or 'lt01'), copied to children by op
+            // 0x9c (0x1005157b); nothing in the effects code reads +0x160, so neither has a visible effect.
+            0x88 | 0x9c => {}
             0x7b => {}
             _ => reg.unhandled(1, op.code),
         }
@@ -767,6 +770,7 @@ pub fn emit(reg: &mut Registry, inst: &mut Instance, parent: Option<&Parent>, f:
         borrowed: borrow.is_some(),
         parts: None,
         light: (e.0[w::KIND] == dk::LIGHT && e.0[w::L_SLOT] != NONE).then_some(e.0[w::L_SLOT]),
+        light_scale: (e.0[w::KIND] == dk::LIGHT).then(|| [e.f(w::L_ISCALE), e.f(w::L_RSCALE)]),
     };
     Some(Spawn { elem: e, cpu, children, parts, sound })
 }

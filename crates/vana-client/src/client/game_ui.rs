@@ -279,6 +279,8 @@ pub struct GameUi {
     /// The window style in use and images to replace in the renderer.
     style_index: usize,
     replaced: Vec<(String, u32, u32, Vec<u8>)>,
+    /// A mod image's older contents (image), freed once a frame's batch no longer draws them.
+    stale: Vec<String>,
     /// The startup images a style replaced, for reset_style.
     style_saved: std::collections::HashMap<String, crate::dat::ui::UiImage>,
     /// When each scrolling text (scroll_text) first showed.
@@ -382,7 +384,7 @@ pub struct WorldView<'a> {
 impl GameUi {
     pub fn new(data: GameUiData) -> Self {
         crate::render::ui::set_caption_words(caption_words(&data));
-        Self { data, renderer: None, scene_depth: None, batch: UiBatch::default(), modern_frame: None, skin_on: false, modern_scale: 1.0, ttf_text: false, modern_help: None, started: Instant::now(), pending: Vec::new(), images: Default::default(), help: HelpScroll::default(), party_window: "menu    ptw0".into(), log_top: None, style_index: 0, replaced: Vec::new(), style_saved: Default::default(), scroll_seen: Default::default(), hover: Default::default(), modern_order: Default::default(), bars: Vec::new(), bar_hold: None, anims: Default::default(), contents: Default::default(), anim_frame: 1, anim_acc: 0.0, open_ticks: 25.0, log_faded: false, log_bottom: None, target_up: false, walk: Walk::default(), focus: (None, None), presses: Default::default() }
+        Self { data, renderer: None, scene_depth: None, batch: UiBatch::default(), modern_frame: None, skin_on: false, modern_scale: 1.0, ttf_text: false, modern_help: None, started: Instant::now(), pending: Vec::new(), images: Default::default(), help: HelpScroll::default(), party_window: "menu    ptw0".into(), log_top: None, style_index: 0, replaced: Vec::new(), stale: Vec::new(), style_saved: Default::default(), scroll_seen: Default::default(), hover: Default::default(), modern_order: Default::default(), bars: Vec::new(), bar_hold: None, anims: Default::default(), contents: Default::default(), anim_frame: 1, anim_acc: 0.0, open_ticks: 25.0, log_faded: false, log_bottom: None, target_up: false, walk: Walk::default(), focus: (None, None), presses: Default::default() }
     }
 
     /// FUN_1015e530 / FUN_101177d0 for a window drawn this frame with frame rect `r`: false while it opens (only the
@@ -1392,9 +1394,18 @@ impl GameUi {
         self.data.lobby.lib(lib).map_or(0, |l| l.sprites.len())
     }
 
-    /// Uploads an RGBA image under `name` once (item icons).
+    /// Uploads an RGBA image under `name` once (item icons). A mod's image (lua::hud::load_png, "<file>#<hash of its
+    /// bytes>") marks the same file's older contents stale, so editing and reloading a mod doesn't pile textures up;
+    /// render frees a stale one only when its batch doesn't draw it (two versions shown at once both stay).
     pub fn image(&mut self, name: &str, w: u32, h: u32, rgba: Vec<u8>) {
         if self.images.insert(name.to_string()) {
+            if name.starts_with("lua image ")
+                && let Some((file, _)) = name.rsplit_once('#')
+            {
+                self.stale.retain(|n| n != name);
+                let old: Vec<String> = self.images.iter().filter(|n| n.as_str() != name && n.rsplit_once('#').is_some_and(|(f, _)| f == file) && !self.stale.contains(n)).cloned().collect();
+                self.stale.extend(old);
+            }
             self.pending.push((name.to_string(), w, h, rgba));
         }
     }
@@ -1670,6 +1681,11 @@ impl GameUi {
         screens::sprite_tint(&self.data.lobby, "menu    ncol", ncol)
     }
 
+    /// Sprite-font text cut with the ellipsis once its running width reaches `limit` (FUN_101c9d50).
+    pub fn shape_limited(&mut self, s: &str, x: f32, y: f32, limit: f32, tint: u32) -> f32 {
+        screens::push_shape_limited(&mut self.batch, &self.data.lobby, &encode_sjis(s), x, y, limit, tint)
+    }
+
     pub fn shape_name(&mut self, s: &str, x: f32, y: f32, tint: u32) {
         screens::push_shape_name(&mut self.batch, &self.data.lobby, &encode_sjis(s), x, y, tint);
     }
@@ -1937,6 +1953,16 @@ impl GameUi {
         self.frame_alpha(x, y, w, h, 1.0);
     }
 
+    /// A mark of what is drawn so far, for [`GameUi::fade_from`].
+    pub fn mark(&self) -> usize {
+        self.batch.mark()
+    }
+
+    /// Fades everything drawn since `mark` by `a` (a window part's alpha its children take).
+    pub fn fade_from(&mut self, mark: usize, a: f32) {
+        self.batch.fade_from(mark, a);
+    }
+
     /// The frame at window alpha a, alpha blended while a < 1 (FUN_101144b0).
     pub fn frame_alpha(&mut self, x: f32, y: f32, w: f32, h: f32, a: f32) {
         let blend = if a < 1.0 { 0x44 } else { 0 };
@@ -1958,6 +1984,14 @@ impl GameUi {
         let frame = self.cursor_frame();
         if let Some(anc) = self.data.lobby.lib(lib) {
             self.batch.push_sprite(&self.data.lobby, anc, frame % anc.sprites.len().max(1), x, y, s, s, 0x8080_8080, 0);
+        }
+    }
+
+    /// The party-list hand (anc2s, as screens::push_party_hand) at (x, y) in `tint`.
+    pub fn party_hand_at(&mut self, x: f32, y: f32, tint: u32) {
+        let frame = self.cursor_frame();
+        if let Some(anc) = self.data.lobby.lib("anc     anc2s") {
+            self.batch.push_sprite(&self.data.lobby, anc, frame % anc.sprites.len().max(1), x, y, 1.0, 1.0, tint, 0);
         }
     }
 
@@ -1985,6 +2019,14 @@ impl GameUi {
             }
             r
         });
+        let batch = &self.batch;
+        let (gone, kept): (Vec<String>, Vec<String>) = std::mem::take(&mut self.stale).into_iter().partition(|n| !batch.uses(n));
+        self.stale = kept;
+        for name in gone {
+            self.images.remove(&name);
+            self.pending.retain(|p| p.0 != name);
+            r.drop_image(&name);
+        }
         for (name, w, h, rgba) in self.pending.drain(..) {
             r.load_image(gpu, &name, w, h, &rgba);
         }

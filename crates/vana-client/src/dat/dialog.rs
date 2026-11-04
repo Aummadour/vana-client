@@ -215,6 +215,8 @@ pub struct Ctx {
     pub g: [i32; 32],
     pub strings: Vec<String>,
     pub female: bool,
+    /// Message actors 1 / 2 (+0xbfe / +0xc00, FUN_100c2e20) as female flags for `7f 90` / `7f 91`; None: the player.
+    pub actors: Option<[bool; 2]>,
     /// Message work[5] (msg+0xc50, DAT_10474618), read by the "work" grammar forms.
     pub work: [i32; 5],
     /// Item, key item and other names for 0x01 grammar blocks.
@@ -232,6 +234,10 @@ pub struct Ctx {
     pub concierge: Vec<Option<String>>,
     /// Event op 0xc3's name slots (DAT_10488210) for grammar 0x84 / 0x85: 16 name bytes and the pick word.
     pub slots: [([u8; 16], u32); 8],
+    /// Message actor 1's yaw (+0x18, radians) for `1d`; None: no actor.
+    pub facing: Option<f32>,
+    /// Message actor 2 (+0xc00) is the player (`13 n`).
+    pub actor2_me: bool,
 }
 
 /// Name tables FUN_100c1650 reads besides `names`.
@@ -246,6 +252,10 @@ pub trait Texts: Send + Sync {
     /// The tables of grammar blocks from 0x80 (FUN_100bdc50): 0x82 file 55473, 0x86 file 55474, 0x87 / 0x88 / 0x8a
     /// language slots 0x1c / 0x22 / 0x1b, 0x89 group 12 0x1a2 + id (0 past 0xb).
     fn grammar(&self, _kind: u8, _id: u32) -> Option<Vec<u8>> {
+        None
+    }
+    /// Message group 0xf entry k (FUN_10152ef0(0xf, k)): the compass words for `1d`.
+    fn compass(&self, _k: usize) -> Option<Vec<u8>> {
         None
     }
 }
@@ -444,6 +454,9 @@ pub struct Expanded {
     pub sounds: Vec<u32>,
     /// `17 n`: motion n of 0x1035d518 that the moogle actor plays (FUN_100c1650 -> FUN_100a0080, vtable +0x298).
     pub motions: Vec<&'static str>,
+    /// `13 0` / `13 1` with the player as message actor 2: the K.O. offer state DAT_10485ff8 = 2 (raise) / 3
+    /// (tractor), as s2c 0x0F9 sets it (FUN_10096620 / FUN_10096630).
+    pub offer: Option<u8>,
 }
 
 /// FUN_100c1650's `17 n` names (0x1035d518, 4 bytes each).
@@ -456,6 +469,7 @@ pub fn expand(s: &[u8], ctx: &Ctx) -> Expanded {
     let (mut prompt, mut choice, mut wait) = (false, None, None);
     let mut sounds = Vec::new();
     let mut motions = Vec::new();
+    let mut offer = None;
     let work = |n: usize| ctx.work.get(n).copied().unwrap_or(0);
     let num = |n: usize| ctx.num_at(n).unwrap_or(0);
     let texts = ctx.texts.as_deref();
@@ -615,14 +629,38 @@ pub fn expand(s: &[u8], ctx: &Ctx) -> Expanded {
                 motions.extend(MOOGLE_MOTIONS.get(a * 4..a * 4 + 4));
                 2
             }
+            // 1d (asm 0x100c2754): the 45° sector actor 1 faces, k = ftol(wrap2π(yaw + π/8) × 4/π) & 7, as group 0xf
+            // word k (0 east, increasing toward south); nothing without an actor.
+            0x1d => {
+                if let Some(yaw) = ctx.facing {
+                    let k = ((yaw + std::f32::consts::FRAC_PI_8).rem_euclid(std::f32::consts::TAU) * std::f32::consts::FRAC_2_PI * 2.0) as usize & 7;
+                    if let Some(t) = texts.and_then(|t| t.compass(k)) {
+                        push(&mut lines, &t);
+                    }
+                }
+                1
+            }
+            // 13 n: no text; n 0 / 1 offers a raise / tractor when the player is message actor 2.
+            0x13 => {
+                if ctx.actor2_me && a < 2 {
+                    offer = Some(2 + a as u8);
+                }
+                2
+            }
             0x10..=0x19 | 0x1b => 2,
             0x7f => match a as u8 {
                 0x31 => {
                     prompt = true;
                     2
                 }
+                // FUN_100c1650: the player's (0x85), actor 1's (0x90) or actor 2's (0x91) gender bit; male the first.
                 0x85 | 0x90 | 0x91 => {
-                    let (t, n) = alt(i, ctx.female as usize);
+                    let female = match a as u8 {
+                        0x90 => ctx.actors.map_or(ctx.female, |x| x[0]),
+                        0x91 => ctx.actors.map_or(ctx.female, |x| x[1]),
+                        _ => ctx.female,
+                    };
+                    let (t, n) = alt(i, female as usize);
                     push(&mut lines, &t);
                     n
                 }
@@ -747,7 +785,7 @@ pub fn expand(s: &[u8], ctx: &Ctx) -> Expanded {
     while lines.len() > 1 && lines.last().is_some_and(|l| l.chunks(2).all(|c| c.len() == 2 && c[0] == 0x1e)) {
         lines.pop();
     }
-    Expanded { lines, prompt, choice, wait, place, mode, sounds, motions }
+    Expanded { lines, prompt, choice, wait, place, mode, sounds, motions, offer }
 }
 
 #[cfg(test)]
@@ -834,6 +872,16 @@ mod tests {
         assert_eq!(readable(s), "three {item pl num0}, {player m/f}[sir/madam].");
     }
 
+    /// `7f 85` reads the player's gender; `7f 90` / `7f 91` the message's actors 1 / 2 (male the first form).
+    #[test]
+    fn gender_picks() {
+        let s = b"\x7f\x85[sir/madam] \x7f\x90[he/she] \x7f\x91[his/her]";
+        let line = |female, actors| expand(s, &Ctx { female, actors, ..Default::default() }).lines.concat();
+        assert_eq!(line(true, Some([false, true])), b"madam he her");
+        assert_eq!(line(false, None), b"sir he his");
+        assert_eq!(line(true, None), b"madam she her");
+    }
+
     #[test]
     fn expand_choice() {
         let s = b"Hi, \x08.\x07\x0bYes\x07No\x7f\x31\x00";
@@ -887,6 +935,31 @@ mod tests {
         fn grammar(&self, kind: u8, id: u32) -> Option<Vec<u8>> {
             Some(format!("g{kind:x}:{id}").into_bytes())
         }
+
+        fn compass(&self, k: usize) -> Option<Vec<u8>> {
+            Some(["east", "southeast", "south", "southwest", "west", "northwest", "north", "northeast"][k].as_bytes().to_vec())
+        }
+    }
+
+    /// `1d`: the speaker's 45° sector, centred on each word; `13 n`: an offer only with the player as actor 2.
+    #[test]
+    fn compass_and_offer() {
+        use std::f32::consts::PI;
+        let run = |yaw: Option<f32>| {
+            let ctx = Ctx { facing: yaw, texts: Some(std::sync::Arc::new(Stub)), ..Default::default() };
+            String::from_utf8(expand(&[b'a', 0x1d, b'.'], &ctx).lines.concat()).unwrap()
+        };
+        assert_eq!(run(Some(0.0)), "aeast.");
+        assert_eq!(run(Some(PI / 8.0 - 0.01)), "aeast.");
+        assert_eq!(run(Some(PI / 8.0 + 0.01)), "asoutheast.");
+        assert_eq!(run(Some(-PI / 2.0)), "anorth.");
+        assert_eq!(run(Some(-0.1)), "aeast.");
+        assert_eq!(run(None), "a.");
+        let offer = |me: bool, n: u8| expand(&[0x13, n, b'x'], &Ctx { actor2_me: me, ..Default::default() }).offer;
+        assert_eq!(offer(true, 0), Some(2));
+        assert_eq!(offer(true, 1), Some(3));
+        assert_eq!(offer(false, 0), None);
+        assert_eq!(offer(true, 2), None);
     }
 
     fn line(zone: u16, id: u32, ctx: &Ctx) -> Option<String> {
