@@ -29,8 +29,10 @@ pub struct ChatLog {
     /// Each line's print mark (record +0x12): 1 the open event message's page (rem4line), 2 a held chat line (the
     /// spool, config 0x34).
     marks: Vec<u8>,
-    /// Lines changed in place (condensed battle lines) so far.
+    /// Lines changed in place (condensed battle lines) so far, and the lines of the last EDITED_KEPT of them, oldest
+    /// first, so a log window rewraps only those.
     edits: u64,
+    edited: std::collections::VecDeque<usize>,
     /// A line that repeats the last one counts on it instead ("Target out of range. (x3)"; BattleMod's cancelmulti):
     /// on with the modern chat's Condense; the last line's index, text and count.
     fold: bool,
@@ -53,6 +55,8 @@ pub enum Filtered {
 }
 
 pub const NO_MODE: u16 = 0xffff;
+/// In-place edits whose lines the chat log remembers (ChatLog::edited_since).
+const EDITED_KEPT: usize = 256;
 /// Battle messages from older saves, without their mode: the modern chat's Battle tab (not retail).
 pub const BATTLE_MODE: u16 = 0xfffe;
 /// A battle message's mode is stored as BATTLE + its mode.
@@ -135,7 +139,8 @@ impl ChatLog {
         {
             *n += 1;
             self.lines[*k].0 = format!("{base} (x{n})");
-            self.edits += 1;
+            let k = *k;
+            self.note_edit(k);
             self.folds += 1;
             return;
         }
@@ -152,7 +157,7 @@ impl ChatLog {
     pub fn set_text(&mut self, k: usize, s: String) {
         if let Some(l) = self.lines.get_mut(k) {
             l.0 = s;
-            self.edits += 1;
+            self.note_edit(k);
         }
         if self.repeat.as_ref().is_some_and(|r| r.0 == k) {
             self.repeat = None;
@@ -172,6 +177,20 @@ impl ChatLog {
     /// How many lines have been changed in place: the logs wrap again when it moves.
     pub fn edits(&self) -> u64 {
         self.edits
+    }
+
+    fn note_edit(&mut self, k: usize) {
+        self.edits += 1;
+        self.edited.push_back(k);
+        if self.edited.len() > EDITED_KEPT {
+            self.edited.pop_front();
+        }
+    }
+
+    /// The lines the edits after `since` (an earlier `edits()`) changed, or None when more came than are kept.
+    pub fn edited_since(&self, since: u64) -> Option<Vec<usize>> {
+        let n = usize::try_from(self.edits.checked_sub(since)?).ok()?;
+        (n <= self.edited.len()).then(|| self.edited.iter().skip(self.edited.len() - n).copied().collect())
     }
 
     /// The lines' modes, in the lines' order.
@@ -1925,6 +1944,25 @@ fn send(w: &World, c: NetCommand) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The edits after a mark give their lines; a mark older than the kept edits gives None (wrap everything).
+    #[test]
+    fn edited_lines_since() {
+        let mut c = ChatLog::default();
+        for i in 0..4 {
+            c.push(format!("line {i}"));
+        }
+        let mark = c.edits();
+        c.set_text(1, "one".into());
+        c.set_text(3, "three".into());
+        assert_eq!(c.edited_since(mark), Some(vec![1, 3]));
+        assert_eq!(c.edited_since(c.edits()), Some(vec![]));
+        for _ in 0..EDITED_KEPT {
+            c.set_text(2, "two".into());
+        }
+        assert_eq!(c.edited_since(mark), None);
+        assert_eq!(c.edited_since(c.edits() - 1), Some(vec![2]));
+    }
 
     /// Table 0x1032d5f0 by the pick's low two bits.
     #[test]

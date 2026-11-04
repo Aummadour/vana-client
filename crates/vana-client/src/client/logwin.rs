@@ -138,8 +138,10 @@ pub struct LogWin {
     seen: usize,
     width: f32,
     stamps: Stamps,
-    /// The log's in-place edits when last wrapped (a changed line wraps everything again).
+    /// The log's in-place edits when last wrapped (each changed line wraps again), and whether the width changed and
+    /// the history is to refill once it holds still.
     edits: u64,
+    refill: bool,
     pub anim: LogAnim,
     /// The frame height's change in the last update (new - old), for the pointer follow.
     pub dh: i32,
@@ -759,12 +761,20 @@ impl LogWin {
         let tw = text_width(sw, self.cfg.pct);
         let window = self.second as usize;
         self.stamps = stamps;
-        let rewrap = tw != self.width || chat.edits() != self.edits || route != self.route;
+        // FUN_101295d0 refills 50 rows at an open; ours also rewraps on a route change (KEEP rows, the full log's
+        // history), a width change (50 while it changes, then KEEP once it holds still) and an edit (its line only).
+        let edited = if chat.edits() == self.edits { Some(Vec::new()) } else { chat.edited_since(self.edits) };
+        let resized = tw != self.width;
+        let fill = if route != self.route || edited.is_none() {
+            Some(KEEP)
+        } else if resized {
+            Some(50)
+        } else {
+            self.refill.then_some(KEEP)
+        };
         let mut new = 0;
-        if rewrap {
-            // FUN_101295d0 at an open: the newest lines that pass, until more than 49 rows. Ours also rewraps on a
-            // resize, an edit or a route change, which retail never does to rows it holds, so refill up to KEEP rows
-            // to keep the full log's history (Window 1's tab reads these rows).
+        if let Some(limit) = fill {
+            self.refill = resized;
             (self.width, self.edits, self.route) = (tw, chat.edits(), route);
             let mut rows: Vec<Vec<Row>> = Vec::new();
             let mut n = 0;
@@ -776,13 +786,26 @@ impl LogWin {
                 let r = self.wrap_line(gu, chat, k, tw);
                 n += r.len();
                 rows.push(r);
-                if n >= KEEP {
+                if n >= limit {
                     break;
                 }
             }
             self.wrapped = rows.into_iter().rev().flatten().collect();
             self.anim.settle();
         } else {
+            let mut lines = edited.unwrap_or_default();
+            lines.sort_unstable();
+            lines.dedup();
+            if !lines.is_empty() {
+                self.edits = chat.edits();
+                for k in lines {
+                    let Some(at) = self.wrapped.iter().position(|r| r.3 == k) else { continue };
+                    let end = at + self.wrapped[at..].iter().take_while(|r| r.3 == k).count();
+                    let r = self.wrap_line(gu, chat, k, tw);
+                    self.wrapped.splice(at..end, r);
+                }
+                self.anim.settle();
+            }
             for k in self.seen..chat.len() {
                 let (mode, gm) = chat.route(k);
                 if route.shows(window, mode, gm) {

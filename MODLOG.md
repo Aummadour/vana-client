@@ -21549,6 +21549,10 @@ Checked in Steven's unpacked FFXiMain.dll (sha256 8097dbf8..., 2026-11-03); note
 - Ours already matched the wheel, the keys and the channel tabs' 100 rows. Window 1 / 2 kept 512 rows; they now keep
   1000 (logwin.rs `KEEP` = 20 x 50). A rewrap (resize, edit, route change) refills up to 1000 rows too; it used to
   refill only the ~50 rows retail loads at an open, which dropped the older history.
+- Refilling 1000 rows on every edit and every frame of a resize drag was about 20 times the work (2026-11-04). An edit
+  (a folded repeat, a condensed battle line) now wraps only its line again (`ChatLog::edited_since`, the last 256
+  edits' lines; past that it refills), and a width change refills 50 rows while it changes and the 1000 once it holds
+  still. Only a route change refills at once.
 - Not modelled: the store's files on disk (ours keeps the rows in memory for the session).
 
 ## Furniture: blended meshes keep their depth writes (2026-11-03)
