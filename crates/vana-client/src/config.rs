@@ -43,22 +43,23 @@ pub fn chat_history_path(name: &str) -> PathBuf {
     dir.join(name_file(name))
 }
 
-/// A character's training regime state (client/regime.rs): in the data dir, a folder per server ("127.0.0.1-54002",
-/// its search address) and a file per character. Every run uses it, an FFXI_CONFIG one too: it mirrors what that
-/// server keeps for that character, so the wrapper's runs and plain ones see the same, and a same-named character on
-/// another server has its own.
-pub fn regime_path(server: &str, name: &str) -> PathBuf {
-    data_dir().join("regime").join(server).join(name_file(name))
+/// The regime folder: in the data dir, or beside an FFXI_CONFIG copy, so a test run never writes the player's.
+fn regime_dir() -> PathBuf {
+    match std::env::var_os("FFXI_CONFIG") {
+        Some(p) => PathBuf::from(p).with_file_name("regime"),
+        None => data_dir().join("regime"),
+    }
 }
 
-/// Where earlier builds kept a character's regime (by name alone: beside an FFXI_CONFIG copy, or in the data dir),
-/// read when the server's own file is not there yet.
+/// A character's training regime state (client/regime.rs): a folder per server ("127.0.0.1-54002", its search
+/// address) and a file per character, so a same-named character on another server has its own.
+pub fn regime_path(server: &str, name: &str) -> PathBuf {
+    regime_dir().join(server).join(name_file(name))
+}
+
+/// Where earlier builds kept a character's regime (by name alone), read when the server's own file is not there yet.
 pub fn regime_legacy_paths(name: &str) -> Vec<PathBuf> {
-    let home = data_dir().join("regime").join(name_file(name));
-    match std::env::var_os("FFXI_CONFIG") {
-        Some(p) => vec![PathBuf::from(p).with_file_name("regime").join(name_file(name)), home],
-        None => vec![home],
-    }
+    vec![regime_dir().join(name_file(name))]
 }
 
 /// The servers' certificate fingerprints (net/tls.rs): in the data dir, or beside an FFXI_CONFIG copy.
