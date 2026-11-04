@@ -19827,7 +19827,7 @@ From the research notes:
   when the raw size would pass 3999 - 28 or the estimated compressed size passes config +0x448 - 0x31; a datagram over
   0x550 bytes is dropped. In state 3 each send adapts the interval: |+6 - +0xA| > 1 -> +50 ms (at most base + 3000),
   else back to the base. Queue: 30 slots of 0x110, 10 kept for 0x00C / 0x0F2 and replace-mode rewrites. Local UDP
-  port 54090 (+0x100 per failed bind). Ours: no 0x550 cap, a fixed interval, an ephemeral port.
+  port 54090 (+0x100 per failed bind). Ours: no 0x550 cap, a fixed interval; the port as retail since 2026-11-04.
 - Clock re-sync FUN_100fbd10 -> FUN_100dc1b0(header @8, header @4 + (+0x4190 >> 1)), at most 20 ms per tick; +0x4190
   is the measured receive interval (inferred: a round-trip estimate).
 - s2c 0x00B u32 @0x18 is LSB's cliErrCode (1 RESERR, 2 ZONEDOWN, 3 REGERR, 4 CLIVERSERR, 5 CLINOEXERR, 6 UNKNOWN);
@@ -20841,3 +20841,16 @@ checked in the decompile before the change.
   ours (patch `x` sent as 0) and asks once more as that version, with the same request. Test:
   `asked_version_from_refusals`. Live on our LSB the first request is accepted and no second one is sent. Not tried on
   that server yet.
+
+## The zone socket's local port (2026-11-04)
+
+- FUN_100dc430 (each map connection, after FUN_100f9eb0 zeroes the session): socket(), bind to INADDR_ANY at the
+  port FUN_100f0130 stored (htons(0xD34A) = 54090); a failed bind takes ntohs(port) + 0x100, htons'd back (a u16, so it
+  wraps), at most 50 retries (counter += 2 until it passes 99), then fails; SO_RCVBUF 0x1C138, SO_SNDBUF 100000. The
+  old session's socket is gone by then, so every zone change comes from the same local port.
+- We used an ephemeral port per connection. LSB before 2026-10-09 (commit b2efc53f9f) keyed a map session by the
+  client's address and port. A zone change back to the same map process (the Mog House) from a new port found the
+  character's session bound to the old one and got no answer ("0x00A ... ignored, session is bound to ..."); the
+  current LSB moves the session to the new address, so ours worked there.
+- net/map/session.rs binds as FUN_100dc430 (the buffer sizes not copied). Seen live: our LSB zones from 54090 each
+  time; the other server zoned in and out of the Mog House from 54346 (54090 was held by a second client).

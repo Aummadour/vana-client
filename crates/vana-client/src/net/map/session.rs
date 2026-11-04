@@ -108,13 +108,27 @@ fn sub_ids(plain: &[u8]) -> String {
     out.join(" ")
 }
 
+/// FUN_100dc430: the socket binds to 54090, then 50 more tries 0x100 apart (a u16, so it wraps), at every connection; a
+/// zone change comes from the same port, which LSB's older map servers key the session by.
+fn bind_socket() -> Result<UdpSocket> {
+    let mut port = 54090u16;
+    for _ in 0..=50 {
+        if let Ok(s) = UdpSocket::bind(("0.0.0.0", port)) {
+            return Ok(s);
+        }
+        port = port.wrapping_add(0x100);
+    }
+    bail!("no local UDP port for the zone server: 54090 and the 50 after it 256 apart are all taken")
+}
+
 /// FUN_100fac80's raw payload limit.
 const MAX_PAYLOAD: usize = 4000;
 
 impl MapSession {
     pub fn connect(server: SocketAddr, key: &[u8; 20], codec: Codec) -> Result<Self> {
-        let sock = UdpSocket::bind("0.0.0.0:0")?;
+        let sock = bind_socket()?;
         sock.connect(server)?;
+        log::info!("map: {server} from local port {}", sock.local_addr()?.port());
         Ok(Self { sock, cipher: Blowfish::for_session_key(key), key: super::blowfish::session_key(key), key20: *key, alt: None, codec, seq: 0, server_seq: 0, bytes_out: 0, bytes_in: 0, bad_in: 0, bad_run: 0, unacked: Vec::new(), server_ack: 0, last_in: None, logged: (0, 0), cert: None, clock: None })
     }
 
