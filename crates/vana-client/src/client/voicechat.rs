@@ -70,8 +70,10 @@ impl VoiceChat {
                     1 => "On. 1 other player on this channel.".to_string(),
                     n => format!("On. {n} other players on this channel."),
                 };
-                if let Err(m) = e.mic() {
-                    s.push_str(&format!(" No microphone: {m}."));
+                match e.mic() {
+                    Err(m) => s.push_str(&format!(" No microphone: {m}.")),
+                    Ok(None) if !c.mic_muted => s.push_str(" Your microphone opens when someone joins."),
+                    _ => {}
                 }
                 if let Err(m) = &e.discovery {
                     s.push_str(&format!(" Finding others on port {} failed ({m}): add them by address.", voice::PORT));
@@ -82,7 +84,7 @@ impl VoiceChat {
             (None, None) => "Starting...".to_string(),
         };
         v.push((Elem::Text { id: "state".into(), text: state, dim: true, colour: None }, ""));
-        v.push((onoff("mic", "Microphone", ["On", "Muted"], !c.mic_muted), "Mutes your microphone."));
+        v.push((onoff("mic", "Microphone", ["On", "Muted"], !c.mic_muted), "Mutes your microphone and closes it."));
         v.push((onoff("sound", "Voices", ["On", "Off"], !c.deafened), "Stops you hearing anyone."));
         v.push((Elem::Buttons { id: "talk".into(), label: "Talk".into(), items: vec!["Voice Activity".into(), "Push to Talk".into()], marked: Some((c.talk == Talk::Push) as usize) }, "Voice Activity sends when you speak above the sensitivity; Push to Talk while the key is held."));
         match c.talk {
@@ -96,11 +98,12 @@ impl VoiceChat {
             }
         }
         let level = self.status.level_db.max(-100.0);
-        let shown = match (&self.engine, self.status.talking) {
-            (Some(e), _) if e.mic().is_err() => "none".to_string(),
-            (None, _) => String::new(),
-            (_, true) => format!("{level:.0} dB  sending"),
-            (_, false) => format!("{level:.0} dB"),
+        let shown = match self.engine.as_ref().map(|e| e.mic()) {
+            None => String::new(),
+            Some(Err(_)) => "none".to_string(),
+            Some(Ok(None)) => "off".to_string(),
+            Some(Ok(Some(_))) if self.status.talking => format!("{level:.0} dB  sending"),
+            Some(Ok(Some(_))) => format!("{level:.0} dB"),
         };
         v.push((Elem::Gauge { id: "level".into(), label: "Microphone Level".into(), value: ((level - DB_LOW as f32) / -DB_LOW as f32).clamp(0.0, 1.0), text: shown, kind: if self.status.talking { "tp".into() } else { "mp".into() } }, ""));
         v.push((Elem::Slider { id: "gain".into(), label: "Microphone Volume".into(), n: 21, at: (c.mic_gain / 10).min(20) as usize, shown: format!("{}%", c.mic_gain) }, "Your voice before it is sent."));
@@ -307,8 +310,9 @@ pub fn tick(w: &mut World) {
         (Some(_), false) => v.engine = None,
         _ => {}
     }
-    match &v.engine {
+    match &mut v.engine {
         Some(e) => {
+            e.tick();
             e.set_name(&name);
             v.status = e.status();
         }

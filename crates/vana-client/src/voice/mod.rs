@@ -248,11 +248,22 @@ pub struct Status {
     pub unresolved: Vec<String>,
 }
 
+/// The microphone closes this long after the last one who could hear it left (or it was muted).
+const MIC_LINGER: Duration = Duration::from_secs(10);
+
 /// A running voice chat: dropped, it says goodbye and its threads end.
 pub struct Engine {
     shared: Arc<Shared>,
     _out: Option<crate::audio::output::Output>,
-    mic: Result<mic::Mic, String>,
+    /// Open only while someone on this channel can hear it: any recording drops a Bluetooth headset to its
+    /// low-quality headset profile (WirePlumber's autoswitch). None closed, Some(Err) failed to open.
+    mic: Option<Result<mic::Mic, String>>,
+    /// No sound devices (the tests): never opened.
+    no_mic: bool,
+    stand_mic: Option<std::ffi::OsString>,
+    /// Since when nobody needs the open microphone.
+    idle: Option<Instant>,
+    linger: Duration,
     /// The beacon port this one listens on, when it could take it.
     pub discovery: Result<u16, String>,
 }
@@ -307,17 +318,44 @@ impl Engine {
         std::thread::Builder::new().name("voice-net".into()).spawn(move || net(sh))?;
         let rec = stand.rec;
         let out = output.and_then(|o| crate::audio::output::open((!o.is_empty()).then_some(o), |rate| play::Out::new(shared.clone(), rate, rec)).map_err(|e| log::warn!("voice: no output: {e:#}")).ok());
-        let mic = match output {
-            Some(_) => mic::start(shared.clone(), &cfg.input, stand.mic).map_err(|e| {
-                log::warn!("voice: {e:#}");
-                format!("{e:#}")
-            }),
-            None => Err("none".into()),
-        };
-        let engine = Engine { shared, _out: out, mic, discovery };
+        let engine = Engine { shared, _out: out, mic: None, no_mic: output.is_none(), stand_mic: stand.mic, idle: None, linger: MIC_LINGER, discovery };
         engine.apply(cfg);
         log::info!("voice: on as {:?}, session {:016x}", name, engine.shared.session);
         Ok(engine)
+    }
+
+    /// Every frame: the microphone opened when someone on this channel can hear it and not muted, closed a while
+    /// after that ends.
+    pub fn tick(&mut self) {
+        if self.no_mic {
+            return;
+        }
+        let (muted, chan, input) = {
+            let c = self.shared.cfg.lock().unwrap();
+            (c.mic_muted, c.channel.clone(), c.input.clone())
+        };
+        let want = !muted && self.shared.peers.lock().unwrap().values().any(|p| p.channel.eq_ignore_ascii_case(&chan));
+        let now = Instant::now();
+        if want {
+            self.idle = None;
+            if self.mic.is_none() {
+                let m = mic::start(self.shared.clone(), &input, self.stand_mic.as_deref()).map_err(|e| {
+                    log::warn!("voice: {e:#}");
+                    format!("{e:#}")
+                });
+                if let Ok(m) = &m {
+                    log::info!("voice: microphone on ({})", m.name);
+                }
+                self.mic = Some(m);
+            }
+        } else if self.mic.is_some() && now.duration_since(*self.idle.get_or_insert(now)) >= self.linger {
+            if matches!(self.mic, Some(Ok(_))) {
+                log::info!("voice: microphone off (no one to hear it)");
+            }
+            (self.mic, self.idle) = (None, None);
+            self.shared.level.store((-100f32).to_bits(), Ordering::Relaxed);
+            self.shared.talking.store(false, Ordering::Relaxed);
+        }
     }
 
     /// Settings changed (all but the microphone device, which needs a new engine).
@@ -350,9 +388,14 @@ impl Engine {
         }
     }
 
-    /// The microphone's name, or why there is none.
-    pub fn mic(&self) -> Result<&str, &str> {
-        self.mic.as_ref().map(|m| m.name.as_str()).map_err(String::as_str)
+    /// The open microphone's name, None while closed, or why it could not open.
+    pub fn mic(&self) -> Result<Option<&str>, &str> {
+        match &self.mic {
+            _ if self.no_mic => Err("none"),
+            None => Ok(None),
+            Some(Ok(m)) => Ok(Some(m.name.as_str())),
+            Some(Err(e)) => Err(e.as_str()),
+        }
     }
 
     pub fn status(&self) -> Status {
@@ -378,7 +421,7 @@ impl Engine {
             .collect();
         peers.sort_by(|a, b| b.same.cmp(&a.same).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
         let unresolved = self.shared.manual.lock().unwrap().iter().filter(|m| m.1.is_none()).map(|m| m.0.clone()).collect();
-        Status { peers, level_db: f32::from_bits(self.shared.level.load(Ordering::Relaxed)), talking: self.shared.talking.load(Ordering::Relaxed) && self.mic.is_ok(), unresolved }
+        Status { peers, level_db: f32::from_bits(self.shared.level.load(Ordering::Relaxed)), talking: self.shared.talking.load(Ordering::Relaxed) && matches!(self.mic, Some(Ok(_))), unresolved }
     }
 }
 
@@ -403,13 +446,14 @@ struct Stand {
 /// The voice-probe command: a peer with no window that talks, listens and says who it finds.
 pub fn probe(name: &str, seconds: u64, mic: std::ffi::OsString, record: Option<std::ffi::OsString>, channel: String, peers: Vec<String>) -> anyhow::Result<()> {
     let cfg = Settings { enabled: true, channel, peers, ..Default::default() };
-    let e = Engine::start_on(&cfg, name, Some("null"), PORT, Stand { mic: Some(mic), rec: record })?;
-    if let Err(m) = e.mic() {
-        anyhow::bail!("microphone: {m}");
-    }
+    let mut e = Engine::start_on(&cfg, name, Some("null"), PORT, Stand { mic: Some(mic), rec: record })?;
     let end = Instant::now() + Duration::from_secs(seconds);
     let mut last = String::new();
     while Instant::now() < end {
+        e.tick();
+        if let Err(m) = e.mic() {
+            anyhow::bail!("microphone: {m}");
+        }
         let s = e.status();
         let line = s.peers.iter().map(|p| format!("{} {}{}{}", p.name, p.addr, if p.same { "" } else { " (other channel)" }, if p.talking { " talking" } else { "" })).collect::<Vec<_>>().join(", ");
         let line = format!("peers [{line}]  me {}", if s.talking { "talking" } else { "quiet" });
@@ -474,7 +518,7 @@ fn net(shared: Arc<Shared>) {
 mod tests {
     use super::*;
 
-    fn wait(what: impl Fn() -> bool) -> bool {
+    fn wait(mut what: impl FnMut() -> bool) -> bool {
         let end = Instant::now() + Duration::from_secs(5);
         while Instant::now() < end {
             if what() {
@@ -518,6 +562,36 @@ mod tests {
         assert!(!talking(&a) && !talking(&b));
         drop(a);
         assert!(wait(|| b.status().peers.is_empty()));
+    }
+
+    /// The microphone (a stand-in tone) opens only once someone on this channel can hear it, closes when muted or
+    /// when they leave, and what it sends is heard.
+    #[test]
+    fn mic_opens_only_with_a_listener() {
+        let port = 57000 + (std::process::id() % 500) as u16 * 2;
+        let cfg = Settings { enabled: true, peers: vec![format!("127.0.0.1:{}", port + 1)], ..Default::default() };
+        let mut a = Engine::start_on(&cfg, "Alpha", Some("null"), port, Stand { mic: Some("tone".into()), rec: None }).unwrap();
+        a.linger = Duration::ZERO;
+        std::thread::sleep(Duration::from_millis(300));
+        a.tick();
+        assert_eq!(a.mic(), Ok(None));
+        let b = Engine::start_on(&Settings { peers: Vec::new(), ..cfg.clone() }, "Beta", None, port + 1, Stand { mic: None, rec: None }).unwrap();
+        assert!(wait(|| {
+            a.tick();
+            a.mic() == Ok(Some("test tone 440 Hz"))
+        }));
+        assert!(wait(|| b.status().peers.iter().any(|p| p.name == "Alpha" && p.talking)));
+        a.apply(&Settings { mic_muted: true, ..cfg.clone() });
+        a.tick();
+        assert_eq!(a.mic(), Ok(None));
+        a.apply(&cfg);
+        a.tick();
+        assert!(a.mic().is_ok_and(|m| m.is_some()));
+        drop(b);
+        assert!(wait(|| {
+            a.tick();
+            a.mic() == Ok(None)
+        }));
     }
 
     #[test]

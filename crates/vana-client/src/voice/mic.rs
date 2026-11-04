@@ -7,7 +7,7 @@ use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, StreamConfig};
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, sync_channel};
 use std::time::Duration;
 
@@ -15,9 +15,17 @@ use std::time::Duration;
 const HANG: u32 = 40;
 const PRE_ROLL: usize = 3;
 
+/// Dropped, the device closes and its threads end.
 pub struct Mic {
     _stream: Option<cpal::Stream>,
     pub name: String,
+    stop: Arc<AtomicBool>,
+}
+
+impl Drop for Mic {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
 }
 
 /// Input devices as (cpal id, description).
@@ -36,19 +44,20 @@ pub fn devices() -> Vec<(String, String)> {
 
 /// Starts the microphone: `src` ("tone", "tone:HZ" or a WAV file) in place of a device; none in a test run's null
 /// audio without one.
-pub fn start(shared: Arc<Shared>, input: &str, src: Option<std::ffi::OsString>) -> Result<Mic> {
+pub fn start(shared: Arc<Shared>, input: &str, src: Option<&std::ffi::OsStr>) -> Result<Mic> {
     let (tx, rx) = sync_channel::<Vec<f32>>(64);
+    let stop = Arc::new(AtomicBool::new(false));
     let (stream, rate, name) = if let Some(src) = src {
-        let (rate, name) = stand_in(&shared, std::path::Path::new(&src), tx)?;
+        let (rate, name) = stand_in(&shared, &stop, std::path::Path::new(src), tx)?;
         (None, rate, name)
     } else {
         anyhow::ensure!(std::env::var("FFXI_AUDIO_DEVICE").as_deref() != Ok("null"), "no microphone in a test run");
         let (s, rate, name) = open(input, tx)?;
         (Some(s), rate, name)
     };
-    let sh = shared.clone();
-    std::thread::Builder::new().name("voice-mic".into()).spawn(move || run(sh, rx, rate))?;
-    Ok(Mic { _stream: stream, name })
+    let (sh, st) = (shared.clone(), stop.clone());
+    std::thread::Builder::new().name("voice-mic".into()).spawn(move || run(sh, st, rx, rate))?;
+    Ok(Mic { _stream: stream, name, stop })
 }
 
 fn open(input: &str, tx: SyncSender<Vec<f32>>) -> Result<(cpal::Stream, u32, String)> {
@@ -91,7 +100,7 @@ where
 }
 
 /// A tone (one second on, one off) or a WAV file looped, at real time.
-fn stand_in(shared: &Arc<Shared>, src: &std::path::Path, tx: SyncSender<Vec<f32>>) -> Result<(u32, String)> {
+fn stand_in(shared: &Arc<Shared>, stop: &Arc<AtomicBool>, src: &std::path::Path, tx: SyncSender<Vec<f32>>) -> Result<(u32, String)> {
     let tone = src.to_str().and_then(|s| s.strip_prefix("tone")).map(|hz| hz.strip_prefix(':').and_then(|h| h.parse::<f32>().ok()).unwrap_or(440.0));
     let (samples, rate, name) = if let Some(hz) = tone {
         let s = (0..RATE * 2).map(|i| if i < RATE { (i as f32 * hz * std::f32::consts::TAU / RATE as f32).sin() * 0.25 } else { 0.0 }).collect();
@@ -101,12 +110,12 @@ fn stand_in(shared: &Arc<Shared>, src: &std::path::Path, tx: SyncSender<Vec<f32>
         anyhow::ensure!(!s.is_empty() && rate > 0, "empty WAV file");
         (s, rate, src.display().to_string())
     };
-    let sh = shared.clone();
+    let (sh, stop) = (shared.clone(), stop.clone());
     std::thread::Builder::new().name("voice-mic-file".into()).spawn(move || {
         let block = (rate / 100) as usize;
         let start = std::time::Instant::now();
         let (mut at, mut sent) = (0usize, 0u64);
-        while !sh.stop.load(Ordering::Relaxed) {
+        while !sh.stop.load(Ordering::Relaxed) && !stop.load(Ordering::Relaxed) {
             let chunk: Vec<f32> = (0..block).map(|k| samples[(at + k) % samples.len()]).collect();
             at = (at + block) % samples.len();
             sent += block as u64;
@@ -195,12 +204,16 @@ impl Gate {
     }
 }
 
-fn run(shared: Arc<Shared>, rx: Receiver<Vec<f32>>, rate: u32) {
+fn run(shared: Arc<Shared>, stop: Arc<AtomicBool>, rx: Receiver<Vec<f32>>, rate: u32) {
     let mut rs = Resample::new(rate);
     let mut gate = Gate::default();
     let (mut at48, mut frame) = (Vec::new(), Vec::with_capacity(FRAME));
-    while !shared.stop.load(Ordering::Relaxed) {
-        let Ok(chunk) = rx.recv_timeout(Duration::from_millis(200)) else { continue };
+    while !shared.stop.load(Ordering::Relaxed) && !stop.load(Ordering::Relaxed) {
+        let chunk = match rx.recv_timeout(Duration::from_millis(200)) {
+            Ok(c) => c,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        };
         at48.clear();
         rs.feed(&chunk, &mut at48);
         for &s in &at48 {

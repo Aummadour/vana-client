@@ -20730,6 +20730,11 @@ From the 30261006_0 decompile; ours in client/swkbd.rs (classic) and modern/keyb
 - Microphone: cpal input (any rate, linear to 48 kHz), the gain, then voice activity (opens at the threshold, held
   400 ms, the 30 ms before the first loud frame sent too) or push-to-talk (mouse 4 / 5, right Ctrl / Alt / Shift,
   backquote, Caps Lock; raw winit input, never taken from the game).
+- The microphone is open only while someone on our channel is there and it is not muted; it closes 10 s after that
+  ends (2026-11-04). User report: voice on with nobody around dropped a Bluetooth headset from A2DP to HSP/HFP (low
+  quality, a buzz): WirePlumber's bluetooth.autoswitch-to-headset-profile switches when any recording opens. With
+  someone there the switch is unavoidable on the headset's own microphone (another Microphone Device avoids it).
+  Listing the devices opens nothing (cpal's ALSA enumeration reads hints and ctl info only).
 - Playback: its own cpal output on the game's device (so the game's Sound Off and focus muting don't silence it);
   a jitter buffer per sender (starts at 3 frames or 60 ms, a lost frame is silence or skipped, past 8 frames the oldest
   go); mixed, then linear to the device's rate.
