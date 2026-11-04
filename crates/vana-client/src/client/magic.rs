@@ -780,6 +780,11 @@ pub fn key(w: &mut World, key: egui::Key) -> bool {
     if sort_key(w, kind, key) {
         return true;
     }
+    // FUN_1022c990 / FUN_102243d0 keep the cursor row when the list is taken or closed: whatever moved the cursor (the
+    // keys, the modern list's kit, the mouse, the wheel).
+    if matches!(key, egui::Key::Enter | egui::Key::Escape) {
+        remember(w);
+    }
     match key {
         egui::Key::Enter => enter(w, kind),
         // FUN_10225b00 / FUN_10225b80: up one folder, or close at the root.

@@ -5472,7 +5472,10 @@ Full spec: scratchpad iuse/SPEC.md of that session (sort windows, manual sort, t
 - List cursor memory (FUN_10221b90; magic +0x74 / +0x98 + 4 x type for list / cast mode, abilities +0x70 + 4 x type,
   written by the close hooks FUN_1022c990 / FUN_102243d0): the list reopens on the remembered row (scrolled into
   view: inferred). Ours records it as the cursor moves. Live: Ctrl+M, three rows down, Escape, Ctrl+M: back on the
-  fourth row; the Manual order from the earlier session came back from mix.dat (written at logout).
+  fourth row; the Manual order from the earlier session came back from mix.dat (written at logout). (2026-11-03) The
+  modern list's kit keys and the mouse moved the cursor without recording it, so the list reopened on its first row;
+  the row is now also kept on Enter and Escape, as the close hooks keep it. Live (modern, Lnxcsfix): Abilities, Job
+  Abilities, two rows down, Escape, Abilities, Job Abilities: back on Provoke.
 
 - The item count (FUN_101cb590, from the main list\x27s update FUN_101f2740 tail and the bank\x27s FUN_101dcb40): while an
   item list is focused, titlewin\x27s right edge shows "items/size": "/" at (x1 - 0x16, y0 + 8), the count
