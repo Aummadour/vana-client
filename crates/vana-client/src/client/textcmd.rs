@@ -1852,6 +1852,11 @@ fn chat(w: &mut World, cid: u16, msg: &str) -> Done {
     } else if no_ls {
         system_line(w, 0x25);
     }
+    // FUN_100e3400 builds 0x0B5 through FUN_100fc3c0's gate; a refusal skips the echo and the dispatcher prints the
+    // line and the command error (FUN_10080dc0).
+    if send_it && !super::net::call_gate(&mut w.call_gate, 0x0B5, std::time::Instant::now()) {
+        return Err(());
+    }
     // The echoes (all.c 90072..90740): our name and the text as typed, in the sender's mode.
     let me = w.name.clone();
     // FUN_10078be0 / FUN_10078d80: the assist echoes lead with the rank icon when our mentor and mastery ranks (s2c
@@ -1956,6 +1961,10 @@ fn tell(w: &mut World, args: &[String], line: &str) -> Done {
         return Ok(());
     }
     let msg = tail(line, 2).trim().to_string();
+    // As chat: the gate before the echo.
+    if !super::net::call_gate(&mut w.call_gate, 0x0B6, std::time::Instant::now()) {
+        return Err(());
+    }
     super::push_chat_from(w, format!(">>{name} : {msg}"), 4, 3, &name);
     // FUN_1018d6e0: the sent-tell names, newest first, 8 at most (exact match moves to the front).
     w.tell_hist.retain(|n| *n != name);

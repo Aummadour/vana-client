@@ -5985,6 +5985,8 @@ struct World {
     /// A zone line touched in an event, asked for once it ends (DAT_1048098e = 1).
     zone_touch: Option<zone::Region>,
     zone_hold: Option<zonefade::Hold>,
+    /// FUN_100fc3c0's last admitted time per c2s id, for the ids gated where they are sent (chat, tells).
+    call_gate: HashMap<u16, Instant>,
     /// The limited-time RoE record last seen in slot 63 this login (DAT_10487eec), and "New Challenge" waiting to play
     /// (DAT_104807ec bit 3).
     roe_timed: u16,
@@ -8190,6 +8192,7 @@ impl App {
                             zoning_since: None,
                             zone_touch: None,
                             zone_hold: None,
+                            call_gate: HashMap::new(),
                             roe_timed: 0,
                             new_challenge: false,
                             vis_list: Vec::new(),
