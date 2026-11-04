@@ -20738,3 +20738,14 @@ From the 30261006_0 decompile; ours in client/swkbd.rs (classic) and modern/keyb
 - Seen live (Lnxcsfix with a probe on the same computer, both UIs): found in 1.4 s by the beacons, each side's tone
   heard whole (1.00 s bursts, no gaps, about 40 ms late), the talking list, a channel typed in ending the audio both
   ways. Push-to-talk by a real key, a second computer and a real microphone not tried yet.
+
+## Riding: a dismount while autorunning (2026-11-03)
+
+- FUN_1008b460 going to state 0xf (the ride ended) calls FUN_100a6070(0) for our own actor when +0xee is not 3 / 4 / 5
+  (read as the status, inferred): autorun (DAT_10487f81) and /follow end, "Follow canceled." when one ran. State 0xf
+  then waits for the stand (FUN_100d65b0(0)) as before. Ours skipped the FUN_100a6070 call, so with autorun or /follow
+  the stand never came and the dismount waited until the player stopped them; a held key still waits, as retail.
+- Live (Lnxcsfix, West Ronfaure, chocobo): /dismount while autorunning played `coff` 0.57 s after the command
+  (standing: 0.44 s); before, only when autorun was switched off. A mount took 0.53 s running and 0.82 s standing
+  (the next 400 ms datagram and the server's update); the first mount of a session waits for the chocobo's model
+  (retail's state 0xe hides only a mount's rider, cVar7, so a chocobo's rider shows without the bird meanwhile).

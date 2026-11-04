@@ -61,6 +61,8 @@ pub struct Riding {
     points: [Option<Vec3>; 2],
     /// The rider's `wepN` byte 0 before the mount hid them (FUN_100d5ef0 clears them all; ours keeps an event's).
     weps: [bool; 9],
+    /// When the ride began, until its animal's model is in (logged).
+    begun: Option<std::time::Instant>,
 }
 
 /// The [S] zones (FUN_100fd3a0).
@@ -180,10 +182,15 @@ pub fn update(w: &mut World, dt: f32) {
         let mi = animal.as_ref().and_then(|c| c.mount);
         let mount = matches!(m, Model::Mount(_));
         let weps = rider.wep_hide;
-        let fresh = |weps: [bool; 9]| Riding { model: m, phase: if mount { Phase::Mounting(0.0) } else { Phase::Riding }, race: pc.race, v: 0, offset: Vec3::ZERO, yaw: 0.0, points: [None; 2], weps };
+        let fresh = |weps: [bool; 9]| Riding { model: m, phase: if mount { Phase::Mounting(0.0) } else { Phase::Riding }, race: pc.race, v: 0, offset: Vec3::ZERO, yaw: 0.0, points: [None; 2], weps, begun: Some(std::time::Instant::now()) };
         let r = w.rides.entry(id).or_insert_with(|| fresh(std::array::from_fn(|n| weps[n][0])));
         if r.model != m || r.race != pc.race {
             *r = fresh(r.weps);
+        }
+        if animal.is_some()
+            && let Some(t) = r.begun.take()
+        {
+            log::info!("rider {id:#x}: animal in after {:.2} s", t.elapsed().as_secs_f32());
         }
         // State 0xe: the counter runs to 150 updates, or jumps there once the mount is in; then the rider's fade
         // restarts (+0x59c = 0) and it shows.
@@ -217,6 +224,11 @@ pub fn update(w: &mut World, dt: f32) {
     }
     let gone: Vec<u32> = w.rides.iter().filter(|(id, r)| !keep.contains(id) && !matches!(r.phase, Phase::Leaving { .. })).map(|(id, _)| *id).collect();
     for id in gone {
+        // Into state 0xf our own actor gets FUN_100a6070(0): autorun and /follow end (the "Follow canceled." line), so
+        // the stand comes even with no key held *(inf: +0xee, which must not be 3 / 4 / 5, read as the status)*.
+        if id == w.my_id && !matches!(w.my_motion.status, 3..=5) {
+            w.autorun = false;
+        }
         // State 0xf: our own rider with its animal waits until a `?hi` stand plays (FUN_100d65b0(0)).
         let animal = w.actors.get(&(ANIMAL | id)).is_some_and(|a| a.character.is_some());
         if id == w.my_id && animal && !standing(w, id) {
