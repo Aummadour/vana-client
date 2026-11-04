@@ -20811,3 +20811,22 @@ checked in the decompile before the change.
   the free branch's hold and path mode not counted down while locked; retail's seated look from box 0
   (22988..22996), the vt+0xc4 look bone (22984) and the 2.5 cap's vt+0x14c gate; non-skeleton actors' look bone 5
   (FUN_100a9500).
+
+## The map key on servers with LSB's older login (2026-11-04)
+
+- A private server (not ours) signed in and listed and created characters, then every map datagram failed its MD5:
+  50 in a row ended the session. Its login is LSB's (the TLS sign-in, the 54230 data link with xiloader's 0xA1 / 0xA2);
+  its version is unknown.
+- LSB keyed the map differently before its 2026-10-09 login changes (commits 393e176732, 01e5b447e1). 0xA2 carried
+  xiloader's 20 bytes, 16 zero bytes and the counter 0xAD5DE058; LSB kept the zero value, added 6 to the counter byte for
+  a character made in the session and 4 for each delete or rename, and stored that as the map key. Its 0x05 seed was
+  the fixed 0xAD5DE04F. The current LSB takes the counter it tracked and the profile value MD5(session hash).
+- The counter half matches either way: from the seed 0xAD5DE04F, a plain login (0x1F, 0x24, 0x07 and their replies, then
+  two steps at world entry) lands on 0xAD5DE058, and a creation (0x22, 0x21 and a second 0x1F) adds 6. Only the 16-byte
+  value differs. The retail client must hash a zero value there, since the loader's zeros keyed its map for years
+  *(inferred: the loader's polcore without a profile server leaves the value zero)*.
+- Ours, not retail (a loader settles it there): an LSB login also carries `MapLogin::old_key`, the zero value with our
+  counter. MapSession tries it on a datagram that fails with ours until one datagram has been read; the key that reads
+  one is kept and stepped at each zone change, and the other is dropped. Tests: `old_key_matches_the_older_lsb_login`
+  (the counter from LSB's old seed), `old_key_taken_before_the_first_read`. Seen live on our LSB: the current key reads
+  the first datagram and the older key is never tried. The other server is not tried yet.
