@@ -530,7 +530,9 @@ fn default_place(id: &str) -> Place {
         // The comment editor sits on the log as retail's (flag 0x1000).
         "comment" => on("combat"),
         // The map's menu at the top right, as retail's map0; Markers and Change Map's list in its place.
-        "map0" | "mapv3" | "maplist" => at(-0.004, 0.1),
+        "map0" | "mapv3" | "maplist" | "mapscan" => at(-0.004, 0.1),
+        // Wide Scan's list at retail's (16, 48).
+        "scanlist" => at(0.0083, 0.1),
         // The voice chat window (ours) near the middle, its talking list on the left edge.
         "voice" => at(0.36, 0.16),
         "voice talk" => at(0.005, 0.42),

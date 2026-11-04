@@ -1390,7 +1390,7 @@ impl MapWin {
                 gu.sprite("menu    keytops3", 20, r[0] + d, r[1] + 16.0 + d, if on { 0x8080_5020 } else { 0x8080_8080 });
             }
         }
-        self.draw_scan(gu, sw, sh);
+        self.draw_scan(gu, sw, sh, modern);
         self.draw_list(gu, sw, sh, modern);
         if let Some(l) = self.maplist.as_ref().filter(|_| !modern) {
             l.draw(gu, sw, sh);
@@ -1410,12 +1410,16 @@ impl MapWin {
 
     /// scanlist (16, 48), 10 rows of 24 with the anc_trac cursor, names fitted like the target window's (width 88 at
     /// +7, +6); mapscan over map0's place; the narrow cursor (anc_scan) at the cursor point.
-    fn draw_scan(&self, gu: &mut GameUi, sw: f32, sh: f32) {
+    fn draw_scan(&self, gu: &mut GameUi, sw: f32, sh: f32, modern: bool) {
         let Some(s) = &self.scan else { return };
         let frame = gu.cursor_frame();
         if let Some(c) = s.narrow {
             let n = gu.lib_len("anc     anc_scan").max(1);
             gu.sprite("anc     anc_scan", frame % n, c.0, c.1, 0x8080_8080);
+            return;
+        }
+        // The modern layer draws scanlist and mapscan as panels (modern/minor.rs).
+        if modern {
             return;
         }
         if let Some(win) = gu.lobby_window_off("menu    scanlist", sw, sh, (0.0, 0.0), None, false, &[]) {
@@ -2060,6 +2064,40 @@ impl MapWin {
         let rows = l.rows.iter().map(|r| (r.a.clone(), if r.number { format!("[{}]", r.b) } else { format!("({})", r.b) })).collect();
         Some(MapListLook { rows, cursor: l.cursor })
     }
+}
+
+/// Wide Scan's list for the modern layer: per row its keytops3 icon and name, the cursor, and mapscan's cursor with
+/// Track's state (off for a player) while it is open.
+pub struct ScanLook {
+    pub rows: Vec<(usize, String)>,
+    pub cursor: usize,
+    pub mapscan: Option<(u16, bool)>,
+}
+
+impl MapWin {
+    pub fn scan_look(&self) -> Option<ScanLook> {
+        let s = self.scan.as_ref().filter(|s| !s.hidden && s.narrow.is_none())?;
+        let rows = s.rows.iter().map(|r| (r.sprite, r.name.clone())).collect();
+        let track = s.rows.get(s.cursor).is_some_and(|r| r.trackable);
+        Some(ScanLook { rows, cursor: s.cursor, mapscan: s.mapscan.map(|c| (c, track)) })
+    }
+
+    /// The mouse's cursor move onto mapscan row `c` (1 Track, 2 Remote Scan). True when it moved.
+    pub fn set_mapscan(&mut self, c: u16) -> bool {
+        let Some(s) = self.scan.as_mut().filter(|s| s.mapscan.is_some_and(|m| m != c) && (1..=2).contains(&c)) else { return false };
+        s.mapscan = Some(c);
+        true
+    }
+}
+
+/// A click on Wide Scan's row `k`: mapscan closes if it was open, the cursor goes there, then Enter (the map scrolls
+/// to it, mapscan opens).
+pub fn scan_click(w: &mut World, k: usize) {
+    let Some(s) = w.map.as_mut().and_then(|m| m.scan.as_mut()).filter(|s| k < s.rows.len() && s.narrow.is_none()) else { return };
+    s.mapscan = None;
+    s.cursor = k;
+    s.scroll = s.scroll.min(k).max((k + 1).saturating_sub(SCAN_ROWS));
+    key(w, egui::Key::Enter);
 }
 
 /// A click on Change Map's row `k`: the cursor there, then Enter.

@@ -31,6 +31,7 @@ pub fn draw(p: &mut Panels, w: &mut World) {
     map_menu(p, w);
     map_markers(p, w);
     map_list(p, w);
+    map_scan(p, w);
 }
 
 /// The map's menu (map0: Markers, Wide Scan, Change Map) as a column; Wide Scan dim until a scan is possible.
@@ -115,6 +116,45 @@ fn map_markers(p: &mut Panels, w: &mut World) {
             map::marker_menu_click(w, c);
         }
     }
+}
+
+/// Wide Scan from the map (scanlist): a row per name with its icon (player, NPC, monster); on a pick mapscan (Track,
+/// Remote Scan) at map0's place, Track dim for a player as retail's.
+fn map_scan(p: &mut Panels, w: &mut World) {
+    use super::super::map;
+    let Some(gu) = p.gu else { return };
+    let Some(v) = w.map.as_ref().and_then(|m| m.scan_look()) else { return };
+    let m = p.m;
+    let free = w.confirm.is_none();
+    let full = egui::Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0));
+    let follow = m.moved("map scan", v.cursor);
+    let title = gu.focus_text("menu    scanlist", 1)[1].clone().unwrap_or_else(|| "Wide Scan".into());
+    let mut click = None;
+    p.panel("scanlist", Some(Title { icon: None, text: &title, note: None }), W, |ui| {
+        let out = super::kit::list(ui, m, "map scan", v.rows.len(), Some(v.cursor), free && v.mapscan.is_none(), follow, ROW, TALL, |_| false, |ui, row| {
+            let (icon, name) = &v.rows[row.index];
+            if let Some(t) = m.sprite_icon(ui.ctx(), gu, "menu    keytops3", *icon) {
+                ui.painter().image(t, egui::Rect::from_min_size(row.rect.min + vec2(8.0, (ROW - 16.0) / 2.0), vec2(16.0, 16.0)), full, Color32::WHITE);
+            }
+            ui.painter().text(row.rect.left_center() + vec2(32.0, 0.0), Align2::LEFT_CENTER, name, FontId::proportional(m.theme.small), super::kit::ink(m, row));
+        });
+        click = out.clicked;
+    });
+    let mut got = None;
+    if let Some((c, track)) = v.mapscan {
+        let title = gu.focus_text("menu    mapscan", c)[1].clone().unwrap_or_else(|| "Map".into());
+        p.panel("mapscan", Some(Title { icon: None, text: &title, note: None }), social::width(1), |ui| {
+            let col = MenuWin { name: "menu    mapscan", sel: c, off: if track { Vec::new() } else { vec![1] }, labels: Vec::new(), marked: Vec::new(), values: Vec::new() };
+            got = social::column(ui, m, gu, &col, free);
+        });
+    }
+    if !free {
+        return;
+    }
+    if let Some(k) = click {
+        map::scan_click(w, k);
+    }
+    social::act(w, gu, got, |w, k| w.map.as_mut().is_some_and(|m| m.set_mapscan(k)), |w, _| map::key(w, egui::Key::Enter));
 }
 
 /// Change Map's list (maplist): a row per area or map, the name at the left and its count or area at the right.
