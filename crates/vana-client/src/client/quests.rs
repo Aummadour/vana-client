@@ -325,9 +325,11 @@ pub fn pointer(w: &mut World, gu: &GameUi, sw: f32, sh: f32, p: (f32, f32), move
         if matches!(c, 9 | 10) && l.state == 0 {
             // The click's Left / Right switches the area before the hover disables the list.
             if clicked && !page {
+                w.list_arrow_hover = false;
                 key(w, if c == 9 { egui::Key::ArrowLeft } else { egui::Key::ArrowRight }, false);
+            } else if moved {
+                w.list_arrow_hover = true;
             }
-            w.list_arrow_hover = true;
             return;
         }
         gu.hover.set(true);

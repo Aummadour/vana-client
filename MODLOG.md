@@ -21021,7 +21021,7 @@ From the 30261006_0 decompile; ours in client/swkbd.rs (classic) and modern/keyb
 ## Temporary items in the Items lists (2026-11-02)
 
 - Main Menu > Items and the action menu's Items now list the temporary items (container 3, Abyssea / Salvage and the
-  like), which they left out. FFXiMain.dll's list rebuild (FUN_101f1100, 0x101f12a8..0x101f16c8): once container 3 is
+  like), which they left out. FFXiMain.dll's list rebuild (FUN_101f1230, 0x101f12a8..0x101f16c8): once container 3 is
   loaded and the list's source returns a colour from its +0x20 (FUN_101f1bf0 for the main list, FUN_101f1c40 for the
   direct list: both 0x80806040), every temporary item comes first (+0x54 rows, its view's order), then the inventory.
   The temporary rows take that colour and show no quantity; the direct list takes them all, unfiltered. The storage
@@ -21203,8 +21203,11 @@ happens**; without it the log / area / week / category changes.
 Built for the three windows whose arrows take the test: miss00, questlst and primer. RoE's arrows and jbpcat's page
 areas skip it (a Ctrl-click switches there), so they are left as they are.
 
-`World::list_arrow_hover` carries the disabled bit. Retail keeps it until a row is hovered or the list is rebuilt;
-ours is recomputed from the pointer each frame, so a pointer that leaves the window cannot strand the keyboard.
+`World::list_arrow_hover` carries the disabled bit. It is set when the pointer moves onto an arrow and cleared by an
+arrow's click (the rebuild) or by the pointer moving anywhere else, so a pointer that leaves the window cannot strand
+the keyboard. It was first recomputed every frame from where the pointer stood, which kept the list disabled after a
+click on an arrow until the mouse moved: the keys, Escape too, did nothing. Seen live (classic, Quests): click the
+right arrow, then Right and Escape with the mouse still, both work.
 
 ## Chat: the assist echoes' rank icon (2026-11-03)
 
