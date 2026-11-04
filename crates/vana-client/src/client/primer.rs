@@ -268,9 +268,11 @@ pub fn pointer(w: &mut World, gu: &GameUi, pt: (f32, f32), moved: bool, clicked:
             if let (Some(a), _) = child_under(w, PAGES, pt, 9..=10) {
                 // The click's Left / Right switches the category before the hover disables the list.
                 if clicked && !page {
+                    w.list_arrow_hover = false;
                     key(w, if a == 9 { egui::Key::ArrowLeft } else { egui::Key::ArrowRight }, false);
+                } else if moved {
+                    w.list_arrow_hover = true;
                 }
-                w.list_arrow_hover = true;
                 return;
             }
             let top = l.top;

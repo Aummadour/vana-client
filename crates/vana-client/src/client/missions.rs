@@ -302,9 +302,11 @@ pub fn pointer(w: &mut World, gu: &GameUi, sw: f32, sh: f32, p: (f32, f32), move
             // The click's Left / Right goes to the window (the log switch), not the list, so it is sent before the
             // hover disables the list.
             if clicked && !page {
+                w.list_arrow_hover = false;
                 key(w, gu, if e.id == 9 { egui::Key::ArrowLeft } else { egui::Key::ArrowRight }, false);
+            } else if moved {
+                w.list_arrow_hover = true;
             }
-            w.list_arrow_hover = true;
             return;
         }
         gu.hover.set(true);

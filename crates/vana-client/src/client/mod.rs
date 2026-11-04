@@ -2605,9 +2605,11 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
     }
     (world.key_shift, world.key_repeat) = (false, false);
     world.key_shift = false;
-    // Recomputed by this frame's pointer handlers (retail keeps it until a row is hovered or the list is rebuilt;
-    // ours drops it as soon as the pointer is elsewhere, so a pointer that leaves the window cannot strand the keys).
-    world.list_arrow_hover = false;
+    // Set again by the pointer handlers when the pointer moves onto a page arrow, and cleared by an arrow's click (it
+    // rebuilds the list, FUN_10221ce0). Ours also drops it when the pointer moves anywhere else.
+    if input.moved {
+        world.list_arrow_hover = false;
+    }
 
     // Mouse on the main menu: hover moves the cursor, a click picks; the arrows swap pages. Not while the group walk
     // suspends it (a window over it, e.g. MacroPalette's).
