@@ -20829,4 +20829,5 @@ checked in the decompile before the change.
   counter. MapSession tries it on a datagram that fails with ours until one datagram has been read; the key that reads
   one is kept and stepped at each zone change, and the other is dropped. Tests: `old_key_matches_the_older_lsb_login`
   (the counter from LSB's old seed), `old_key_taken_before_the_first_read`. Seen live on our LSB: the current key reads
-  the first datagram and the older key is never tried. The other server is not tried yet.
+  the first datagram and the older key is never tried. Seen live on the other server (user, 2026-11-04): the first
+  datagram failed with ours and read with the zero value, and the character zoned in.
