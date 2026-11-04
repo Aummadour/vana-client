@@ -22205,3 +22205,12 @@ Checked in Steven's unpacked FFXiMain.dll (sha256 8097dbf8..., 2026-11-03).
   Mog House / auction / moogle zone), the window stayed up for good, and /shutdown is refused while it is up. The user
   hit this (2026-11-03, the trigger not known) and had to kill the client. Busy is now cleared as retail clears it;
   seen live: the window opens in the Mog House and Escape closes it. The stuck case itself was not reproduced.
+
+## The Linux menu copy kept current (ours, 2026-11-04, issue #24)
+
+- client/desktop.rs: the menu and desktop entries start the copy at data dir `vana-client`. settle() put it there only
+  when it was missing, and the updater replaces the running binary, so a newer build run (or updated) from elsewhere
+  never reached what the menu starts. The copy's version is now recorded beside it (`vana-client.version`); at start a
+  newer running build replaces it (updater::newer order; a copy with no recorded version predates them and is older).
+  The copy itself running records its version (it may have been updated in place). A symbolic link there is left
+  alone. Seen with a 1.0.4-marked copy under a scratch XDG_DATA_HOME: replaced by the 1.0.5 build, version written.

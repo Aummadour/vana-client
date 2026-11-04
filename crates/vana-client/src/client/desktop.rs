@@ -22,23 +22,59 @@ fn home_exe() -> PathBuf {
     crate::config::data_dir().join("vana-client")
 }
 
-/// At every start: with no copy in the data dir yet, this binary is put there and the entries point at it (the menu
-/// keeps an entry's shown / hidden; shown when there was none, as the first-start page's default).
-pub fn settle() -> Result<()> {
-    let home = home_exe();
-    if home.exists() {
-        return Ok(());
-    }
-    let exe = super::updater::exe().context("no executable path")?;
-    std::fs::create_dir_all(home.parent().context("no data directory")?)?;
+/// The version of the build at home_exe, written whenever one is put there.
+fn home_version() -> PathBuf {
+    crate::config::data_dir().join("vana-client.version")
+}
+
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Whether the running build takes the copy's place: only a newer one. A copy with no recorded version was put there
+/// before versions were recorded, by an older build.
+fn replaces(copy: Option<&str>, running: &str) -> bool {
+    copy.is_none_or(|c| super::updater::newer(running, c.trim()))
+}
+
+/// This binary at home_exe, through a .part file, and its version beside it.
+fn put(exe: &Path, home: &Path) -> Result<()> {
     let part = home.with_extension("part");
-    std::fs::copy(&exe, &part)?;
+    std::fs::copy(exe, &part)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o755))?;
     }
-    std::fs::rename(&part, &home)?;
+    std::fs::rename(&part, home)?;
+    std::fs::write(home_version(), VERSION)?;
+    Ok(())
+}
+
+/// At every start: with no copy in the data dir yet, this binary is put there and the entries point at it (the menu
+/// keeps an entry's shown / hidden; shown when there was none, as the first-start page's default). A newer build run
+/// from elsewhere (or updated there) replaces the copy; a link put there by hand is left alone.
+pub fn settle() -> Result<()> {
+    let home = home_exe();
+    let exe = super::updater::exe().context("no executable path")?;
+    if home.exists() {
+        let copy = std::fs::read_to_string(home_version()).ok();
+        if home.is_symlink() {
+            return Ok(());
+        }
+        // The copy itself, perhaps just updated in place: its recorded version follows it.
+        if std::fs::canonicalize(&exe).ok() == std::fs::canonicalize(&home).ok() {
+            if copy.as_deref().map(str::trim) != Some(VERSION) {
+                std::fs::write(home_version(), VERSION)?;
+            }
+            return Ok(());
+        }
+        if replaces(copy.as_deref(), VERSION) {
+            put(&exe, &home)?;
+            log::info!("updated {} to {VERSION} from {}", home.display(), exe.display());
+        }
+        return Ok(());
+    }
+    std::fs::create_dir_all(home.parent().context("no data directory")?)?;
+    put(&exe, &home)?;
     let menu = std::fs::read_to_string(data_home()?.join("applications/vana-client.desktop")).map_or(true, |t| !t.contains("NoDisplay=true"));
     install(menu)?;
     if dirs::desktop_dir().is_some_and(|d| d.join("vana-client.desktop").exists()) {
@@ -112,6 +148,16 @@ mod tests {
         assert!(shown.contains("StartupWMClass=vana-client") && !shown.contains("NoDisplay"));
         assert!(hidden.ends_with("NoDisplay=true\n"));
         assert!(shown.contains("Exec=\""));
+    }
+
+    /// Only a newer build replaces the copy; one with no recorded version is older than any build that records them.
+    #[test]
+    fn newer_builds_replace_the_copy() {
+        assert!(super::replaces(None, "1.0.6"));
+        assert!(super::replaces(Some("1.0.5\n"), "1.0.6"));
+        assert!(!super::replaces(Some("1.0.6"), "1.0.6"));
+        assert!(!super::replaces(Some("1.0.7"), "1.0.6"));
+        assert!(super::replaces(Some("1.1.0-rc1"), "1.1.0"));
     }
 
     #[test]
