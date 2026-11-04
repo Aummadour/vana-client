@@ -2386,10 +2386,13 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
                     // Ours (the modern UI): the suggestions above the commands are rows of the same ring.
                     let sugg = if world.modern { world.root_sugg.len() } else { 0 };
                     let on_sugg = world.suggest_sel.filter(|&k| k < sugg);
+                    // A family suggestion's submenu takes its keys first.
+                    let family = suggest::family_key(world, on_sugg, *key);
                     let m = world.action_menu.as_mut().unwrap();
                     let n = m.items.len().max(1);
                     let row = m.items.get(m.sel).copied();
                     match key {
+                        _ if family => {}
                         egui::Key::ArrowDown | egui::Key::ArrowUp => {
                             let down = *key == egui::Key::ArrowDown;
                             world.suggest_sel = match (on_sugg, down) {
@@ -6134,6 +6137,8 @@ struct World {
     root_sugg: Vec<suggest::Suggestion>,
     root_sugg_at: Option<Instant>,
     suggest_sel: Option<usize>,
+    /// The open family submenu of the suggestion under the cursor: its cursor in the group.
+    suggest_sub: Option<usize>,
     /// Party and alliance members' HP as last seen at 100 % (their max; the server sends only HP and HP %).
     party_hp_max: HashMap<u32, u32>,
     /// Where retail's target cursors (anc_l) go this frame, for the modern layer's own: screen fractions, the kind (0
@@ -8124,6 +8129,7 @@ impl App {
                             root_sugg: Vec::new(),
                             root_sugg_at: None,
                             suggest_sel: None,
+                            suggest_sub: None,
                             party_hp_max: HashMap::new(),
                             modern_pointers: Vec::new(),
                             ui_wh: (1.0, 1.0),

@@ -18289,6 +18289,18 @@ From the research notes:
     click on Berserk opened its prompt.
 - Not seen live: bursts (no caster in the test), the classic window in a live party (offscreen only), blue magic as a
   skill.
+- (2026-11-03) Casters: the debuffs come whenever a monster is the target, engaged or not, two at most at once (Poison
+  / Poison II added). A nuke rule: the elemental spell of the element the target resists least, by LSB's
+  rank_element (data/resistances.txt from `python3 -I data/resist_gen.py ~/landsandboat OUT`: data/ecosystems.yaml's
+  ecosystem, family and species layers merged as dataset.cpp merges them, and zones/*/mobs.yaml's templates by zone
+  and shown name: 499 species, 13,070 monsters; dat/resists.rs), then the element today's weather (LSB weather ids
+  4..19 in pairs) or day strengthens, then single-target, then MP. A spell suggestion stands for its family when the
+  family has more than the one spell castable now: an elemental nuke's element (tiers, -ga, ancient magic), else the
+  name without its tier and area form (Protect / Protectra, Cure / Curaga, Dia / Diaga ...). Its row reads the family's
+  name with the more mark; Right, Enter or a click opens the spells beside the battle menu (single-target first,
+  strongest first), the cursor on the one suggested. Seen live on Lnxcsfix as BLM 75 / WHM 37, unengaged, a Wild
+  Rabbit targeted on Watersday: Dia, Bio, Water ("weak to water": water and thunder tie at -3, the day breaks it),
+  Protect, whose submenu listed Protect II, Protect, Protectra II, Protectra.
 
 ## Extras: Clock and Trust Speech (ours, 2026-10-29)
 

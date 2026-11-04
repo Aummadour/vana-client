@@ -58,7 +58,8 @@ pub fn draw(p: &mut Panels, w: &mut World) {
                 Action::Spell(id) => (Kind::Magic, id),
                 Action::Ability(id) => (Kind::Ability, id),
             };
-            let name = if kind == Kind::Magic { magic::spell_name(w, id) } else { magic::ability_name(w, id) };
+            // A family row reads the family's name ("Fire", "Protect"); its spells are in its submenu.
+            let name = s.label.clone().unwrap_or_else(|| if kind == Kind::Magic { magic::spell_name(w, id) } else { magic::ability_name(w, id) });
             let label = match &s.target {
                 Some(t) => format!("{name}  \u{2192} {t}"),
                 None => name,
@@ -72,12 +73,14 @@ pub fn draw(p: &mut Panels, w: &mut World) {
         })
         .collect();
     let mut s_click = None;
+    let sub = on_sugg.zip(w.suggest_sub).filter(|(k, _)| sugg.get(*k).is_some_and(|s| s.group.len() > 1));
+    let mut sub_row = None;
     let engaged = w.my_motion.status == 1;
     let target = w.target.and_then(|t| if t == w.my_id { Some(monstrosity::my_name(w).to_string()) } else { w.entities.get(&t).map(|e| monstrosity::name(e).to_string()) });
     let title = if engaged { "Battle" } else { "Commands" };
     let (mut clicked, mut arrow) = (None, None);
     let width = if sugg.is_empty() { 270.0 } else { 360.0 };
-    p.panel("combat", Some(Title { icon: Some("icons/attack"), text: title, note: target.as_deref() }), width, |ui| {
+    let panel = p.panel("combat", Some(Title { icon: Some("icons/attack"), text: title, note: target.as_deref() }), width, |ui| {
         if !sugg.is_empty() {
             ui.label(egui::RichText::new("Suggested").size(m.theme.small).color(m.theme.color("gold")));
             for (k, (s, (label, icon, off))) in sugg.iter().zip(&shown).enumerate() {
@@ -102,6 +105,12 @@ pub fn draw(p: &mut Panels, w: &mut World) {
                 painter.galley(pos2(r.min.x + 50.0, r.min.y + 5.0), label, Color32::WHITE);
                 let reason = super::one_line(painter, &s.reason, FontId::proportional(m.theme.small), m.theme.color("muted"), room);
                 painter.galley(pos2(r.min.x + 50.0, r.min.y + 27.0), reason, Color32::WHITE);
+                if s.group.len() > 1 {
+                    super::rows::more_mark(painter, m, r, on);
+                }
+                if sub.is_some_and(|(sk, _)| sk == k) {
+                    sub_row = Some(r);
+                }
                 if resp.clicked() {
                     s_click = Some(k);
                 }
@@ -143,10 +152,52 @@ pub fn draw(p: &mut Panels, w: &mut World) {
             ui.add_space(2.0);
         }
     });
+    // The open family's spells beside the panel, level with their row: icon, name, MP.
+    let mut sub_click = None;
+    if let (Some((k, c)), Some(row), Some(panel)) = (sub, sub_row, panel)
+        && let Some(s) = sugg.get(k)
+    {
+        let rows: Vec<(String, String, Option<egui::TextureId>)> = s
+            .group
+            .iter()
+            .map(|&id| {
+                let mp = w.actions.as_ref().and_then(|a| a.spell(id)).map_or(String::new(), |r| format!("{} MP", r.mp));
+                let icon = p.gu.and_then(|gu| magic::row_icon(w, Kind::Magic, id).and_then(|(lib, i)| m.sprite_icon(p.ctx, gu, lib, i)));
+                (magic::spell_name(w, id), mp, icon)
+            })
+            .collect();
+        let follow = m.moved("suggest family", k * 1000 + c);
+        p.panel_at("suggest family", None, 260.0, pos2(panel.max.x + 6.0, row.min.y - 8.0), |ui| {
+            let out = super::kit::list(ui, m, "suggest family", rows.len(), Some(c), true, follow, 34.0, 360.0, |_| false, |ui, r| {
+                let (name, mp, icon) = &rows[r.index];
+                let painter = ui.painter();
+                if let Some(t) = icon {
+                    painter.image(*t, egui::Rect::from_min_size(pos2(r.rect.min.x + 10.0, r.rect.center().y - 12.0), vec2(24.0, 24.0)), super::FULL_UV, Color32::WHITE);
+                }
+                painter.text(pos2(r.rect.min.x + 42.0, r.rect.center().y), Align2::LEFT_CENTER, name, FontId::proportional(m.theme.ui), super::kit::ink(m, r));
+                painter.text(pos2(r.rect.max.x - 10.0, r.rect.center().y), Align2::RIGHT_CENTER, mp, FontId::proportional(m.theme.small), m.theme.color("muted"));
+            });
+            sub_click = out.clicked;
+        });
+    }
+    if let (Some((k, _)), Some(i)) = (sub, sub_click)
+        && let Some(&id) = sugg.get(k).and_then(|s| s.group.get(i))
+    {
+        let target = sugg[k].target.clone();
+        listsearch::pick_root(w, Action::Spell(id), target.as_deref());
+        return;
+    }
+    // A click on a family row opens (or closes) its submenu; on any other row it takes the suggestion.
     if let Some(k) = s_click
         && let Some(s) = sugg.get(k)
     {
-        listsearch::pick_root(w, s.action, s.target.as_deref());
+        if s.group.len() > 1 {
+            let open = w.suggest_sel == Some(k) && w.suggest_sub.is_some();
+            (w.suggest_sel, w.suggest_sub) = (Some(k), (!open).then(|| suggest::family_start(s)));
+            w.sounds.push(crate::audio::Ui::Select as u32);
+        } else {
+            listsearch::pick_root(w, s.action, s.target.as_deref());
+        }
         return;
     }
     let Some(am) = w.action_menu.as_mut() else { return };

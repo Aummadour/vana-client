@@ -10,7 +10,7 @@ use crate::audio::Ui as Se;
 /// A suggestion taken from the battle menu (suggest.rs): the menu suspended and Magic or Abilities chosen as their
 /// rows do, then `pick_action` in the window that opened.
 pub fn pick_root(w: &mut World, action: Action, target: Option<&str>) {
-    w.suggest_sel = None;
+    (w.suggest_sel, w.suggest_sub) = (None, None);
     w.sounds.push(Se::Select as u32);
     let c = if matches!(action, Action::Spell(_)) { 8 } else { 7 };
     w.held_menu = w.action_menu.take();
@@ -24,7 +24,7 @@ pub fn pick_root(w: &mut World, action: Action, target: Option<&str>) {
 
 /// A suggestion taken: its list opened from the category window when need be, the cursor on it, Enter.
 pub fn pick_action(w: &mut World, action: Action) {
-    w.suggest_sel = None;
+    (w.suggest_sel, w.suggest_sub) = (None, None);
     let (kind, id) = match action {
         Action::Spell(id) => (Kind::Magic, id),
         Action::Ability(id) => (Kind::Ability, id),
