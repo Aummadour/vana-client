@@ -2400,7 +2400,8 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
                     let on_sugg = world.suggest_sel.filter(|&k| k < sugg);
                     // A family suggestion's submenu takes its keys first.
                     let family = suggest::family_key(world, on_sugg, *key);
-                    let m = world.action_menu.as_mut().unwrap();
+                    // A spell picked in the family's submenu has closed the menu.
+                    let Some(m) = world.action_menu.as_mut() else { continue };
                     let n = m.items.len().max(1);
                     let row = m.items.get(m.sel).copied();
                     match key {
