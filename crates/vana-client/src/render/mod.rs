@@ -417,6 +417,8 @@ pub struct ZoneRenderer {
     refract_copy: Option<(wgpu::Texture, wgpu::BindGroup)>,
     skin_solid_pipeline: wgpu::RenderPipeline,
     faded_pipeline: wgpu::RenderPipeline,
+    /// Zeroes the offscreen target inside a faded actor's scissor rect before it is drawn there.
+    faded_clear_pipeline: wgpu::RenderPipeline,
     /// The faded actors' fade alpha per slot (refr.a.z), and the offscreen target (FUN_1001d240's helper target, scene
     /// size) set by prepare_faded; without one render blends faded actors triangle by triangle.
     faded_buf: wgpu::Buffer,
@@ -671,6 +673,9 @@ pub struct ActorGpu {
     mips: u64,
     /// Where pose_actor last placed it (world), for the faded actors' back-to-front order.
     origin: Vec3,
+    /// Its box's screen rect this frame (NDC x0, y0, x1, y1; FUN_100c63d0's), so a faded actor's passes cover only
+    /// it; none: the whole screen.
+    pub screen: Option<[f32; 4]>,
 }
 
 /// Bind-pose corners with up to two weighted influences, skinned in vs_skinned.
@@ -878,6 +883,8 @@ pub struct ZonePipes {
     /// A faded actor drawn opaque into the offscreen target, and that target blended over the scene (render_faded).
     skin_solid_pipeline: wgpu::RenderPipeline,
     faded_pipeline: wgpu::RenderPipeline,
+    /// Zeroes the offscreen target inside a faded actor's scissor rect before it is drawn there.
+    faded_clear_pipeline: wgpu::RenderPipeline,
     /// The colour target format the pipelines draw to.
     color_format: wgpu::TextureFormat,
     line_pipeline: wgpu::RenderPipeline,
@@ -1279,6 +1286,28 @@ impl ZonePipes {
             multiview_mask: None,
             cache: None,
         });
+        let faded_clear_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("faded actor clear"),
+            layout: Some(&device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("faded actor clear"), bind_group_layouts: &[], immediate_size: 0 })),
+            vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_faded"), compilation_options: Default::default(), buffers: &[] },
+            primitive: Default::default(),
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(false),
+                depth_compare: Some(wgpu::CompareFunction::Always),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_faded_clear"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState { format: color_format, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         // Layout mode's overlay: line lists over everything (ZENABLE off), alpha blended.
         let lines = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("lines"), source: wgpu::ShaderSource::Wgsl(include_str!("lines.wgsl").into()) });
         let line_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -1339,7 +1368,7 @@ impl ZonePipes {
         let cull_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("cull"), bind_group_layouts: &[Some(&globals_layout), None, None, Some(&cull_layout)], immediate_size: 0 });
         let make_cull = |entry: &str| device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor { label: Some(entry), layout: Some(&cull_pl), module: &shader, entry_point: Some(entry), compilation_options: Default::default(), cache: None });
         let cull = [make_cull("cs_cull_vis"), make_cull("cs_cull_compact")];
-        Self { globals_layout, texture_layout, pose_layout, scenery, scenery_furn, scenery_bump, scenery_wire, actor_pipeline, sky_pipeline, skin_pipeline, shine_layout, shine_wrap_layout, shine_pipeline, refract_pipeline, skin_solid_pipeline, faded_pipeline, color_format, line_pipeline, world_pipelines, sil_layout, sil_pipeline, cull_layout, cull }
+        Self { globals_layout, texture_layout, pose_layout, scenery, scenery_furn, scenery_bump, scenery_wire, actor_pipeline, sky_pipeline, skin_pipeline, shine_layout, shine_wrap_layout, shine_pipeline, refract_pipeline, skin_solid_pipeline, faded_pipeline, faded_clear_pipeline, color_format, line_pipeline, world_pipelines, sil_layout, sil_pipeline, cull_layout, cull }
     }
 }
 
@@ -1834,6 +1863,7 @@ impl ZoneRenderer {
             refract_copy: None,
             skin_solid_pipeline: p.skin_solid_pipeline,
             faded_pipeline: p.faded_pipeline,
+            faded_clear_pipeline: p.faded_clear_pipeline,
             faded_buf,
             faded_group,
             faded_rt: None,
@@ -2476,6 +2506,7 @@ impl ZoneRenderer {
                 cloth: Vec::new(),
                 mips: 0,
                 origin: Vec3::ZERO,
+                screen: None,
             };
             self.builds.push((key, Build { ch: ch.clone(), mesh, actor, registered: false, vert_at: 0, tex: 0, cur: None }));
         }
@@ -2597,7 +2628,7 @@ impl ZoneRenderer {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        ActorGpu { textures, slot, vertices: None, draws: Vec::new(), instance, hidden_weps: 0, shine: None, refract: None, skin: None, alpha: 1.0, tint: [1.0; 3], flash: [0.0, 1.0], lights: [0; 4], area: 0, cloth: Vec::new(), mips, origin: Vec3::ZERO }
+        ActorGpu { textures, slot, vertices: None, draws: Vec::new(), instance, hidden_weps: 0, shine: None, refract: None, skin: None, alpha: 1.0, tint: [1.0; 3], flash: [0.0, 1.0], lights: [0; 4], area: 0, cloth: Vec::new(), mips, origin: Vec3::ZERO, screen: None }
     }
 
     /// A shine image goes up once (effect file, IMG node).
@@ -2917,21 +2948,28 @@ impl ZoneRenderer {
     /// `shine_slot`: the first free slot of the shine buffer.
     #[allow(clippy::too_many_arguments)]
     fn render_faded(&self, gpu: &Gpu, encoder: &mut wgpu::CommandEncoder, color: &wgpu::TextureView, depth: &wgpu::TextureView, list: &[&ActorGpu], mut shine_slot: u64) {
-        let (Some((_, rt, rt_group)), Some((_, group, _))) = (&self.faded_rt, &self.pose_gpu) else { return };
+        let (Some((rt_tex, rt, rt_group)), Some((_, group, _))) = (&self.faded_rt, &self.pose_gpu) else { return };
+        let size = rt_tex.size();
         for (k, a) in list.iter().enumerate() {
             let Some(skin) = a.skin.as_ref() else { continue };
+            // Ours: both passes only inside the actor's rect; the composite reads nothing outside it, so the target is
+            // zeroed there alone (retail clears and blends the whole viewport per actor).
+            let Some([sx, sy, sw, sh]) = faded_rect(a.screen, size.width, size.height) else { continue };
             let off = k as u64 * SHINE_STRIDE;
             gpu.queue.put(&self.faded_buf, off, bytemuck::cast_slice(&[0.0f32, 0.0, a.alpha.clamp(0.0, 1.0), 0.0, 0.0, 0.0, 0.0, 0.0]));
             let shown = |wep: u8| wep == NO_WEP || a.hidden_weps & (1 << wep) == 0;
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("faded actor offscreen"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: rt, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store } })],
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment { view: rt, depth_slice: None, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store } })],
                     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment { view: depth, depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store }), stencil_ops: None }),
                     timestamp_writes: None,
                     occlusion_query_set: None,
                     multiview_mask: None,
                 });
+                pass.set_scissor_rect(sx, sy, sw, sh);
+                pass.set_pipeline(&self.faded_clear_pipeline);
+                pass.draw(0..3, 0..1);
                 pass.set_bind_group(0, &self.globals, &[]);
                 pass.set_bind_group(2, group, &[skin.offset]);
                 pass.set_vertex_buffer(0, skin.vertices.slice(..));
@@ -2966,6 +3004,7 @@ impl ZoneRenderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+            pass.set_scissor_rect(sx, sy, sw, sh);
             pass.set_pipeline(&self.faded_pipeline);
             pass.set_bind_group(0, &self.globals, &[]);
             pass.set_bind_group(1, rt_group, &[]);
@@ -2996,6 +3035,19 @@ impl ZoneRenderer {
         let g = view_bind_group(gpu, &self.texture_layout, &self.sampler, &view);
         self.faded_rt = Some((t, view, g));
     }
+}
+
+/// A faded actor's pixels in a w x h target: its box's NDC rect grown by a quarter of its size and 8 px each way (the
+/// motion reaches past the box), as x, y, width, height; the whole target without a rect, none when it is off it.
+fn faded_rect(screen: Option<[f32; 4]>, w: u32, h: u32) -> Option<[u32; 4]> {
+    let Some([x0, y0, x1, y1]) = screen else { return Some([0, 0, w, h]) };
+    let (mx, my) = ((x1 - x0) * 0.25, (y1 - y0) * 0.25);
+    let (fw, fh) = (w as f32, h as f32);
+    let l = (((x0 - mx) * 0.5 + 0.5) * fw - 8.0).floor().clamp(0.0, fw) as u32;
+    let r = (((x1 + mx) * 0.5 + 0.5) * fw + 8.0).ceil().clamp(0.0, fw) as u32;
+    let t = ((0.5 - (y1 + my) * 0.5) * fh - 8.0).floor().clamp(0.0, fh) as u32;
+    let b = ((0.5 - (y0 - my) * 0.5) * fh + 8.0).ceil().clamp(0.0, fh) as u32;
+    (r > l && b > t).then(|| [l, t, r - l, b - t])
 }
 
 impl ZoneRenderer {
@@ -3314,6 +3366,16 @@ mod furniture_tests {
 
 #[cfg(test)]
 mod faded_tests {
+    /// A centred box a quarter of the target across grows by a quarter of its size and 8 px; none is the whole target,
+    /// and a rect off the target is skipped.
+    #[test]
+    fn faded_rect_grows_and_clamps() {
+        assert_eq!(super::faded_rect(Some([-0.25, -0.25, 0.25, 0.25]), 800, 400), Some([242, 117, 316, 166]));
+        assert_eq!(super::faded_rect(None, 800, 400), Some([0, 0, 800, 400]));
+        assert_eq!(super::faded_rect(Some([-1.5, -0.2, 1.5, 0.2]), 800, 400).map(|r| (r[0], r[2])), Some((0, 800)));
+        assert_eq!(super::faded_rect(Some([2.0, 0.0, 2.5, 0.5]), 800, 400), None);
+    }
+
     /// The zone pipelines, the faded actors' offscreen and composite passes among them, build and validate (WGSL
     /// included) for the scene formats in use.
     #[test]

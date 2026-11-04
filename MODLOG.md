@@ -21511,6 +21511,12 @@ Checked in Steven's unpacked FFXiMain.dll (sha256 8097dbf8..., 2026-11-03); note
 - *(inf)* The target's alpha where drawn is taken as 1 (retail's MODULATE4X saturates above the 0x45 alpha test).
 - Not done: CPU-posed actors (no skeleton on the GPU path) still blend per triangle; the DAT_104566e8+0x18 second-target
   path and the +0x9c effects are not traced. `flash-shot` writes faded_40.png for a live look. Test zone_pipes_build.
+- Ours (2026-11-04): both passes run only inside the actor's rect, its skeleton box's screen rect as the culling
+  computes it (`box_on_screen`, `ActorGpu::screen`) grown by a quarter of its size and 8 px; without one the whole
+  target. The offscreen target is no longer cleared whole: the composite reads only the rect, so a zero-fill draw
+  (`fs_faded_clear`) under the same scissor clears that part. Retail's full-viewport clear and blend per actor cost
+  dozens of full-screen passes a frame for a crowd fading in at 1440p and up. Test faded_rect_grows_and_clamps; seen
+  live: Lnxcsfix under Invisible draws whole and faded.
 
 ## Footsteps: areas 704..706 give surface 3 surface 2's sound (2026-11-03)
 
