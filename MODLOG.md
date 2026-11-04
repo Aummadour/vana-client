@@ -2170,7 +2170,7 @@ From the research notes:
   *(inf: +0x120 bit 13 = the 0x00E monster bit)* and auto lock-on (config 7 = 0) is on. Verified live: engaging a
   Wild Rabbit locks on and shows windowps 212 ("Locked") over the target window.
 - Locked camera (FUN_1001e030): look-at = midpoint of player (+ bone 13 y) and target (+ bone 5 y, x0.8 for a
-  Tarutaru player), eased 25 % a tick; eye kept within 3 atan(4 / (near + d)) of the target-to-player line and its
+  Tarutaru player *(wrong: no race factor; MODLOG "Camera audit against retail", 2026-11-04)*), eased 25 % a tick; eye kept within 3 atan(4 / (near + d)) of the target-to-player line and its
   distance eased into [near + d/2, far + d/2], near = (7.2 + 0.125 d) * 0.35, far = (8.6 + 0.125 d) * 0.35; wall ray
   from player y - 1 with 0.2 margin. After unlocking the free camera ignores turns for 20 ticks. CPU bones for the
   two look points are only posed while locked. FOV = 2 atan(192 / 350) (config 0x49 = 350) for the free camera too.
@@ -4722,7 +4722,8 @@ From the combat spec (scratchpad combatmo/SPEC.md).
 - A newly started scheduler motion wins over a running one-shot (ours restarted the swing from frame 0 when out N
   started mid-swing: the "double" last swing, and the sheath hidden behind it).
 - Locked camera (FUN_1001ee60): the target height is a snapshot at lock-on of the actor's look point (+0x8a8: init op
-  0xad's, else point 7), x0.8 for a Tarutaru player; the player's attach point 13, posed, every frame. We read bone 5
+  0xad's, else point 7), x0.8 for a Tarutaru player *(wrong, corrected in "Camera audit against retail",
+  2026-11-04)*; the player's attach point 13, posed, every frame. We read bone 5
   / bone 13 every frame (bats bobbed the camera).
 - Not done: multi-hit rounds replay the swing per hit; the weapon attach switch on sheathing.
 
@@ -20761,3 +20762,48 @@ From the 30261006_0 decompile; ours in client/swkbd.rs (classic) and modern/keyb
   (standing: 0.44 s); before, only when autorun was switched off. A mount took 0.53 s running and 0.82 s standing
   (the next 400 ms datagram and the server's update); the first mount of a session waits for the chocobo's model
   (retail's state 0xe hides only a mount's rider, cVar7, so a chocobo's rider shows without the bird meanwhile).
+
+## Camera audit against retail (2026-11-04)
+
+User report: odd camera behaviour, rare, in every mode but most with a locked target. Two read-only reviews of
+camera.rs / target.rs against FUN_1001ee60 (line numbers in the 30261006 decompile) and the callers; each finding
+checked in the decompile before the change.
+- Sub-target prompts: FUN_10159440 (all.c 268934..268960) only saves the lock bits (+0x5c bits 0..1 into 2..3,
+  `(u*4 ^ u) & 0xc ^ u`); the first pick (FUN_101591d0) keeps a fitting target. The lock ends only on a real target
+  change (2019 FUN_10151280 -> FUN_10153040 -> FUN_10150da0(0), prompt or not); the close (FUN_10159040) sets the
+  saved target back and calls FUN_10157660(saved bits). Ours cleared the lock at every prompt (no unlock hold) and set
+  it back directly: the free camera ran for the whole prompt and the cone snapped back on Enter. Now a lock on the
+  target stays (seen live: locked, `/ja "Provoke" <st>`, Escape: the view unchanged). `/check <st>` on an enemy still
+  unlocks: with self allowed the first pick goes to us (FUN_101591d0 0x200 + an enemy), as retail.
+- The tail's gate and snap are per 30 fps frame: |eye - start| > 0.01 (_DAT_10329a18, all.c 23493) and < 0.0001
+  (_DAT_1032a1a8, 23563). camera::tail takes the ticks it covers (the locked branch a frame of any length, the free
+  one a tick); ours ran the locked one at per-tick values per frame (5x too strict at 300 fps) and the free snap at
+  twice retail's.
+- Zoom: retail keeps a float focal (FUN_100152c0 / FUN_10015290) and writes config 0x49 by __ftol; the both-keys reset
+  steps 25 % a frame (_DAT_10329ce4) and snaps to 350 once the step is within +-1 (_DAT_1032a3f0 / _DAT_1032961c):
+  a gap under 4. Ours went through the rounded integer, so at high frame rates the reset's step rounded away, the
+  reset never ended and, coming first, left the keys and wheel dead. camera::State::focal holds the float now.
+- Lock height (FUN_100d6670, the target's vtable +0x3f8, from the lock callback): the posed point (vt+0x1c8) of
+  +0x8a8 (init op 0xad) unless 0x80; else by the model kind (FUN_10084400): 2 / 7 with leg mode +0x878 1 or 2
+  point 5 x 0.8 (_DAT_10329a34), others point 7. No race factor. The model reset sets +0x8a6 / +0x8a7 to 2 and
+  +0x8a8 to 0x80 (2019 all.c 145867..145870; ours had 2). Our bones are posed only once locked, so the snapshot is
+  taken again on the first posed frame (World::lock_posed).
+- The Q / E follow turn sets the manual hold (DAT_10456d74 = 10, all.c 22895), so (A) cannot start path mode while
+  turning, and is zeroed during the unlock hold (22893..22899).
+- Drags, Q / E and the lift's dy are made in the frame whose tick collides (22841..22915 before 23490..23561); ours
+  changed both drawn eyes between ticks, so the view could show inside a wall or under the floor for a tick.
+  camera::collide_direct runs (A) and the tail on both at once (not while locked).
+- The locked branch now steps after this frame's movement, as the free one (FUN_1001ee60 runs after the move input):
+  it used the previous frame's player position.
+- During the unlock hold the trail is still recorded, without the ray (all.asm 1001fefc..1001ff3f).
+- First person comes before the lock (FUN_100a5e10, all.c 124126); locked, its look is the target plus the lock height
+  (FUN_10020ba0, 23720..23729). FUN_10021680 has a first-person branch: face() puts the view at the head at once.
+- s2c Wpos (FUN_1009ee60, 119012..119147): 0 / 1 / 3 / 5 / 6 / 7 place us, only 0 / 1 / 5 / 7 re-face the camera
+  (FUN_1008f200), 0x0a only turns us (FUN_1009edd0). Ours re-faced for 3 / 6 / 0x0a and not for 7.
+- Face-cam skips the mouse's axes (vt+0x340, 22841); the chase cam's hold also takes axis 7 and the mouse.
+- Checked and matching: the locked geometry (near / far, cone, distance easing, ray), the spring, height memory, (A),
+  path mode, chase rates, Home, shake, the lift ride, the zone-in and face() offsets, the lock release rules.
+- Not done: the look-drag's warp race on X11 when the pointer can't be locked (mod.rs; Wayland and Windows fine);
+  the free branch's hold and path mode not counted down while locked; retail's seated look from box 0
+  (22988..22996), the vt+0xc4 look bone (22984) and the 2.5 cap's vt+0x14c gate; non-skeleton actors' look bone 5
+  (FUN_100a9500).
