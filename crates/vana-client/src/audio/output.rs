@@ -29,6 +29,17 @@ pub fn list() -> Vec<String> {
     out
 }
 
+/// What an output stream plays: interleaved stereo f32 frames, filled whole.
+pub trait Render: Send + 'static {
+    fn render(&mut self, out: &mut [f32]);
+}
+
+impl Render for Mixer {
+    fn render(&mut self, out: &mut [f32]) {
+        Mixer::render(self, out);
+    }
+}
+
 /// Stops the null output's thread when dropped.
 struct NullOut(Arc<AtomicBool>);
 
@@ -39,9 +50,9 @@ impl Drop for NullOut {
 }
 
 /// Opens the device with this cpal id ("host:device"), "null" (silent, mixed at real time, for test runs: ALSA's
-/// null device is not paced, so sounds there end at once), else the default output; `make` builds the mixer once the
-/// rate is known.
-pub fn open(device: Option<&str>, make: impl FnOnce(u32) -> Mixer) -> Result<Output> {
+/// null device is not paced, so sounds there end at once), else the default output; `make` builds the renderer once
+/// the rate is known.
+pub fn open<R: Render>(device: Option<&str>, make: impl FnOnce(u32) -> R) -> Result<Output> {
     if device == Some("null") {
         return open_null(make);
     }
@@ -64,17 +75,17 @@ pub fn open(device: Option<&str>, make: impl FnOnce(u32) -> Mixer) -> Result<Out
     let rate = config.sample_rate;
     let mixer = make(rate);
     let stream = match format {
-        SampleFormat::F32 => build::<f32>(&device, config.clone(), mixer)?,
-        SampleFormat::I16 => build::<i16>(&device, config.clone(), mixer)?,
-        SampleFormat::I32 => build::<i32>(&device, config.clone(), mixer)?,
-        SampleFormat::U16 => build::<u16>(&device, config.clone(), mixer)?,
+        SampleFormat::F32 => build::<f32, R>(&device, config.clone(), mixer)?,
+        SampleFormat::I16 => build::<i16, R>(&device, config.clone(), mixer)?,
+        SampleFormat::I32 => build::<i32, R>(&device, config.clone(), mixer)?,
+        SampleFormat::U16 => build::<u16, R>(&device, config.clone(), mixer)?,
         f => anyhow::bail!("unsupported output sample format {f}"),
     };
     stream.play()?;
     Ok(Output { _stream: Some(stream), _null: None, host: host.id().name().to_string(), rate })
 }
 
-fn open_null(make: impl FnOnce(u32) -> Mixer) -> Result<Output> {
+fn open_null<R: Render>(make: impl FnOnce(u32) -> R) -> Result<Output> {
     const RATE: u32 = 48000;
     const BLOCK: usize = 480;
     let mut mixer = make(RATE);
@@ -94,7 +105,7 @@ fn open_null(make: impl FnOnce(u32) -> Mixer) -> Result<Output> {
     Ok(Output { _stream: None, _null: Some(NullOut(stop)), host: "null".into(), rate: RATE })
 }
 
-fn build<T: SizedSample + FromSample<f32>>(device: &cpal::Device, config: StreamConfig, mut mixer: Mixer) -> Result<cpal::Stream> {
+fn build<T: SizedSample + FromSample<f32>, R: Render>(device: &cpal::Device, config: StreamConfig, mut mixer: R) -> Result<cpal::Stream> {
     let channels = config.channels as usize;
     let mut buf: Vec<f32> = Vec::new();
     let stream = device.build_output_stream(

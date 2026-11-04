@@ -8,6 +8,7 @@ use super::{Panels, Show, Title, kit};
 use egui::{Align2, Color32, FontId, Rect, RichText, Sense, Shape, Stroke, StrokeKind, pos2, vec2};
 
 /// What the pointer did on a window, for the model.
+#[derive(Clone, Copy, Debug)]
 pub enum Click {
     Button(usize, usize),
     Slide(usize, usize),
@@ -88,28 +89,69 @@ fn arrow(p: &egui::Painter, c: egui::Pos2, open: bool, colour: Color32) {
     p.add(Shape::convex_polygon(pts, colour, Stroke::NONE));
 }
 
+impl Click {
+    /// The click on the window model.
+    pub fn apply(self, win: &mut model::Window) -> (Vec<model::Event>, Vec<crate::audio::Ui>) {
+        match self {
+            Click::Button(i, c) => win.click_button(i, c),
+            Click::Slide(i, s) => win.slide(i, s),
+            Click::Row(i, r) => win.pick(i, r),
+            Click::Turn(i, d) => win.turn_to(i, d, None),
+            Click::TurnTo(i, k) => win.turn_to(i, 0, Some(k)),
+            Click::Colour(i, rgb) => win.set_colour(i, Some(rgb), None),
+            Click::Alpha(i, s) => win.set_colour(i, None, Some(s)),
+            Click::Sort(i, c) => win.sort(i, c),
+            Click::Canvas(i, x, y) => win.canvas_click(i, x, y),
+            Click::CanvasDrag(i, phase, x, y) => win.canvas_drag(i, phase, x, y),
+        }
+    }
+}
+
 pub fn draw(p: &mut Panels, w: &mut World) {
-    let m = p.m;
-    let (ctx, gu) = (p.ctx, p.gu);
     for (mod_id, win) in w.lua.open_windows() {
         let id = format!("mod:{mod_id}:{}", win.id);
+        let (clicks, shown) = panel(p, w.item_info.as_deref(), &id, &win);
+        // A click outside a popup closes it.
+        if let Some(r) = shown
+            && win.popup
+            && p.ctx.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|q| !r.contains(q)))
+        {
+            super::super::lua::close_popup_by(w, &mod_id, &win.id);
+        }
+        for c in clicks {
+            super::super::lua::window_click(w, &mod_id, &win.id, c);
+        }
+    }
+    // The voice chat's window and its list of who is talking (client/voicechat.rs).
+    for (which, win) in super::super::voicechat::windows(w) {
+        let (clicks, _) = panel(p, None, if which == 0 { "voice" } else { "voice talk" }, &win);
+        for c in clicks {
+            super::super::voicechat::click(w, which, c);
+        }
+    }
+}
+
+/// One window as a panel: the clicks on it and its rect.
+fn panel(p: &mut Panels, items: Option<&super::super::items::ItemCache>, pid: &str, win: &model::Window) -> (Vec<Click>, Option<Rect>) {
+    let m = p.m;
+    let (ctx, gu) = (p.ctx, p.gu);
+    {
         let width = if win.width > 0.0 { win.width } else { 360.0 };
         let mut clicks: Vec<Click> = Vec::new();
         let title = (!win.title.is_empty()).then_some(Title { icon: None, text: &win.title, note: None });
         let frame = if win.framed { "window_normal" } else { "none" };
         let hidden = win.hidden();
-        let items = w.item_info.as_deref();
         // A modal window is centred (on its last height), a popup at its anchor.
         let at = if let Some((ax, ay)) = win.anchor {
             let k = ctx.pixels_per_point();
             Some(pos2(ax / k, ay / k))
         } else if win.modal {
-            let h = ctx.data(|d| d.get_temp::<f32>(egui::Id::unique(("mod modal h", &id)))).unwrap_or(120.0);
+            let h = ctx.data(|d| d.get_temp::<f32>(egui::Id::unique(("mod modal h", pid)))).unwrap_or(120.0);
             Some(ctx.content_rect().center() - vec2(width / 2.0, h / 2.0))
         } else {
             None
         };
-        let shown = p.show(&id, Show { title, size: vec2(width, 0.0), frame, at, ..Default::default() }, |ui, _| {
+        let shown = p.show(pid, Show { title, size: vec2(width, 0.0), frame, at, ..Default::default() }, |ui, _| {
             let small = FontId::proportional(m.theme.small);
             let (text_c, muted) = (m.theme.color("text"), m.theme.color("muted"));
             let mut hover_tip: Option<&str> = None;
@@ -201,7 +243,7 @@ pub fn draw(p: &mut Panels, w: &mut World) {
                     }
                     Elem::Tabs { id, items, at } => {
                         let labels: Vec<&str> = items.iter().map(String::as_str).collect();
-                        if let Some(k) = kit::tab_strip(ui, m, &format!("mod tabs {mod_id}:{}:{id}", win.id), &labels, *at, here) {
+                        if let Some(k) = kit::tab_strip(ui, m, &format!("mod tabs {pid}:{id}"), &labels, *at, here) {
                             clicks.push(Click::TurnTo(i, k));
                         }
                     }
@@ -311,18 +353,11 @@ pub fn draw(p: &mut Panels, w: &mut World) {
                 ui.label(RichText::new(help).size(m.theme.small).color(muted));
             }
         });
-        if let Some(r) = shown {
-            if win.modal {
-                ctx.data_mut(|d| d.insert_temp(egui::Id::unique(("mod modal h", &id)), r.height()));
-            }
-            // A click outside a popup closes it.
-            let outside = ctx.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|q| !r.contains(q)));
-            if win.popup && outside {
-                super::super::lua::close_popup_by(w, &mod_id, &win.id);
-            }
+        if let Some(r) = shown
+            && win.modal
+        {
+            ctx.data_mut(|d| d.insert_temp(egui::Id::unique(("mod modal h", pid)), r.height()));
         }
-        for c in clicks {
-            super::super::lua::window_click(w, &mod_id, &win.id, c);
-        }
+        (clicks, shown)
     }
 }

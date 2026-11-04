@@ -240,6 +240,8 @@ pub struct Config {
     pub gamepad_padsin: String,
     /// padexsin000, the map used while slot 34 is held; empty = gamepad::DEFAULT_PADEXSIN.
     pub gamepad_padexsin: String,
+    /// LAN voice chat (ours, hidden: Ctrl+Alt+Shift+V).
+    pub voice: crate::voice::Settings,
     /// Fields a newer client wrote, kept and saved back as they are: an older client drops nothing it doesn't know.
     #[serde(flatten)]
     pub unknown: serde_json::Map<String, serde_json::Value>,
@@ -398,6 +400,7 @@ impl Default for Config {
             gamepad_background: false,
             gamepad_padsin: String::new(),
             gamepad_padexsin: String::new(),
+            voice: Default::default(),
             unknown: Default::default(),
             tool: Default::default(),
             retail_aspect: false,

@@ -44,6 +44,7 @@ mod secret;
 mod sounddump;
 mod texpack;
 mod uishot;
+mod voice;
 mod inventory;
 mod invshot;
 mod invitems;
@@ -675,6 +676,24 @@ enum Cmd {
         #[arg(long)]
         seconds: Option<f32>,
     },
+    /// A LAN voice chat peer with no window, for testing: it talks with `--mic` (tone, tone:HZ or a 16-bit WAV),
+    /// records what it hears with `--record`, and prints who it finds.
+    #[command(hide = true)]
+    VoiceProbe {
+        #[arg(long, default_value = "Probe")]
+        name: String,
+        #[arg(long, default_value_t = 20)]
+        seconds: u64,
+        #[arg(long, default_value = "tone")]
+        mic: std::ffi::OsString,
+        #[arg(long)]
+        record: Option<std::ffi::OsString>,
+        #[arg(long, default_value = "")]
+        channel: String,
+        /// An address to reach as the window's Add by Address does (repeatable).
+        #[arg(long)]
+        peer: Vec<String>,
+    },
     /// Play a music track (or with --se an effect) through the audio device for N seconds.
     AudioTest {
         #[arg(default_value_t = 0)]
@@ -1230,6 +1249,7 @@ fn main() -> Result<()> {
         }
         Cmd::SoundDump { id, music, file, out, seconds } => sounddump::dump(id, music, file, &out, seconds),
         Cmd::AudioTest { id, seconds, se, fade, device, list } => sounddump::audio_test(id, seconds, se, fade, device, list),
+        Cmd::VoiceProbe { name, seconds, mic, record, channel, peer } => voice::probe(&name, seconds, mic, record, channel, peer),
         Cmd::EventSweep { zones } => event_vm::sweep(&zones),
         Cmd::EventRun { zone, event, target, choice, param, race } => {
             let mut p = [0u32; 8];

@@ -1964,7 +1964,6 @@ pub(super) fn close_popup(w: &mut World, k: usize, id: &str) {
 
 /// The pointer on a mod window (modern UI): it takes the focus, then the click acts as the window model says.
 pub(super) fn window_click(w: &mut World, mod_id: &str, win_id: &str, click: super::modern::ModClick) {
-    use super::modern::ModClick as C;
     let host = &mut w.lua;
     // An open modal window takes no clicks meant for another.
     if let Some((k, id)) = host.modal()
@@ -1988,18 +1987,7 @@ pub(super) fn window_click(w: &mut World, mod_id: &str, win_id: &str, click: sup
                 win.focus = this;
             }
             if this {
-                out = Some(match click {
-                    C::Button(i, c) => win.click_button(i, c),
-                    C::Slide(i, s) => win.slide(i, s),
-                    C::Row(i, r) => win.pick(i, r),
-                    C::Turn(i, d) => win.turn_to(i, d, None),
-                    C::TurnTo(i, k) => win.turn_to(i, 0, Some(k)),
-                    C::Colour(i, rgb) => win.set_colour(i, Some(rgb), None),
-                    C::Alpha(i, s) => win.set_colour(i, None, Some(s)),
-                    C::Sort(i, c) => win.sort(i, c),
-                    C::Canvas(i, x, y) => win.canvas_click(i, x, y),
-                    C::CanvasDrag(i, phase, x, y) => win.canvas_drag(i, phase, x, y),
-                });
+                out = Some(click.apply(win));
             }
         }
     }

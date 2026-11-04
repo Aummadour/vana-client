@@ -20709,3 +20709,32 @@ From the 30261006_0 decompile; ours in client/swkbd.rs (classic) and modern/keyb
   message stays. Retail's per-command event refusals (group 7 0x43 for a prompt, the 0x80 command flag) still apply.
 - Seen live (Lnxcsfix, a signpost's event 115 by !exec, auto-advance off): "hello from a cutscene" sent during the
   message, which stayed until the next Enter.
+
+## LAN voice chat (ours, 2026-11-03)
+
+- Not retail. Hidden by design: no menu row; Ctrl+Alt+Shift+V in the world opens and closes its window (taken in
+  `window_event` before egui and the Lua mods see it; a script's synthetic chord reaches the world key loop instead).
+  The window and the talking list are Lua window models (client/voicechat.rs), so both UIs draw them as a mod's
+  windows (modwin::panel, Window::draw_classic). Settings live in config `voice` and persist; on, the engine starts
+  on entering the world and stops when the World goes.
+- LAN only: packets go to and are taken from private, loopback and link-local IPv4 addresses only (wire::lan); the
+  multicast TTL is 1. No NAT traversal or relays.
+- Discovery: every 2 s a hello ("VVC1", kind 1, session u64, name, channel) from the voice socket (an ephemeral port)
+  to 239.255.70.88:54390, to 255.255.255.255:54390, to each address typed in (port 54390 unless given) and to every
+  known peer (keeps both ways open where the beacons don't reach). The beacon port is bound with SO_REUSEADDR so
+  several clients on one computer share it. A peer's address is the hello's source; 7 s without one and it goes; kind 3
+  says goodbye.
+- Audio: kind 2, a u32 sequence and 480 samples (10 ms of 48 kHz mono 16-bit PCM, 977 bytes), to every peer on the
+  same channel (case-insensitive; empty is a channel too). No codec: about 770 kbit/s per talker per listener, fine on
+  a LAN. A frame from an unknown session or another address is dropped.
+- Microphone: cpal input (any rate, linear to 48 kHz), the gain, then voice activity (opens at the threshold, held
+  400 ms, the 30 ms before the first loud frame sent too) or push-to-talk (mouse 4 / 5, right Ctrl / Alt / Shift,
+  backquote, Caps Lock; raw winit input, never taken from the game).
+- Playback: its own cpal output on the game's device (so the game's Sound Off and focus muting don't silence it);
+  a jitter buffer per sender (starts at 3 frames or 60 ms, a lost frame is silence or skipped, past 8 frames the oldest
+  go); mixed, then linear to the device's rate.
+- Test hooks: FFXI_VOICE_MIC (tone, tone:HZ or a 16-bit WAV) replaces the microphone, FFXI_VOICE_REC records what is
+  heard; test runs' null audio opens no microphone. The hidden `voice-probe` command is a windowless peer.
+- Seen live (Lnxcsfix with a probe on the same computer, both UIs): found in 1.4 s by the beacons, each side's tone
+  heard whole (1.00 s bursts, no gaps, about 40 ms late), the talking list, a channel typed in ending the audio both
+  ways. Push-to-talk by a real key, a second computer and a real microphone not tried yet.

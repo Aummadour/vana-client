@@ -428,6 +428,7 @@ fn focus_panel(w: &World) -> Option<&'static str> {
     Some(match () {
         _ if w.confirm.is_some() => "confirm",
         _ if w.typing => "chat",
+        _ if w.voice.focused() => "voice",
         _ if w.palette.0 != 0 => "macro palette",
         _ if w.ko_offer == 2 && w.dead() => "raise",
         _ if w.ko_open && w.ko_offer != 2 => "ko",
@@ -530,6 +531,9 @@ fn default_place(id: &str) -> Place {
         "comment" => on("combat"),
         // The map's menu at the top right, as retail's map0; Markers and Change Map's list in its place.
         "map0" | "mapv3" | "maplist" => at(-0.004, 0.1),
+        // The voice chat window (ours) near the middle, its talking list on the left edge.
+        "voice" => at(0.36, 0.16),
+        "voice talk" => at(0.005, 0.42),
         _ => at(0.3, 0.3),
     }
 }

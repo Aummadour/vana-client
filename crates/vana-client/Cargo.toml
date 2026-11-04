@@ -53,6 +53,8 @@ winit = "0.30.13"
 zip = { version = "9.1.1", default-features = false, features = ["deflate-flate2-zlib-rs", "deflate64", "lzma"] }
 sevenz-rust2 = { version = "0.24.1", default-features = false, features = ["util", "deflate"] }
 gilrs = "0.11.2"
+# LAN voice chat's discovery socket (several clients on one port, multicast).
+socket2 = "0.6"
 
 [target."cfg(windows)".dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_System_Time", "Win32_Foundation", "Win32_System_Console", "Win32_System_Threading", "Win32_Devices_HumanInterfaceDevice", "Win32_Devices_DeviceAndDriverInstallation", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_Security", "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
