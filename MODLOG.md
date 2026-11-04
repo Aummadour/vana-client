@@ -20831,3 +20831,13 @@ checked in the decompile before the change.
   (the counter from LSB's old seed), `old_key_taken_before_the_first_read`. Seen live on our LSB: the current key reads
   the first datagram and the older key is never tried. Seen live on the other server (user, 2026-11-04): the first
   datagram failed with ours and read with the zero value, and the character zoned in.
+
+## Servers that check for another loader version (2026-11-04)
+
+- xi_connect's sign-in checks the JSON request's `version` by major.minor. LSB's refusal is an `error_message` reading
+  "Unsupported xiloader version 2.2.0. This server requires version 2.0.x.". One private server words it its own way
+  ("Your xiloader is too old. Please update to version '2.0.x'. Your client reported '2.2.0'.") and wants 2.0.x.
+- Ours (a loader matches its server there): net/auth.rs takes the first `major.minor.patch` in the refusal that isn't
+  ours (patch `x` sent as 0) and asks once more as that version, with the same request. Test:
+  `asked_version_from_refusals`. Live on our LSB the first request is accepted and no second one is sent. Not tried on
+  that server yet.
