@@ -21352,6 +21352,12 @@ The other two openers already match retail, from the same trace:
   `login_mode_80_starts_cinema`.
 - Not done: the log's shrink / fade is not frozen (its state still updates underneath); the compass's fade update; the
   OS cursor's shape limits; hotkey categories 3 / 4 (event keys already take precedence).
+- Seen live (2026-11-04, the openings of all three nations replayed on Lnxcsfix: Southern San d'Oria 0x1f7, Bastok
+  Mines 0x1, Windurst Woods 0x16f): each login event (mode 0x83 / 0x93) starts in cinema mode and every choice in them
+  ("First time in Bastok?", Windurst's three) could be answered, cinema mode being off by then (what ended it in each
+  was not traced), so none soft-locks; the scenery draws
+  and the narration box stands where code 03 puts it. A character still flagged inside the Mog House logs in to the
+  room's scene instead, and the opening then plays in the void around it: a test setup to avoid, not a client fault.
 
 ## Cloth: wind gusts and the cloth simulation (2026-11-03)
 
