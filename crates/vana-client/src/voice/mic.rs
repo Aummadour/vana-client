@@ -28,18 +28,19 @@ impl Drop for Mic {
     }
 }
 
-/// Input devices as (cpal id, description).
+/// Microphones as (cpal id, description): the default host's inputs that are not outputs too (PipeWire lists every
+/// sink as recordable, ALSA its duplex plugins), monitors or its own default entry; all its inputs when that leaves
+/// none.
 pub fn devices() -> Vec<(String, String)> {
-    let mut out = Vec::new();
-    for id in cpal::available_hosts() {
-        let Ok(host) = cpal::host_from_id(id) else { continue };
-        let Ok(devs) = host.input_devices() else { continue };
-        for d in devs {
-            let (Ok(id), Ok(name)) = (d.id(), d.description()) else { continue };
-            out.push((id.to_string(), name.to_string()));
-        }
-    }
-    out
+    let Ok(devs) = cpal::default_host().input_devices() else { return Vec::new() };
+    let all: Vec<(String, String, bool)> = devs
+        .filter_map(|d| {
+            let (Ok(id), Ok(name)) = (d.id(), d.description()) else { return None };
+            Some((id.to_string(), name.to_string(), d.supports_output()))
+        })
+        .collect();
+    let mics: Vec<(String, String)> = all.iter().filter(|(id, _, out)| !out && !id.ends_with(".monitor") && !id.ends_with(":input_default")).map(|(id, n, _)| (id.clone(), n.clone())).collect();
+    if mics.is_empty() { all.into_iter().map(|(id, n, _)| (id, n)).collect() } else { mics }
 }
 
 /// Starts the microphone: `src` ("tone", "tone:HZ" or a WAV file) in place of a device; none in a test run's null

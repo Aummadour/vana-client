@@ -258,6 +258,8 @@ pub struct Engine {
     /// Open only while someone on this channel can hear it: any recording drops a Bluetooth headset to its
     /// low-quality headset profile (WirePlumber's autoswitch). None closed, Some(Err) failed to open.
     mic: Option<Result<mic::Mic, String>>,
+    /// The device setting the microphone was opened with.
+    opened_with: String,
     /// No sound devices (the tests): never opened.
     no_mic: bool,
     stand_mic: Option<std::ffi::OsString>,
@@ -318,7 +320,7 @@ impl Engine {
         std::thread::Builder::new().name("voice-net".into()).spawn(move || net(sh))?;
         let rec = stand.rec;
         let out = output.and_then(|o| crate::audio::output::open((!o.is_empty()).then_some(o), |rate| play::Out::new(shared.clone(), rate, rec)).map_err(|e| log::warn!("voice: no output: {e:#}")).ok());
-        let engine = Engine { shared, _out: out, mic: None, no_mic: output.is_none(), stand_mic: stand.mic, idle: None, linger: MIC_LINGER, discovery };
+        let engine = Engine { shared, _out: out, mic: None, opened_with: String::new(), no_mic: output.is_none(), stand_mic: stand.mic, idle: None, linger: MIC_LINGER, discovery };
         engine.apply(cfg);
         log::info!("voice: on as {:?}, session {:016x}", name, engine.shared.session);
         Ok(engine)
@@ -336,6 +338,10 @@ impl Engine {
         };
         let want = !muted && self.shared.peers.lock().unwrap().values().any(|p| p.channel.eq_ignore_ascii_case(&chan));
         let now = Instant::now();
+        // Another device picked: the open one closes, the new one opens now if wanted.
+        if self.mic.is_some() && self.opened_with != input {
+            (self.mic, self.idle) = (None, None);
+        }
         if want {
             self.idle = None;
             if self.mic.is_none() {
@@ -346,7 +352,7 @@ impl Engine {
                 if let Ok(m) = &m {
                     log::info!("voice: microphone on ({})", m.name);
                 }
-                self.mic = Some(m);
+                (self.mic, self.opened_with) = (Some(m), input);
             }
         } else if self.mic.is_some() && now.duration_since(*self.idle.get_or_insert(now)) >= self.linger {
             if matches!(self.mic, Some(Ok(_))) {
@@ -358,7 +364,7 @@ impl Engine {
         }
     }
 
-    /// Settings changed (all but the microphone device, which needs a new engine).
+    /// Settings changed (a new microphone device is opened by `tick`).
     pub fn apply(&self, cfg: &Settings) {
         let peers_changed = {
             let mut c = self.shared.cfg.lock().unwrap();
@@ -587,6 +593,10 @@ mod tests {
         a.apply(&cfg);
         a.tick();
         assert!(a.mic().is_ok_and(|m| m.is_some()));
+        // Another device: reopened at once, with no new engine.
+        a.apply(&Settings { input: "other".into(), ..cfg.clone() });
+        a.tick();
+        assert!(a.mic().is_ok_and(|m| m.is_some()) && a.opened_with == "other");
         drop(b);
         assert!(wait(|| {
             a.tick();

@@ -20734,7 +20734,11 @@ From the 30261006_0 decompile; ours in client/swkbd.rs (classic) and modern/keyb
   ends (2026-11-04). User report: voice on with nobody around dropped a Bluetooth headset from A2DP to HSP/HFP (low
   quality, a buzz): WirePlumber's bluetooth.autoswitch-to-headset-profile switches when any recording opens. With
   someone there the switch is unavoidable on the headset's own microphone (another Microphone Device avoids it).
-  Listing the devices opens nothing (cpal's ALSA enumeration reads hints and ctl info only).
+  Listing the devices opens nothing (cpal's ALSA enumeration reads hints and ctl info only). Seen with pactl: Firefox
+  (Roll20) and KDE's microphone test switch the same headset 1 s after they start recording, back 2 s after.
+- Microphone Device lists the default host's inputs only, less those that are outputs too (PipeWire lists every sink
+  as recordable), monitors and the host's own default entry: on the user's PC 4 microphones instead of 40 entries
+  from three hosts. A new device reopens the microphone; the engine (and its session) stays.
 - Playback: its own cpal output on the game's device (so the game's Sound Off and focus muting don't silence it);
   a jitter buffer per sender (starts at 3 frames or 60 ms, a lost frame is silence or skipped, past 8 frames the oldest
   go); mixed, then linear to the device's rate.

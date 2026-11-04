@@ -204,12 +204,10 @@ impl VoiceChat {
         self.talk.open = self.engine.is_some() && self.cfg.show_talking && !self.talk.elems.is_empty();
     }
 
-    fn changed(&mut self, restart: bool) {
+    fn changed(&mut self) {
         self.dirty = true;
         self.failed = None;
-        if restart {
-            self.engine = None;
-        } else if let Some(e) = &self.engine {
+        if let Some(e) = &self.engine {
             e.apply(&self.cfg);
         }
     }
@@ -219,7 +217,6 @@ impl VoiceChat {
             match e {
                 Event::Set { id, index } => {
                     let c = &mut self.cfg;
-                    let mut restart = false;
                     match id.as_str() {
                         "on" => c.enabled = index == 0,
                         "mic" => c.mic_muted = index == 1,
@@ -232,11 +229,10 @@ impl VoiceChat {
                         "volume" => c.volume = index as u32 * 10,
                         "device" => {
                             c.input = if index == 0 { String::new() } else { self.devices.as_ref().and_then(|d| d.get(index - 1)).map_or(c.input.clone(), |d| d.0.clone()) };
-                            restart = true;
                         }
                         _ => continue,
                     }
-                    self.changed(restart);
+                    self.changed();
                 }
                 Event::Text { id, text, done: true } => {
                     let t = text.trim().to_string();
@@ -245,7 +241,7 @@ impl VoiceChat {
                         "add" if !t.is_empty() && !self.cfg.peers.contains(&t) => self.cfg.peers.push(t),
                         _ => continue,
                     }
-                    self.changed(false);
+                    self.changed();
                 }
                 Event::Select { id, index } => {
                     match id.as_str() {
@@ -263,7 +259,7 @@ impl VoiceChat {
                         }
                         _ => continue,
                     }
-                    self.changed(false);
+                    self.changed();
                 }
                 _ => {}
             }
