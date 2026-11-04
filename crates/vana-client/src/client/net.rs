@@ -842,12 +842,13 @@ fn add_position(queue: &mut Vec<Vec<u8>>, pos: Vec<u8>, moving: bool) {
     }
 }
 
-/// c2s ids FUN_100fc3c0 is always asked to gate (force 0 at every call site, batch 6 item 12). Ids sent with force,
-/// or with a force that depends on the caller, are left out.
+/// c2s ids FUN_100fc3c0 is always asked to gate (force 0 at every call site). Ids sent with force, or with a force
+/// that depends on the caller, are left out, and so are chat and tells (0x0B5 / 0x0B6): their callers refuse before
+/// the echo, so they are gated there (`call_gate`).
 const GATED: &[u16] = &[
     0x0C, 0x0F, 0x11, 0x17, 0x1B, 0x1C, 0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x32, 0x34, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x3D, 0x41, 0x51, 0x52, 0x53, 0x58, 0x59,
     0x5A, 0x5B, 0x5C, 0x5D, 0x60, 0x61, 0x63, 0x64, 0x66, 0x6E, 0x6F, 0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x77, 0x85, 0x8C, 0x8D, 0x96, 0x9B, 0xA0, 0xA1,
-    0xA2, 0xAA, 0xAB, 0xAC, 0xAD, 0xB5, 0xB6, 0xB7, 0xC3, 0xC4, 0xCD, 0xCE, 0xCF, 0xD0, 0xD2, 0xD4, 0xD5, 0xD8, 0xDD, 0xDE, 0xE0, 0xE2, 0xE4, 0xE7, 0xE9,
+    0xA2, 0xAA, 0xAB, 0xAC, 0xAD, 0xB7, 0xC3, 0xC4, 0xCD, 0xCE, 0xCF, 0xD0, 0xD2, 0xD4, 0xD5, 0xD8, 0xDD, 0xDE, 0xE0, 0xE2, 0xE4, 0xE7, 0xE9,
     0xEA, 0xEB, 0xEC, 0xF0, 0xF1, 0xF5, 0xF6, 0x100, 0x102, 0x106, 0x109, 0x10A, 0x10B, 0x10C, 0x10D, 0x10F, 0x110, 0x112, 0x113, 0x114, 0x115, 0x117,
     0x118, 0x119, 0x11A, 0x11B, 0x11C, 0x11D,
 ];
@@ -869,6 +870,16 @@ struct SendGate {
 
 fn packet_id(p: &[u8]) -> u16 {
     u16::from_le_bytes([p[0], p[1]]) & 0x1ff
+}
+
+/// FUN_100fc3c0 for a caller that acts on the answer (chat and tells refuse before their echo): the id was last
+/// admitted 1000 ms ago or more; admitting stores the time.
+pub fn call_gate(last: &mut std::collections::HashMap<u16, Instant>, id: u16, now: Instant) -> bool {
+    let open = last.get(&id).is_none_or(|t| now.duration_since(*t) >= Duration::from_millis(1000));
+    if open {
+        last.insert(id, now);
+    }
+    open
 }
 
 impl SendGate {
@@ -1823,22 +1834,37 @@ mod tests {
         let ms = |n| t0 + Duration::from_millis(n);
         let ids = |q: &[Vec<u8>]| q.iter().map(|p| packet_id(p)).collect::<Vec<_>>();
         let mut g = SendGate::default();
-        let mut q = vec![build(0x0B5, &[0; 4]), build(0x015, &[0; 28]), build(0x0B5, &[0; 4]), build(0x05B, &[1; 4]), build(0x05B, &[2; 4])];
+        let mut q = vec![build(0x0DD, &[0; 12]), build(0x015, &[0; 28]), build(0x0DD, &[0; 12]), build(0x05B, &[1; 4]), build(0x05B, &[2; 4])];
         g.admit(&mut q, 0, t0);
-        assert_eq!(ids(&q), [0x0B5, 0x015, 0x05B]);
+        assert_eq!(ids(&q), [0x0DD, 0x015, 0x05B]);
         g.release(&mut q, ms(999));
-        assert_eq!(ids(&q), [0x0B5, 0x015, 0x05B]);
+        assert_eq!(ids(&q), [0x0DD, 0x015, 0x05B]);
         q.clear();
-        q.push(build(0x0B5, &[0; 4]));
+        q.push(build(0x0DD, &[0; 12]));
         g.admit(&mut q, 0, ms(999));
         assert!(q.is_empty());
-        // At 1 s the held 0x05B goes (the second one, body 2), and a new chat line is let through.
+        // At 1 s the held 0x05B goes (the second one, body 2), and a new /check is let through.
         g.release(&mut q, ms(1000));
         assert_eq!((ids(&q), q[0][4]), (vec![0x05B], 2));
-        q.push(build(0x0B5, &[0; 4]));
+        q.push(build(0x0DD, &[0; 12]));
         g.admit(&mut q, 1, ms(1000));
-        assert_eq!(ids(&q), [0x05B, 0x0B5]);
+        assert_eq!(ids(&q), [0x05B, 0x0DD]);
         assert!(g.held.is_empty());
+        // Chat and tells are gated where they are typed, not here.
+        let mut q = vec![build(0x0B5, &[0; 4]), build(0x0B5, &[0; 4]), build(0x0B6, &[0; 20]), build(0x0B6, &[0; 20])];
+        g.admit(&mut q, 0, ms(1000));
+        assert_eq!(q.len(), 4);
+    }
+
+    /// FUN_100fc3c0 at the call site: once a second per id, each id on its own.
+    #[test]
+    fn call_gate_once_a_second() {
+        let t0 = Instant::now();
+        let mut m = std::collections::HashMap::new();
+        assert!(call_gate(&mut m, 0x0B5, t0));
+        assert!(!call_gate(&mut m, 0x0B5, t0 + Duration::from_millis(999)));
+        assert!(call_gate(&mut m, 0x0B6, t0 + Duration::from_millis(999)));
+        assert!(call_gate(&mut m, 0x0B5, t0 + Duration::from_millis(1000)));
     }
 
     /// Standing still, a cast or a ranged attack goes after the position, sent twice; moving, or with only other

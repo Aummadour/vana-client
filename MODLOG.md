@@ -21945,6 +21945,12 @@ Checked in Steven's unpacked FFXiMain.dll (sha256 8097dbf8..., 2026-11-03).
     - event ops 0x43, 0xa7 and 0x47, and the event end (FUN_100ae960), stay on 0x05B / 0x05C;
     - the zone-in pair 0x00C / 0x011 keeps its pending flag;
     - persona, mp_stat and FUN_101d3260 ask for 0x061 again.
+- Chat and tells refuse before their echo: FUN_100e3400 sends 0x0B5 through FUN_100fc3c0(0xb5, 0, 0), and the echo
+  (FUN_10127c00) runs only when it returns 1 (all.c 90092..90096); otherwise the /say handler returns a negative
+  value and the dispatcher (FUN_10080dc0) prints ">> " and the line, then group 9 0x78. Ours gates 0x0B5 / 0x0B6 in
+  client/textcmd.rs (`call_gate`, a per-id time map in World) and fails the command there, which prints the same two
+  lines; they are not in GATED. Two chat lines within a second (a macro's two /p lines too) give the error for the
+  second, as retail.
 - Ours: client/net.rs SendGate gates the packets each command queues, for the ids in GATED (force 0 at every call
   site). Ids that are forced, or whose force depends on the caller, are left ungated. A refused send of a RETRIED id
   (0x00C, 0x011, 0x05B, 0x05C, 0x061) is held and goes out once its id's gate opens, oldest first. Any other refused
