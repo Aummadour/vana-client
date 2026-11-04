@@ -143,6 +143,9 @@ pub struct Config {
     /// How far scenery, actors and effects draw, in percent of retail's distance (the zone's, scaled by the
     /// Clipping setting); 0 = no limit. Not a retail option.
     pub draw_distance: u32,
+    /// Milliseconds between the datagrams sent to a private server's zone server (50..400; 400 is the game's, which a
+    /// PlayOnline sign-in always keeps). The server answers each one, so its updates come sooner. Not a retail option.
+    pub send_interval: u32,
     /// Party and alliance rows show TP (retail config 0xae bit 0, default off; ours on, as the add-ons do).
     pub party_tp: bool,
     /// Extra: the map overlay (Ctrl / Alt + O; the add-ons' map overlay) and its opacity 0..1.
@@ -364,6 +367,7 @@ impl Default for Config {
             frame_limit: 300,
             anisotropy: 16,
             draw_distance: 0,
+            send_interval: 400,
             party_tp: true,
             map_overlay: false,
             map_overlay_opacity: 0.6,

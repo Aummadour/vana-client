@@ -22166,3 +22166,28 @@ Checked in Steven's unpacked FFXiMain.dll (sha256 8097dbf8..., 2026-11-03).
   actmotion::Pending now carries op 0x2c's target (when it is another actor in the zone) and the scheduler's effect
   side runs with it as actor2 (fx `on_scheduler_quiet_on`). Ops 0x5b / 0x66 are unchanged.
 - Not yet seen live in game.
+
+## Send Rate and zone preloading (2026-11-04, ours, not retail)
+
+- LSB answers each client datagram with one of at most 1300 bytes and 32 packets (map_networking.cpp send_parse,
+  kMaxPacketPerCompression), and the game sends every 400 ms, so what a player receives follows the send rate.
+- Settings > Misc. > Send Rate (config `send_interval`, ms; Retail 400, 2x 200, 4x 100, 8x 50): used only on an LSB
+  sign-in (MapLogin::lsb); a PlayOnline sign-in keeps 400. A mod's `send_interval` option still wins over both. Live
+  at 4x on our LSB: datagrams every 105..120 ms (the receive loop wakes every 20 ms); the server logged nothing new but
+  one more "POS packet while disappearing" warning per zone-out. Touching a zone line still waits about 400 ms for
+  0x00B: that is the server's zone tick.
+- Zone preloading (client/preload.rs): data/zonelines.txt (zonelines_gen.py from LSB's data/zones/*/zone.yaml and
+  data/enums/zone.yaml; 844 lines) maps (zone, the line's 4-byte tag, as 0x05E sends it) to the destination. Lines
+  back into the same zone (Mog House doors) are skipped. The map is the zone id, as LSB's 0x00A sends it (@0x42,
+  MapNumber = getZone()), offset as scene_of does past 255.
+  - Within 40 yalms of a known line's box, the destination loads on a thread (the zone-in's loader, load_zone_data)
+    and a ZoneRenderer for it streams in each frame's spare upload room after the active zone's. It is kept while a
+    line to it is within 80 yalms, and replaced when another zone's line is the nearest in range.
+  - The zone-in for that zone takes it (zone_loaded with the streaming renderer and the texture names); one still
+    loading is claimed and goes in when its thread ends; any other zone-in drops it.
+  - Live (Lnxcsfix, Bastok Markets z6j0 to Bastok Mines): preload started on arrival, loaded in 296 ms; through the line
+    10 s later the zone was on the GPU 3 ms after the zone-in (Bastok Markets itself had taken 431 ms on arrival).
+- Settings pages hold 7 rows in the 296-px frame: the Client page had run past it since the gamepad rows. Gamepad
+  and Stick Dead Zone are on a Gamepad page now, Extras' Misc. is split into Battle and Misc.; test
+  `pages_fit_their_frame`. At the title the Client page leaves out its last row, Panel Places again (it had been
+  leaving out Stick Dead Zone).

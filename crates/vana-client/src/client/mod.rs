@@ -98,6 +98,7 @@ mod layout;
 mod garden;
 mod fishing;
 mod primer;
+mod preload;
 mod fishrod;
 mod mannequin;
 mod winhits;
@@ -193,6 +194,7 @@ impl Task {
             Task::Lobby(_) => "lobby",
             Task::Selected(_) => "selected",
             Task::ZoneLoaded(..) => "zone loaded",
+            Task::ZonePreloaded(..) => "zone preloaded",
             Task::AreaLoaded(..) => "area loaded",
             Task::SubAreaLoaded(..) => "sub-area loaded",
             Task::CharacterLoaded(..) => "model loaded",
@@ -226,7 +228,9 @@ enum Task {
     /// The two-factor window's request (client/twofa.rs).
     TwoFa(Result<auth::Reply>),
     /// Zone number, scene (map number) and the scene off the loader thread.
-    ZoneLoaded(u16, u16, Result<(zone::ZoneScene, ground::Ground, Option<crate::dat::weather::ZoneWeather>, Arc<crate::render::ZoneGeometry>, ZoneEffects)>),
+    ZoneLoaded(u16, u16, Result<ZoneData>),
+    /// A zone a zone line leads to, loaded ahead (client/preload.rs).
+    ZonePreloaded(u16, u16, Result<ZoneData>),
     AreaLoaded(u16, Result<(zone::ZoneScene, ground::Ground, Option<crate::dat::weather::ZoneWeather>, Arc<crate::render::ZoneGeometry>, Option<crate::fx::lib::Library>)>),
     /// A sub-area (zone, id) off the loader thread.
     SubAreaLoaded(u16, u32, Result<subarea::Loaded>),
@@ -5817,6 +5821,26 @@ fn actor_matrix(pos: Vec3, forward: Vec3) -> glam::Mat4 {
 
 /// A zone's effect library, and DAT 0's when it was not loaded yet (fx::lib).
 type ZoneEffects = (Option<crate::fx::lib::Library>, Option<crate::fx::lib::Library>);
+/// A zone off the loader thread: its scene, ground, weather, geometry and effects.
+type ZoneData = (zone::ZoneScene, ground::Ground, Option<crate::dat::weather::ZoneWeather>, Arc<crate::render::ZoneGeometry>, ZoneEffects);
+
+/// Reads and builds a zone (on a loader thread): `bump` config 0017's bump maps, `need_global` DAT 0's effects too.
+fn load_zone_data(index: &DatIndex, keys: &zone::Keys, zone_id: u16, map_no: u16, bump: bool, need_global: bool) -> Result<ZoneData> {
+    let file = index.read(crate::dat::zone::file_id(map_no as u32))?;
+    let mut scene = zone::load_scene(keys, &file)?;
+    if bump {
+        scene.bumps = crate::dat::bump::parse(&index.read(crate::dat::bump::file_id(map_no as u32)).unwrap_or_default());
+    }
+    let ground = ground::Ground::build(&scene);
+    let weather = crate::dat::weather::ZoneWeather::parse(&file).map_err(|e| log::warn!("zone {zone_id} weather: {e:#}")).ok();
+    let geometry = Arc::new(crate::render::ZoneGeometry::build(&scene));
+    let global = need_global.then(|| index.read(0).and_then(|f| crate::fx::lib::Library::load(0, f))).and_then(|r| r.map_err(|e| log::warn!("effects: DAT 0: {e:#}")).ok());
+    let zone_fx = crate::fx::lib::Library::load(crate::dat::zone::file_id(map_no as u32), file).map_err(|e| log::warn!("effects: zone {zone_id}: {e:#}")).ok().map(|mut l| {
+        l.prewarm(keys);
+        l
+    });
+    Ok((scene, ground, weather, geometry, (zone_fx, global)))
+}
 
 /// Event ops 0x34 / 0x35 (FUN_100b3df0 / FUN_100b3ed0 -> FUN_10184380): another area's scene, collision, effects
 /// and environment in place of the zone's while an event runs (the level-5 crystal scene shows area 541, then 0x35
@@ -5989,6 +6013,8 @@ struct World {
     zone_hold: Option<zonefade::Hold>,
     /// FUN_100fc3c0's last admitted time per c2s id, for the ids gated where they are sent (chat, tells).
     call_gate: HashMap<u16, Instant>,
+    /// The zone behind a near zone line, loading or loaded ahead.
+    preload: Option<preload::Preload>,
     /// The limited-time RoE record last seen in slot 63 this login (DAT_10487eec), and "New Challenge" waiting to play
     /// (DAT_104807ec bit 3).
     roe_timed: u16,
@@ -8195,6 +8221,7 @@ impl App {
                             zone_touch: None,
                             zone_hold: None,
                             call_gate: HashMap::new(),
+                            preload: None,
                             roe_timed: 0,
                             new_challenge: false,
                             vis_list: Vec::new(),
@@ -8844,64 +8871,8 @@ impl App {
                     world.area.done = true;
                 }
             }
-            Task::ZoneLoaded(zone_id, map_no, result) => {
-                let Phase::World(world) = &mut self.phase else { return };
-                world.loading = None;
-                world.furniture.reset();
-                (world.ships, world.ship_jobs) = (Default::default(), Vec::new());
-                world.area = AreaSwitch::default();
-                match result {
-                    Ok((mut scene, ground, weather, geometry, (zone_fx, global_fx))) => {
-                        let asked = world.sub.asked.take();
-                        world.sub = subarea::SubArea::new(scene.regions.clone(), scene.collision.take(), geometry.light_keys.clone(), geometry.area_keys.clone(), scene.textures.iter().map(|t| t.name.clone()).collect());
-                        world.sub.asked = asked;
-                        world.zone_weather = weather;
-                        (world.light_ease, world.light_acc) = (Default::default(), 0.0);
-                        world.area_ease.clear();
-                        if let Some(g) = global_fx {
-                            world.effects.set_global(g);
-                        }
-                        if let Some(z) = zone_fx {
-                            if let Some(keys) = self.keys_table.clone() {
-                                world.effects.set_keys(keys);
-                            }
-                            if let Some(t) = self.knock_table {
-                                world.effects.set_knock_table(t);
-                            }
-                            if let Some(index) = world.index.clone() {
-                                world.effects.set_index(index);
-                            }
-                            world.effects.load_zone(z);
-                            world.effects.set_weather(crate::dat::weather::weather_tag(world.weather), 0.0);
-                        }
-                        world.lamps = Default::default();
-                        world.zone_lines = scene.regions.iter().filter(|r| r.name.starts_with(['z', 'Z']) && r.name.len() == 8).cloned().collect();
-                        world.lifts = lifts::Lifts::load(&scene.regions);
-                        world.voyage.set_path(&scene.paths);
-                        // Its geometry and textures go up over the next frames; the indicator stays until then.
-                        if let Some(gfx) = &self.gfx {
-                            world.effects.reg.light_keys = geometry.light_keys.clone();
-                            world.renderer = Some(ZoneRenderer::streamed(&gfx.gpu, geometry, std::mem::take(&mut scene.textures), gfx.config.format.remove_srgb_suffix()));
-                            world.zone_uploading = Some(Instant::now());
-                        }
-                        world.ground = Some(ground);
-                        let old_zone = world.zone.replace(zone_id);
-                        world.lua.raise("zone_change", vec![zone_id.into(), old_zone.into()]);
-                        world.scene = Some(map_no);
-                        world.npc_names = world.index.as_ref().map(|i| npc_names(i, zone_id)).unwrap_or_default();
-                        for (id, e) in world.entities.iter_mut() {
-                            if let Some(n) = world.npc_names.get(id) {
-                                e.name = n.clone();
-                            }
-                        }
-                        self.status.clear();
-                    }
-                    Err(e) => {
-                        world.downloading = None;
-                        self.status = format!("Loading zone {zone_id}: {e:#}");
-                    }
-                }
-            }
+            Task::ZoneLoaded(zone_id, map_no, result) => self.zone_loaded(zone_id, map_no, result, None),
+            Task::ZonePreloaded(zone_id, map_no, result) => self.preloaded(zone_id, map_no, result),
             Task::LoggedIn(Err(e)) | Task::AccountCreated(Err(e)) | Task::Selected(Err(e)) => {
                 self.status = format!("{e:#}");
                 self.to_login(true);
@@ -8965,6 +8936,98 @@ impl App {
                         }
                     });
                 }
+            }
+        }
+    }
+
+    /// A preload's thread is done: kept, its renderer streaming, or loaded now when its zone-in already came.
+    fn preloaded(&mut self, zone_id: u16, map_no: u16, result: Result<ZoneData>) {
+        let Phase::World(world) = &mut self.phase else { return };
+        let Some(p) = world.preload.as_mut().filter(|p| (p.zone, p.map) == (zone_id, map_no)) else { return };
+        let ms = p.started.elapsed().as_secs_f32() * 1000.0;
+        if p.claimed {
+            log::info!("preload: zone {zone_id} in after {ms:.0} ms, its zone-in waiting");
+            world.preload = None;
+            return self.zone_loaded(zone_id, map_no, result, None);
+        }
+        match (result, &self.gfx) {
+            (Ok((mut scene, ground, weather, geometry, fx)), Some(gfx)) => {
+                let names = scene.textures.iter().map(|t| t.name.clone()).collect();
+                let r = ZoneRenderer::streamed(&gfx.gpu, geometry.clone(), std::mem::take(&mut scene.textures), gfx.config.format.remove_srgb_suffix());
+                log::info!("preload: zone {zone_id} loaded in {ms:.0} ms; streaming to the GPU");
+                p.ready = Some(preload::Ready { data: (scene, ground, weather, geometry, fx), gpu: (r, names) });
+            }
+            (Err(e), _) => {
+                log::warn!("preload: zone {zone_id}: {e:#}");
+                world.preload = None;
+            }
+            (Ok(_), None) => world.preload = None,
+        }
+    }
+
+    /// A zone's data is in (Task::ZoneLoaded, or a preload the zone-in took, whose renderer is already streaming).
+    fn zone_loaded(&mut self, zone_id: u16, map_no: u16, result: Result<ZoneData>, pre: Option<(ZoneRenderer, Vec<String>)>) {
+        let Phase::World(world) = &mut self.phase else { return };
+        world.loading = None;
+        world.furniture.reset();
+        (world.ships, world.ship_jobs) = (Default::default(), Vec::new());
+        world.area = AreaSwitch::default();
+        match result {
+            Ok((mut scene, ground, weather, geometry, (zone_fx, global_fx))) => {
+                let asked = world.sub.asked.take();
+                let names = match &pre {
+                    Some((_, names)) => names.clone(),
+                    None => scene.textures.iter().map(|t| t.name.clone()).collect(),
+                };
+                world.sub = subarea::SubArea::new(scene.regions.clone(), scene.collision.take(), geometry.light_keys.clone(), geometry.area_keys.clone(), names);
+                world.sub.asked = asked;
+                world.zone_weather = weather;
+                (world.light_ease, world.light_acc) = (Default::default(), 0.0);
+                world.area_ease.clear();
+                if let Some(g) = global_fx {
+                    world.effects.set_global(g);
+                }
+                if let Some(z) = zone_fx {
+                    if let Some(keys) = self.keys_table.clone() {
+                        world.effects.set_keys(keys);
+                    }
+                    if let Some(t) = self.knock_table {
+                        world.effects.set_knock_table(t);
+                    }
+                    if let Some(index) = world.index.clone() {
+                        world.effects.set_index(index);
+                    }
+                    world.effects.load_zone(z);
+                    world.effects.set_weather(crate::dat::weather::weather_tag(world.weather), 0.0);
+                }
+                world.lamps = Default::default();
+                world.zone_lines = scene.regions.iter().filter(|r| r.name.starts_with(['z', 'Z']) && r.name.len() == 8).cloned().collect();
+                world.lifts = lifts::Lifts::load(&scene.regions);
+                world.voyage.set_path(&scene.paths);
+                // Its geometry and textures go up over the next frames; the indicator stays until then.
+                if let Some(gfx) = &self.gfx {
+                    world.effects.reg.light_keys = geometry.light_keys.clone();
+                    world.renderer = Some(match pre {
+                        Some((r, _)) => r,
+                        None => ZoneRenderer::streamed(&gfx.gpu, geometry, std::mem::take(&mut scene.textures), gfx.config.format.remove_srgb_suffix()),
+                    });
+                    world.zone_uploading = Some(Instant::now());
+                }
+                world.ground = Some(ground);
+                let old_zone = world.zone.replace(zone_id);
+                world.lua.raise("zone_change", vec![zone_id.into(), old_zone.into()]);
+                world.scene = Some(map_no);
+                world.npc_names = world.index.as_ref().map(|i| npc_names(i, zone_id)).unwrap_or_default();
+                for (id, e) in world.entities.iter_mut() {
+                    if let Some(n) = world.npc_names.get(id) {
+                        e.name = n.clone();
+                    }
+                }
+                self.status.clear();
+            }
+            Err(e) => {
+                world.downloading = None;
+                self.status = format!("Loading zone {zone_id}: {e:#}");
             }
         }
     }
@@ -9105,7 +9168,9 @@ impl App {
     }
 
     fn poll_network(&mut self) {
+        let mut took: Option<(u16, u16, preload::Ready, Instant)> = None;
         let Phase::World(world) = &mut self.phase else { return };
+        world.net.stats.rate_ms.store(self.cfg.send_interval, std::sync::atomic::Ordering::Relaxed);
         let mut load = None;
         let mut looks: Vec<(u32, Source)> = Vec::new();
         // Lines that need the message tables wait for them (they load on a thread at world start), in order.
@@ -9355,7 +9420,17 @@ impl App {
                     if !current && !pending {
                         world.loading = Some(zone);
                         world.loading_scene = scene;
-                        load = Some((zone, scene));
+                        // A zone loaded ahead goes in at once, one still loading is waited for; another one is dropped.
+                        match world.preload.take() {
+                            Some(mut p) if (p.zone, p.map) == (zone, scene) => match p.ready.take() {
+                                Some(r) => took = Some((zone, scene, r, p.started)),
+                                None => {
+                                    p.claimed = true;
+                                    world.preload = Some(p);
+                                }
+                            },
+                            _ => load = Some((zone, scene)),
+                        }
                     } else if world.loading.is_none() && world.zone_uploading.is_none() {
                         world.downloading = None;
                     }
@@ -10266,6 +10341,21 @@ impl App {
             }
         }
         let Phase::World(_) = &self.phase else { return };
+        if let Some((zone_id, map_no, r, since)) = took {
+            log::info!("preload: zone {zone_id} taken at its zone-in, {:.0} ms after it started", since.elapsed().as_secs_f32() * 1000.0);
+            self.zone_loaded(zone_id, map_no, Ok(r.data), Some(r.gpu));
+        }
+        let want = match &mut self.phase {
+            Phase::World(w) => preload::step(w),
+            _ => None,
+        };
+        if let Some((zone_id, map_no)) = want {
+            let need_global = matches!(&self.phase, Phase::World(w) if !w.effects.has_global());
+            let bump = self.cfg.tool("0017") != 0 && map_no != 182;
+            if let Ok((index, keys)) = self.game_data() {
+                self.spawn(move || Task::ZonePreloaded(zone_id, map_no, load_zone_data(&index, &keys, zone_id, map_no, bump, need_global)));
+            }
+        }
         if let Some((zone_id, map_no)) = load {
             self.status = format!("Loading zone {zone_id}...");
             let need_global = match &self.phase {
@@ -10275,24 +10365,7 @@ impl App {
             // Config 0017 (FUN_10171360 / FUN_101720a0): the zone's bump maps, never in zone 182 (Walk of Echoes).
             let bump = self.cfg.tool("0017") != 0 && map_no != 182;
             match self.game_data() {
-                Ok((index, keys)) => self.spawn(move || {
-                    Task::ZoneLoaded(zone_id, map_no, (|| {
-                        let file = index.read(crate::dat::zone::file_id(map_no as u32))?;
-                        let mut scene = zone::load_scene(&keys, &file)?;
-                        if bump {
-                            scene.bumps = crate::dat::bump::parse(&index.read(crate::dat::bump::file_id(map_no as u32)).unwrap_or_default());
-                        }
-                        let ground = ground::Ground::build(&scene);
-                        let weather = crate::dat::weather::ZoneWeather::parse(&file).map_err(|e| log::warn!("zone {zone_id} weather: {e:#}")).ok();
-                        let geometry = Arc::new(crate::render::ZoneGeometry::build(&scene));
-                        let global = need_global.then(|| index.read(0).and_then(|f| crate::fx::lib::Library::load(0, f))).and_then(|r| r.map_err(|e| log::warn!("effects: DAT 0: {e:#}")).ok());
-                        let zone_fx = crate::fx::lib::Library::load(crate::dat::zone::file_id(map_no as u32), file).map_err(|e| log::warn!("effects: zone {zone_id}: {e:#}")).ok().map(|mut l| {
-                            l.prewarm(&keys);
-                            l
-                        });
-                        Ok((scene, ground, weather, geometry, (zone_fx, global)))
-                    })())
-                }),
+                Ok((index, keys)) => self.spawn(move || Task::ZoneLoaded(zone_id, map_no, load_zone_data(&index, &keys, zone_id, map_no, bump, need_global))),
                 Err(e) => self.status = format!("{e:#}"),
             }
         }
@@ -14057,6 +14130,10 @@ impl App {
                 use crate::render::upload::{FRAME_MS, LOADING_MS};
                 gfx.gpu.begin_uploads(if w.downloading.is_some() { LOADING_MS } else { FRAME_MS });
                 perf::timed(|| "uploads".into(), || r.upload_step(&gfx.gpu, &mut encoder));
+                // A preloaded zone streams in whatever room is left (client/preload.rs).
+                if let Some(p) = w.preload.as_mut().and_then(|p| p.ready.as_mut()) {
+                    p.gpu.0.upload_step(&gfx.gpu, &mut encoder);
+                }
                 mark!("uploads");
                 if let Some(since) = w.zone_uploading
                     && r.ready(&gfx.gpu)

@@ -17,6 +17,7 @@ pub struct Settings {
     pub frame_limit: u32,
     pub anisotropy: u16,
     pub draw_distance: u32,
+    pub send_interval: u32,
     pub party_tp: bool,
     pub map_overlay: bool,
     pub map_opacity: u32,
@@ -64,6 +65,7 @@ impl Settings {
             frame_limit: c.frame_limit,
             anisotropy: c.anisotropy,
             draw_distance: c.draw_distance,
+            send_interval: c.send_interval,
             party_tp: c.party_tp,
             map_overlay: c.map_overlay,
             map_opacity: pct(c.map_overlay_opacity),
@@ -109,6 +111,7 @@ impl Settings {
         c.frame_limit = self.frame_limit;
         c.anisotropy = self.anisotropy;
         c.draw_distance = self.draw_distance;
+        c.send_interval = self.send_interval;
         c.party_tp = self.party_tp;
         c.map_overlay = self.map_overlay;
         c.map_overlay_opacity = self.map_opacity as f32 / 100.0;
@@ -165,6 +168,7 @@ enum Val {
     FrameLimit,
     Aniso,
     DrawDistance,
+    SendRate,
     PartyTp,
     MapOverlay,
     MapOpacity,
@@ -261,10 +265,10 @@ const fn row(label: &'static str, help: &'static str, val: Val, choices: &'stati
     SRow { label, help, val, choices, when }
 }
 
-const TABS: [&str; 8] = ["General", "Screen", "Textures", "Effects", "Sound", "Misc.", "Client", "Mods"];
+const TABS: [&str; 9] = ["General", "Screen", "Textures", "Effects", "Sound", "Misc.", "Client", "Gamepad", "Mods"];
 /// The Mods page (client/modsui.rs): its rows come from the mods folder, not a table.
-const MODS: usize = 7;
-const EXTRA_TABS: [&str; 3] = ["Maps", "Timers", "Misc."];
+const MODS: usize = 8;
+const EXTRA_TABS: [&str; 4] = ["Maps", "Timers", "Battle", "Misc."];
 
 /// `in_game`: the volumes are the Gameplay page's there, so the Sound page leaves them out. `modern`: the minimap's and
 /// the Timers' place and size are set by dragging them there, so those rows are left out.
@@ -311,6 +315,7 @@ fn rows(kind: Kind, tab: usize, in_game: bool, modern: bool) -> &'static [SRow] 
         row("Opening Movie", "0022: play the opening movie before the title; any key skips it.", Tool("0022"), OFF_ON, Restart),
         row("Simple Character Creation", "0023: character creation with 2-D portraits instead of the 3D models.", Tool("0023"), OFF_ON, Now),
         row("Screenshot Size", "0043: also save each screenshot at the screen size (ffxiuser/screenshots).", Tool("0043"), OFF_ON, Now),
+        row("Send Rate", "How often the client sends to a private server, which answers each time: faster brings what happens around you sooner. A PlayOnline sign-in keeps the game's rate (not retail).", SendRate, &[(400, "Retail"), (200, "2x"), (100, "4x"), (50, "8x")], Now),
     ];
     const CLIENT: &[SRow] = &[
         row("Frame Limit", "Frames drawn a second; game time stays at 60 ticks.", FrameLimit, &[], Now),
@@ -320,6 +325,9 @@ fn rows(kind: Kind, tab: usize, in_game: bool, modern: bool) -> &'static [SRow] 
         row("Interface Size", "The modern interface's size (not retail).", ModernScale, MODERN_SCALES, Now),
         row("Panel Opacity", "How opaque the modern interface's window backgrounds are (not retail).", ModernOpacity, &[], Now),
         row("Panel Places", "Reset puts this character's modern windows back where they start (not retail).", ResetPlaces, &[(0, "As Moved"), (1, "Reset")], Now),
+    ];
+    // A page holds 7 rows; the gamepad's have their own.
+    const GAMEPAD: &[SRow] = &[
         row("Gamepad", "Read a game controller, with FFXiPadConfig's layout (padsin in config.json changes it).", Gamepad, OFF_ON, Now),
         row("Stick Dead Zone", "How far a stick moves before it counts; 33% is retail's 42 of 127, round here (not retail).", PadDeadZone, &[(15, "15%"), (20, "20%"), (25, "25%"), (33, "33%"), (40, "40%"), (50, "50%")], Now),
     ];
@@ -340,26 +348,29 @@ fn rows(kind: Kind, tab: usize, in_game: bool, modern: bool) -> &'static [SRow] 
         SKILLCHAIN_ROW,
     ];
     const TIMERS_MODERN: &[SRow] = &[TIMERS_ROW, REGIME_ROW, SKILLCHAIN_ROW];
-    const EXTRA_MISC: &[SRow] = &[
-        row("Synthesis Amount", "After Synthesize, ask how many to make and make them one after another.", SynthAmount, OFF_ON, Now),
-        row("Timestamps on All Lines", "Every log line gets the time, not only chat (the format of /timestamp; seconds while it is off).", StampAll, OFF_ON, Now),
+    // A page holds 7 rows: what touches battle has its own.
+    const EXTRA_BATTLE: &[SRow] = &[
         row("Target Distance", "How far your target is, centre to centre, in the target window.", TargetDistance, OFF_ON, Now),
         row("Target HP %", "The target's HP percent beside its gauge in the classic target window (the modern one shows it).", TargetHpp, OFF_ON, Now),
-        row("Clock", "Earth time, the moon and the next Vana'diel day beside the game's clock.", EarthClock, OFF_ON, Now),
         row("Trust Speech", "What your trusts say to the party (on summoning, on a weapon skill, on defeat) in the log, or not.", TrustSpeech, &[(0, "Shown"), (1, "Hidden")], Now),
         row("Ready Lines", "The \"readies\" and \"starts casting\" lines: everyone's, or only yours and monsters' (what is coming at you).", ReadyLines, &[(0, "All"), (1, "Mine, Monsters'")], Now),
         row("Battle Text", "Battle lines as the game words them, or short: \"Name [Fast Blade] → Wild Rabbit: 123\". Lines with no short form stay as they are.", ShortBattle, &[(0, "Retail"), (1, "Short")], Now),
         row("Battle Names", "Names in battle lines in one colour, or coloured by who they are: you, your party, the alliance, a monster your party claimed, another's claim.", NameColours, &[(0, "Plain"), (1, "Coloured")], Now),
+    ];
+    const EXTRA_MISC: &[SRow] = &[
+        row("Synthesis Amount", "After Synthesize, ask how many to make and make them one after another.", SynthAmount, OFF_ON, Now),
+        row("Timestamps on All Lines", "Every log line gets the time, not only chat (the format of /timestamp; seconds while it is off).", StampAll, OFF_ON, Now),
+        row("Clock", "Earth time, the moon and the next Vana'diel day beside the game's clock.", EarthClock, OFF_ON, Now),
         row("Text Auto-Advance", "An event's message waiting for a key goes on by itself after this many seconds.", AutoAdvance, &[(0, "OFF"), (3, "3 s"), (5, "5 s"), (8, "8 s")], Now),
     ];
     match kind {
-        Kind::Extras if modern => [&MAPS[..3], TIMERS_MODERN, EXTRA_MISC].get(tab).copied().unwrap_or(&[]),
-        Kind::Extras => [MAPS, TIMERS, EXTRA_MISC].get(tab).copied().unwrap_or(&[]),
+        Kind::Extras if modern => [&MAPS[..3], TIMERS_MODERN, EXTRA_BATTLE, EXTRA_MISC].get(tab).copied().unwrap_or(&[]),
+        Kind::Extras => [MAPS, TIMERS, EXTRA_BATTLE, EXTRA_MISC].get(tab).copied().unwrap_or(&[]),
         Kind::Settings if in_game && tab == 4 => &SOUND[..3],
         Kind::Settings if tab == MODS => &[],
         // Panel Places (the last Linux row) is a character's: in game only.
         Kind::Settings if !in_game && tab == 6 => &CLIENT[..CLIENT.len() - 1],
-        Kind::Settings => [GENERAL, SCREEN, TEXTURES, EFFECTS, SOUND, MISC, CLIENT][tab.min(6)],
+        Kind::Settings => [GENERAL, SCREEN, TEXTURES, EFFECTS, SOUND, MISC, CLIENT, GAMEPAD][tab.min(7)],
     }
 }
 
@@ -501,6 +512,7 @@ impl SettingsUi {
             Val::FrameLimit => self.s.frame_limit,
             Val::Aniso => self.s.anisotropy as u32,
             Val::DrawDistance => self.s.draw_distance,
+            Val::SendRate => self.s.send_interval,
             Val::PartyTp => self.s.party_tp as u32,
             Val::ModernUi => self.s.modern_ui as u32,
             Val::ModernScale => self.s.modern_scale,
@@ -541,6 +553,7 @@ impl SettingsUi {
             Val::Tool(n) => self.tool_set(n, x),
             Val::Aniso => self.s.anisotropy = x as u16,
             Val::DrawDistance => self.s.draw_distance = x,
+            Val::SendRate => self.s.send_interval = x,
             Val::PartyTp => self.s.party_tp = x != 0,
             Val::ModernUi => self.s.modern_ui = x != 0,
             Val::ModernScale => self.s.modern_scale = x,
@@ -1462,6 +1475,21 @@ pub(super) fn marker(gu: &mut GameUi, x: f32, y: f32, w: f32) {
 mod tests {
     use super::*;
 
+    /// A page's frame holds 7 rows; at the title the Client page leaves out Panel Places and nothing else.
+    #[test]
+    fn pages_fit_their_frame() {
+        for kind in [Kind::Settings, Kind::Extras] {
+            for tab in 0..TABS.len() {
+                for (in_game, modern) in [(false, false), (true, false), (false, true), (true, true)] {
+                    assert!(rows(kind, tab, in_game, modern).len() <= 7, "{kind:?} page {tab}");
+                }
+            }
+        }
+        let (title, game) = (rows(Kind::Settings, 6, false, false), rows(Kind::Settings, 6, true, false));
+        assert_eq!(title.len() + 1, game.len());
+        assert!(!title.iter().any(|r| matches!(r.val, Val::ResetPlaces)) && matches!(game.last().unwrap().val, Val::ResetPlaces));
+    }
+
     #[test]
     fn plain_help() {
         assert_eq!(plain("0034: full screen or a window."), "Full screen or a window.");
@@ -1500,15 +1528,15 @@ mod tests {
         assert_eq!(Settings::of(&back), ui.s);
     }
 
-    /// Extras: pages as Settings (Maps, Timers, Misc.), opened on the page name; buttons pick with Left / Right and
-    /// Enter; Up from the page name wraps to the last row.
+    /// Extras: pages as Settings (Maps, Timers, Battle, Misc.), opened on the page name; buttons pick with Left / Right
+    /// and Enter; Up from the page name wraps to the last row.
     #[test]
     fn extras_buttons() {
         let c = Config::default();
         let mut ui = SettingsUi::open_kind(&c, [1280, 800], Kind::Extras);
         assert_eq!((ui.tab, ui.row), (0, 0));
         ui.key(egui::Key::ArrowLeft);
-        assert_eq!(ui.tab, 2);
+        assert_eq!(ui.tab, 3);
         ui.key(egui::Key::ArrowRight);
         ui.key(egui::Key::ArrowDown);
         assert_eq!((ui.row, ui.col), (1, 1));
@@ -1540,7 +1568,7 @@ mod tests {
         ui.key(egui::Key::Enter);
         assert!(ui.s.timers);
         // Misc.: Timestamps on All Lines.
-        ui.goto(2, 2);
+        ui.goto(3, 2);
         ui.key(egui::Key::ArrowLeft);
         ui.key(egui::Key::Enter);
         assert!(ui.s.stamp_all_lines);

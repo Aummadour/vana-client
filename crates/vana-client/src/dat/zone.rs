@@ -578,7 +578,7 @@ pub fn parse_img(p: &[u8]) -> Result<Texture> {
 
 /// A RID region: an oriented box. Names starting with 'z' are zone lines, '_' doors, 'E' events, 'm' / 'M'
 /// sub-area triggers.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Region {
     pub name: String,
     pub pos: [f32; 3],

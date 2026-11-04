@@ -802,6 +802,8 @@ pub struct NetStats {
     pub start: std::sync::OnceLock<Instant>,
     /// A mod's datagram interval in ms (client.set_option send_interval); 0 retail's 400.
     pub send_ms: std::sync::atomic::AtomicU32,
+    /// Settings' Send Rate in ms, used on a private server when no mod sets one (0 before the first frame sets it).
+    pub rate_ms: std::sync::atomic::AtomicU32,
     /// The last sub-packet of each id each way (packets.last), kept while HOOK_LAST is set.
     pub last_in: Mutex<std::collections::HashMap<u16, Vec<u8>>>,
     pub last_out: Mutex<std::collections::HashMap<u16, Vec<u8>>>,
@@ -1743,8 +1745,13 @@ fn session(addr: SocketAddr, login: &MapLogin, account: &str, codec: &Codec, tx:
             }
             gate.admit(&mut queue, before, Instant::now());
         }
-        // Retail sends one datagram every 400 ms (config +0xd0 = 400, net+0x417c), each with a fresh 0x015.
+        // Retail sends one datagram every 400 ms (config +0xd0 = 400, net+0x417c), each with a fresh 0x015. On a private
+        // server Settings' Send Rate may be faster (LSB answers every datagram); a mod's interval wins over both.
         let every = match stats.send_ms.load(Relaxed) {
+            0 if login.lsb.is_some() => match stats.rate_ms.load(Relaxed) {
+                0 => 400,
+                n => n.clamp(50, 400) as u64,
+            },
             0 => 400,
             n => n as u64,
         };
