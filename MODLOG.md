@@ -22193,3 +22193,15 @@ Checked in Steven's unpacked FFXiMain.dll (sha256 8097dbf8..., 2026-11-03).
   and Stick Dead Zone are on a Gamepad page now, Extras' Misc. is split into Battle and Misc.; test
   `pages_fit_their_frame`. At the title the Client page leaves out its last row, Panel Places again (it had been
   leaving out Stick Dead Zone).
+
+## Delivery Box send window: busy after the close sequence (2026-11-04)
+
+- FUN_1012ff30 (state 0x16) sets post1 +0x5d (busy) while unsent items are asked back, and clears it when it moves on:
+  at once when none are queued, else FUN_10130000 (0x17) clears it when the GET answer comes or its 300-tick wait runs
+  out. State 0x19 (after FUN_100f7fa0(0xf), PostClose) closes only on the server's PostClose answer (FUN_1012f1b0);
+  Escape there (FUN_1012ef60) goes back to 0x18 and sends PostClose again.
+- Ours kept busy set from 0x16 on, so in 0x19 every key was ignored. If the server never answered the close (LSB's
+  0x04D validator drops the packet silently while the player is in an event, crafting, fishing or jailed, or outside a
+  Mog House / auction / moogle zone), the window stayed up for good, and /shutdown is refused while it is up. The user
+  hit this (2026-11-03, the trigger not known) and had to kill the client. Busy is now cleared as retail clears it;
+  seen live: the window opens in the Mog House and Escape closes it. The stuck case itself was not reproduced.

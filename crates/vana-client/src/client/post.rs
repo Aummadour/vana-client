@@ -782,7 +782,8 @@ fn send_frame(w: &mut World) {
                 (s.busy, s.state, s.after_get) = (false, s.after_get, 0x18);
             }
         }
-        // FUN_1012fec0 / FUN_1012ff30: unsent items (Stat 1 / 0x10) come back, then the next state.
+        // FUN_1012fec0 / FUN_1012ff30: unsent items (Stat 1 / 0x10) come back, then the next state; busy (+0x5d) only
+        // while they do, so Escape can ask for the close again in 0x19 (FUN_1012ef60).
         0x15 => {
             s.pending = [None; 8];
             (s.dl.label, s.dl.result, s.dl.mode, s.dl.shown) = (0x2e, 0, 1, None);
@@ -795,18 +796,19 @@ fn send_frame(w: &mut World) {
                 simple(w, cmd::GET, 2, i as i8);
             }
             if back.is_empty() {
-                (s.state, s.next) = (s.next, 0x18);
+                (s.busy, s.state, s.next) = (false, s.next, 0x18);
             } else {
                 arm(&mut s);
                 s.state = 0x17;
             }
         }
+        // FUN_10130000.
         0x17 => {
             if last.is_some_and(|l| l.0 == cmd::GET) || expired {
                 if expired {
                     super::textcmd::refuse(w, 0x85);
                 }
-                (s.state, s.next) = (s.next, 0x18);
+                (s.busy, s.timeout, s.state, s.next) = (false, None, s.next, 0x18);
             }
         }
         0x18 => {
