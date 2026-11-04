@@ -472,6 +472,17 @@ pub fn plain_char(c: char) -> Option<char> {
         // Full-width forms (Shift-JIS 81 xx: Kupipi's "pre～sent") as their ASCII, the ideographic space as a space.
         0xFF01..=0xFF5E => char::from_u32(c as u32 - 0xFEE0),
         0x3000 => Some(' '),
+        // A pair decode_sjis kept as its bytes because it would not encode back the same (NEC row 13's ≒ ∵, the IBM
+        // rows 0xED / 0xEE) but that still decodes: its character.
+        p @ 0xF8100..=0xFFFFF => {
+            let pair = [((p - PAIR_BASE) >> 8) as u8, (p - PAIR_BASE) as u8];
+            let (s, bad) = encoding_rs::SHIFT_JIS.decode_without_bom_handling(&pair);
+            let mut it = s.chars();
+            match (bad, it.next(), it.next()) {
+                (false, Some(ch), None) => Some(ch),
+                _ => None,
+            }
+        }
         0xE000..=0xF8FF | 0xF0000..=0x10FFFF => None,
         _ => Some(c),
     }
@@ -592,6 +603,17 @@ pub fn encode_sjis(text: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A pair kept as its bytes still reaches the modern faces as its character; the game's own glyphs stay theirs.
+    #[test]
+    fn kept_pairs_plain() {
+        for (pair, ch) in [([0x87u8, 0x90], '≒'), ([0x87, 0x9A], '∵'), ([0xFA, 0x4A], 'Ⅰ')] {
+            let d = decode_sjis(&pair);
+            assert_eq!(encode_sjis(&d), pair, "{pair:02X?}");
+            assert_eq!(plain(&d), ch.to_string(), "{pair:02X?}");
+        }
+        assert_eq!(plain(&decode_sjis(&[0x87, 0xB2])), "\u{201C}");
+    }
 
     /// Auto-translate blocks and Shift-JIS survive a decode / encode round trip.
     #[test]
