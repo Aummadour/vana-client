@@ -305,13 +305,13 @@ pub fn modern_list(w: &World) -> bool {
     matches!(w.win, Some(Win::Items { .. } | Win::Equip(_)))
 }
 
-/// The list's rows: the occupied inventory slots but gil; for the direct list only those FUN_101f0810 colours
-/// (crystals, maze tabulae, usable non-equipment, equipped charged gear).
+/// The list's rows: the temporary items, then the occupied inventory slots but gil; for the direct list only those
+/// FUN_101f0810 colours (crystals, maze tabulae, usable non-equipment, equipped charged gear).
 pub(super) fn listed(w: &World, direct: bool) -> Vec<Slot> {
     listed_at(w, direct).into_iter().map(|(_, s)| s).collect()
 }
 
-/// The list's rows with their containers. FUN_101f1100's rebuild: with container 3 loaded and the source's +0x20 not 0
+/// The list's rows with their containers. FUN_101f1230's rebuild: with container 3 loaded and the source's +0x20 not 0
 /// (both the main list's and the direct list's), the temporary items come first (+0x54 rows, every one, in their
 /// view's order), then the inventory's.
 pub(super) fn listed_at(w: &World, direct: bool) -> Vec<(u8, Slot)> {
@@ -750,12 +750,14 @@ pub fn info_source(w: &World) -> Option<(u16, Option<[u8; 24]>, u8, u8, bool, u8
     Some((slot.id, w.inv.ext.get(&(container, slot.index)).copied(), container, slot.index, slot.equipped, mode))
 }
 
-/// The open item list for mods (ui.native.list): its container, rows, cursor and top.
-pub(in crate::client) fn native_list(w: &World) -> Option<(u8, Vec<Slot>, usize, usize)> {
+/// The open item list for mods (ui.native.list): its rows with their containers (the item list's temporary rows are
+/// container 3's), cursor and top.
+pub(in crate::client) fn native_list(w: &World) -> Option<(Vec<(u8, Slot)>, usize, usize)> {
+    let of = |bag: u8| store_rows(w, bag).into_iter().map(|s| (bag, s)).collect();
     match w.win.as_ref()? {
-        Win::Items { store: Some(b), .. } if b.on_bank || b.read_only => Some((b.bank, store_rows(w, b.bank), b.scroll + b.cursor, b.scroll)),
-        Win::Items { store: Some(b), scroll, cursor, .. } => Some((b.side, store_rows(w, b.side), scroll + cursor, *scroll)),
-        Win::Items { scroll, cursor, direct, .. } => Some((INVENTORY, listed(w, *direct), scroll + cursor, *scroll)),
+        Win::Items { store: Some(b), .. } if b.on_bank || b.read_only => Some((of(b.bank), b.scroll + b.cursor, b.scroll)),
+        Win::Items { store: Some(b), scroll, cursor, .. } => Some((of(b.side), scroll + cursor, *scroll)),
+        Win::Items { scroll, cursor, direct, .. } => Some((listed_at(w, *direct), scroll + cursor, *scroll)),
         Win::Equip(_) => None,
     }
 }
@@ -773,7 +775,7 @@ pub(super) fn item_prompt(w: &World) -> bool {
 
 /// The list's rows in their colours; FUN_101f0810: the direct list's, yellow for usable items, equipped charged gear
 /// blue when ready (extdata kind 1, u16 @2 bit 0x4000), else grey.
-/// The temporary rows (FUN_101f1100's first +0x54) take the source's +0x20 colour and show no quantity.
+/// The temporary rows (FUN_101f1230's first +0x54) take the source's +0x20 colour and show no quantity.
 pub(super) fn list_rows(w: &World, info: &ItemCache, shown: &[(u8, Slot)], direct: bool) -> Vec<crate::inventory::Row> {
     let slots: Vec<Slot> = shown.iter().map(|(_, s)| s.clone()).collect();
     let mut rows = build_rows(&slots, info, false);
@@ -1848,7 +1850,7 @@ fn draw_storage(gu: &mut GameUi, w: &World, info: &ItemCache, scroll: usize, cur
 
 /// FUN_101cb590: "items/size" at titlewin's right edge while an item list is focused: "/" at (x1 - 0x16, y0 + 8), the
 /// count right-aligned at (x1 - 0x13, y0 + 4), the size right-aligned at (x1 - 1, y1 - 0x10), all 0x80808080.
-/// The count leaves the temporary rows out (FUN_101f1100's +0x52 less +0x54).
+/// The count leaves the temporary rows out (FUN_101f1230's +0x52 less +0x54).
 fn draw_count(gu: &mut GameUi, n: usize, size: u8, sw: f32, sh: f32) {
     let Some([x0, y0, w, h]) = gu.window_rect("menu    titlewin", sw, sh) else { return };
     let (x1, y1) = (x0 + w, y0 + h);

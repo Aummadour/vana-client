@@ -46,8 +46,8 @@ fn list(w: &World) -> Option<(String, Vec<serde_json::Value>, usize, Option<usiz
         let (win, kind, ids) = list_rows(w, l);
         return Some((win.into(), ids.iter().map(|id| json!({ kind: id })).collect(), l.scroll + l.cursor, Some(l.scroll)));
     }
-    if let Some((bag, slots, cursor, top)) = super::super::items::native_list(w) {
-        let rows = slots.iter().map(|s| json!({"item": s.id, "count": s.count, "bag": bag, "slot": s.index, "equipped": s.equipped})).collect();
+    if let Some((slots, cursor, top)) = super::super::items::native_list(w) {
+        let rows = slots.iter().map(|(bag, s)| json!({"item": s.id, "count": s.count, "bag": bag, "slot": s.index, "equipped": s.equipped})).collect();
         return Some(("items".into(), rows, cursor, Some(top)));
     }
     if let Some((view, rows, cursor, top)) = super::super::shop::native_list(w) {
