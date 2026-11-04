@@ -20698,3 +20698,14 @@ From the 30261006_0 decompile; ours in client/swkbd.rs (classic) and modern/keyb
   object FUN_101d2cc0 makes (DAT_106631d4) answers by another route, not traced (FUN_101d6000 has no direct caller:
   a method). Ours: target::talks_to lets the door through in the Mog House to event::talk, which opens mogdoor or
   the exit prompt, as before *(route inferred)*. Seen live: Lnxtest, Tab twice, Enter: "Heading outside, kupo?".
+
+## The chat line during events (2026-11-03)
+
+- FUN_101ab630 (Space, WM_CHAR) opens the chat line when the game is in the field (*DAT_10444110 == 0x60) and the
+  input is idle (FUN_101adc00: +0xf108 == 3), then through the input's +0x40 method (not traced) and FUN_101ad790
+  mode 4 (held off by the window manager's +0xae flag); '/' (FUN_101aa930) likewise. Neither tests an event; the
+  pad's RB (FUN_1015dce0) is the one an event holds. Ours had every key go to the event while one ran; Space and '/'
+  now open the chat line first, and while it types it takes the keys, so its Enter sends the line and the event's
+  message stays. Retail's per-command event refusals (group 7 0x43 for a prompt, the 0x80 command flag) still apply.
+- Seen live (Lnxcsfix, a signpost's event 115 by !exec, auto-advance off): "hello from a cutscene" sent during the
+  message, which stayed until the next Enter.

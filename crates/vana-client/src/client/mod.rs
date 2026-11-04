@@ -2133,6 +2133,18 @@ fn world_hud(gu: &mut GameUi, world: &mut World, input: &UiInput, size: [u32; 2]
                 _ if world.concierge_ui.is_some() => concierge::key(world, gu, *key),
                 // The event's tabula preview (op 0x71 0x20) takes the keys; its Enter goes on to the event's message.
                 _ if world.maze.screen.is_some() && event::active(world) && world.confirm.is_none() => _ = maze::key(world, *key),
+                // The chat line opens during an event too: FUN_101ab630 (Space) and FUN_101aa930 ('/') test the field
+                // and the idle input, not the event (the pad's RB, FUN_1015dce0, is the one an event holds).
+                egui::Key::Space if event::active(world) => {
+                    world.typing = true;
+                    world.space_open = true;
+                    opened = true;
+                    keys.clear();
+                }
+                egui::Key::Slash if event::active(world) && !modifiers.ctrl && !modifiers.alt && !numpad_slash => {
+                    world.typing = true;
+                    keys.clear();
+                }
                 // An event takes the keys: Enter advances or picks, arrows move, Escape cancels.
                 _ if event::active(world) => event::key(world, *key),
                 _ if gmtell::open(world) => gmtell::key(world, *key),
