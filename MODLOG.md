@@ -22187,6 +22187,8 @@ Checked in Steven's unpacked FFXiMain.dll (sha256 8097dbf8..., 2026-11-03).
     loading is claimed and goes in when its thread ends; any other zone-in drops it.
   - Live (Lnxcsfix, Bastok Markets z6j0 to Bastok Mines): preload started on arrival, loaded in 296 ms; through the line
     10 s later the zone was on the GPU 3 ms after the zone-in (Bastok Markets itself had taken 431 ms on arrival).
+  - Off since the same day (user didn't like it; preload::ENABLED = false, the code kept): nothing preloads; seen live
+    beside Bastok Mines' line back to the Markets.
 - Settings pages hold 7 rows in the 296-px frame: the Client page had run past it since the gamepad rows. Gamepad
   and Stick Dead Zone are on a Gamepad page now, Extras' Misc. is split into Battle and Misc.; test
   `pages_fit_their_frame`. At the title the Client page leaves out its last row, Panel Places again (it had been
