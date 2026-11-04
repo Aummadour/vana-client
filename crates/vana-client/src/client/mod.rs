@@ -14612,7 +14612,9 @@ impl App {
                             r.occl.query(*id, rect, z);
                         }
                     }
+                    let screen = bx.and_then(|b| box_on_screen(cview, cproj, model, &box_corners(b))).map(|(rect, _)| rect);
                     let g = a.gpu.as_mut().unwrap();
+                    g.screen = screen;
                     // FUN_100cbde0: k = model alpha x the near-camera fade, drawn as 1 from 0.8 up, else 1.25 k; then
                     // the first-person fade.
                     let k = (a.alpha / actmotion::OPAQUE).max(0.0) * cam_fade;

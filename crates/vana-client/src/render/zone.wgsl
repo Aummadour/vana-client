@@ -455,6 +455,12 @@ fn vs_faded(@builtin(vertex_index) i: u32) -> FadedOut {
     return out;
 }
 
+// Zeroes the offscreen target where a faded actor is about to be drawn (under its scissor rect).
+@fragment
+fn fs_faded_clear(in: FadedOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(0.0);
+}
+
 // FUN_1001d3b0: the offscreen target over the viewport, point sampled, colour MODULATE2X(TEX, 0x80 grey) = the
 // texel, alpha MODULATE2X(fade alpha, TEX alpha); SRCALPHA / INVSRCALPHA, z off. refr.a.z = the fade alpha (1 = 0x80).
 @fragment
