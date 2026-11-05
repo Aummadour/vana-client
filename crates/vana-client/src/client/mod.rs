@@ -1780,8 +1780,8 @@ fn world_volumes(w: &World) -> (f32, f32) {
     (f(10, w.bgm_mute), f(9, w.se_mute))
 }
 
-/// FUN_100973f0, InvisFlag on a PC: our own model at colour 0x27808080, another's at alpha 0, and no plate. Not retail:
-/// a party or alliance member stays at 0x27 with its plate (an improvement, the user's call 2026-10-25).
+/// FUN_100973f0, InvisFlag on a PC: our own model at colour 0x27808080, another's at alpha 0 (wepfx::colour), and no
+/// plate. Not retail: a party or alliance member stays at 0x27 with its plate (an improvement, the user's call 2026-10-25).
 fn invisible_alpha(w: &World, id: u32) -> Option<f32> {
     let translucent = 0x27 as f32 / 128.0;
     if id == w.my_id {
@@ -4852,6 +4852,8 @@ struct Actor {
     /// The target flash state (FUN_100c94a0).
     flash: flash::Flash,
     fade: Option<actmotion::Fade>,
+    /// Entity +0x128 bit 7: FUN_100973f0 set the InvisFlag colour, to be put back once the flag clears.
+    invis_colour: bool,
     /// FUN_100c56e0 with 'spop': the scheduler to run once the model's files are in (model +0x8c4).
     spop: bool,
     /// Actor +0x66c == 0 (no shadow) and +0x670 (no blob), latched from the entity when the model is made.
@@ -4990,6 +4992,7 @@ impl Actor {
             rgb: [actmotion::OPAQUE; 3],
             flash: Default::default(),
             fade: None,
+            invis_colour: false,
             spop: false,
             shadow_off: false,
             noblob: false,
@@ -14073,7 +14076,6 @@ impl App {
             }
             doors::moves(w, &gfx.gpu);
             lifts::moves(w, &gfx.gpu);
-            let invis: HashMap<u32, f32> = w.actors.keys().filter_map(|id| invisible_alpha(w, *id).map(|k| (*id, k))).collect();
             // Looks Lua mods set (render.entity).
             let looks = w.lua.looks();
             // Mog House furniture loaded for this scene goes up.
@@ -14702,9 +14704,6 @@ impl App {
                     let k = (a.alpha / actmotion::OPAQUE).max(0.0) * cam_fade;
                     let k = if k >= 0.8 { 1.0 } else { k * 1.25 } * a.appear;
                     g.alpha = (k * if *id == w.my_id { w.camst.self_alpha } else { 1.0 }).min(1.0);
-                    if let Some(k) = invis.get(id) {
-                        g.alpha = g.alpha.min(*k);
-                    }
                     g.tint = a.rgb.map(|c| c.max(0.0) / actmotion::OPAQUE);
                     if let Some(l) = looks.get(id) {
                         g.alpha = g.alpha.min(l.alpha.unwrap_or(1.0));

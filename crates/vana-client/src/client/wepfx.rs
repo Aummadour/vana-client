@@ -2,6 +2,7 @@
 //! meshes hidden and shown"): FUN_100d60e0 / FUN_100d5f10 per mesh, FUN_100cf100 once the model is up, FUN_100973f0
 //! every frame for PCs, FUN_100c83c0 at a status motion's start, FUN_100cf160 at the sheathe.
 
+use super::actmotion::OPAQUE;
 use super::{World, event, ride};
 use crate::fx::EquipCall;
 
@@ -80,24 +81,48 @@ pub fn start_in(w: &mut World, id: u32) {
 
 /// FUN_100973f0, run every frame from the name getter (FUN_100977f0's gate: a model, a name plate, targetable; the
 /// own model hide +0x120 bits 14 / 15 not modelled): a PC after its `init`, not bound by an event. Shown: `!in?`
-/// and FUN_100cf100; invisible: `!kl?` and every glow off.
+/// and FUN_100cf100; invisible: `!kl?` and every glow off. Then the model colour ([`colour`]).
 pub fn frame(w: &mut World) {
     let mut ids: Vec<u32> = w.entities.iter().filter(|(id, e)| **id >> 24 == 0 && e.init_done && !e.no_plate && !e.untargetable).map(|(id, _)| *id).collect();
     if w.my_init_done {
         ids.push(w.my_id);
     }
     for id in ids {
-        if !w.actors.get(&id).is_some_and(|a| a.character.is_some()) || event::bound(w, id) || w.effects.equip_waiting(id) {
+        if !w.actors.get(&id).is_some_and(|a| a.character.is_some()) || event::bound(w, id) {
             continue;
         }
-        if invisible(w, id) {
-            w.effects.equip(id, EquipCall::Kill);
-            all_off(w, id);
-        } else {
-            start_in(w, id);
-            refresh(w, id);
+        if !w.effects.equip_waiting(id) {
+            if invisible(w, id) {
+                w.effects.equip(id, EquipCall::Kill);
+                all_off(w, id);
+            } else {
+                start_in(w, id);
+                refresh(w, id);
+            }
         }
+        colour(w, id);
     }
+}
+
+/// FUN_100973f0's model colour, only while no task holds the actor (actor +0x84 == 0). InvisFlag: 0x27808080 on our
+/// own model, alpha 0 on another's (not retail: a party member keeps 0x27, the user's call 2026-10-25), and +0x128 bit
+/// 7 set. Without it: that bit clears to 0x80808080, and any colour with alpha left goes back to 0x80808080.
+fn colour(w: &mut World, id: u32) {
+    if w.effects.holds(id) {
+        return;
+    }
+    let inv = invisible(w, id);
+    let faint = id == w.my_id || w.party.members().any(|r| r.id == id);
+    let Some(a) = w.actors.get_mut(&id) else { return };
+    let alpha = if inv {
+        a.invis_colour = true;
+        if faint { 0x27 as f32 } else { 0.0 }
+    } else if std::mem::take(&mut a.invis_colour) || a.alpha >= 1.0 {
+        OPAQUE
+    } else {
+        return;
+    };
+    (a.alpha, a.rgb, a.fade) = (alpha, [OPAQUE; 3], None);
 }
 
 /// FUN_100c83c0, a new status motion on an entity's own actor: mounted (0x55) hides every weapon, a chair (0x3f..0x53)
