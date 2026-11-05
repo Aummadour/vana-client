@@ -4,15 +4,17 @@
 use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
 
-/// The updater's copy of FFXiMain.dll, in the data dir: the client reads tables from it and never writes code files
-/// into the game folder, which retail, Windower and Ashita run from.
-pub fn own_ffximain() -> PathBuf {
-    crate::config::data_dir().join("FFXiMain.dll")
+/// The updater's copy of FFXiMain.dll under a game folder: ours, where retail, Windower and Ashita never load code from.
+pub const OWN_FFXIMAIN: &str = "vana-client/FFXiMain.dll";
+
+/// The copy for the install at `ffxi_dir`, beside its stamped manifest; the client reads tables from it.
+pub fn own_ffximain(ffxi_dir: &Path) -> PathBuf {
+    ffxi_dir.join(OWN_FFXIMAIN)
 }
 
-/// The FFXiMain.dll the client reads: the updater's copy, else the game folder's.
+/// The FFXiMain.dll the client reads: that install's copy, else the game folder's.
 pub fn ffximain(ffxi_dir: &Path) -> PathBuf {
-    let own = own_ffximain();
+    let own = own_ffximain(ffxi_dir);
     if own.is_file() { own } else { ffxi_dir.join("FFXiMain.dll") }
 }
 

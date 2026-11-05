@@ -20503,6 +20503,12 @@ Lessons from other games' mod layers (BG3 Script Extender, WoW, Skyrim, Factorio
   (dat::ffximain); the start-up check compares only that file with the stamped manifest. The other 18 code files of
   the 30261006_0 manifest (polboot.exe, FFXi.dll, FFXiResource.dll, the Config and PadConfig tools, xinputdll.dll,
   ImeUiDll*.dll) are the Viewer's.
+- (2026-11-04, issue #23) One data-dir copy served every game folder: patching install A and pointing the client at B
+  read B's DATs with A's tables. The copy is now per install, `<game folder>/vana-client/FFXiMain.dll`
+  (dat::OWN_FFXIMAIN), beside the folder's vana-update.cfg; nothing loads code from that folder. A folder with no
+  copy reads its own FFXiMain.dll, and the start-up check offers the update when that one is behind. At start
+  (patch::adopt_old_ffximain) an old data-dir copy moves to the current folder when it is the FFXiMain.dll that
+  folder's stamped manifest wants (length, then the signature); otherwise it stays for the folder it belongs to.
 
 ## Gamepad (2026-11-03)
 

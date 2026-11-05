@@ -15742,6 +15742,7 @@ pub fn run(cfg: Config, drive: Drive) -> Result<()> {
     {
         log::warn!("installing the client copy: {e:#}");
     }
+    crate::patch::adopt_old_ffximain(&cfg.ffxi_dir());
     let event_loop = EventLoop::new()?;
     let mut app = App::new(cfg, drive);
     event_loop.run_app(&mut app)?;
