@@ -249,9 +249,14 @@ const DEBUFFS: [(u16, &[u16], &str); 9] = [
 /// Debuff suggestions at most at once.
 const DEBUFFS_AT_ONCE: usize = 2;
 
-/// The elements' names in reasons, and the elemental nuke families' (each element's first spell), by element id.
+/// The elements' names in reasons, and the elemental nuke families' (the element), by element id.
 const ELEMENT_WORDS: [&str; 8] = ["fire", "ice", "wind", "earth", "lightning", "water", "light", "darkness"];
-const NUKE_FAMILIES: [&str; 8] = ["Fire", "Blizzard", "Aero", "Stone", "Thunder", "Water", "Light", "Dark"];
+const NUKE_FAMILIES: [&str; 8] = ["Fire", "Ice", "Wind", "Earth", "Lightning", "Water", "Light", "Dark"];
+
+/// Ancient magic, Flare .. Flood II: last in a family, and suggested only when nothing else of the element is known.
+fn ancient(id: u16) -> bool {
+    (204..=215).contains(&id)
+}
 
 /// Weather ids (LSB's Weather) to the element they strengthen: hot spell / heat wave fire, rain / squall water, dust /
 /// sand storm earth, wind / gales wind, snow / blizzards ice, thunder / thunderstorms lightning, auroras / stellar glare
@@ -291,14 +296,14 @@ fn family(s: &SpellFact) -> String {
     AREA.iter().find(|a| a.0 == n).map_or(n, |a| a.1).to_string()
 }
 
-/// Each spell suggestion's family castable now, single-target first and the strongest (MP) first, and the family's
-/// name when it has more than the one spell.
+/// Each spell suggestion's family castable now: single-target, then area, then ancient magic, each strongest (MP)
+/// first; and the family's name when it has more than the one spell.
 fn add_groups(f: &Facts, out: &mut [Suggestion]) {
     for s in out.iter_mut() {
         let Action::Spell(id) = s.action else { continue };
         let Some(fam) = f.spell(id).map(family).filter(|n| !n.is_empty()) else { continue };
         let mut group: Vec<&SpellFact> = f.spells.iter().filter(|x| family(x) == fam).collect();
-        group.sort_by_key(|x| (x.area, std::cmp::Reverse(x.mp), x.id));
+        group.sort_by_key(|x| (ancient(x.id), x.area, std::cmp::Reverse(x.mp), x.id));
         if group.len() > 1 {
             s.group = group.iter().map(|x| x.id).collect();
             s.label = Some(fam);
@@ -409,8 +414,9 @@ pub fn suggest(f: &Facts) -> Vec<Suggestion> {
         match r.chain {
             Some(c) if r.left > 1.0 => {
                 let els = sc::elements(c);
-                // One target over an area (Holy before Banishga II), then the strongest.
-                let best = f.spells.iter().filter(|s| nuke(s) && sc::Element::of_spell(s.element as u8).is_some_and(|e| els.contains(&e))).max_by_key(|s| (!s.area, s.mp));
+                // Not ancient magic while anything else bursts it, one target over an area (Holy before Banishga
+                // II), then the strongest: the top of its family's list.
+                let best = f.spells.iter().filter(|s| nuke(s) && sc::Element::of_spell(s.element as u8).is_some_and(|e| els.contains(&e))).max_by_key(|s| (!ancient(s.id), !s.area, s.mp));
                 if let Some(s) = best {
                     push(&mut out, Suggestion::new(Action::Spell(s.id), None, format!("Burst {}: {:.0} s left.", super::skillchain::chain_text(c), r.left)));
                 }
@@ -483,14 +489,14 @@ pub fn suggest(f: &Facts) -> Vec<Suggestion> {
         }
     }
     // A nuke of the element the target resists least (LSB's ranks), then the one today's weather or day strengthens,
-    // then the strongest; a single-target spell before an area one.
+    // then the strongest; a single-target spell before an area one, ancient magic last (its family's order).
     if let Some(t) = &f.target {
-        let mut best: Option<((i32, u8, bool, u16), &SpellFact)> = None;
+        let mut best: Option<((i32, u8, bool, bool, u16), &SpellFact)> = None;
         for s in f.spells.iter().filter(|s| s.skill == 36 && nuke(s) && s.element < 8) {
             let e = s.element;
             let rank = t.ranks.map_or(0, |r| r[e as usize]) as i32;
             let boost = 2 * (f.weather_element == Some(e)) as u8 + (f.day_element == Some(e)) as u8;
-            let key = (-rank, boost, !s.area, s.mp);
+            let key = (-rank, boost, !ancient(s.id), !s.area, s.mp);
             if best.is_none_or(|b| key > b.0) {
                 best = Some((key, s));
             }
@@ -830,6 +836,25 @@ mod tests {
         let s = suggest(&g);
         let n = s.iter().find(|x| x.label.as_deref() == Some("Fire")).expect("a fire family");
         assert_eq!((n.action, n.group.as_slice()), (Action::Spell(145), &[145, 144, 174][..]));
+    }
+
+    /// A nuke family is named for its element and lists single-target, then area, then ancient magic, strongest first;
+    /// ancient magic is not the suggestion while a cheaper spell of the element is known.
+    #[test]
+    fn nuke_family_order() {
+        let f = Facts {
+            party: vec![me(1000, 1000)],
+            spells: vec![named(206, "Freeze", 36, 1, 315, false), named(150, "Blizzard II", 36, 1, 31, false), named(149, "Blizzard", 36, 1, 8, false), named(180, "Blizzaga II", 36, 1, 175, true), named(179, "Blizzaga", 36, 1, 80, true)],
+            target: Some(TargetFact { name: "Bark Spider".into(), hpp: 90, ranks: Some([0, -2, 0, 0, 0, 0, 0, 0]), ..Default::default() }),
+            ..Default::default()
+        };
+        let s = suggest(&f);
+        let n = s.iter().find(|x| x.label.as_deref() == Some("Ice")).expect("an ice family");
+        assert_eq!(n.reason, "The Bark Spider is weak to ice.");
+        assert_eq!((n.action, n.group.as_slice()), (Action::Spell(150), &[150, 149, 180, 179, 206][..]));
+        // Only ancient magic known: it is the suggestion.
+        let g = Facts { spells: vec![named(206, "Freeze", 36, 1, 315, false)], ..f.clone() };
+        assert_eq!(suggest(&g).iter().find(|x| x.reason.contains("ice")).map(|x| x.action), Some(Action::Spell(206)));
     }
 
     /// Protect's family takes Protectra; the weather breaks a tie between elements.

@@ -18309,6 +18309,11 @@ From the research notes:
   suggestions for black magic") A white-magic main (WHM, PLD) is offered no black magic (spell record +2 kind 2)
   from its support job, a black-magic main (BLM, DRK) no white (kind 1); every other main keeps both (RDM, SCH, and
   WAR / GEO / BLU with WHM keep their Cure). So the BLM 75 / WHM 37 above now gets Bio and Water, not Dia or Protect.
+- (2026-11-04, user) A nuke family's row reads the element (Fire, Ice, Wind, Earth, Lightning, Water, Light, Dark),
+  not its first spell. Its list is single-target, then area, then ancient magic (spells 204..215, Flare .. Flood II),
+  each strongest first: Blizzard II, Blizzard, Blizzaga II, Blizzaga, Freeze. The suggested spell (the nuke rule's and
+  a burst's) is the top of that list, so ancient magic only when nothing else of the element is castable; test
+  nuke_family_order.
 
 ## Extras: Clock and Trust Speech (ours, 2026-10-29)
 
