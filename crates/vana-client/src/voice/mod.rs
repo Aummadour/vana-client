@@ -199,9 +199,9 @@ impl Shared {
                     }
                 }
             }
-            // From a peer on this channel, not muted; deafened, it still shows as talking.
+            // From a peer (at its hellos' address) on this channel, not muted; deafened, it still shows as talking.
             Some(Packet::Audio { session, seq, pcm }) => {
-                let Some((name, channel)) = self.peers.lock().unwrap().get(&session).filter(|p| *p.addr.ip() == *from.ip()).map(|p| (p.name.to_lowercase(), p.channel.clone())) else { return };
+                let Some((name, channel)) = self.peers.lock().unwrap().get(&session).filter(|p| p.addr == from).map(|p| (p.name.to_lowercase(), p.channel.clone())) else { return };
                 let deaf = {
                     let c = self.cfg.lock().unwrap();
                     if !c.channel.eq_ignore_ascii_case(&channel) || c.muted.contains(&name) {
@@ -216,10 +216,16 @@ impl Shared {
                     self.play.lock().unwrap().push(session, seq, pcm);
                 }
             }
+            // Only from the address the peer's hellos come from (a session id is in every beacon).
             Some(Packet::Bye { session }) => {
-                if let Some(p) = self.peers.lock().unwrap().remove(&session) {
+                let mut peers = self.peers.lock().unwrap();
+                if peers.get(&session).is_none_or(|p| p.addr != from) {
+                    return;
+                }
+                if let Some(p) = peers.remove(&session) {
                     log::info!("voice: {} left", p.name);
                 }
+                drop(peers);
                 self.play.lock().unwrap().forget(session);
             }
             _ => {}
@@ -593,6 +599,28 @@ mod tests {
         a.apply(&Settings { input: "other".into(), ..cfg.clone() });
         a.tick();
         assert!(a.mic().is_ok_and(|m| m.is_some()) && a.opened_with == "other");
+    }
+
+    /// A Bye or a frame counts only from the address the peer's hellos come from, port included.
+    #[test]
+    fn bye_and_audio_from_the_peer_only() {
+        let port = 58000 + (std::process::id() % 500) as u16 * 2;
+        let e = Engine::start_on(&Settings { enabled: true, ..Default::default() }, "Alpha", None, port, Stand { mic: None, rec: None }).unwrap();
+        let s = &e.shared;
+        let (peer, other): (SocketAddrV4, SocketAddrV4) = ("127.0.0.1:40000".parse().unwrap(), "127.0.0.1:40001".parse().unwrap());
+        let channel = s.cfg.lock().unwrap().channel.clone();
+        s.handle(&wire::encode(&Packet::Hello { session: 7, name: "Beta".into(), channel }), peer);
+        let listed = || s.peers.lock().unwrap().contains_key(&7);
+        let heard = || s.peers.lock().unwrap().get(&7).is_some_and(|p| p.heard.is_some());
+        let frame = || wire::encode(&Packet::Audio { session: 7, seq: 0, pcm: vec![1000; FRAME] });
+        assert!(listed());
+        s.handle(&frame(), other);
+        s.handle(&wire::encode(&Packet::Bye { session: 7 }), other);
+        assert!(listed() && !heard());
+        s.handle(&frame(), peer);
+        assert!(heard());
+        s.handle(&wire::encode(&Packet::Bye { session: 7 }), peer);
+        assert!(!listed());
     }
 
     #[test]
