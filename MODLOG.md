@@ -18314,6 +18314,12 @@ From the research notes:
   each strongest first: Blizzard II, Blizzard, Blizzaga II, Blizzaga, Freeze. The suggested spell (the nuke rule's and
   a burst's) is the top of that list, so ancient magic only when nothing else of the element is castable; test
   nuke_family_order.
+- (2026-11-04, user: a cast II / -aga / -aga II "won't come back on the list until I cast something else") The rows
+  were held whole while the cursor was on one, and while engaged nothing let go of them: Escape keeps the battle menu
+  up and closing a family list keeps the cursor on its row; only a cast (pick_root closes the menu) or the cursor on
+  the commands for half a second retook them. A list taken while a tier recast lacked it from then on. Held rows now
+  keep their places but their families are retaken every half second (regroup), the open list's cursor kept on its
+  spell, and a nuke family's suggestion goes back to its list's top; test held_rows_regroup.
 
 ## Extras: Clock and Trust Speech (ours, 2026-10-29)
 
