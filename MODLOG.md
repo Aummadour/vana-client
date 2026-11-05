@@ -22250,3 +22250,21 @@ Checked in Steven's unpacked FFXiMain.dll (sha256 8097dbf8..., 2026-11-03).
   its plate stays (the user's call, 2026-10-25).
 - Seen live: Lnxcsfix as WHM 75 cast Invisible on herself: translucent, no plate; `!deleffect invisible`: opaque,
   plate back.
+
+## Drawn weapons: the carry follows the draw motion until it ends (2026-11-04, inferred)
+
+- User report (2026-11-03 / 04): the staff draw and sheathe "completely broken". Live (Lnxcsfix, Mithra, Holly Staff
+  model 290): from the draw's first frame the staff hung beside her, pinned to the grip, for about 0.9 s while she
+  reached over her shoulder, then her hands met it.
+- The motions: Mithra staff `ini1` keys the carry (bone 87) and the grip (78, under the hand 73); until its catch
+  (frames 14..16 of 18) the grip holds still in front while the carry goes from the back over the head, then both
+  stay together. Single dagger `ina1` (file 25784): the hand reaches the hip sheath and the carry meets the grip at
+  frame 5. Dual wield `i0c` (47218): the main carry meets its grip about frame 6, the sub stays at the hip for `i1c`.
+  So every draw motion brings the carry to the grip itself by its catch.
+- Retail by our reading pins at the draw's start (state 2, vtable +0x31c(1, 0); "Drawn weapons ride the grips"), which
+  would float the staff as we did; something not found must hold the pin. Ours *(inf)*: actmotion::draw_pins takes,
+  per drawn carry bone, the tick the draw play's motions that key it end; the carry rides its grip (pose_held and
+  the compute pass's words 29 / 30) only from then. A carry no motion keys is pinned at once, as before.
+- The sheathe is unchanged: "out N" unpins at its start, and the motion takes the staff from the hands over the head
+  to the back (live, same staff). Seen live after the change: the staff comes off her back over her head into her
+  hands.

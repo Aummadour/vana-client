@@ -4827,6 +4827,8 @@ struct Actor {
     wep_hide: [[bool; 2]; 16],
     /// Model +0x83c (vtable +0x320): the weapon drawn, from the draw ("in N") to the sheathe.
     drawn: bool,
+    /// The draw scheduler's name and, per carry bone, the tick its motions end (actmotion::draw_pins).
+    draw_pins: Option<(String, Vec<(u16, f32)>)>,
     /// Actor +0x7d8: the status motion last started (FUN_100c83c0's weapon block runs on a new one).
     status_motion: String,
     /// The motion names start over from the model and the entity's bases next frame (a new model, `fresh`, or a
@@ -4978,6 +4980,7 @@ impl Actor {
             skill_want: Vec::new(),
             wep_hide: [[false; 2]; 16],
             drawn: false,
+            draw_pins: None,
             status_motion: String::new(),
             rebase: false,
             fresh: false,
@@ -14547,8 +14550,11 @@ impl App {
                     }
                     // CPU bones only where they are read: the locked camera (player bone 13, target bone 5), first
                     // person, and the attach points of actors with live effects.
-                    // FUN_10029320: a drawn weapon's carry bone rides its grip.
-                    let held: Vec<(u16, u16)> = if a.drawn { ch.grips.iter().flatten().copied().collect() } else { Vec::new() };
+                    // FUN_10029320: a drawn weapon's carry bone rides its grip; during the draw, once the motions that
+                    // carry it have ended (actmotion::draw_pins).
+                    let pins = a.draw_pins.as_ref().zip(a.play.as_ref()).filter(|((n, _), p)| *n == p.name).map(|((_, v), p)| (v, p.ticks));
+                    let riding = |c: u16| pins.is_none_or(|(v, t)| v.iter().all(|&(pc, end)| pc != c || t >= end));
+                    let held: Vec<(u16, u16)> = if a.drawn { ch.grips.iter().flatten().copied().filter(|&(c, _)| riding(c)).collect() } else { Vec::new() };
                     let pose_now = || if from.is_empty() { crate::dat::character::pose_held(&ch.skeleton, &anims, &held) } else { crate::render::character::pose_blend(&ch, &from, &anims, t, &held) };
                     let posed_anchor = a.anchors[..2].iter().any(|&k| k != 2);
                     if (w.locked && (*id == w.my_id || w.target == Some(*id))) || (w.camst.first && *id == w.my_id) || fx_posed.contains(id) || posed_anchor {
