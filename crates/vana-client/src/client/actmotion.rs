@@ -416,6 +416,25 @@ pub(super) fn fx_too_on(fx: &mut crate::fx::Effects, id: u32, target: u32, name:
 
 /// Starts scheduler  from the actor's files (model vtable +0x298); a bare motion of that name
 /// plays once when there is no scheduler. Returns false when the actor has neither.
+/// The draw's play: per drawn weapon's carry bone, the tick the play's motions that key it end; until then it follows
+/// them, then rides its grip. *(inf: retail pins at the draw's start (state 2), but every draw motion brings the carry
+/// to the grip itself by its catch, the staff's over the head, and pinned early the staff floats beside the player.)*
+/// A carry no motion keys is pinned at once.
+fn draw_pins(a: &Actor, ch: &Character) -> Option<Vec<(u16, f32)>> {
+    let p = a.play.as_ref()?;
+    let end = |c: u16| {
+        let ends = p.motions.iter().filter_map(|m| {
+            let anims = find(&a.extra, ch, &m.name);
+            anims.iter().any(|x| x.tracks.iter().any(|t| t.bone == c as usize)).then(|| {
+                let len = if m.ticks > 0 { m.ticks as f32 } else { anims.iter().map(|x| x.frames as f32 / (x.speed * m.speed * 0.5).max(1e-3)).fold(0.0, f32::max) };
+                m.at as f32 + len * m.count.max(1) as f32
+            })
+        });
+        ends.fold(0.0, f32::max)
+    };
+    Some(ch.grips.iter().flatten().map(|&(c, _)| (c, end(c))).collect())
+}
+
 pub(super) fn start(a: &mut Actor, ch: &Character, name: &str, base: &str) -> bool {
     let play = match scheduler(&a.extra, ch, name) {
         Some(d) => {
@@ -632,6 +651,8 @@ pub(super) fn update(w: &mut World, dt: f32) {
                     a.status_motion.clear();
                     let name = crate::dat::motionfile::draw_scheduler(pc, false);
                     if start(a, &ch, &name, &base) {
+                        a.draw_pins = draw_pins(a, &ch).map(|p| (name.clone(), p));
+                        log::info!("actor {id:#x}: draw {name:?}, carry bones pinned at ticks {:?}", a.draw_pins.as_ref().map(|d| &d.1));
                         fx_too(&mut w.effects, id, &name);
                     }
                 }
