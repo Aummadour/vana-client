@@ -301,13 +301,35 @@ fn family(s: &SpellFact) -> String {
 fn add_groups(f: &Facts, out: &mut [Suggestion]) {
     for s in out.iter_mut() {
         let Action::Spell(id) = s.action else { continue };
-        let Some(fam) = f.spell(id).map(family).filter(|n| !n.is_empty()) else { continue };
-        let mut group: Vec<&SpellFact> = f.spells.iter().filter(|x| family(x) == fam).collect();
-        group.sort_by_key(|x| (ancient(x.id), x.area, std::cmp::Reverse(x.mp), x.id));
-        if group.len() > 1 {
-            s.group = group.iter().map(|x| x.id).collect();
-            s.label = Some(fam);
+        if let Some(fam) = f.spell(id).map(family).filter(|n| !n.is_empty()) {
+            set_group(f, s, fam);
         }
+    }
+}
+
+/// Held rows (the cursor on one): each family retaken from what is castable now, so a spell back from its recast
+/// returns to the list. The family is the row's name, else its spell's when that is castable now.
+fn regroup(f: &Facts, out: &mut [Suggestion]) {
+    for s in out.iter_mut() {
+        let Action::Spell(id) = s.action else { continue };
+        if let Some(fam) = s.label.clone().or_else(|| f.spell(id).map(family)).filter(|n| !n.is_empty()) {
+            set_group(f, s, fam);
+        }
+    }
+}
+
+/// A nuke family's suggestion is always its list's top (a tier back from its recast takes it again).
+fn set_group(f: &Facts, s: &mut Suggestion, fam: String) {
+    let mut group: Vec<&SpellFact> = f.spells.iter().filter(|x| family(x) == fam).collect();
+    group.sort_by_key(|x| (ancient(x.id), x.area, std::cmp::Reverse(x.mp), x.id));
+    if group.len() > 1 {
+        if NUKE_FAMILIES.contains(&fam.as_str()) {
+            s.action = Action::Spell(group[0].id);
+        }
+        s.group = group.iter().map(|x| x.id).collect();
+        s.label = Some(fam);
+    } else {
+        (s.group, s.label) = (Vec::new(), None);
     }
 }
 
@@ -562,8 +584,9 @@ pub fn suggest(f: &Facts) -> Vec<Suggestion> {
     out
 }
 
-/// The battle menu's suggestions (the modern UI's): retaken every half second while its cursor is on the commands, held
-/// while it is on one of them; none without the menu.
+/// The battle menu's suggestions (the modern UI's): retaken every half second while its cursor is on the commands;
+/// while it is on one of them the rows hold still and only their families are retaken (the submenu's cursor kept on
+/// its spell); none without the menu.
 pub fn refresh_root(w: &mut World) {
     if !w.modern || w.action_menu.is_none() || w.prompt.is_some() {
         (w.root_sugg, w.root_sugg_at, w.suggest_sel, w.suggest_sub) = (Vec::new(), None, None, None);
@@ -572,10 +595,20 @@ pub fn refresh_root(w: &mut World) {
     if w.suggest_sel.is_none() {
         w.suggest_sub = None;
     }
-    if w.suggest_sel.is_some() && !w.root_sugg.is_empty() {
+    let due = w.root_sugg_at.is_none_or(|t| t.elapsed().as_secs_f32() >= 0.5);
+    if let Some(k) = w.suggest_sel.filter(|_| !w.root_sugg.is_empty()) {
+        if due {
+            let on = w.suggest_sub.and_then(|c| w.root_sugg.get(k)?.group.get(c).copied());
+            let f = facts(w);
+            regroup(&f, &mut w.root_sugg);
+            w.root_sugg_at = Some(std::time::Instant::now());
+            if let Some(s) = w.root_sugg.get(k).filter(|_| w.suggest_sub.is_some()) {
+                w.suggest_sub = (s.group.len() > 1).then(|| on.and_then(|id| s.group.iter().position(|&g| g == id)).unwrap_or_else(|| family_start(s)));
+            }
+        }
         return;
     }
-    if w.root_sugg_at.is_none_or(|t| t.elapsed().as_secs_f32() >= 0.5) {
+    if due {
         w.root_sugg = suggest(&facts(w));
         w.root_sugg_at = Some(std::time::Instant::now());
         w.suggest_sel = None;
@@ -855,6 +888,21 @@ mod tests {
         // Only ancient magic known: it is the suggestion.
         let g = Facts { spells: vec![named(206, "Freeze", 36, 1, 315, false)], ..f.clone() };
         assert_eq!(suggest(&g).iter().find(|x| x.reason.contains("ice")).map(|x| x.action), Some(Action::Spell(206)));
+    }
+
+    /// Rows held under the cursor: a tier back from its recast returns to its family's list, and the nuke suggestion
+    /// moves back to the list's top.
+    #[test]
+    fn held_rows_regroup() {
+        let all = vec![named(150, "Blizzard II", 36, 1, 31, false), named(149, "Blizzard", 36, 1, 8, false), named(180, "Blizzaga II", 36, 1, 175, true), named(179, "Blizzaga", 36, 1, 80, true)];
+        let target = Some(TargetFact { name: "Bark Spider".into(), hpp: 90, ranks: Some([0, -2, 0, 0, 0, 0, 0, 0]), ..Default::default() });
+        // Built while Blizzard II and Blizzaga II recast.
+        let f = Facts { party: vec![me(1000, 1000)], spells: vec![all[1].clone(), all[3].clone()], target, ..Default::default() };
+        let mut s = suggest(&f);
+        let k = s.iter().position(|x| x.label.as_deref() == Some("Ice")).expect("an ice family");
+        assert_eq!((s[k].action, s[k].group.as_slice()), (Action::Spell(149), &[149, 179][..]));
+        regroup(&Facts { spells: all, ..f }, &mut s);
+        assert_eq!((s[k].action, s[k].group.as_slice()), (Action::Spell(150), &[150, 149, 180, 179][..]));
     }
 
     /// Protect's family takes Protectra; the weather breaks a tie between elements.
