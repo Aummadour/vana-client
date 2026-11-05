@@ -1940,6 +1940,13 @@ impl Effects {
         self.pending.push(Pending { file: Some(file), actor: None, name, a1: Who::Actor(actor), a2: Who::Actor(actor), action: None, speed: 1.0, end_cast: None, age: 0.0, skill: None, skill_caster: None, wait_motion: None, num: None, quiet: false, own: false, seq: Some(skip), event: false });
     }
 
+    /// A running task holds its actor1 and actor2 (FUN_10057d60 / FUN_10062830: actor vtable +0x168, the count at
+    /// +0x84; a doll holds its source too, FUN_100abfe0) until it ends.
+    pub fn holds(&self, actor: u32) -> bool {
+        let who = Who::Actor(actor);
+        self.tasks.iter().flatten().any(|t| !t.done && (self.doll_of(t.a1) == who || self.doll_of(t.a2) == who))
+    }
+
     /// A path drive (ops 0x26 / 0x27) holds the actor (its +0x88 bit 0, FUN_10081fb0 / FUN_10081fd0).
     pub fn driving(&self, actor: u32) -> bool {
         self.drives.iter().any(|d| d.actor == actor)

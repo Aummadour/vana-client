@@ -22220,3 +22220,22 @@ Checked in Steven's unpacked FFXiMain.dll (sha256 8097dbf8..., 2026-11-03).
   newer running build replaces it (updater::newer order; a copy with no recorded version predates them and is older).
   The copy itself running records its version (it may have been updated in place). A symbolic link there is left
   alone. Seen with a 1.0.4-marked copy under a scratch XDG_DATA_HOME: replaced by the 1.0.5 build, version written.
+
+## InvisFlag's model colour and the actor hold count (2026-11-04)
+
+- FUN_100973f0's colour part runs only while the actor's +0x84 is 0. InvisFlag (+0x128 bit 6): our own model to
+  0x27808080, another PC's to 0x00808080, and +0x128 bit 7 set. Without it: bit 7 set -> cleared and 0x80808080; then
+  any colour whose alpha byte is not 0 -> 0x80808080 (actor vtable +0x2c reads it, +0x30 sets it).
+- Actor +0x84 counts holds *(the name inferred)*: FUN_10057d60, a scheduler task's setup, holds its actor1 and actor2
+  through actor vtable +0x168 (FUN_10083390, +1); FUN_10062830 / FUN_10062880 move the hold when a task's actor1 / 2
+  changes; +0x16c (FUN_100833a0, -1) releases. CXiDollActor (vtable 0x1032f938) passes both to its source actor
+  (FUN_100abfe0 / FUN_100ac010) and deletes itself once +0x68, +0x6c and +0x84 are all 0. So a PC's colour is left
+  alone while any task runs on it, and put back by FUN_100973f0 once none does.
+- The Invisible spell (file 3298, scheduler tgt0) drives its target's colour to 0x27808080 over 36 ticks (op 0x2a).
+  Ours took InvisFlag into account at the draw only (a cap at 0x27 / 0), so that colour stayed after the flag
+  cleared: Nine stayed translucent after Invisible wore off (user, 2026-11-04). wepfx::colour now makes FUN_100973f0's
+  writes (fx Effects::holds for +0x84: a running task with the actor, or a doll of it, as actor1 or actor2) and the
+  draw has no separate cap; the drawn alpha goes through FUN_100cbde0 (0x27 -> 0.38). The party member at 0x27 with
+  its plate stays (the user's call, 2026-10-25).
+- Seen live: Lnxcsfix as WHM 75 cast Invisible on herself: translucent, no plate; `!deleffect invisible`: opaque,
+  plate back.
